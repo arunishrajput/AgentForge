@@ -116,7 +116,7 @@ Carried risks, recorded so they are not rediscovered:
 
 ## Manual Actions Pending
 
-**All six block Phase 0 Part C and therefore Phase 1.** Exact copy-pasteable blocks are in
+**Five of the six block Phase 0 Part C and therefore Phase 1** — M5 turned out to be automatable. Exact copy-pasteable blocks are in
 `DEPLOYMENT.md` → *One-time setup*. Two carry Phase 0 changes — read them there, not from memory.
 
 | # | Action | Verify with |
@@ -125,7 +125,7 @@ Carried risks, recorded so they are not rediscovered:
 | M2 | Link a billing account to the project (activate the $300 / 90-day trial) | `gcloud beta billing projects describe <PROJECT_ID>` |
 | M3 | Create the Neon project — **region `aws-ap-southeast-1` (Singapore)**, not the default. Copy **both** connection strings | A real query printing the server version |
 | M4 | Create the Google OAuth client, **localhost redirect only** | A real local sign-in writing a user row |
-| M5 | Obtain a Gemini API key | One minimal model call |
+| M5 | ~~Obtain a Gemini API key~~ **— no longer manual.** `gcloud services api-keys create` is verified present; Claude Code does this itself once M1 lands | One minimal model call |
 | M6 | Create the Discord webhook for `#agentforge-demo` | One test post |
 
 Later, not yet due:

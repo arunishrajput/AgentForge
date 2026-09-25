@@ -286,6 +286,19 @@ Reason:
 Gemini is the only wired LLM provider. Without a key, Phases 6 and 7 — including the headline
 NL→workflow feature — cannot be built or demonstrated.
 
+**Phase 0 finding: this no longer needs a browser.** `gcloud services api-keys create` exists and
+is verified present in gcloud 580.0.0, so once M1 is done Claude Code can create the key itself:
+
+```bash
+gcloud services enable generativelanguage.googleapis.com
+gcloud services api-keys create --display-name="AgentForge Gemini" \
+  --api-target=service=generativelanguage.googleapis.com
+gcloud services api-keys get-key-string <KEY_ID>   # from the create output
+```
+
+Prefer that path. The console route below is the fallback if the API-key command is refused on the
+project.
+
 Location:
 https://aistudio.google.com/apikey  →  Create API key.
 
