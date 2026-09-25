@@ -1,5 +1,5 @@
 /**
- * End-to-end verification of the Phase 3 API against a running instance.
+ * End-to-end verification of the API and the canvas against a running instance.
  *
  *   node --env-file=.env scripts/verify-api.mjs http://localhost:3000
  *   node --env-file=.env scripts/verify-api.mjs https://<the deployed url>
@@ -27,6 +27,15 @@ function check(label, condition, detail) {
   const passed = Boolean(condition);
   if (!passed) failures += 1;
   console.log(`${passed ? "PASS" : "FAIL"}  ${label}${passed || detail === undefined ? "" : `\n        ${detail}`}`);
+}
+
+/** For the rendered pages, where the assertion is about status and markup. */
+async function page(path, cookie) {
+  const response = await fetch(`${base}${path}`, {
+    redirect: "manual",
+    headers: cookie ? { cookie: `${cookieName}=${cookie}` } : {},
+  });
+  return { status: response.status, html: await response.text() };
 }
 
 async function api(method, path, body, cookie) {
@@ -308,6 +317,141 @@ try {
   const poachedRun = await api("POST", `/api/workflows/${workflowId}/runs`, {}, strangerToken);
   check("another user cannot run this workflow", poachedRun.status === 404);
   await sql.query('delete from "user" where id = $1', [other2.id]);
+
+  // --- phase 4: the canvas --------------------------------------------------
+  // The canvas is a browser surface, so these check the things it depends on
+  // that a headless run can actually prove: that the registry projection carries
+  // everything a palette and a config form are built from, that the pages are
+  // reachable and owner-scoped, and that a canvas-shaped graph survives a save.
+  const palette = nodes.json?.data ?? [];
+  check(
+    "every registry entry carries what the palette and config form need",
+    palette.length > 0 &&
+      palette.every(
+        (node) =>
+          typeof node.label === "string" &&
+          typeof node.description === "string" &&
+          typeof node.kind === "string" &&
+          typeof node.category === "string" &&
+          Array.isArray(node.outputs) &&
+          node.outputs.length > 0 &&
+          node.configSchema?.type === "object",
+      ),
+    JSON.stringify(palette.map((node) => node.type)),
+  );
+  check(
+    "output keys are the handle ids the canvas draws and the engine follows",
+    isDeepStrictEqual(
+      palette.find((node) => node.type === "core.branch")?.outputs.map((o) => o.key),
+      ["true", "false"],
+    ) &&
+      isDeepStrictEqual(
+        palette.find((node) => node.type === "core.loop")?.outputs.map((o) => o.key),
+        ["loop", "done"],
+      ) &&
+      palette.find((node) => node.type === "core.set")?.outputs[0]?.key === null,
+  );
+  check(
+    "the registry projection is plain JSON, as a server component must hand it over",
+    JSON.parse(JSON.stringify(palette)) && palette.every((node) => node.configSchema !== null),
+  );
+
+  const listPage = await page("/workflows", token);
+  check("the workflow list renders for its owner", listPage.status === 200,
+    `got ${listPage.status}`);
+  const anonymousList = await page("/workflows");
+  check("the workflow list redirects when signed out", anonymousList.status === 307,
+    `got ${anonymousList.status}`);
+
+  const canvasPage = await page(`/workflows/${workflowId}`, token);
+  check("the canvas renders for its owner", canvasPage.status === 200,
+    `got ${canvasPage.status}`);
+  check(
+    "the canvas is server-rendered with the graph already in it",
+    canvasPage.html.includes("manual_trigger") && canvasPage.html.includes("core.branch"),
+  );
+  const anonymousCanvas = await page(`/workflows/${workflowId}`);
+  check("the canvas redirects when signed out", anonymousCanvas.status === 307,
+    `got ${anonymousCanvas.status}`);
+
+  // What the canvas actually writes: readable ids, a fractional position from a
+  // drag, a named handle and a default one.
+  const canvasGraph = {
+    version: 1,
+    nodes: [
+      { id: "manual_trigger", type: "core.manual_trigger", position: { x: 140, y: 423 }, config: {} },
+      {
+        id: "set",
+        type: "core.set",
+        label: "Build the payload",
+        position: { x: 420, y: 423 },
+        config: { fields: { topic: "{{input.subject}}" }, merge: false },
+      },
+      {
+        id: "branch",
+        type: "core.branch",
+        position: { x: 700, y: 423 },
+        config: { left: "{{input.topic}}", operator: "is_not_empty" },
+      },
+      {
+        id: "log",
+        type: "core.log",
+        position: { x: 833.7, y: 598.56 },
+        config: { message: "Branch matched: {{input.matched}}", level: "info" },
+      },
+    ],
+    edges: [
+      { id: "e1", source: "manual_trigger", target: "set", sourceHandle: null },
+      { id: "e2", source: "set", target: "branch", sourceHandle: null },
+      { id: "e3", source: "branch", target: "log", sourceHandle: "true" },
+    ],
+  };
+
+  const savedCanvas = await api("PATCH", `/api/workflows/${workflowId}`, { graph: canvasGraph }, token);
+  check(
+    "a canvas-shaped graph saves and reads back identically",
+    savedCanvas.status === 200 && isDeepStrictEqual(savedCanvas.json?.data?.graph, canvasGraph),
+    JSON.stringify(savedCanvas.json?.data?.graph).slice(0, 300),
+  );
+  check("the canvas graph is runnable", savedCanvas.json?.data?.runnable === true,
+    JSON.stringify(savedCanvas.json?.data?.problems));
+
+  const canvasRun = await api(
+    "POST",
+    `/api/workflows/${workflowId}/runs`,
+    { input: { subject: "launch day" } },
+    token,
+  );
+  const canvasSteps = canvasRun.json?.data?.steps ?? [];
+  const byNode = (id) => canvasSteps.find((step) => step.nodeId === id);
+  check(
+    "the canvas graph runs, threading templates the whole way",
+    canvasRun.json?.data?.status === "succeeded" &&
+      byNode("set")?.output?.topic === "launch day" &&
+      byNode("branch")?.branch === "true" &&
+      byNode("log")?.status === "succeeded",
+    JSON.stringify(canvasRun.json?.data).slice(0, 300),
+  );
+  check(
+    "the log line the canvas shows is the resolved one",
+    byNode("log")?.logs?.[0]?.message === "Branch matched: true",
+    JSON.stringify(byNode("log")?.logs),
+  );
+
+  // Deleting the trigger is what a half-built canvas looks like: it must save.
+  const halfBuilt = {
+    ...canvasGraph,
+    nodes: canvasGraph.nodes.filter((node) => node.id !== "manual_trigger"),
+    edges: canvasGraph.edges.filter((edge) => edge.source !== "manual_trigger"),
+  };
+  const savedHalfBuilt = await api("PATCH", `/api/workflows/${workflowId}`, { graph: halfBuilt }, token);
+  check(
+    "a half-built canvas still saves, and says why it cannot run",
+    savedHalfBuilt.status === 200 &&
+      savedHalfBuilt.json?.data?.runnable === false &&
+      savedHalfBuilt.json?.data?.problems?.[0]?.code === "no_trigger",
+    JSON.stringify(savedHalfBuilt.json?.data?.problems),
+  );
 
   // --- delete ---------------------------------------------------------------
   const deleted = await api("DELETE", `/api/workflows/${workflowId}`, undefined, token);

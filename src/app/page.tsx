@@ -6,7 +6,7 @@ import { auth, signIn } from "@/auth";
 export default async function Home() {
   const session = await auth();
 
-  if (session?.user) redirect("/dashboard");
+  if (session?.user) redirect("/workflows");
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-xl flex-col justify-center gap-8 px-6">
@@ -22,7 +22,7 @@ export default async function Home() {
       <form
         action={async () => {
           "use server";
-          await signIn("google", { redirectTo: "/dashboard" });
+          await signIn("google", { redirectTo: "/workflows" });
         }}
       >
         <button

@@ -71,9 +71,16 @@ export function describeNode(definition: RegisteredNode): NodeSummary {
     description: definition.description,
     kind: definition.kind,
     category: definition.category,
-    outputs: definition.outputs,
+    outputs: definition.outputs.map((output) => ({ key: output.key, label: output.label })),
     agentCallable: definition.agentCallable ?? false,
-    configSchema: z.toJSONSchema(definition.configSchema, { io: "input" }),
+    // Forced through JSON so the result is plain data by construction, not by
+    // luck of what `toJSONSchema` happens to build. This shape crosses to the
+    // client, and Phase 4 renders the canvas in a server component: React refuses
+    // to serialise anything that is not a plain object across that boundary, and
+    // the failure is a console error at render time rather than a type error.
+    configSchema: JSON.parse(
+      JSON.stringify(z.toJSONSchema(definition.configSchema, { io: "input" })),
+    ) as unknown,
   };
 }
 

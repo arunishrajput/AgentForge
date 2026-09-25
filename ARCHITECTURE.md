@@ -146,7 +146,7 @@ this build.
 |---|---|---|
 | `next` | 16.3.6 | `engines.node >= 20.9.0`; local Node is v26.8.2 |
 | `react` / `react-dom` | 19.3.0 | |
-| `@xyflow/react` | 12.12.0 | peer `react >= 17` — React 19 satisfied |
+| `@xyflow/react` | 12.12.0 | peer `react >= 17` — React 19 satisfied. **Installed in Phase 4** |
 | `ai` | 7.0.114 | AI SDK v7 |
 | `@ai-sdk/google` | 4.0.80 | peer `zod ^3.25.76 \|\| ^4.1.8` — satisfied by zod 4 |
 | `next-auth` | **5.0.0-beta.32** | see the note below |

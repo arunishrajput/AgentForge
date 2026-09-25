@@ -30,3 +30,4 @@ next-env.d.ts
 # Local noise.
 .DS_Store
 *.log
+.playwright-mcp

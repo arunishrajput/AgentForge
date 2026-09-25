@@ -42,6 +42,7 @@ pnpm-debug.log*
 coverage/
 .nyc_output/
 playwright-report/
+.playwright-mcp/
 test-results/
 .pytest_cache/
 

@@ -17,9 +17,10 @@ Built for the Zero Origin hackathon (Devpost) as a 72-hour solo build.
 
 ## Status
 
-**Phase 3 complete — workflows persist and the engine runs them in production.**
-Google sign-in works, workflows save and load losslessly, and the engine executes sequential,
-branch and loop workflows over the API with per-node step records. The visual canvas (Phase 4) and
+**Phase 4 complete — workflows can be built visually and run, in production.**
+Google sign-in works; a workflow is built on a canvas from a registry-driven palette, configured
+through forms generated from each node's schema, saved and reloaded without loss, and run from the
+canvas with per-node status. Live status streaming (Phase 5), agent nodes (Phase 6) and
 natural-language generation (Phase 7) are still ahead. Current state is always in
 [`PROGRESS.md`](./PROGRESS.md).
 

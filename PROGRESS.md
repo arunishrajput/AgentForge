@@ -7,17 +7,20 @@ concise and operational — prune stale detail rather than appending forever. Th
 
 ## Project Status
 
-**Phase 3 is complete. AgentForge executes workflows in production.**
+**Phase 4 is complete. AgentForge has a working visual canvas in production.**
 
 **https://agentforge-733000675212.asia-southeast1.run.app**
 
-Workflows persist, the node registry exists, and the engine runs sequential, branch and loop
-workflows with per-node step records — verified by 33 live checks against the deployed URL, not
-only locally. No manual actions pending.
+A workflow can be built in the browser — nodes added from the registry-driven palette, connected by
+dragging handles, configured through forms generated from each node's schema — then saved, hard
+reloaded unchanged, and run from the canvas with per-node status shown on each node. Verified by 46
+live checks against the deployed URL **and** by driving the deployed canvas in a real browser. No
+manual actions pending.
 
 ## Current Phase
 
-**Phase 4 — visual canvas: build, edit, save, load workflows** (not started) — `READY TO START`
+**Phase 5 — live execution: per-node status and log streaming to the UI** (not started) —
+`READY TO START`
 
 ## Completed Phases
 
@@ -27,6 +30,7 @@ only locally. No manual actions pending.
 | **Phase 1** — application skeleton with Google auth | **COMPLETE** |
 | **Phase 2** — first deploy, auth in production | **COMPLETE** — verified in a browser |
 | **Phase 3** — data model, node registry, execution engine | **COMPLETE** — verified on the deployed URL, 2026-09-25 |
+| **Phase 4** — visual canvas: build, edit, save, load | **COMPLETE** — verified on the deployed URL in a browser, 2026-09-26 |
 
 ---
 
@@ -37,46 +41,56 @@ only locally. No manual actions pending.
 | **Canonical URL** | **`https://agentforge-733000675212.asia-southeast1.run.app`** |
 | Legacy URL | `https://agentforge-i5d2u66boa-as.a.run.app` — works, do not publish it |
 | Service | `agentforge` on Cloud Run, `asia-southeast1` |
-| Revision | **`agentforge-00002-zdg`** — ready, 100% of traffic. Previous good revision: `agentforge-00001-h4k` |
+| Revision | **`agentforge-00004-2xw`** — ready, 100% of traffic. Previous good revision: `agentforge-00003-ndb` |
 | Scaling | `min-instances 1`, `max-instances 3`, 1 vCPU / 1 GiB, 3600 s timeout, port 8080 |
-| Env vars set | `NODE_ENV` `AUTH_URL` `APP_BASE_URL` `DATABASE_URL` `AUTH_SECRET` `GOOGLE_CLIENT_ID` `GOOGLE_CLIENT_SECRET` `ENCRYPTION_KEY` `CRON_SECRET` — 9, unchanged by Phase 3 |
+| Env vars set | `NODE_ENV` `AUTH_URL` `APP_BASE_URL` `DATABASE_URL` `AUTH_SECRET` `GOOGLE_CLIENT_ID` `GOOGLE_CLIENT_SECRET` `ENCRYPTION_KEY` `CRON_SECRET` — 9, unchanged by Phase 4 |
 | Database | Neon `super-mountain-39872886` — **8 tables**, migrations `0000` + `0001` applied |
-| Warm latency | health 170–400 ms India → Singapore; database 32 ms warm |
-| Last verified | **2026-09-25** — `node --env-file=.env scripts/verify-api.mjs <url>`, all 33 checks passed |
+| Routes | `/` `/dashboard`→`/workflows` `/workflows` `/workflows/[id]` + 7 API routes |
+| Warm latency | health 142 ms India → Singapore; a 4-node run on the deployed canvas took **104 ms** |
+| Last verified | **2026-09-26** — `node --env-file=.env scripts/verify-api.mjs <url>`, all 46 checks passed, plus a browser build/save/reload/run on the deployed canvas |
 
-**A redeploy preserves env vars.** Phase 3 deployed with `gcloud run deploy agentforge --source .
---region asia-southeast1` and no `--env-vars-file`; all 9 variables carried to the new revision.
-The file is only needed when a variable changes.
+**A redeploy preserves env vars.** Confirmed again on Phase 4's two deploys: `gcloud run deploy
+agentforge --source . --region asia-southeast1` with no `--env-vars-file` carried all 9 variables
+to each new revision. The file is only needed when a variable changes.
 
 ---
 
-## Phase 3 — what was verified, not just written
+## Phase 4 — what was verified, not just written
 
-`npm test` — 19 engine/template tests, no database.
-`scripts/verify-api.mjs` — 33 checks over HTTP, run against **localhost first, then the deployed
-URL**. It mints a real database session row for an existing user, drives the API exactly as a
-browser would, and deletes the row afterwards — no test-only bypass exists in the app.
+`npm test` — 41 tests, no database, ~130 ms. Phase 4 added 22: the canvas round trip and the
+schema→form mapping, both pure modules with no DOM.
+`scripts/verify-api.mjs` — **46 checks over HTTP**, run against localhost first, then the deployed
+URL. It mints a real database session row, drives the API exactly as a browser would, and deletes
+the row afterwards. Phase 4 added 13 covering the palette projection, page reachability and
+owner-scoping, and a canvas-shaped graph saving, running and reporting its problems.
 
-| Check | Result |
+**A script cannot prove a canvas works.** So the deployed app was also driven in a real browser:
+
+| Checked on the deployed canvas | Result |
 |---|---|
-| Deploy from source | ✓ revision `agentforge-00002-zdg`, 100% traffic, clean startup logs |
-| `GET /api/health` on the new revision | ✓ `200`, database reachable |
-| Auth still works | ✓ `GET /` 200, `GET /dashboard` unauthenticated 307 |
-| Unauthenticated API access | ✓ 401 on both read and run-trigger |
-| Owner scoping | ✓ a second user gets **404**, not 403, on read and on run |
-| Graph round-trip | ✓ deeply equal including every node position |
-| Sequential run | ✓ output threads node to node; templates resolve |
-| Branch run | ✓ both sides exercised; untaken side recorded `skipped` |
-| Bounded loop | ✓ body ran exactly 3 times, exited via `done`, `{{input.index}}` correct per pass |
-| Loop cap | ✓ `maxIterations` above the hard cap rejected at validation; runaway cycle stopped by the per-node cap |
-| Failure path | ✓ run `failed`, message on the step, downstream `skipped` |
-| Config snapshot | ✓ each step stores the **resolved** config it ran with |
-| Invalid graph | ✓ saves with `runnable: false`; running it returns 422 and executes nothing |
-| Interrupted run | ✓ a `running` row with a stale heartbeat is reaped to `failed` |
-| Delete cascade | ✓ deleting a workflow removes its runs |
-| Database left clean | ✓ 0 workflows, 0 runs, 0 stray users after verification |
+| Palette built from the registry | ✓ six nodes, grouped by category, no hardcoded list |
+| Add four nodes by clicking the palette | ✓ laid out as a left-to-right chain, all in view |
+| Connect by dragging handles | ✓ 3 edges, ids `e1`–`e3`, branch edge carries `sourceHandle: "true"` |
+| Configure through generated forms | ✓ key/value editor, required marker, operator select, textarea |
+| Drag a node to a fractional position | ✓ `x: 884.784, y: 572.625` |
+| Save, then **hard reload** | ✓ every node position byte-identical, name and edges intact |
+| Header state after reload | ✓ reads `Saved`, not `Unsaved changes` — the jsonb key reorder does not read as dirty |
+| Run from the canvas with a trigger payload | ✓ succeeded in **104 ms**, all four nodes `Succeeded` |
+| Templates threaded end to end | ✓ `{{input.subject}}` → `{{input.topic}}` → `{{input.matched}}` |
+| Per-node status on the canvas | ✓ badge per node, branch shows `→ true` |
+| Delete the trigger, save | ✓ saves anyway, `runnable: false`, `no_trigger` shown in the panel |
+| Run an unrunnable workflow | ✓ blocked with a message, no run row created |
+| Console | ✓ **0 errors, 0 warnings** |
+| Database left clean | ✓ 0 workflows, 0 runs, 0 steps; both test sessions revoked |
 
----
+**Two real bugs were caught by warnings rather than by a failing check**, both fixed:
+
+1. **The registry arrived after the first render.** It was fetched client-side, so every node
+   briefly drew with a single default output and React Flow could not resolve the edge leaving the
+   branch's `true` handle. On a cold instance a user would watch a branch node appear broken. The
+   page now passes `describeNodes()` from the server component.
+2. **`z.toJSONSchema` output would not cross the RSC boundary.** React rejects anything that is not
+   a plain object; `describeNode` now forces the schema through JSON. See `CONTRACT.md`.
 
 ## Decisions — BINDING
 
@@ -99,6 +113,12 @@ Carried forward from every phase. These are the decisions later sessions must no
 | **D18** | **The engine takes its recorder as an argument** | `src/lib/engine/recorder.ts` is the only engine module importing `@/db`, so the critical-path tests run with no database, no network, in ~100 ms |
 | **D19** | **`agentCallable` defaults to false** | Adding a node must not silently widen what the agent may do. Phases 8–9 opt each new node in deliberately |
 | **D20** | **Another user's record answers 404, not 403** | 403 confirms the record exists. Every query filters on the session's user id; no code path reads a workflow or run by id alone |
+| **D21** | **The canvas is one React Flow node type; the registry type lives in `data.nodeType`** | Registering six React Flow types would make an *unknown* type fall back to React Flow's default node — the one case that must be visible as a problem. One type renders unknown nodes explicitly |
+| **D22** | **A canvas node's `data` holds persisted fields only** | Run status and the registry travel by context instead, so `fromFlow` is a clean inverse of `toFlow` and no UI state can leak into a saved graph. It also means a status change does not rebuild every node object — which is what Phase 5 will do many times a second |
+| **D23** | **The registry is passed from the server component, not fetched by the canvas** | A node's output handles come from its registry entry. Fetching it client-side makes every node briefly render with the wrong handles and breaks edges that leave a named handle. `describeNodes()` is the same projection `GET /api/nodes` serves |
+| **D24** | **`describeNode` output must be plain JSON** | It crosses to a client component. React refuses to serialise anything else, and the failure is a console error at render time rather than a type error. See `CONTRACT.md` |
+| **D25** | **Dirty state is a structural graph comparison, never a string one** | Postgres `jsonb` reorders object keys, so a freshly loaded workflow would otherwise always read as having unsaved changes |
+| **D26** | **Adding a node is a click, not a drag** | It satisfies "the palette comes from the registry" with no drop-target failure mode, works on any input device, and the demo's editing beat opens a node rather than dragging one (`DEMO.md`, Beat 4) |
 
 ---
 
@@ -106,7 +126,7 @@ Carried forward from every phase. These are the decisions later sessions must no
 
 | Issue | Impact | Action |
 |---|---|---|
-| **Rollback is still untested** | Demo-day risk | Phase 3 created a second revision so it is now *possible*. The attempt was blocked by the session's production-deploy guard. **Run it manually once before demo day:** `gcloud run services update-traffic agentforge --region asia-southeast1 --to-revisions agentforge-00001-h4k=100`, verify, then shift back to the newest revision |
+| **Rollback is still untested** | Demo-day risk | Phase 3 created a second revision so it is now *possible*. The attempt was blocked by the session's production-deploy guard. **Run it manually once before demo day:** `gcloud run services update-traffic agentforge --region asia-southeast1 --to-revisions agentforge-00003-ndb=100`, verify, then shift back to the newest revision |
 | **Google OAuth changes take ~90 s to propagate** | Cost 90 s in Phase 2 | Wait and retry before suspecting a typo |
 | **A curl check cannot detect `redirect_uri_mismatch`** | Nearly caused a false "verified" | Only a real browser sign-in proves the OAuth redirect |
 | **`min-instances 1` bills continuously** | Cost, after the hackathon | **Set to 0 once judging ends** |
@@ -114,6 +134,8 @@ Carried forward from every phase. These are the decisions later sessions must no
 | **4 moderate `npm audit` findings, one root cause** | None in production | esbuild dev-server issue reachable only through `drizzle-kit`. Dev dependency, absent from the runtime image. **Accepted** |
 | **Discord rejects requests with no `User-Agent`** | Phase 9 Discord node | Send an explicit UA |
 | **`gemini-2.0-flash` is retired** | Phases 6, 7 | List models, never assume a name |
+| **No favicon — `/favicon.ico` 404s** | Cosmetic, visible in the browser tab on demo day | Phase 10 (UI/UX pass). `public/` already exists |
+| **A port-3000 `next dev` can outlive its session** | A stale server serves old code and the next session's `npm run dev` silently moves to 3001 | Check `lsof -nP -iTCP:3000 -sTCP:LISTEN` before trusting a local check |
 | **Pinned Gemini models return 503 under load** | Demo reliability | The adapter needs retry + a fallback chain |
 | **Gemini first call took ~8.9 s** | Demo pacing | Warm the model before the demo |
 
@@ -167,10 +189,12 @@ All 15 contract variables have values; `.env.example` mirrors `CONTRACT.md`.
 
 `next` 16.3.6 · `react` / `react-dom` 19.3.0 · `next-auth` **5.0.0-beta.32** ·
 `@auth/drizzle-adapter` 1.11.3 · `drizzle-orm` 0.45.3 · `drizzle-kit` 0.31.11 ·
-`@neondatabase/serverless` 1.1.0 · `zod` 4.6.5 · `tailwindcss` 4.3.3 · `typescript` 7.0.2
+`@neondatabase/serverless` 1.1.0 · `zod` 4.6.5 · **`@xyflow/react` 12.12.0** ·
+`tailwindcss` 4.3.3 · `typescript` 7.0.2
 
-**Phase 3 added no dependencies.** Tests run on Node's built-in runner.
-`@xyflow/react` (Phase 4) and `ai` (Phase 6) are still deliberately not installed.
+**Phase 4 added exactly one dependency: `@xyflow/react` 12.12.0** (MIT, peer `react >= 17`), pinned
+exactly, as `ARCHITECTURE.md` planned. `ai` (Phase 6) is still deliberately not installed.
+Tests run on Node's built-in runner.
 
 ### Local toolchain
 
@@ -182,12 +206,19 @@ All 15 contract variables have values; `.env.example` mirrors `CONTRACT.md`.
 ## How to verify the system, from a cold session
 
 ```bash
-npm run typecheck && npm test           # 19 tests, no database, ~100 ms
+npm run typecheck && npm test           # 41 tests, no database, ~130 ms
 npm run build                           # Turbopack; one expected process.exit warning
 
-# End-to-end over HTTP. Mints a real session row, drives the API, cleans up.
+# 46 checks end to end over HTTP. Mints a real session row, drives the API, cleans up.
 node --env-file=.env scripts/verify-api.mjs https://agentforge-733000675212.asia-southeast1.run.app
+
+# To look at the canvas without driving Google OAuth by hand: mint a session row,
+# set it as a cookie in the browser, then revoke it. Same mechanism, no app bypass.
+node --env-file=.env scripts/mint-session.mjs
+node --env-file=.env scripts/mint-session.mjs --revoke <token>
 ```
+
+Cookie name is `authjs.session-token` over http, `__Secure-authjs.session-token` over https.
 
 `npm test` runs the TypeScript sources directly on Node's built-in runner via a 30-line resolve
 hook in `scripts/test-register.mjs`. **Consequence:** Node's strip-only mode rejects TypeScript
@@ -196,17 +227,19 @@ decorators anywhere in `src`. It cost one fix this phase.
 
 ---
 
-## Notes for Phase 4
+## Notes for Phase 5
 
-- **The palette comes from `GET /api/nodes`.** It already serves each node's label, category,
-  outputs and its config schema as JSON Schema. Do not hand-write a node list in the UI
-- **`sourceHandle` is the contract between the canvas and the engine.** React Flow's handle ids
-  must be exactly the `outputs[].key` values — `"true"`/`"false"`, `"loop"`/`"done"`, or `null`
-- **Positions are contract.** The round-trip test covers them; keep it that way
-- **Save the whole graph with `PATCH /api/workflows/:id`.** It is one atomic row update
-- A workflow saves even when invalid. `runnable` and `problems` come back on every read — surface
-  them in the UI rather than blocking the save
-- **Compare graphs structurally, never as strings.** Postgres `jsonb` reorders object keys
+- **The canvas already has the shape Phase 5 needs.** `runStates` in
+  `src/components/canvas/editor.tsx` is a `Map<nodeId, NodeRunState>` derived from a finished run's
+  steps. Streaming means feeding that same map as events arrive instead of once at the end
+- **Status travels by context, not through node `data`** (D22). Keep it that way: a status change
+  must not rebuild every node object many times a second
+- **`POST /api/workflows/:id/runs` stays the way a run starts.** It is synchronous and returns the
+  finished run. The SSE stream is for *watching*, and `CONTRACT.md` → *SSE event messages* is still
+  `NOT YET DECIDED` — Phase 5 fills it
+- A client that connects mid-run or reconnects must recover correct state. The run and its steps
+  are already readable at `GET /api/runs/:id`, which is the obvious resync
+- `run_step.logs` is already `{ at, level, message }[]` and the inspector already renders it
 
 ## Open, but blocking nothing
 
@@ -217,39 +250,30 @@ the user deliberately** — it governs whether others may commercialise the work
 
 ## Recent Changes
 
-**2026-09-25 — Phase 3 complete, the engine runs in production**
+**2026-09-26 — Phase 4 complete, the canvas is live**
 
-- Schema, registry, engine, workflow CRUD, run trigger and run history — deployed as revision
-  `agentforge-00002-zdg` and verified live with 33 checks
-- **Decided the graph is one `jsonb` column** (D14), which is what let `neon-http` stand (D6)
-- **Built the engine as a work list** (D15) and gave it three independent bounds (D16) — the
-  containment that Phase 7's generated workflows will need
-- **Kept `{{ }}` a lookup, not an expression language** (D17), with a test asserting it
-- **Made the engine's persistence injectable** (D18) so the critical-path tests need no database
-- Registry seeded with six real nodes; `agentCallable` defaults to false (D19)
-- **Found that Postgres `jsonb` normalises key order** — a graph round-trip is deeply equal but not
-  byte-identical. Caught by the verification script, recorded in `CONTRACT.md` and `ARCHITECTURE.md`
-- **Found that Node's strip-only TypeScript mode rejects constructor parameter properties** — two
-  classes rewritten; the constraint is recorded above
-- Confirmed a plain `gcloud run deploy` inherits the existing env vars; `--env-vars-file` is only
-  needed when a variable changes
-
----
-
-## Next Phase
-
-**Phase 4 — visual canvas.** Definition in `BUILD_PLAN.md`. Read `CONTRACT.md` → *Workflow / node /
-edge JSON* and *Node definition interface* before touching the graph shape.
-
-## Next Recommended Action
-
-**Start Phase 4 in a fresh session** — `/clear`, then "Start the next phase".
-
-Separately, and not blocking: **test the rollback command manually once** (see *Known Issues*).
+- Canvas, palette, config panel, workflow list and run view — deployed as revision
+  `agentforge-00004-2xw` and verified both by 46 HTTP checks and by driving the deployed canvas in
+  a browser
+- **Added `@xyflow/react` 12.12.0**, the one dependency this phase needed, pinned exactly
+- **Put the canvas↔graph mapping in one pure, tested module** (`src/lib/canvas/bridge.ts`), so the
+  round trip is asserted on Node with no DOM. `CONTRACT.md` now records its rules
+- **Generated every config form from the node's JSON Schema** (`src/lib/canvas/schema.ts`), tested
+  against the real registry — a node added in Phase 8 or 9 gets a working form with no UI work
+- **Found that the registry must be server-rendered, not fetched** (D23): fetching it made every
+  node briefly draw the wrong handles and broke the branch edge
+- **Found that `z.toJSONSchema` output will not cross the RSC boundary** (D24) — `describeNode`
+  now forces it through JSON
+- **Found that dirty-state detection must be structural** (D25): the Phase 3 note that `jsonb`
+  reorders keys turned out to matter here, not just in the verification script
+- Confirmed `z.unknown()` is *required* inside a zod 4 object, so a fresh Branch node is saveable
+  but not runnable until `left` is set — which is the behaviour the UI now shows
+- Added `scripts/mint-session.mjs` so a browser can reach the app without driving OAuth by hand
+- Sign-in now lands on `/workflows`; `/dashboard` redirects there
 
 ---
 
 ## Last Updated
 
-**2026-09-25** — Phase 3 complete. Revision `agentforge-00002-zdg` live, 33 deployed checks passed.
-No manual actions pending.
+**2026-09-26** — Phase 4 complete. Revision `agentforge-00004-2xw` live, 46 deployed checks passed
+plus a browser build/save/reload/run on the deployed canvas. No manual actions pending.

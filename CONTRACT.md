@@ -110,6 +110,22 @@ workflows".
 - **Postgres `jsonb` normalises object key order.** A graph read back is deeply equal to what was
   written but not byte-identical. Nothing may depend on key order
 
+### How the canvas maps onto this shape — **DEFINED** (Phase 4)
+
+`src/lib/canvas/bridge.ts`. The stored graph is the source of truth; React Flow's state is a
+projection of it, and `fromFlow(toFlow(graph))` must be deeply equal to `graph`.
+
+- Every canvas node carries the React Flow type `"workflow"`. The **registry** type lives in
+  `data.nodeType` — React Flow's `type` and a node's `type` are different things
+- A node's `data` holds **persisted fields only** (`nodeType`, `label`, `config`). Run status and
+  the registry reach the node component through React context, so nothing React Flow attaches to a
+  node (`selected`, `measured`, `dragging`) can leak into a saved graph
+- **A React Flow handle id of `undefined` is this schema's `null`.** The default output must be
+  rendered with no `id`, and `fromFlow` normalises `undefined` back to `null`
+- An absent `label` stays **absent**, never written as `undefined`
+- Node ids are readable and derived from the type (`set`, `set_2`), not uuids: they are persisted
+  in every run step, and Phase 7 asks a model to produce them
+
 ### Template references in config
 
 `{{ path }}` is a **lookup, not an expression language** — no eval, no operators, no function
@@ -171,7 +187,12 @@ Anything else thrown is still recorded, but its message is not written for a use
 | Canvas palette | `describeNodes()` → everything but `execute`; `configSchema` as JSON Schema |
 | Agent tool set | `listAgentTools()` → entries with `agentCallable === true` |
 
-`describeNode` is the only shape that crosses to the client. It never includes `execute`.
+`describeNode` is the only shape that crosses to the client. It never includes `execute`, and it
+**must be plain JSON**. Phase 4 renders the canvas from a server component and passes the registry
+straight to it, and React refuses to serialise anything but a plain object across that boundary.
+`describeNode` therefore forces `configSchema` through `JSON.parse(JSON.stringify(...))` rather
+than trusting whatever `z.toJSONSchema` happens to build. The failure mode is a console error at
+render time, not a type error, so this is a property to keep deliberately.
 
 **Registered at Phase 3:** `core.manual_trigger`, `core.set`, `core.log`, `core.branch`,
 `core.loop`, `core.assert`. Phases 8–9 add entries to this table; they do not build a second
