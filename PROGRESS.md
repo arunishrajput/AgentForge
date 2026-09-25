@@ -7,15 +7,11 @@ concise and operational — prune stale detail rather than appending forever. Th
 
 ## Project Status
 
-**Phase 0 Part C is mostly done — four of six manual actions are complete and verified.** Still no
-application code, which is correct for this phase.
+**Phase 0 is complete except for billing (M2).** Five of six manual actions are done and verified
+with live calls. No application code yet, which is correct for this phase.
 
-Provisioned and verified this session by driving Chrome directly: the Google Cloud project, the
-OAuth consent screen and client (M4), the Neon database (M3), and the Discord webhook (M6).
-`.env` exists locally with every value those produced.
-
-**Remaining: M1 (`gcloud auth login` — one command from the user) and M2 (billing — needs a card).**
-M5 follows automatically once M1 lands.
+**M2 is the only thing left, and only the user can do it — it needs a card.** It blocks Phase 2.
+Phase 1 (local app + Google auth against Neon) can start immediately without it.
 
 ## Current Phase
 
@@ -23,11 +19,11 @@ M5 follows automatically once M1 lands.
 
 ## Phase Status
 
-`IN PROGRESS — M1 and M2 outstanding`
+`COMPLETE except M2 (billing)` — not blocking Phase 1
 
 ## Completed Phases
 
-None. Phase 0 completes when M1/M2/M5 land and the gcloud-side checks pass.
+**Phase 0** — everything except billing. Parts A, B, D, E done; Part C done bar M2.
 
 ---
 
@@ -39,14 +35,15 @@ None. Phase 0 completes when M1/M2/M5 land and the gcloud-side checks pass.
 - [x] **Part B — Repo and environment.** Remote reachable, `git push --dry-run` and `git pull` both
       verified. `.gitignore` confirmed to fit Next.js + Drizzle (`drizzle/` migrations are
       deliberately *not* ignored). Toolchain versions re-verified
-- [~] **Part C — Cloud and service prerequisites.** Google Cloud project, OAuth consent screen +
-      client + test user, Neon project, and Discord webhook all **created and verified**.
-      Outstanding: `gcloud` CLI auth (M1) and billing (M2). API enablement and the Gemini key (M5)
-      are blocked behind M1 only
+- [~] **Part C — Cloud and service prerequisites.** Project, OAuth consent screen + client + test
+      user, Neon, Discord webhook, gcloud auth, and the Gemini key all **created and verified**.
+      Outstanding: **billing (M2)**, which also blocks enabling Run / Build / Artifact Registry /
+      Scheduler
 - [x] **Part D — Resource strategy.** Region pair decided by the user and recorded. Naming
       conventions and the existence-check rule are in `DEPLOYMENT.md` → *Services and resources*
-- [~] **Part E — Verification.** Versions print ✓. Git pushes ✓. **Database answers a real query ✓**
-      (PostgreSQL 18.6, both endpoints). **Discord webhook posts ✓.** `gcloud` authenticated ✗ (M1)
+- [x] **Part E — Verification.** Versions print ✓. Git pushes ✓. **Database answers a real query ✓**
+      (PostgreSQL 18.6, both endpoints). **Discord webhook posts ✓** (HTTP 200). **`gcloud`
+      authenticated ✓** (project + region set). **Gemini answers a real model call ✓**
 
 ## Decisions made this phase — all BINDING
 
@@ -104,6 +101,9 @@ client (M4) and the database (M3).
 | ~~Neon free-plan Singapore availability~~ | — | ✅ **RESOLVED 2026-09-25.** The create-project dialog offers "AWS Asia Pacific 1 (Singapore)" on the free plan. Project created there; host confirms `ap-southeast-1`. D4 stands |
 | **Discord rejects requests with no `User-Agent`** | Phase 9 Discord node | Posting with Python's default UA returned **HTTP 403, Cloudflare error 1010**. Setting an explicit `User-Agent` returned 200. The Discord node must send one |
 | **OAuth consent screen is in `Testing`** | Demo day, not Phase 0 | Only listed test users can sign in — currently just the developer. Judges opening the deployed app would be blocked at Google's screen. Before the demo: publish the app, or add each judge as a test user (cap 100) |
+| **`gemini-2.0-flash` is retired** | Phases 6, 7 | The API returns 404 and points to `gemini-3.8-flash`. Any model name written before this date is suspect — list models, do not assume |
+| **Pinned Gemini models return 503 under load** | Demo reliability | `gemini-3.8-flash` pinned returned **503 "high demand"** while `gemini-flash-latest` succeeded in the same second. The provider adapter needs retry and a model fallback chain, not a single hardcoded name |
+| **Gemini first call took ~8.9 s** | Demo pacing | A trivial prompt, so NL→workflow generation will be slower. `DEMO.md`'s pacing should assume seconds, not instant. Warm the model before the demo alongside Cloud Run and Neon |
 
 Carried risks, recorded so they are not rediscovered:
 
@@ -125,12 +125,18 @@ Carried risks, recorded so they are not rediscovered:
 
 | # | Action | Status |
 |---|---|---|
-| M1 | `! gcloud auth login`, then `! gcloud auth application-default login` | **OUTSTANDING — user must run it.** Blocks API enablement, M5, and all Phase 2 deploy work |
-| M2 | Link a billing account (activate the $300 / 90-day trial) | **OUTSTANDING — user only.** Needs card details, which Claude Code will not enter. Blocks Phase 2, not Phase 1 |
+| M1 | `gcloud auth login` | ✅ **DONE** — `arunishrajput7@gmail.com` active, project and region set. ⚠️ `gcloud auth application-default login` was **not** run, so there is no ADC file. Nothing needs it yet; run it if a client library ever asks for default credentials |
+| M2 | Link a billing account (activate the $300 / 90-day trial) | ❌ **OUTSTANDING — user only.** Needs card details, which Claude Code will not enter. **Now confirmed to block more than the deploy** — see below |
 | M3 | Neon project | ✅ **DONE & VERIFIED** — real query returned PostgreSQL 18.6 |
 | M4 | Google OAuth client | ✅ **DONE** — client + consent screen + test user |
-| M5 | Gemini API key | Blocked on M1 only; then automated via `gcloud services api-keys create` |
+| M5 | Gemini API key | ✅ **DONE & VERIFIED** — created via `gcloud services api-keys create`; a real model call replied correctly |
 | M6 | Discord webhook | ✅ **DONE & VERIFIED** — test post returned HTTP 200 |
+
+**M2 is now the single blocker for Phase 2.** Verified this session: `gcloud services enable` for
+`run`, `cloudbuild`, `artifactregistry` and `cloudscheduler` is **rejected without billing**
+(`UREQ_PROJECT_BILLING_NOT_FOUND`). Billing gates API enablement, not just deployment.
+`apikeys.googleapis.com` and `generativelanguage.googleapis.com` enabled fine without it, which is
+why M5 completed.
 
 | # | Action | Due |
 |---|---|---|
@@ -174,14 +180,14 @@ creating anything.
 | Discord webhook | Discord | named **"AgentForge"** | **VERIFIED** — test post HTTP 200 |
 | `agentforge` Cloud Run service | Google Cloud | — | Not created — Phase 2 |
 | `agentforge-cron` Scheduler job | Google Cloud | — | Not created — Phase 8 |
-| Gemini API key | Google Cloud | — | M5, blocked on M1 |
+| Gemini API key | Google Cloud | display name **"AgentForge Gemini"**, key uid `8b96b285-7ff8-47f4-a618-1c8f944fd6e7`, restricted to `generativelanguage.googleapis.com` | **VERIFIED** — real model call |
 
 ### Local `.env` — populated, gitignored, never committed
 
 Confirmed ignored via `git check-ignore`. Populated: `DATABASE_URL` (pooled, `-pooler` host),
 `DATABASE_URL_UNPOOLED` (direct), `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `DISCORD_WEBHOOK_URL`,
 `GCP_PROJECT_ID`, plus freshly generated `AUTH_SECRET`, `ENCRYPTION_KEY`, `CRON_SECRET`.
-Still empty: `GOOGLE_GENERATIVE_AI_API_KEY` (M5).
+All variables in `CONTRACT.md` now have values.
 
 Client ID/secret and both connection strings were taken via each console's **copy button**, not
 transcribed from screenshots — the OAuth secret contains `l`/`I`/`0` characters that OCR would
@@ -213,6 +219,17 @@ zod 4, `drizzle-orm` lists `@neondatabase/serverless >= 0.10.0`. Full table in `
 
 ## Recent Changes
 
+**2026-09-25 — Phase 0 Part C finished via gcloud**
+
+- `gcloud auth login` done by the user; project `agentforge-hackathon-2026` and region
+  `asia-southeast1` set as gcloud defaults
+- Enabled `apikeys` and `generativelanguage`; created and verified the Gemini key (M5) entirely
+  from the CLI, no browser
+- **Discovered billing gates API enablement**, not just deploys — the four Cloud Run APIs are
+  refused with `UREQ_PROJECT_BILLING_NOT_FOUND`
+- **Discovered `gemini-2.0-flash` is retired**, pinned model names can return 503 under load, and
+  a trivial call took ~8.9 s. All three recorded as risks
+
 **2026-09-25 — Phase 0 Part C, via browser automation**
 
 - Created the Google Cloud project, OAuth consent screen, OAuth client and test user (M4), the
@@ -240,30 +257,52 @@ zod 4, `drizzle-orm` lists `@neondatabase/serverless >= 0.10.0`. Full table in `
 
 ## Next Phase
 
-**Finish Phase 0** (M1, then M2 and M5), then Phase 1. Definitions in `BUILD_PLAN.md`.
+**Phase 1 — application skeleton with Google auth.** Definition in `BUILD_PLAN.md`. It needs the
+OAuth client and the database, both of which now exist and are verified. **It does not need
+billing**, so it can start now.
 
 ## Next Recommended Action
 
-**Run this — it is the only thing blocking the rest of Phase 0:**
+Either:
 
+**(a) Start Phase 1** — say "Start the next phase". Nothing blocks it. Start Docker Desktop first;
+Phase 1 validates a local container build and the daemon is not running.
+
+**(b) Clear M2 first**, so Phase 2 is unblocked when Phase 1 lands:
+
+```text
+MANUAL ACTION REQUIRED
+
+Reason:
+Billing gates more than deployment. `gcloud services enable` for run, cloudbuild,
+artifactregistry and cloudscheduler is rejected with UREQ_PROJECT_BILLING_NOT_FOUND until a
+billing account is linked. Without it Phase 2 cannot start at all.
+
+Location:
+https://console.cloud.google.com/billing?project=agentforge-hackathon-2026
+
+Steps:
+1. Open the URL above.
+2. Activate the free trial if offered, to receive the $300 / 90-day credit.
+3. Link the billing account to the project AgentForge (agentforge-hackathon-2026).
+
+Values to enter:
+None beyond the card details Google requires. Claude Code will not enter these.
+
+Expected result:
+The project shows under the billing account with status Active.
+
+Verification:
+gcloud services enable run.googleapis.com cloudbuild.googleapis.com \
+  artifactregistry.googleapis.com cloudscheduler.googleapis.com
+
+Resume by:
+Saying "billing is linked".
 ```
-! gcloud auth login
-! gcloud auth application-default login
-```
-
-Then say "gcloud is authenticated" and the next session will, with no further clicking:
-
-1. `gcloud config set project agentforge-hackathon-2026` and `run/region asia-southeast1`
-2. Enable Run, Cloud Build, Artifact Registry, Cloud Scheduler
-3. Create the Gemini key (M5) via `gcloud services api-keys create` and verify with one model call
-4. Close out Phase 0
-
-**M2 (billing) stays with the user** — it needs card details. It blocks Phase 2's deploy, not
-Phase 1, so Phase 1 can proceed without it.
 
 ---
 
 ## Last Updated
 
-**2026-09-25** — Phase 0 Parts A, B, D complete. Part C: M3, M4, M6 created and verified by
-driving Chrome; M1 and M2 outstanding with the user; M5 waiting on M1.
+**2026-09-25** — Phase 0 complete except billing (M2). M1, M3, M4, M5, M6 all done and verified
+with live calls. Phase 1 is unblocked and can start.

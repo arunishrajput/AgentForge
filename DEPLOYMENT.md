@@ -159,6 +159,11 @@ Resume by:
 Saying "billing is linked".
 ```
 
+**Phase 0 finding:** billing gates **API enablement**, not just deploying. `gcloud services enable`
+for `run`, `cloudbuild`, `artifactregistry` and `cloudscheduler` fails with
+`UREQ_PROJECT_BILLING_NOT_FOUND` until a billing account is linked. `apikeys` and
+`generativelanguage` enable without it.
+
 ```bash
 # AUTOMATED BY CLAUDE CODE — after billing is linked
 gcloud projects create <PROJECT_ID> --name="AgentForge"     # or select an existing one
@@ -315,6 +320,18 @@ A key beginning "AIza".
 
 Expected cost:
 Free tier. Stay on it; if a model is not free-tier eligible, pick a Flash tier instead.
+
+**Phase 0 finding — model names.** `gemini-2.0-flash` is **retired** (HTTP 404, the API points to
+`gemini-3.8-flash`). Do not hardcode a model name from memory; list models first:
+
+```bash
+curl -sS -H "x-goog-api-key: $GOOGLE_GENERATIVE_AI_API_KEY" \
+  'https://generativelanguage.googleapis.com/v1beta/models?pageSize=200'
+```
+
+Verified working 2026-09-25: **`gemini-flash-latest`** (resolves to `gemini-3.8-flash`). The pinned
+name `gemini-3.8-flash` returned **503 "high demand"** in the same second the alias succeeded, so
+the provider adapter should retry and fall back across models rather than trusting one name.
 
 Verification:
 Claude Code makes one minimal model call and prints the model name from the response.
