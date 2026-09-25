@@ -1,0 +1,403 @@
+# CLAUDE.md — How to work on AgentForge
+
+Read this first, then `PROGRESS.md`, then `BUILD_PLAN.md`. **Before implementing anything, read
+all three.** Then read only the further docs the phase actually needs: `CONTRACT.md` before
+touching a shared schema or protocol, `DEPLOYMENT.md` before any cloud work, `ARCHITECTURE.md`
+before adding a component or a dependency, `DEMO.md` before cutting scope.
+
+This project is built one phase per session with `/clear` between every session. **Chat memory is
+disposable. This repository is the only persistent memory.** Everything a cold session needs to
+continue must live in these files.
+
+---
+
+## The loop
+
+```
+Read state → identify the next incomplete phase → implement exactly that one phase
+  → verify (deployed, from Phase 2 onward) → update docs → commit → push → stop
+```
+
+Do not silently begin the next phase in the same session. Stop and say `/clear`.
+
+---
+
+## Project identity
+
+**AgentForge** is an agentic workflow automation platform — *n8n, but the workflows are built and
+driven by AI agents rather than hand-wired by the user.*
+
+**One sentence:** describe what you want in plain language, and AgentForge builds a real,
+executable, visually editable workflow whose agent nodes reason and decide at runtime.
+
+A user types a natural-language request. The system produces a genuine workflow on a canvas —
+nodes, connections, editable configuration — not a mockup. It runs, streams per-node status and
+logs live, and its agent nodes use tool-calling to decide what to do at runtime instead of
+following a fixed script.
+
+**Context:** 72-hour solo hackathon build (Zero Origin, Devpost). Judging category is
+`UNKNOWN — VERIFY`; assume a general "best working product" rubric until told otherwise.
+
+---
+
+## MVP objective
+
+**A working, publicly deployed, reliably demonstrable product.** That is the primary success
+metric — not scale, not architectural elegance, not feature count.
+
+The goal is the strongest realistic MVP that can actually be deployed and demonstrated without
+failure inside 72 hours.
+
+---
+
+## Core constraints
+
+| Constraint | Value |
+|---|---|
+| Time | ~72 hours of focused solo time |
+| Developer | One person, operating Claude Code. No team, no review process, no parallel agents |
+| Host | Google Cloud Run (single container) — **binding**, see `ARCHITECTURE.md` |
+| Database | Neon Postgres, free tier, pooled connection string |
+| Queue | **None.** Executor runs in-process. Cron via Cloud Scheduler |
+| LLM | Google Gemini at MVP, behind a provider-agnostic adapter |
+| Cost | Must stay free. Cloud Run Always Free + $300/90-day credit + Neon free + Gemini free tier |
+| Deployment | Live and reachable from end of Phase 2 onward, and must stay live |
+
+---
+
+## Documentation map
+
+| File | What it is | Read it when |
+|---|---|---|
+| `CLAUDE.md` | This file — how to work here | Always, first |
+| `PROGRESS.md` | Current execution state. The status board | Always, second |
+| `BUILD_PLAN.md` | The phase roadmap and every phase definition | Always, third |
+| `PRD.md` | What the MVP must do, and must not | Before adding or cutting a feature |
+| `ARCHITECTURE.md` | How it is built, and the binding Foundation Decision | Before adding a component or dependency |
+| `CONTRACT.md` | Interfaces that must stay stable across phases | Before touching a shared schema or protocol |
+| `DEPLOYMENT.md` | How to deploy and verify, resource inventory | Before any cloud work |
+| `DEMO.md` | The 3-minute demo script, used as a scope contract | Before cutting scope, and before demo day |
+| `README.md` | Practical entry point | When orienting from scratch |
+
+---
+
+## Source of truth
+
+When sources disagree, higher wins:
+
+1. **Repository implementation** — what actually exists in code
+2. **Deployed state** — what is actually running on Cloud Run and in Neon
+3. **`CONTRACT.md`** — interfaces that must not drift
+4. **`PRD.md`** — what the MVP must do
+5. **`ARCHITECTURE.md`** — how it is intentionally built
+6. **`BUILD_PLAN.md`** — how the work is phased
+7. **`PROGRESS.md`** — current execution state
+8. Other documentation
+9. **Conversation history** — background only, never an override
+
+Never assume documentation is current. On a discrepancy: detect it, determine what actually
+exists, determine what was intended, correct the appropriate source, record material ones in
+`PROGRESS.md`, and say so out loud. Escalate rather than guess when the gap materially changes
+scope, security, cost, or core architecture.
+
+---
+
+## Session workflow
+
+When the user says **"Start the next phase"** (or runs `/next-phase`), do all of this without
+being asked:
+
+1. Inspect the repository
+2. `git status` — check for uncommitted or unpushed work
+3. Read `CLAUDE.md`, `PROGRESS.md`, `BUILD_PLAN.md`
+4. Read only the further docs the next phase needs
+5. **Verify the actual state.** Does the deployed URL respond? Does the database have the
+   expected tables? Do not trust the docs
+6. Determine: current phase, whether the previous phase genuinely completed, what remains,
+   blockers, branch, deployment state
+7. Summarise that understanding briefly
+8. Begin implementing the **next incomplete phase**
+
+Do not ask "what should I work on?" unless the repository genuinely cannot answer it.
+
+---
+
+## Phase workflow
+
+One session, one phase. Do not jump ahead because a later phase looks more interesting.
+
+Every phase in `BUILD_PLAN.md` carries: Objective, Dependencies, Tasks, Primary Files/Areas,
+Implementation Notes, Validation Steps, Completion Criteria, Documentation Updates, Commit
+Requirement. Work the phase as written; if the phase is mis-sized or wrong, say so and adjust
+`BUILD_PLAN.md` deliberately rather than drifting.
+
+### End-of-phase protocol
+
+```
+1.  Finish implementation
+2.  Run verification (including deployed verification from Phase 2 onward)
+3.  Inspect the git diff — never commit blindly
+4.  Update PROGRESS.md
+5.  Update any documentation the phase invalidated
+6.  Confirm no secrets are staged
+7.  Commit
+8.  Push
+9.  Confirm the push actually succeeded
+10. Report the phase completion summary
+11. Stop and tell the user to run /clear
+```
+
+### A phase is done when all of these are true
+
+- Implementation exists
+- Configuration exists
+- Checks and critical-path tests pass
+- The integration actually works end to end
+- Deployment is updated and verified (Phase 2 onward)
+- Documentation is updated
+- `PROGRESS.md` is updated
+- The git diff has been inspected
+- Changes are committed, pushed, and the push is confirmed
+
+**Code written is not done.** Do not mark a phase complete because most of it is finished.
+
+### If a phase cannot be completed
+
+1. Diagnose the blocker
+2. Fix it if that is safely in scope
+3. If it needs the user, emit a `MANUAL ACTION REQUIRED` block
+4. Update `PROGRESS.md`: what is blocked, why, the exact action needed, the verification command
+5. Commit and push the valid work
+6. Mark the phase `BLOCKED`
+7. Explain what must happen before the next session can continue
+
+Do not fake completion.
+
+---
+
+## PROGRESS.md requirements
+
+`PROGRESS.md` is the most important operational file — a fresh session reads it and immediately
+knows where things stand. Keep it **concise and operational**: a status board, not a diary.
+Prune stale detail rather than appending forever.
+
+Update it at the end of every phase, and mid-phase whenever the project state materially changes
+(a resource created, a blocker found, a decision made).
+
+---
+
+## Git workflow
+
+Solo developer. **Work directly on `main`.** Use a short-lived phase branch only when a phase is
+genuinely risky — a large refactor, or a deployment experiment that could break a working deploy —
+and merge it in the same session.
+
+- Meaningful commits; inspect the diff before committing
+- Push completed work; keep GitHub synchronised
+- Never commit secrets or credentials
+- Never force-push unless it is explicitly safe and necessary
+
+Commit convention:
+
+```
+feat: complete phase 06 agent layer and provider configuration
+fix: correct sse reconnect on deployed environment
+docs: update progress and deployment state for phase 04
+```
+
+**GitHub is the persistent backup.** At the end of every phase, code + docs + `PROGRESS.md` +
+deployment state must be pushed, so a fresh session recovers entirely from the repository.
+
+---
+
+## Deployment workflow
+
+Full commands live in `DEPLOYMENT.md`. The shape:
+
+```bash
+gcloud run deploy agentforge --source . --region <REGION> --allow-unauthenticated
+```
+
+**Never report "deployment successful" because a command exited zero.** Verify through:
+
+- Service status and revision (`gcloud run services describe`)
+- Logs (`gcloud run services logs read`)
+- HTTP requests against the live URL
+- The auth flow completed against the deployed app
+- Database queries against the deployed database
+- A realtime connection established from a browser
+- At least one full workflow executed end to end on the deployed system
+
+Deployment is complete when the deployed system **actually behaves correctly**.
+
+Every phase after Phase 2 ends with the deployed environment still working, or the phase is not
+complete.
+
+---
+
+## Manual action rules
+
+Some things genuinely require the user: OAuth consent screens, billing, account creation,
+third-party authorisation. Never say "configure this in the console." Emit exactly this:
+
+```text
+MANUAL ACTION REQUIRED
+
+Reason:
+<why this is needed and what breaks without it>
+
+Location:
+<exact site, exact page, exact menu path>
+
+Steps:
+1. ...
+2. ...
+3. ...
+
+Values to enter:
+<exact strings, URLs, scopes, redirect URIs — literal, copy-pasteable>
+
+Expected result:
+<what the user should see on screen when it worked>
+
+Verification:
+<the exact command Claude Code will run to confirm it>
+
+Resume by:
+<what the user types back>
+```
+
+Then **continue automatically with everything that does not depend on it.** If it genuinely
+blocks the phase, mark the phase `BLOCKED — WAITING FOR MANUAL ACTION` in `PROGRESS.md`, commit
+and push the valid work, and stop.
+
+After the user confirms, the next session **verifies the result** rather than assuming it worked.
+
+---
+
+## Testing expectations
+
+Hackathon MVP. No large test suite, no coverage targets, no test infrastructure that costs more
+than the bugs it catches.
+
+Prioritise, in order:
+
+1. **Critical-path tests** — anything whose failure breaks the demo: workflow save/load, the
+   execution engine, agent tool-calling, NL→workflow generation
+2. **Integration verification** — components actually working together
+3. **Deployment verification** — the live system actually working
+4. **Smoke tests** — fast confirmation the app starts and the core flow runs
+
+---
+
+## Scope control
+
+Scope is the single largest risk on this project. Two phrases are reinterpreted permanently:
+
+- **"unbreakable"** → *the demo path never fails.* Not comprehensive error handling everywhere
+- **"feature rich"** → *real depth on a few capabilities.* Not n8n's integration count
+
+Classify every feature as MVP-Critical / MVP-Supporting / Post-Hackathon / Out of Scope before
+implementing it. The lists are in `PRD.md` and they are binding.
+
+Priority ordering, applied to every decision:
+
+```
+Working deployed software
+  > reliable demo path
+  > architectural cleanliness
+  > feature count
+  > documentation polish
+```
+
+**The demo defines the scope.** Anything not on `DEMO.md`'s path is MVP-Supporting or lower by
+default.
+
+Do not add complexity because it is best practice for a long-lived product. Prefer existing
+dependencies, simple architecture, fewer moving parts, managed services, minimal infrastructure,
+fast feedback loops. Avoid microservices, speculative abstractions, premature optimisation, heavy
+test frameworks, extra infrastructure, enterprise process.
+
+---
+
+## Security rules
+
+Never commit secrets, API keys, or credentials. Never hardcode credentials. Never log secret
+values. Never disable a security mechanism to make something work. Never make destructive
+infrastructure changes without understanding the impact. Never delete resources casually.
+
+Specific to AgentForge:
+
+- **Third-party integration credentials are encrypted at rest** and never returned to the client
+  in plaintext
+- **User-supplied LLM API keys are secrets** — same rules
+- **Webhook trigger endpoints must be unguessable** and validated
+- **Agent tool-calling reaches only the explicitly registered node set** — never arbitrary shell,
+  filesystem, or network access
+- **No arbitrary user code execution.** Not in any form, not sandboxed, not "just for the demo"
+
+For destructive or high-impact operations, explain the intended action and get confirmation first.
+Prefer safe, reversible operations.
+
+---
+
+## Cost rules
+
+Hosting and LLM costs stay at zero. Prefer free tiers and small instances. Avoid always-on
+resources that serve no purpose. Cache or stub LLM calls during development where that does not
+reduce fidelity. Do not add infrastructure for theoretical scale.
+
+Before provisioning anything, **check whether it already exists.** Across `/clear` boundaries this
+is critical — do not recreate a database because the previous session's context is gone. The
+inventory is in `PROGRESS.md` and `DEPLOYMENT.md`. Reuse and update; create only when genuinely
+necessary.
+
+---
+
+## Never do
+
+- Never mark a phase complete when it is not
+- Never report a deployment successful without verifying behaviour
+- Never start a later phase while a required earlier phase is incomplete
+- Never start a stretch phase (13+) before Phase 12 is complete and the deployment is verified
+- Never commit secrets
+- Never re-litigate the Foundation Decision or the hosting platform without flagging it to the
+  user as a material change
+- Never invent a contract, an interface, or a fact. Use the markers below
+- Never build anything on the Out of Scope list in `PRD.md`
+- Never implement arbitrary code execution
+
+---
+
+## Recovering from an incomplete session
+
+If a previous session ended mid-phase:
+
+1. `git status` and `git log --oneline -5` — find what landed and what did not
+2. Read `PROGRESS.md` → *Current Phase Tasks*, *Blocked Tasks*, *Manual Actions Pending*
+3. **Verify the real state** rather than trusting the notes: does the deployed URL respond, do the
+   expected tables exist, does the build pass
+4. If the working tree has uncommitted work, understand it before touching it — it may be
+   half-finished, and the diff is the record of what the previous session was doing
+5. Reconcile `PROGRESS.md` with what you actually found, then resume the same phase from the
+   first genuinely incomplete task
+
+---
+
+## Handling uncertainty
+
+Do not invent details. Use these markers, in the docs and in conversation:
+
+- `UNKNOWN — VERIFY` — information needed but not yet confirmed
+- `NOT YET DECIDED` — a decision deliberately deferred to a later phase
+- `SUPERSEDED` — previously considered, now replaced (keep the reason)
+
+Known unknowns carried forward: the hackathon category and rubric; whether the deterministic
+Cloud Run URL form allows pre-registering the OAuth redirect URI; the Foundation Decision until
+Phase 0 resolves it.
+
+When plan and reality diverge: identify the discrepancy, explain the practical impact on the demo
+and the timeline, choose the simplest solution that preserves the MVP goal, update the affected
+docs and `PROGRESS.md`, and continue if the change is safe. **Stop for the user's input only when
+the change materially affects product scope, security, cost, or core architecture** — including
+any change to the Foundation Decision or the hosting platform.

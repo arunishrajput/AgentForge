@@ -1,0 +1,68 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/releases
+!.yarn/plugins
+!.yarn/versions
+.pnpm-store/
+
+# Environment — never commit real values
+.env
+.env.*
+!.env.example
+*.local
+
+# Build output
+.next/
+out/
+build/
+dist/
+.turbo/
+.vercel/
+*.tsbuildinfo
+next-env.d.ts
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
+pgdata/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Test and coverage
+coverage/
+.nyc_output/
+playwright-report/
+test-results/
+.pytest_cache/
+
+# Editor and OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+*.swo
+
+# Claude Code — commands are shared, local settings are not
+.claude/settings.local.json
+
+# Credentials and keys — belt and braces
+*.pem
+*.key
+service-account*.json
+gcp-credentials*.json
