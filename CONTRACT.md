@@ -48,6 +48,7 @@ live in `.env` locally (never committed) and on the Cloud Run service in product
 
 | Variable | Purpose | Notes |
 |---|---|---|
+| `DISCORD_WEBHOOK_URL` | Demo Discord webhook for `#agentforge-demo` | Added Phase 0 (M6). Dev/demo convenience only — the product path is a user-supplied webhook stored encrypted. **Anyone holding it can post to the channel; treat as a secret** |
 | `GOOGLE_GENERATIVE_AI_API_KEY` | Server-side Gemini key | Development and demo fallback only. **Users normally supply their own key in-app**; this is not a substitute for that feature. This is the exact name `@ai-sdk/google` reads by default — verified Phase 0 |
 
 ### Deploy-time only — not read by the app

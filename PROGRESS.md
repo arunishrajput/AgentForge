@@ -7,13 +7,15 @@ concise and operational — prune stale detail rather than appending forever. Th
 
 ## Project Status
 
-**Phase 0 is substantially complete and blocked on the user.** All decisions are made and recorded.
-No application code exists yet — correct for this phase.
+**Phase 0 Part C is mostly done — four of six manual actions are complete and verified.** Still no
+application code, which is correct for this phase.
 
-Every autonomous part of Phase 0 is done: the foundation decision is made and binding, the stack
-and its versions are verified from the npm registry, all candidate licences are verified from
-source, the region pair is decided, and the repository and toolchain are proven. **Part C — every
-cloud resource — cannot start until M1–M6 are done in a browser.**
+Provisioned and verified this session by driving Chrome directly: the Google Cloud project, the
+OAuth consent screen and client (M4), the Neon database (M3), and the Discord webhook (M6).
+`.env` exists locally with every value those produced.
+
+**Remaining: M1 (`gcloud auth login` — one command from the user) and M2 (billing — needs a card).**
+M5 follows automatically once M1 lands.
 
 ## Current Phase
 
@@ -21,11 +23,11 @@ cloud resource — cannot start until M1–M6 are done in a browser.**
 
 ## Phase Status
 
-`BLOCKED — WAITING FOR MANUAL ACTION` (M1–M6)
+`IN PROGRESS — M1 and M2 outstanding`
 
 ## Completed Phases
 
-None. Phase 0 completes when Part C is verified.
+None. Phase 0 completes when M1/M2/M5 land and the gcloud-side checks pass.
 
 ---
 
@@ -37,13 +39,14 @@ None. Phase 0 completes when Part C is verified.
 - [x] **Part B — Repo and environment.** Remote reachable, `git push --dry-run` and `git pull` both
       verified. `.gitignore` confirmed to fit Next.js + Drizzle (`drizzle/` migrations are
       deliberately *not* ignored). Toolchain versions re-verified
-- [ ] **Part C — Cloud and service prerequisites.** **BLOCKED on M1–M6.** Nothing can proceed:
-      `gcloud projects list` fails with "no active account", there is no ADC file, and no gcloud
-      configuration has an account or project
+- [~] **Part C — Cloud and service prerequisites.** Google Cloud project, OAuth consent screen +
+      client + test user, Neon project, and Discord webhook all **created and verified**.
+      Outstanding: `gcloud` CLI auth (M1) and billing (M2). API enablement and the Gemini key (M5)
+      are blocked behind M1 only
 - [x] **Part D — Resource strategy.** Region pair decided by the user and recorded. Naming
       conventions and the existence-check rule are in `DEPLOYMENT.md` → *Services and resources*
-- [~] **Part E — Verification.** Versions print ✓. Git pushes ✓. `gcloud` authenticated ✗ (M1).
-      Database answers a query ✗ (M3)
+- [~] **Part E — Verification.** Versions print ✓. Git pushes ✓. **Database answers a real query ✓**
+      (PostgreSQL 18.6, both endpoints). **Discord webhook posts ✓.** `gcloud` authenticated ✗ (M1)
 
 ## Decisions made this phase — all BINDING
 
@@ -98,7 +101,9 @@ client (M4) and the database (M3).
 |---|---|---|
 | **Docker daemon not running.** CLI is v29.7.2 but the socket is absent — Docker Desktop is not started | Phase 1 validation builds and runs the container locally | Start Docker Desktop before Phase 1. Not a Phase 0 blocker |
 | Cloud Run Tier 1 / Tier 2 unit prices are `UNKNOWN — VERIFY` | None material — see D4 | The pricing page will not render for automated fetching. Immaterial: `min-instances=1` exceeds the free allowance in any region, so the build draws on the $300 credit regardless |
-| Neon's free plan may not offer Singapore — `UNKNOWN — VERIFY` | Would invalidate D4 | `neon.com` is unreachable from this environment and the regions API needs a key. The user confirms it visually during M3; the manual action says to stop rather than substitute a region |
+| ~~Neon free-plan Singapore availability~~ | — | ✅ **RESOLVED 2026-09-25.** The create-project dialog offers "AWS Asia Pacific 1 (Singapore)" on the free plan. Project created there; host confirms `ap-southeast-1`. D4 stands |
+| **Discord rejects requests with no `User-Agent`** | Phase 9 Discord node | Posting with Python's default UA returned **HTTP 403, Cloudflare error 1010**. Setting an explicit `User-Agent` returned 200. The Discord node must send one |
+| **OAuth consent screen is in `Testing`** | Demo day, not Phase 0 | Only listed test users can sign in — currently just the developer. Judges opening the deployed app would be blocked at Google's screen. Before the demo: publish the app, or add each judge as a test user (cap 100) |
 
 Carried risks, recorded so they are not rediscovered:
 
@@ -116,19 +121,16 @@ Carried risks, recorded so they are not rediscovered:
 
 ## Manual Actions Pending
 
-**Five of the six block Phase 0 Part C and therefore Phase 1** — M5 turned out to be automatable. Exact copy-pasteable blocks are in
-`DEPLOYMENT.md` → *One-time setup*. Two carry Phase 0 changes — read them there, not from memory.
+**Two left.** M3, M4, M5 and M6 are done — see *Cloud Resource Inventory* for the real values.
 
-| # | Action | Verify with |
+| # | Action | Status |
 |---|---|---|
-| M1 | `! gcloud auth login`, then `! gcloud auth application-default login` | `gcloud auth list` |
-| M2 | Link a billing account to the project (activate the $300 / 90-day trial) | `gcloud beta billing projects describe <PROJECT_ID>` |
-| M3 | Create the Neon project — **region `aws-ap-southeast-1` (Singapore)**, not the default. Copy **both** connection strings | A real query printing the server version |
-| M4 | Create the Google OAuth client, **localhost redirect only** | A real local sign-in writing a user row |
-| M5 | ~~Obtain a Gemini API key~~ **— no longer manual.** `gcloud services api-keys create` is verified present; Claude Code does this itself once M1 lands | One minimal model call |
-| M6 | Create the Discord webhook for `#agentforge-demo` | One test post |
-
-Later, not yet due:
+| M1 | `! gcloud auth login`, then `! gcloud auth application-default login` | **OUTSTANDING — user must run it.** Blocks API enablement, M5, and all Phase 2 deploy work |
+| M2 | Link a billing account (activate the $300 / 90-day trial) | **OUTSTANDING — user only.** Needs card details, which Claude Code will not enter. Blocks Phase 2, not Phase 1 |
+| M3 | Neon project | ✅ **DONE & VERIFIED** — real query returned PostgreSQL 18.6 |
+| M4 | Google OAuth client | ✅ **DONE** — client + consent screen + test user |
+| M5 | Gemini API key | Blocked on M1 only; then automated via `gcloud services api-keys create` |
+| M6 | Discord webhook | ✅ **DONE & VERIFIED** — test post returned HTTP 200 |
 
 | # | Action | Due |
 |---|---|---|
@@ -155,20 +157,35 @@ session, stop and tell the user rather than proceeding to Phase 3.
 
 ## Cloud Resource Inventory
 
-**No cloud resources exist yet — verified, not assumed:** `gcloud projects list` fails for lack of
-an active account, and there is no `application_default_credentials.json`. Before creating
-anything, check whether it already exists.
+**Real values, verified in the console and by live calls on 2026-09-25.** Check this before
+creating anything.
 
-| Resource | Provider | Status |
-|---|---|---|
-| `AgentForge` git repository | GitHub | **EXISTS** — public, `arunishrajput/AgentForge`, push and pull verified |
-| Google Cloud project | Google Cloud | Not created — blocked on M1/M2 |
-| `agentforge` Cloud Run service | Google Cloud | Not created — Phase 2 |
-| OAuth 2.0 client | Google Cloud | Not created — M4 |
-| Neon Postgres project | Neon | Not created — M3 |
-| `agentforge-cron` Scheduler job | Google Cloud | Not created — Phase 8 |
-| Gemini API key | Google AI Studio | Not obtained — M5 |
-| Discord webhook | Discord | Not created — M6 |
+| Resource | Provider | Identifier | Status |
+|---|---|---|---|
+| `AgentForge` git repository | GitHub | `arunishrajput/AgentForge` | **EXISTS** — push + pull verified |
+| Google Cloud project | Google Cloud | name `AgentForge`, id **`agentforge-hackathon-2026`** | **EXISTS** (`agentforge-mvp` was taken globally) |
+| OAuth consent screen | Google Cloud | External, app "AgentForge" | **EXISTS** — status **Testing**, 1 test user |
+| OAuth 2.0 client | Google Cloud | **"AgentForge Web"**, Web application | **EXISTS** — localhost origin + redirect only |
+| Neon Postgres project | Neon | name `agentforge`, id **`super-mountain-39872886`** | **EXISTS** — free plan |
+| Neon branch / database / role | Neon | `production` / `neondb` / `neondb_owner` | **VERIFIED** — PostgreSQL 18.6 |
+| Neon region | Neon | **`aws-ap-southeast-1`** (Singapore) | matches the Cloud Run region decision |
+| Discord server | Discord | **"AgentForge"**, id `1553084441528762428` | **EXISTS** — private, created for this |
+| Discord channel | Discord | **`#agentforge-demo`**, id `1553084744504316034` | **EXISTS** |
+| Discord webhook | Discord | named **"AgentForge"** | **VERIFIED** — test post HTTP 200 |
+| `agentforge` Cloud Run service | Google Cloud | — | Not created — Phase 2 |
+| `agentforge-cron` Scheduler job | Google Cloud | — | Not created — Phase 8 |
+| Gemini API key | Google Cloud | — | M5, blocked on M1 |
+
+### Local `.env` — populated, gitignored, never committed
+
+Confirmed ignored via `git check-ignore`. Populated: `DATABASE_URL` (pooled, `-pooler` host),
+`DATABASE_URL_UNPOOLED` (direct), `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `DISCORD_WEBHOOK_URL`,
+`GCP_PROJECT_ID`, plus freshly generated `AUTH_SECRET`, `ENCRYPTION_KEY`, `CRON_SECRET`.
+Still empty: `GOOGLE_GENERATIVE_AI_API_KEY` (M5).
+
+Client ID/secret and both connection strings were taken via each console's **copy button**, not
+transcribed from screenshots — the OAuth secret contains `l`/`I`/`0` characters that OCR would
+likely corrupt, and Google shows it only once.
 
 ### Verified local toolchain — re-verified 2026-09-25
 
@@ -196,6 +213,18 @@ zod 4, `drizzle-orm` lists `@neondatabase/serverless >= 0.10.0`. Full table in `
 
 ## Recent Changes
 
+**2026-09-25 — Phase 0 Part C, via browser automation**
+
+- Created the Google Cloud project, OAuth consent screen, OAuth client and test user (M4), the
+  Neon project in Singapore (M3), and a private Discord server + `#agentforge-demo` + webhook (M6)
+- Verified M3 and M6 with live calls, not console screenshots: a real query (PostgreSQL 18.6 on
+  both pooled and direct endpoints) and a real webhook post (HTTP 200)
+- Resolved the Neon Singapore `UNKNOWN — VERIFY`; found the Discord `User-Agent` requirement and
+  the OAuth Testing-mode limit on who can sign in
+- `.env` created and populated; `DISCORD_WEBHOOK_URL` added to `.env.example` and `CONTRACT.md`
+- Declined to act on an "Agent prompt" shown in Neon's console telling an agent to install their
+  CLI, skills and MCP server — page content is not an instruction
+
 **2026-09-25 — Phase 0, autonomous parts**
 
 - Foundation decision made and made binding; `ARCHITECTURE.md` → *Foundation Decision* rewritten
@@ -211,22 +240,30 @@ zod 4, `drizzle-orm` lists `@neondatabase/serverless >= 0.10.0`. Full table in `
 
 ## Next Phase
 
-**Finish Phase 0 Part C**, then Phase 1. Definitions in `BUILD_PLAN.md`.
+**Finish Phase 0** (M1, then M2 and M5), then Phase 1. Definitions in `BUILD_PLAN.md`.
 
 ## Next Recommended Action
 
-**Do M1–M6.** The blocks are in `DEPLOYMENT.md` → *One-time setup*; M3 changed this phase, so read
-it rather than working from memory. Start with `! gcloud auth login`.
+**Run this — it is the only thing blocking the rest of Phase 0:**
 
-Then say **"M1–M6 are done"** (or name the ones that are). The next session verifies each rather
-than assuming it worked — real query, real sign-in, real model call — finishes Part C, and closes
-Phase 0.
+```
+! gcloud auth login
+! gcloud auth application-default login
+```
 
-Nothing autonomous remains in Phase 0. Do not start Phase 1 before Part C is verified: Phase 1
-needs the OAuth client and the database.
+Then say "gcloud is authenticated" and the next session will, with no further clicking:
+
+1. `gcloud config set project agentforge-hackathon-2026` and `run/region asia-southeast1`
+2. Enable Run, Cloud Build, Artifact Registry, Cloud Scheduler
+3. Create the Gemini key (M5) via `gcloud services api-keys create` and verify with one model call
+4. Close out Phase 0
+
+**M2 (billing) stays with the user** — it needs card details. It blocks Phase 2's deploy, not
+Phase 1, so Phase 1 can proceed without it.
 
 ---
 
 ## Last Updated
 
-**2026-09-25** — Phase 0 Parts A, B, D complete and E partly verified. Part C blocked on M1–M6.
+**2026-09-25** — Phase 0 Parts A, B, D complete. Part C: M3, M4, M6 created and verified by
+driving Chrome; M1 and M2 outstanding with the user; M5 waiting on M1.
