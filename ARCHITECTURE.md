@@ -54,66 +54,119 @@ One container, one database, no queue.
 
 ---
 
-## Foundation Decision
+## Foundation Decision — **BINDING**
 
-### Verdict: `NOT YET DECIDED` — Phase 0 Part A resolves this and the verdict becomes BINDING
+### Verdict: **HARVEST.** One Next.js App Router application, own engine, borrowed libraries
 
-The brief requires this decision be made in Phase 0 against real evaluation, not assumed here.
-What follows is the rubric, the candidate list, and the recorded leaning. **Phase 0 fills in the
-matrix, records the decision and the alternatives, and this section stops being provisional.**
+Decided in Phase 0 Part A on 2026-09-25, against licences and repository sizes verified from
+source. **This is binding.** Do not revisit without flagging a material change to the user.
 
-Timebox: **~2 hours.** If evaluation exceeds it, pick the lowest risk to shipping, record the
-decision, and move on. A fork that takes 10 hours to understand is worse than a lean engine that
-takes 6 hours to write.
+**What harvest means here:** build fresh in a single Next.js App Router app; take React Flow for
+the canvas, the Vercel AI SDK for provider-agnostic tool-calling, and Auth.js for Google OAuth;
+write the execution engine, the node registry, and the generation layer ourselves. No borrowed
+codebase, no fork to strip.
 
-### The three options
+### Why, in the order that decided it
 
-| Option | Meaning |
-|---|---|
-| **Fork** | Clone an existing project, strip to essentials, build on top |
-| **Harvest** | Build fresh, reuse specific libraries and patterns (React Flow, an AI SDK) |
-| **Build lean** | Own minimal engine, no borrowed codebase |
+1. **No candidate is a single container.** Every fork candidate is a multi-service monorepo —
+   Activepieces is NestJS + Angular, Flowise is Express + a Vite SPA, Windmill is Rust + Svelte.
+   The deployment unit is one Cloud Run container, so a fork's first task would be collapsing its
+   topology, which is hours of work that produces nothing demoable.
+2. **The cold-start cost is measured, not guessed.** Repository sizes, `gh api`, 2026-09-25:
+   n8n 123 MB of TypeScript, Activepieces 49 MB, Windmill 17 MB of Rust + 12 MB Svelte, Langflow
+   32 MB of Python, Flowise 8.3 MB. The MVP's engine — DAG walk, branch, bounded loop, step
+   records — is a few hundred lines. Reading enough of any candidate to modify it safely costs
+   more than writing that.
+3. **Stack fit is decisive at this timebox.** Only Flowise and Activepieces are permissively
+   licensed *and* TypeScript, and both carry a UI framework we would not choose (React SPA on
+   Express; Angular). Langflow is Python and Windmill is Rust — both break the one-JS-container
+   premise outright.
+4. **The agent axis does not transfer.** Flowise is the closest candidate on agents, but its
+   abstractions are LangChain chatflows, not general automation with triggers. We would fight its
+   data model to get workflows, schedules, and webhooks.
+5. **The borrowed parts are the parts worth borrowing.** React Flow is the canvas every candidate
+   uses anyway. The AI SDK gives tool-calling, which is the agent node's core. Auth.js gives
+   Google OAuth in about an hour.
 
-### Candidates
+**The accepted risk:** harvesting starts the integration catalogue empty. Accepted — `PRD.md`
+requires four integrations, not four hundred.
 
-`n8n is excluded.` Its Sustainable Use License restricts hosting a competing product.
-`UNKNOWN — VERIFY` current licence terms in Phase 0 before relying on that statement.
+### Licences, verified from each repository's own LICENSE file on 2026-09-25
 
-| Candidate | Stack | Licence | Notes |
-|---|---|---|---|
-| Activepieces | TypeScript / NestJS / Angular | `UNKNOWN — VERIFY` (MIT core + EE dirs reported) | Closest conceptual match; piece framework |
-| Windmill | Rust + TypeScript | `UNKNOWN — VERIFY` (AGPL reported) | Fast engine, script-first not node-first |
-| Typebot | TypeScript / Next.js | `UNKNOWN — VERIFY` (AGPL reported) | Conversational flows, not general automation |
-| Flowise | TypeScript / Node | `UNKNOWN — VERIFY` (Apache-ish reported) | LLM-chain oriented, closest on the agent axis |
-| Langflow | Python | `UNKNOWN — VERIFY` (MIT reported) | Python stack; mismatch with a single JS container |
+Verified by reading the file, not by trusting GitHub's detected label — five of these nine resolve
+to `NOASSERTION` under GitHub's licence detection, so the label is not usable evidence.
 
-### Evaluation criteria
+| Project | What the LICENSE file actually says | Usable for this build |
+|---|---|---|
+| **n8n** | Sustainable Use License v1.0 for the core. `.ee.`-named files and `.ee` dirs need an Enterprise licence. **Branches other than `master` are not licensed at all** | **No** — see correction below |
+| **Activepieces** | MIT Expat core; `packages/ee/` and `packages/server/api/src/app/ee` under a separate EE licence | Yes, licence-wise |
+| **Windmill** | AGPLv3 for `backend/` and `frontend/`; Apache-2.0 for the language clients and the OpenAPI/OpenFlow spec; proprietary behind the `enterprise` compile flag. Forks **must not** include the proprietary code | Yes, but AGPL is viral over the whole derived work |
+| **Typebot** | **FSL-1.1-Apache-2.0** (Functional Source License, converting to Apache-2.0). Prohibits "Competing Use" — making the software available in a commercial product or service that substitutes for it | Restricted |
+| **Flowise** | Apache-2.0 core; `packages/server/src/enterprise` and files with an explicit copyright notice are Commercial | Yes, licence-wise |
+| **Langflow** | MIT | Yes, licence-wise |
+| **React Flow** (`@xyflow/react`) | MIT | **Yes — adopted** |
+| **Vercel AI SDK** (`ai`) | Apache-2.0 | **Yes — adopted** |
+| **Auth.js** (`next-auth`) | ISC | **Yes — adopted** |
 
-1. **Licence** — can this be hosted publicly and built on for a hackathon submission? Flag AGPL
-   implications explicitly
-2. **Stack fit** — can Claude Code move fast in it
-3. **Extensibility** — can a new node type and an agent node be added without fighting the codebase
-4. **Deployment story** — does it ship a working Docker setup that survives on Cloud Run
-5. **Auth** — does it already have OAuth, or is it pluggable
-6. **Cold-start cost** — realistic hours to first meaningful modification
+#### Correction: the n8n claim in the original brief was imprecise
 
-**Bias toward whichever reaches a deployed, demoable state fastest.**
+The brief stated n8n's licence "restricts hosting a competing product." **The Sustainable Use
+License v1.0 contains no competing-product clause.** What it actually says is narrower and
+broader at once:
 
-### Recorded leaning (not a decision)
+> "You may use or modify the software only for your own internal business purposes or for
+> non-commercial or personal use. You may distribute the software or provide it to others only if
+> you do so free of charge for non-commercial purposes."
 
-**Harvest**, with a single Next.js App Router application:
+So a free, non-commercial hackathon demo is arguably permitted, and the stated reason for
+excluding n8n does not hold as written. **n8n stays excluded on three real grounds instead:** the
+SUL forecloses any future commercial use without relicensing, `master` is the only licensed
+branch, and at 123 MB of TypeScript it is the worst cold-start cost of any candidate. The
+conclusion survives; the reasoning had to be replaced.
 
-- One container serving both UI and API is exactly the Cloud Run unit — a forked multi-service
-  stack would have to be collapsed before it could deploy, which is work that produces no demo
-- React Flow for the canvas is the component every candidate uses anyway, without the rest
-- An AI SDK gives provider-agnostic tool-calling directly, which is the agent node's core
-- Auth.js v5 with the Google provider is roughly an hour, versus learning a foreign auth system
-- Drizzle or Prisma against Neon — `NOT YET DECIDED`, Phase 3
-- The engine we need (DAG walk, branch, bounded loop, step records) is a few hundred lines. Every
-  candidate's engine is far larger because it solves problems the MVP explicitly does not have
+`FSL` and `SUL` are source-available, not open-source. Neither is adopted, so neither constrains
+this build.
 
-The honest risk: harvesting means the integration catalogue starts empty. That is accepted — the
-MVP needs four integrations, not four hundred.
+### Alternatives rejected
+
+- **Fork Flowise** — `SUPERSEDED`. Best-licensed and smallest TS candidate (Apache-2.0, 8.3 MB),
+  but Express + Vite SPA is two services to collapse, and its chatflow model is not workflow
+  automation with triggers.
+- **Fork Activepieces** — `SUPERSEDED`. MIT core and the closest conceptual match, but Angular
+  plus NestJS plus 49 MB of TypeScript is the wrong stack at the wrong size.
+- **Fork Windmill / Langflow** — `SUPERSEDED`. Rust and Python respectively; both violate the
+  single-JS-container premise. Windmill additionally imposes AGPL on everything derived.
+- **Fork n8n** — `SUPERSEDED`. See the correction above.
+- **Build lean with no borrowed libraries** — `SUPERSEDED`. Hand-writing a canvas or a
+  tool-calling loop is a day each, and neither is a differentiator.
+
+### The adopted stack, versions verified from the npm registry on 2026-09-25
+
+| Package | Version | Note |
+|---|---|---|
+| `next` | 16.3.6 | `engines.node >= 20.9.0`; local Node is v26.8.2 |
+| `react` / `react-dom` | 19.3.0 | |
+| `@xyflow/react` | 12.12.0 | peer `react >= 17` — React 19 satisfied |
+| `ai` | 7.0.114 | AI SDK v7 |
+| `@ai-sdk/google` | 4.0.80 | peer `zod ^3.25.76 \|\| ^4.1.8` — satisfied by zod 4 |
+| `next-auth` | **5.0.0-beta.32** | see the note below |
+| `@auth/drizzle-adapter` | 1.11.3 | |
+| `drizzle-orm` / `drizzle-kit` | 0.45.3 / 0.31.11 | peers include `@neondatabase/serverless >= 0.10.0` |
+| `@neondatabase/serverless` | 1.1.0 | |
+| `zod` | 4.6.5 | |
+| `tailwindcss` | 4.3.3 | |
+| `typescript` | 7.0.2 | |
+
+**Auth.js v5 is still a beta, and is still the right choice.** `next-auth@latest` is 4.24.15,
+whose peer range does not include Next 16. Only `next-auth@beta` (5.0.0-beta.32) declares
+`next: ^14 || ^15 || ^16` and `react: ^18.2 || ^19`. Taking the stable tag would mean pinning an
+older Next. Pin the exact beta version rather than tracking the `beta` tag, so a mid-hackathon
+beta release cannot break the build.
+
+**ORM: Drizzle, not Prisma** — resolves the `NOT YET DECIDED` this section previously carried into
+Phase 3. Drizzle's `@neondatabase/serverless` peer support is first-class, it needs no generate
+step or query engine binary in the container, and `@auth/drizzle-adapter` is maintained by the
+Auth.js project. Schema and migrations still land in Phase 3; only the choice is settled here.
 
 ---
 
@@ -166,6 +219,40 @@ Both are recorded as unimplemented fallbacks in `DEPLOYMENT.md`.
   as failed rather than silently stalling
 - **CPU is billed while an SSE stream is open.** Streams are therefore opened only while a run is
   active and closed on completion, never held open idly
+
+### Region — **BINDING**
+
+| Tier | Resource | Region |
+|---|---|---|
+| Compute | Cloud Run `agentforge` | **`asia-southeast1`** (Singapore) |
+| Database | Neon project `agentforge` | **`aws-ap-southeast-1`** (Singapore) |
+
+Decided in Phase 0 Part D on 2026-09-25 by the user. Everything else follows this pair — one
+region, recorded once.
+
+**Why not Mumbai, which the docs originally recommended.** Neon has no Mumbai region; its nearest
+Asia-Pacific region is Singapore. Cloud Run in `asia-south1` would put every database query
+~50–70 ms from the app. The engine writes step records per node, so a single eight-node run makes
+roughly 30 sequential queries — about **1.9 s of pure network latency per run**, against ~0.1 s
+co-located. Live per-node execution streaming is the demo's strongest moment, so the latency that
+compounds wins over the latency that does not.
+
+**What it costs.** Verified against Cloud Run's locations doc, 2026-09-25: `asia-south1` (Mumbai)
+and `us-east4` are **Tier 1** pricing; `asia-southeast1` (Singapore) is **Tier 2**. The free tier
+is applied as a spending-based discount computed at Tier 1 rates, so a Tier 2 region receives a
+slightly smaller effective allowance, and per-unit rates are higher. Exact Tier 1 / Tier 2 unit
+prices are `UNKNOWN — VERIFY` — the pricing page would not render for automated fetching. The
+premium is immaterial here regardless: `min-instances=1` across the hackathon window already
+exceeds the monthly free vCPU-second allowance in *any* region, so this build draws on the $300
+credit either way, and the tier delta is a few dollars of it.
+
+**Also rejected:** `us-east4` + Neon N. Virginia — Tier 1, co-located, and free North-America
+egress, which makes it the best choice for US-based judges. Rejected because the developer drives
+the live demo from India: ~250 ms per interaction on the deployed app, and ~250 ms per query for
+twelve phases of local development against the remote database.
+
+The developer's own browser now sits ~60–80 ms from the app instead of ~25 ms. Accepted — that is
+a handful of requests per page, not thirty per workflow run.
 
 ---
 
@@ -276,7 +363,8 @@ Neon Postgres, free tier.
 - **Neon free compute autosuspends** when idle, so the first query after a quiet period pays a
   wake-up. Combined with Cloud Run cold start this is the demo's slowest possible first moment —
   hence the warm-up step in `DEMO.md`
-- ORM and migration tool: `NOT YET DECIDED` — Phase 3
+- ORM and migration tool: **Drizzle** (`drizzle-orm` + `drizzle-kit`), decided in Phase 0 Part A.
+  Schema and migrations are written in Phase 3
 - Entities: `NOT YET DECIDED` in detail, but at minimum users/accounts/sessions (auth), credentials,
   workflows, runs, run_steps. Schema is binding at Phase 3 via `CONTRACT.md`
 
@@ -393,8 +481,10 @@ Commands and the resource inventory are in `DEPLOYMENT.md`.
 | A7 | Gemini only, behind a provider-agnostic adapter | **BINDING** for MVP | Only available key. Second provider is `PRD.md` S1 |
 | A8 | AES-256-GCM app-level credential encryption | Binding at Phase 6 | Meets "encrypted at rest" without KMS setup |
 | A9 | Discord instead of Slack | **BINDING** | Webhooks need no app review; Slack cannot be authorised for this build |
-| A10 | Foundation: harvest, single Next.js app | **LEANING** | Decided in Phase 0 |
-| A11 | ORM / migration tool | `NOT YET DECIDED` | Phase 3 |
+| A10 | Foundation: harvest, single Next.js app | **BINDING** | Decided in Phase 0 Part A, 2026-09-25, against verified licences and repo sizes |
+| A11 | ORM: Drizzle, not Prisma | **BINDING** | No generate step or query engine in the container; first-class Neon serverless support; `@auth/drizzle-adapter` is maintained by Auth.js |
+| A12 | Auth.js v5 pinned at `next-auth@5.0.0-beta.32` | **BINDING** | The stable v4 tag does not peer-support Next 16. Pin the exact version, not the `beta` tag |
+| A13 | Region pair: Cloud Run `asia-southeast1` + Neon Singapore | **BINDING** | Co-locating app and database beats Tier 1 pricing; see *Hosting platform* |
 
 ---
 

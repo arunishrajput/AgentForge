@@ -52,10 +52,20 @@ across `/clear` boundaries this is how duplicate infrastructure gets created.
 | Discord webhook URL | Credential | Discord | Demo output target | Phase 0 manual | No |
 | `AgentForge` | Git repository | GitHub | Source + persistent memory | Bootstrap | Yes |
 
-**Region.** Pick **one** region and use it everywhere. Recommended `asia-south1` (Mumbai) for
-Cloud Run, with the geographically closest available Neon region — Neon's free-tier region list is
-`UNKNOWN — VERIFY` at Phase 0. Keeping the database near the service matters: every node in a
-workflow run makes database round-trips.
+**Region — decided, Phase 0 Part D, 2026-09-25. Use it everywhere.**
+
+| Tier | Region | Pricing tier |
+|---|---|---|
+| Cloud Run | **`asia-southeast1`** (Singapore) | Tier 2 |
+| Neon | **`aws-ap-southeast-1`** (Singapore) | free plan |
+
+App and database are co-located deliberately: every node in a workflow run makes database
+round-trips, so cross-region latency multiplies by node count. Mumbai (`asia-south1`) is Tier 1
+and was the earlier recommendation, but Neon has no Mumbai region — the pair would have cost
+~50–70 ms per query. Full reasoning and the rejected alternatives are in `ARCHITECTURE.md` →
+*Hosting platform* → *Region*.
+
+`GCP_REGION=asia-southeast1` in `.env`. Set it once with `gcloud config set run/region`.
 
 ---
 
@@ -173,7 +183,9 @@ https://console.neon.tech  →  New Project.
 Steps:
 1. Sign in (Google sign-in with arunishrajput7@gmail.com is fine).
 2. Create a project named "agentforge".
-3. Pick the region geographically closest to the Cloud Run region (asia-south1 / Mumbai).
+3. Set the region to **AWS Asia Pacific (Singapore) — `aws-ap-southeast-1`**. This must match
+   the Cloud Run region; do not accept the default. If Singapore is not offered on the free plan,
+   stop and say so — the region pair needs re-deciding, not substituting.
 4. Open Connection Details and copy BOTH connection strings:
    - the POOLED one  (host contains "-pooler")
    - the DIRECT one  (no "-pooler")

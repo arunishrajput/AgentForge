@@ -10,7 +10,7 @@ Do not pre-empt them.
 
 | Section | Status | Filled by |
 |---|---|---|
-| Environment variables | **DEFINED** | Phase 0 (revise if the stack changes) |
+| Environment variables | **DEFINED** | Phase 0 — verified against the chosen stack 2026-09-25 |
 | Workflow / node / edge JSON | `NOT YET DECIDED` | Phase 3 |
 | Node definition interface | `NOT YET DECIDED` | Phase 3 |
 | Run and step records | `NOT YET DECIDED` | Phase 3 |
@@ -37,7 +37,7 @@ live in `.env` locally (never committed) and on the Cloud Run service in product
 | `DATABASE_URL_UNPOOLED` | Neon Postgres, **direct** endpoint | Migrations only. Pooling breaks session-level operations migrations need |
 | `AUTH_SECRET` | Session/JWT signing secret | 32+ random bytes. Different per environment |
 | `AUTH_URL` | Canonical app origin for OAuth callbacks | Must match the deployed origin **exactly**, or the Google callback fails in a way that looks like a bad client id |
-| `GOOGLE_CLIENT_ID` | Google OAuth client id | From the Phase 0 OAuth client |
+| `GOOGLE_CLIENT_ID` | Google OAuth client id | From the Phase 0 OAuth client. Auth.js v5 *auto-infers* `AUTH_GOOGLE_ID`/`AUTH_GOOGLE_SECRET`, not these names — pass these explicitly into the Google provider config. Verified Phase 0 |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth client secret | Secret |
 | `ENCRYPTION_KEY` | AES-256-GCM key for credentials at rest | 32 bytes, base64. **Rotating this makes every stored credential unreadable** |
 | `APP_BASE_URL` | Public base URL | Used to build webhook URLs shown to the user |
@@ -48,7 +48,7 @@ live in `.env` locally (never committed) and on the Cloud Run service in product
 
 | Variable | Purpose | Notes |
 |---|---|---|
-| `GOOGLE_GENERATIVE_AI_API_KEY` | Server-side Gemini key | Development and demo fallback only. **Users normally supply their own key in-app**; this is not a substitute for that feature |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | Server-side Gemini key | Development and demo fallback only. **Users normally supply their own key in-app**; this is not a substitute for that feature. This is the exact name `@ai-sdk/google` reads by default — verified Phase 0 |
 
 ### Deploy-time only — not read by the app
 

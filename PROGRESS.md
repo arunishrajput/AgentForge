@@ -7,60 +7,98 @@ concise and operational — prune stale detail rather than appending forever. Th
 
 ## Project Status
 
-**Bootstrap complete. No application code exists yet.**
+**Phase 0 is substantially complete and blocked on the user.** All decisions are made and recorded.
+No application code exists yet — correct for this phase.
 
-The repository contains documentation only. The next session builds Phase 0.
-
----
+Every autonomous part of Phase 0 is done: the foundation decision is made and binding, the stack
+and its versions are verified from the npm registry, all candidate licences are verified from
+source, the region pair is decided, and the repository and toolchain are proven. **Part C — every
+cloud resource — cannot start until M1–M6 are done in a browser.**
 
 ## Current Phase
 
-**Phase 0 — Setup, prerequisites, and foundation decision** (not started)
+**Phase 0 — Setup, prerequisites, and foundation decision**
 
 ## Phase Status
 
-`NOT STARTED`
+`BLOCKED — WAITING FOR MANUAL ACTION` (M1–M6)
 
 ## Completed Phases
 
-None. Documentation bootstrap is not a phase.
+None. Phase 0 completes when Part C is verified.
 
 ---
 
 ## Current Phase Tasks — Phase 0
 
-See `BUILD_PLAN.md` → Phase 0 for the authoritative list. Summary:
+- [x] **Part A — Foundation decision.** **HARVEST**, single Next.js App Router app. Binding.
+      Licences verified from every candidate's own LICENSE file; repo sizes measured via `gh api`.
+      Recorded in `ARCHITECTURE.md` → *Foundation Decision*. `NOT YET DECIDED` removed
+- [x] **Part B — Repo and environment.** Remote reachable, `git push --dry-run` and `git pull` both
+      verified. `.gitignore` confirmed to fit Next.js + Drizzle (`drizzle/` migrations are
+      deliberately *not* ignored). Toolchain versions re-verified
+- [ ] **Part C — Cloud and service prerequisites.** **BLOCKED on M1–M6.** Nothing can proceed:
+      `gcloud projects list` fails with "no active account", there is no ADC file, and no gcloud
+      configuration has an account or project
+- [x] **Part D — Resource strategy.** Region pair decided by the user and recorded. Naming
+      conventions and the existence-check rule are in `DEPLOYMENT.md` → *Services and resources*
+- [~] **Part E — Verification.** Versions print ✓. Git pushes ✓. `gcloud` authenticated ✗ (M1).
+      Database answers a query ✗ (M3)
 
-- [ ] **Part A** — Foundation decision. Evaluate candidates, **verify licences from source**, choose
-      fork / harvest / build lean, record in `ARCHITECTURE.md` and remove `NOT YET DECIDED`.
-      **Timebox ~2 h**
-- [ ] **Part B** — Confirm repo, remote, push *and* pull, `.gitignore` fits the chosen stack
-- [ ] **Part C** — `gcloud auth login`; Google Cloud project + billing; enable Run / Build /
-      Artifact Registry / Scheduler; Neon project verified with a real query; OAuth client
-      (localhost only); Gemini key; Discord webhook
-- [ ] **Part D** — Check before creating. Record naming, region, dependencies
-- [ ] **Part E** — Prove it: versions print, gcloud authenticated, database answers, git pushes
+## Decisions made this phase — all BINDING
 
-## Completed Tasks
+| # | Decision | Basis |
+|---|---|---|
+| D1 | **Foundation: harvest.** One Next.js App Router app; own engine, node registry, generation. React Flow + Vercel AI SDK + Auth.js borrowed | No candidate is a single container; measured cold-start cost; only Flowise/Activepieces are both permissive and TypeScript, and both carry an unwanted UI framework |
+| D2 | **ORM: Drizzle**, not Prisma — resolves a marker that pointed at Phase 3 | No generate step or query engine binary in the container; first-class `@neondatabase/serverless` peer support; `@auth/drizzle-adapter` is maintained by Auth.js |
+| D3 | **Auth.js v5 pinned at `next-auth@5.0.0-beta.32`** (exact version, not the `beta` tag) | `next-auth@latest` is 4.24.15 and does not peer-support Next 16. Only the v5 beta declares `next: ^14 \|\| ^15 \|\| ^16` |
+| D4 | **Region: Cloud Run `asia-southeast1` + Neon `aws-ap-southeast-1`** (both Singapore) | Co-location. Neon has no Mumbai region, so `asia-south1` would put every query ~50–70 ms away; an 8-node run makes ~30 sequential queries. Chosen by the user over the Tier 1 alternatives |
+| D5 | **n8n stays excluded, on corrected grounds** | The brief's stated reason was wrong — see *Corrections* below |
 
-**Documentation bootstrap — 2026-09-25**
+Full reasoning, the rejected alternatives, and the verified version table are in `ARCHITECTURE.md`.
 
-- [x] Verified the toolchain with real version checks (table below)
-- [x] Researched hosting cost reality; **switched host from Railway to Cloud Run + Neon** with the
-      user's confirmation
-- [x] Corrected the phase ladder: node registry moved to Phase 3, original Phase 8 split into 8 + 9
-- [x] Wrote all 11 documentation files plus 2 slash commands
-- [x] `git init`, first commit, GitHub repo created, push verified
+## Corrections to the documentation — material
+
+1. **The n8n licence claim was imprecise.** `ARCHITECTURE.md` said n8n's Sustainable Use License
+   "restricts hosting a competing product." Read from source, **SUL v1.0 has no competing-product
+   clause** — it limits use to internal-business/non-commercial/personal, and distribution to
+   free-of-charge non-commercial. A free hackathon demo is arguably permitted, so the stated reason
+   did not hold. n8n is still excluded, now on three real grounds: SUL forecloses future commercial
+   use, only `master` is licensed at all, and 123 MB of TypeScript is the worst cold-start cost of
+   any candidate. Conclusion survived, reasoning replaced.
+2. **Typebot is FSL-1.1-Apache-2.0, not AGPL** as the docs recorded. It is the candidate with a
+   genuine "Competing Use" prohibition — the restriction the docs had attributed to n8n.
+3. **The region recommendation was wrong for the database.** The docs recommended `asia-south1`
+   with "the closest available Neon region." Neon has no Mumbai region at all, which made the
+   recommended pair the high-latency option rather than the low-latency one.
+4. **`GOOGLE_CLIENT_ID` needs explicit wiring.** Auth.js v5 auto-infers `AUTH_GOOGLE_ID` /
+   `AUTH_GOOGLE_SECRET`, not the names in the contract. Noted in `CONTRACT.md` so Phase 1 does not
+   lose time to it. `GOOGLE_GENERATIVE_AI_API_KEY` *is* correct — it is what `@ai-sdk/google` reads.
+
+## Open, but blocking nothing
+
+**Project licence.** Deferred in the docs "until the foundation decision," and that constraint is
+now resolved: harvest inherits nothing copyleft, and every adopted dependency is permissive —
+React Flow MIT, Vercel AI SDK Apache-2.0, Auth.js ISC, Drizzle Apache-2.0, Next MIT (all verified
+from the registry). MIT is the obvious default. **Left to the user deliberately** — it governs
+whether others may commercialise the work, and D5 rejected n8n partly on that axis. Say the word
+and it takes one file.
 
 ## Blocked Tasks
 
-None.
+**Part C, entirely.** Google Cloud project creation, API enablement, Neon project, OAuth client,
+Gemini key, and Discord webhook all sit behind M1–M6. Phase 1 cannot start: it needs the OAuth
+client (M4) and the database (M3).
 
 ---
 
 ## Known Issues
 
-None yet. Nothing is built.
+| Issue | Impact | Action |
+|---|---|---|
+| **Docker daemon not running.** CLI is v29.7.2 but the socket is absent — Docker Desktop is not started | Phase 1 validation builds and runs the container locally | Start Docker Desktop before Phase 1. Not a Phase 0 blocker |
+| Cloud Run Tier 1 / Tier 2 unit prices are `UNKNOWN — VERIFY` | None material — see D4 | The pricing page will not render for automated fetching. Immaterial: `min-instances=1` exceeds the free allowance in any region, so the build draws on the $300 credit regardless |
+| Neon's free plan may not offer Singapore — `UNKNOWN — VERIFY` | Would invalidate D4 | `neon.com` is unreachable from this environment and the regions API needs a key. The user confirms it visually during M3; the manual action says to stop rather than substitute a region |
 
 Carried risks, recorded so they are not rediscovered:
 
@@ -70,6 +108,7 @@ Carried risks, recorded so they are not rediscovered:
 | In-flight runs die on redeploy — no queue | Any deploy during a run | Do not deploy on demo day; interrupted runs must read as failed |
 | OAuth production redirect URI cannot exist before the first deploy | Phase 2 | Two-pass manual action (`DEPLOYMENT.md`) |
 | Only one LLM provider available | `PRD.md` C10 / S1 | Provider-agnostic adapter; model selection across Gemini tiers |
+| Auth.js v5 is a beta | Phases 1–2 | Pin the exact version `5.0.0-beta.32`; never track the `beta` tag |
 | Google credential expiry mid-demo | Demo beat 8 | Phase 11 makes it legible; Fallback E |
 | Rotating `ENCRYPTION_KEY` destroys all stored credentials | Any time | Never rotate it. Stated in `DEMO.md` and `CONTRACT.md` |
 
@@ -77,16 +116,17 @@ Carried risks, recorded so they are not rediscovered:
 
 ## Manual Actions Pending
 
-All six belong to Phase 0. Exact copy-pasteable blocks are in `DEPLOYMENT.md` → *One-time setup*.
+**All six block Phase 0 Part C and therefore Phase 1.** Exact copy-pasteable blocks are in
+`DEPLOYMENT.md` → *One-time setup*. Two carry Phase 0 changes — read them there, not from memory.
 
-| # | Action | Blocks | Verify with |
-|---|---|---|---|
-| M1 | `gcloud auth login` + `gcloud auth application-default login` | Everything cloud | `gcloud auth list` |
-| M2 | Link a billing account to the Google Cloud project (activate the $300 / 90-day trial) | Phase 2 deploy | `gcloud beta billing projects describe <PROJECT_ID>` |
-| M3 | Create the Neon project; copy **both** connection strings (pooled + direct) | Phase 1 onward | A real query |
-| M4 | Create the Google OAuth client, **localhost redirect only** | Phase 1 | Real local sign-in |
-| M5 | Obtain a Gemini API key | Phases 6, 7 | One minimal model call |
-| M6 | Create the Discord webhook for `#agentforge-demo` | Phase 9, demo beat 8 | One test post |
+| # | Action | Verify with |
+|---|---|---|
+| M1 | `! gcloud auth login`, then `! gcloud auth application-default login` | `gcloud auth list` |
+| M2 | Link a billing account to the project (activate the $300 / 90-day trial) | `gcloud beta billing projects describe <PROJECT_ID>` |
+| M3 | Create the Neon project — **region `aws-ap-southeast-1` (Singapore)**, not the default. Copy **both** connection strings | A real query printing the server version |
+| M4 | Create the Google OAuth client, **localhost redirect only** | A real local sign-in writing a user row |
+| M5 | Obtain a Gemini API key | One minimal model call |
+| M6 | Create the Discord webhook for `#agentforge-demo` | One test post |
 
 Later, not yet due:
 
@@ -104,8 +144,8 @@ Later, not yet due:
 |---|---|
 | URL | None — created in Phase 2 |
 | Service | `agentforge` on Cloud Run — not created |
-| Region | `NOT YET DECIDED` — recommended `asia-south1`, fixed in Phase 0 |
-| Database | Neon — not created |
+| Region | **`asia-southeast1`** (Singapore) — decided, see D4 |
+| Database | Neon — not created. Target region `aws-ap-southeast-1` (Singapore) |
 | Last verified | Never |
 
 Phase 2 is **non-negotiable**: if the deployment is not live and reachable at the end of that
@@ -115,73 +155,78 @@ session, stop and tell the user rather than proceeding to Phase 3.
 
 ## Cloud Resource Inventory
 
-**No cloud resources exist yet.** Before creating anything, check whether it already exists — across
-`/clear` boundaries this is how duplicate infrastructure happens. Full table in `DEPLOYMENT.md` →
-*Services and resources*.
+**No cloud resources exist yet — verified, not assumed:** `gcloud projects list` fails for lack of
+an active account, and there is no `application_default_credentials.json`. Before creating
+anything, check whether it already exists.
 
 | Resource | Provider | Status |
 |---|---|---|
-| `AgentForge` git repository | GitHub | **EXISTS** — public, `arunishrajput/AgentForge` |
-| Google Cloud project | Google Cloud | Not created |
-| `agentforge` Cloud Run service | Google Cloud | Not created |
-| OAuth 2.0 client | Google Cloud | Not created |
-| Neon Postgres project | Neon | Not created |
+| `AgentForge` git repository | GitHub | **EXISTS** — public, `arunishrajput/AgentForge`, push and pull verified |
+| Google Cloud project | Google Cloud | Not created — blocked on M1/M2 |
+| `agentforge` Cloud Run service | Google Cloud | Not created — Phase 2 |
+| OAuth 2.0 client | Google Cloud | Not created — M4 |
+| Neon Postgres project | Neon | Not created — M3 |
 | `agentforge-cron` Scheduler job | Google Cloud | Not created — Phase 8 |
-| Gemini API key | Google AI Studio | Not obtained |
-| Discord webhook | Discord | Not created |
+| Gemini API key | Google AI Studio | Not obtained — M5 |
+| Discord webhook | Discord | Not created — M6 |
 
-### Verified local toolchain — 2026-09-25
+### Verified local toolchain — re-verified 2026-09-25
 
 | Tool | Version | State |
 |---|---|---|
-| `git` | 2.54.0 | ready |
+| `git` | 2.54.0 | ready; remote push + pull verified |
 | `gh` | 2.98.0 | authenticated as `arunishrajput` (`repo`, `workflow`, `gist`, `read:org`) |
-| `node` | v26.8.2 | ready |
-| `npm` | 11.19.1 | ready |
-| `pnpm` | 11.21.0 | ready |
-| `docker` | 29.7.2 | ready |
-| `gcloud` | 580.0.0 | installed, **no credentialed account** → M1 |
-| `aws` | 2.36.47 | authenticated (`hiveos-dev`, `890608337320`) — **not used**, AWS was rejected |
-| `psql` | — | not installed, and not needed |
-| `railway`, `flyctl`, `terraform` | — | not installed, not needed |
+| `node` | v26.8.2 | ready — satisfies Next 16's `engines.node >= 20.9.0` |
+| `npm` / `pnpm` | 11.19.1 / 11.21.0 | ready |
+| `docker` | 29.7.2 | CLI only — **daemon not running**, see Known Issues |
+| `gcloud` | 580.0.0 | installed, **no credentialed account, no ADC** → M1 |
+| `aws` | 2.36.47 | authenticated — **not used**, AWS was rejected |
+
+### Stack versions verified from the npm registry — 2026-09-25
+
+`next` 16.3.6 · `react` 19.3.0 · `@xyflow/react` 12.12.0 · `ai` 7.0.114 · `@ai-sdk/google` 4.0.80 ·
+`next-auth` **5.0.0-beta.32** (pin exactly) · `@auth/drizzle-adapter` 1.11.3 · `drizzle-orm` 0.45.3 ·
+`drizzle-kit` 0.31.11 · `@neondatabase/serverless` 1.1.0 · `zod` 4.6.5 · `tailwindcss` 4.3.3 ·
+`typescript` 7.0.2
+
+Peer compatibility checked, not assumed: React Flow accepts React 19, `@ai-sdk/google` accepts
+zod 4, `drizzle-orm` lists `@neondatabase/serverless >= 0.10.0`. Full table in `ARCHITECTURE.md`.
 
 ---
 
 ## Recent Changes
 
-**2026-09-25 — documentation bootstrap**
+**2026-09-25 — Phase 0, autonomous parts**
 
-- Created all 11 required docs + `.claude/commands/{next-phase,ship-check}.md`
-- **Host changed: Railway → Google Cloud Run + Neon Postgres** (binding). Railway's $5 trial credit
-  runs out inside the judging window; Cloud Run's Always Free has no end date and reuses the Google
-  Cloud project already required for OAuth and Gemini. AWS evaluated and rejected — no always-free
-  container tier, credit-based free plan expiring in 6 months, and 1–2 h of infra wiring. Both
-  recorded as unimplemented fallbacks in `DEPLOYMENT.md`
-- **Node registry moved from Phase 8 to Phase 3** — the agent's tool surface *is* the registry, so
-  the original order inverted the dependency
-- **Original Phase 8 split** into Phase 8 (triggers) and Phase 9 (integrations); later phases shifted
-- **No queue, no Redis, no worker.** Schedule triggers use Cloud Scheduler, because a scale-to-zero
-  service cannot run an in-process timer
-- **Gemini is the only wired LLM provider** — the brief's two-provider requirement is not achievable
-  with the available keys. Recorded in `PRD.md` → *Deviations*
-- **Discord replaces Slack** in the demo spine — no app review needed
+- Foundation decision made and made binding; `ARCHITECTURE.md` → *Foundation Decision* rewritten
+  with verified licences, measured repo sizes, the adopted stack table, and the rejected forks
+- Region pair decided with the user and recorded as binding in `ARCHITECTURE.md` and
+  `DEPLOYMENT.md`; `GCP_REGION` updated in `.env.example`
+- ORM (Drizzle) and Auth.js version pin settled; the ORM `NOT YET DECIDED` markers are cleared and
+  the decision table gained A11–A13
+- Four documentation corrections recorded above, two of which changed a conclusion's basis
+- `CONTRACT.md` env contract verified against the real stack and annotated
 
 ---
 
 ## Next Phase
 
-**Phase 0 — Setup, prerequisites, and foundation decision.** Definition in `BUILD_PLAN.md`.
+**Finish Phase 0 Part C**, then Phase 1. Definitions in `BUILD_PLAN.md`.
 
 ## Next Recommended Action
 
-Say **"Build Phase 0."**
+**Do M1–M6.** The blocks are in `DEPLOYMENT.md` → *One-time setup*; M3 changed this phase, so read
+it rather than working from memory. Start with `! gcloud auth login`.
 
-Expect the session to open with `MANUAL ACTION REQUIRED` blocks M1–M6, and to continue automatically
-with everything not blocked by them — the foundation evaluation in particular needs nothing from the
-user.
+Then say **"M1–M6 are done"** (or name the ones that are). The next session verifies each rather
+than assuming it worked — real query, real sign-in, real model call — finishes Part C, and closes
+Phase 0.
+
+Nothing autonomous remains in Phase 0. Do not start Phase 1 before Part C is verified: Phase 1
+needs the OAuth client and the database.
 
 ---
 
 ## Last Updated
 
-**2026-09-25** — documentation bootstrap. Nothing built, nothing deployed, Phase 0 next.
+**2026-09-25** — Phase 0 Parts A, B, D complete and E partly verified. Part C blocked on M1–M6.

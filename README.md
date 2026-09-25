@@ -82,8 +82,10 @@ each.
 
 ## Running locally
 
-`NOT YET DECIDED` — set in Phase 1 once the foundation decision is made. It will be a single
-application process plus the Neon database; there is no separate worker and no Redis.
+A single Next.js process plus the Neon database. No separate worker, no Redis.
+
+Exact commands land in Phase 1, when the scaffold exists — the foundation decision (Phase 0) fixed
+*what* it is, not yet *how to run it*.
 
 ## Deploying
 
@@ -134,11 +136,24 @@ Details, and the full list of what is intentionally simplified and what that cos
 | Queue | None. The executor runs in-process |
 | Auth | Google OAuth |
 | LLM | Google Gemini, behind a provider-agnostic adapter |
-| Framework / ORM / canvas | `NOT YET DECIDED` — Phase 0 foundation decision; leaning Next.js + React Flow |
+| Framework | Next.js 16 App Router (React 19) — one container serving UI and API |
+| ORM | Drizzle + `@neondatabase/serverless` |
+| Canvas | React Flow (`@xyflow/react`) |
+| Agent / tool-calling | Vercel AI SDK |
+| Auth library | Auth.js v5 (`next-auth`, pinned beta) |
+| Engine | Written here. In-process DAG walker, not borrowed |
+
+Decided in Phase 0 as **harvest** — build fresh, borrow libraries, no forked codebase. Reasoning,
+verified licences, and the rejected forks are in
+[`ARCHITECTURE.md`](./ARCHITECTURE.md) → *Foundation Decision*.
 
 ---
 
 ## License
 
-`NOT YET DECIDED` — set in Phase 0 alongside the foundation decision, since a forked foundation
-would constrain it.
+**Unconstrained, and still the owner's call.** The reason this was deferred is resolved: Phase 0
+chose harvest, so nothing copyleft or source-available is inherited. Every adopted dependency is
+permissive — React Flow MIT, Vercel AI SDK Apache-2.0, Auth.js ISC, Drizzle Apache-2.0.
+
+MIT is the obvious default for a hackathon submission. Left open deliberately rather than chosen on
+the owner's behalf, since it governs whether others may commercialise the work.
