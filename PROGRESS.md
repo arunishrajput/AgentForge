@@ -11,17 +11,17 @@ concise and operational — prune stale detail rather than appending forever. Th
 sign-in works end to end, and sessions persist in Neon. Verified by signing in through the actual
 container image, not just the dev server.
 
-**Phase 2 is blocked on M2 (billing), and only the user can clear it.** Nothing else blocks it.
+**M2 (billing) is cleared and verified — Phase 2 is unblocked and nothing else stands in its way.**
 
 ## Current Phase
 
-**Phase 2 — FIRST DEPLOY** (not started) — `BLOCKED — WAITING FOR MANUAL ACTION (M2)`
+**Phase 2 — FIRST DEPLOY** (not started) — `READY TO START`
 
 ## Completed Phases
 
 | Phase | Status |
 |---|---|
-| **Phase 0** — setup, prerequisites, foundation decision | **COMPLETE** except M2 (billing) |
+| **Phase 0** — setup, prerequisites, foundation decision | **COMPLETE** — M2 cleared 2026-09-25 |
 | **Phase 1** — application skeleton with Google auth | **COMPLETE** — verified in a container |
 
 ---
@@ -112,45 +112,17 @@ Carried risks, recorded so they are not rediscovered:
 
 | # | Action | Status |
 |---|---|---|
-| M2 | Link a billing account (activate the $300 / 90-day trial) | ❌ **OUTSTANDING — user only.** Needs card details, which Claude Code will not enter. **Blocks Phase 2 entirely** |
+| M2 | Link a billing account (activate the $300 / 90-day trial) | ✅ **DONE & VERIFIED 2026-09-25.** Confirmed by running the command that previously failed: `gcloud services enable` for the four Cloud Run APIs now succeeds, and all four list as enabled |
 | M7 | Add the **production** redirect URI to the OAuth client | Due in Phase 2, immediately after the first deploy |
 
-M1, M3, M4, M5, M6 are all **done and verified with live calls** — see *Cloud Resource Inventory*.
+**M7 is the only manual action left**, and it cannot be done before Phase 2's first deploy exists.
+M1–M6 are all **done and verified with live calls** — see *Cloud Resource Inventory*.
 
-**M2 gates API enablement, not just deployment.** Verified: `gcloud services enable` for `run`,
-`cloudbuild`, `artifactregistry` and `cloudscheduler` is rejected with
-`UREQ_PROJECT_BILLING_NOT_FOUND`. `apikeys` and `generativelanguage` enabled fine without it, which
-is why M5 completed.
+**For the record: M2 gated API enablement, not just deployment.** Before billing, `gcloud services
+enable` for `run`, `cloudbuild`, `artifactregistry` and `cloudscheduler` was rejected with
+`UREQ_PROJECT_BILLING_NOT_FOUND`; `apikeys` and `generativelanguage` enabled fine without it, which
+is why M5 completed. After billing, the same command returned a successful operation.
 
-```text
-MANUAL ACTION REQUIRED
-
-Reason:
-Billing gates more than deployment. `gcloud services enable` for run, cloudbuild,
-artifactregistry and cloudscheduler is rejected with UREQ_PROJECT_BILLING_NOT_FOUND until a
-billing account is linked. Without it Phase 2 cannot start at all.
-
-Location:
-https://console.cloud.google.com/billing?project=agentforge-hackathon-2026
-
-Steps:
-1. Open the URL above.
-2. Activate the free trial if offered, to receive the $300 / 90-day credit.
-3. Link the billing account to the project AgentForge (agentforge-hackathon-2026).
-
-Values to enter:
-None beyond the card details Google requires. Claude Code will not enter these.
-
-Expected result:
-The project shows under the billing account with status Active.
-
-Verification:
-gcloud services enable run.googleapis.com cloudbuild.googleapis.com \
-  artifactregistry.googleapis.com cloudscheduler.googleapis.com
-
-Resume by:
-Saying "billing is linked".
-```
 
 ---
 
@@ -164,7 +136,7 @@ Saying "billing is linked".
 | Service | `agentforge` on Cloud Run — not created |
 | Region | **`asia-southeast1`** (Singapore) |
 | Database | Neon `super-mountain-39872886`, region `aws-ap-southeast-1` — **live, auth tables applied** |
-| Last verified | 2026-09-25 (database only) |
+| Last verified | 2026-09-25 (database + Cloud Run APIs enabled; no service yet) |
 
 Phase 2 is **non-negotiable**: if the deployment is not live and reachable at the end of that
 session, stop and tell the user rather than proceeding to Phase 3.
@@ -187,6 +159,8 @@ session, stop and tell the user rather than proceeding to Phase 3.
 | Neon region | Neon | **`aws-ap-southeast-1`** (Singapore) | matches the Cloud Run region decision |
 | Discord server / channel / webhook | Discord | "AgentForge" · `#agentforge-demo` | **VERIFIED** — test post HTTP 200 |
 | Gemini API key | Google Cloud | "AgentForge Gemini", restricted to `generativelanguage.googleapis.com` | **VERIFIED** — real model call |
+| Billing account | Google Cloud | linked to `agentforge-hackathon-2026` | **ACTIVE 2026-09-25** — $300 / 90-day trial |
+| Enabled APIs | Google Cloud | `run`, `cloudbuild`, `artifactregistry`, `cloudscheduler` (+ `apikeys`, `generativelanguage`) | **ENABLED & VERIFIED 2026-09-25** |
 | `agentforge` Cloud Run service | Google Cloud | — | Not created — Phase 2 |
 | `agentforge-cron` Scheduler job | Google Cloud | — | Not created — Phase 8 |
 
@@ -225,6 +199,13 @@ the work. Say the word and it takes one file.
 
 ## Recent Changes
 
+**2026-09-25 — M2 cleared**
+
+- User linked the billing account. Verified by re-running the command that previously failed:
+  `gcloud services enable` for `run`, `cloudbuild`, `artifactregistry` and `cloudscheduler` now
+  succeeds, and all four confirmed present in `gcloud services list --enabled`
+- **Phase 2 is unblocked.** No manual action remains that can be done before the first deploy
+
 **2026-09-25 — Phase 1 complete**
 
 - Scaffolded the Next 16 app, wired Drizzle to Neon, and landed Auth.js v5 with Google sign-in and
@@ -247,15 +228,21 @@ billing.
 
 ## Next Recommended Action
 
-**Clear M2, then say "billing is linked".** The manual action block is above. Phase 2 cannot begin
-without it — not even the API enablement step.
+**Start Phase 2 in a fresh session** — `/clear`, then "Start the next phase".
 
-Once billing is live, Phase 2 is: enable the four APIs → `gcloud run deploy` → capture the real URL
-→ M7 (add the production redirect URI) → set production env vars → verify a real sign-in against the
-deployed URL.
+The four APIs are already enabled, so Phase 2 begins at the deploy: `gcloud run deploy` → capture
+the real service URL → **M7** (add the production redirect URI and origin to the OAuth client) →
+set production env vars including `AUTH_URL` / `APP_BASE_URL` → `min-instances=1` → verify a real
+Google sign-in against the deployed URL, not just a 200 from `/api/health`.
+
+Two things Phase 2 should carry in from Phase 1: the container exits 1 on a bad environment (D7), so
+a failed revision will not take traffic — trust that signal. And `UNKNOWN — VERIFY`: whether the
+deterministic `<service>-<project-number>.<region>.run.app` URL form lets M7 be pre-registered
+before the first deploy. Check it and record the answer.
 
 ---
 
 ## Last Updated
 
-**2026-09-25** — Phase 1 complete and verified in a container. Phase 2 blocked on M2 only.
+**2026-09-25** — Phase 1 complete and verified in a container. M2 cleared and verified;
+Phase 2 is ready to start.
