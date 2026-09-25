@@ -1,11 +1,11 @@
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, gt } from "drizzle-orm";
 
 import { db } from "@/db";
 import { runs, runSteps, type Run, type RunStep, type Workflow } from "@/db/schema";
 import { ApiError } from "@/lib/api";
 
 import { executeWorkflow, GraphInvalidError } from "./execute";
-import { dbRecorder, reapStaleRuns } from "./recorder";
+import { dbRecorder, reapStaleRuns, STALE_RUN_MS } from "./recorder";
 import type { TriggerKind } from "./types";
 
 /**
@@ -122,6 +122,60 @@ export async function listRuns(
     .where(where)
     .orderBy(desc(runs.startedAt))
     .limit(Math.min(options.limit ?? 50, 200));
+}
+
+/**
+ * The newest run of a workflow, row only. The SSE stream calls this every poll, so
+ * it deliberately does not read steps and does not reap: one statement, no writes.
+ */
+export async function latestRun(
+  ownerId: string,
+  workflowId: string,
+): Promise<Run | null> {
+  const [run] = await db()
+    .select()
+    .from(runs)
+    .where(and(eq(runs.ownerId, ownerId), eq(runs.workflowId, workflowId)))
+    .orderBy(desc(runs.startedAt))
+    .limit(1);
+
+  return run ?? null;
+}
+
+export async function readSteps(runId: string): Promise<RunStep[]> {
+  return db()
+    .select()
+    .from(runSteps)
+    .where(eq(runSteps.runId, runId))
+    .orderBy(asc(runSteps.seq));
+}
+
+/**
+ * A run of this workflow that is genuinely still in flight, for a page load that
+ * lands mid-run. The heartbeat window rather than `reapStaleRuns` because rendering
+ * a page must not write: an abandoned run is simply not returned here, and the
+ * reaper still moves it to `failed` the next time a run is listed or started.
+ */
+export async function liveRun(
+  ownerId: string,
+  workflowId: string,
+): Promise<{ run: Run; steps: RunStep[] } | null> {
+  const [run] = await db()
+    .select()
+    .from(runs)
+    .where(
+      and(
+        eq(runs.ownerId, ownerId),
+        eq(runs.workflowId, workflowId),
+        eq(runs.status, "running"),
+        gt(runs.heartbeatAt, new Date(Date.now() - STALE_RUN_MS)),
+      ),
+    )
+    .orderBy(desc(runs.startedAt))
+    .limit(1);
+
+  if (!run) return null;
+  return { run, steps: await readSteps(run.id) };
 }
 
 export function describeRun(run: Run, steps?: RunStep[]) {

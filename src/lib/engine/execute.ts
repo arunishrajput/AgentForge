@@ -172,7 +172,11 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
           nodeId: node.id,
           iteration,
           log: (text: string, level: LogLevel = "info") => {
-            logs.push({ at: new Date().toISOString(), level, message: text });
+            const entry: StepLog = { at: new Date().toISOString(), level, message: text };
+            logs.push(entry);
+            // Persisted as it is written, not when the node returns, so a slow node
+            // streams its reasoning instead of dumping it at the end.
+            recorder.stepLogged?.(step, entry);
           },
           signal,
         },

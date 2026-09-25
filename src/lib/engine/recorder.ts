@@ -21,6 +21,23 @@ import type { RunRecorder, StepRecord } from "./types";
 export const STALE_RUN_MS = 5 * 60_000;
 
 export function dbRecorder(runId: string): RunRecorder {
+  /**
+   * Every write for this run goes through one chain.
+   *
+   * `stepLogged` cannot be awaited — `context.log` is synchronous by design — so a
+   * log write is in flight while the engine moves on. Unchained, a late log write
+   * carrying `[a]` could land after the finished step wrote `[a, b]` and silently
+   * take the second line back. Serialising them means the last write always holds
+   * the longest log array, and `then(work, work)` means one failed write does not
+   * stall the rest.
+   */
+  let chain: Promise<unknown> = Promise.resolve();
+  const queue = <T>(work: () => Promise<T>): Promise<T> => {
+    const next = chain.then(work, work);
+    chain = next.catch(() => {});
+    return next;
+  };
+
   const insert = async (step: StepRecord) => {
     await db()
       .insert(runSteps)
@@ -35,7 +52,7 @@ export function dbRecorder(runId: string): RunRecorder {
         input: step.input ?? null,
         output: step.output ?? null,
         branch: step.branch,
-        logs: step.logs,
+        logs: [...step.logs],
         error: step.error,
         startedAt: step.startedAt ? new Date(step.startedAt) : null,
         finishedAt: step.finishedAt ? new Date(step.finishedAt) : null,
@@ -47,22 +64,33 @@ export function dbRecorder(runId: string): RunRecorder {
           config: step.config ?? null,
           output: step.output ?? null,
           branch: step.branch,
-          logs: step.logs,
+          logs: [...step.logs],
           error: step.error,
           finishedAt: step.finishedAt ? new Date(step.finishedAt) : null,
         },
       });
   };
 
+  /** Only the log column: the step is mid-flight, so nothing else is settled yet. */
+  const writeLogs = async (step: StepRecord) => {
+    await db()
+      .update(runSteps)
+      .set({ logs: [...step.logs] })
+      .where(and(eq(runSteps.runId, runId), eq(runSteps.seq, step.seq)));
+  };
+
   return {
-    stepStarted: insert,
-    stepFinished: insert,
-    heartbeat: async () => {
-      await db()
-        .update(runs)
-        .set({ heartbeatAt: new Date() })
-        .where(eq(runs.id, runId));
+    stepStarted: (step) => queue(() => insert(step)),
+    stepFinished: (step) => queue(() => insert(step)),
+    stepLogged: (step) => {
+      // A log line that cannot be persisted must not fail the run — the line is
+      // still in the step record the engine returns, and `stepFinished` writes it.
+      void queue(() => writeLogs(step)).catch(() => {});
     },
+    heartbeat: () =>
+      queue(async () => {
+        await db().update(runs).set({ heartbeatAt: new Date() }).where(eq(runs.id, runId));
+      }),
   };
 }
 

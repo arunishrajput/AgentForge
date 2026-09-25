@@ -425,7 +425,7 @@ to the owner, enforced server-side.
 
 ## Realtime transport — SSE
 
-**Server-Sent Events**, not WebSocket. Binding at Phase 5.
+**Server-Sent Events**, not WebSocket. **Built and verified in Phase 5.**
 
 - No session affinity configuration needed on Cloud Run; WebSockets require it
 - `EventSource` reconnects natively — no client reconnection logic to write or debug
@@ -433,11 +433,21 @@ to the owner, enforced server-side.
   execution events
 - One fewer moving part, which is the project's stated priority ordering
 
-Cost: Cloud Run bills CPU while a stream is open, so a stream is opened when a run starts and
-closed when it ends. The run view falls back to fetching the run record when no stream is open,
-so a reload mid-run still shows correct state.
+**The stream reads the database rather than an in-process emitter.** This is the one decision Phase
+5 had to get right. Execution is in-process, but the thing *watching* a run is a different request
+from the one running it — and for a webhook-triggered run (`DEMO.md` Beat 6) it is a different
+client entirely. Under `max-instances 3` those can be different containers, and an `EventEmitter`
+keyed by run id would then deliver nothing, with no error anywhere. Polling the `run` and
+`run_step` rows costs two statements every 300 ms while a stream is open and is correct regardless
+of which instance serves what. It also collapses "connect mid-run", "reconnect" and "reload the
+page" into one code path: every connection opens with a full snapshot.
 
-Event shapes: `CONTRACT.md`, binding at Phase 5.
+Cost: Cloud Run bills CPU while a stream is open, so a stream is opened when a run starts and
+closed when it ends — on a terminal run, after 20 s with no run to watch, or at a 150 s ceiling.
+`POST /runs` still returns the authoritative final state, so the canvas is correct even if no
+stream was ever open.
+
+Event shapes, the follow rule, and the headers: `CONTRACT.md` → *SSE event messages*.
 
 ---
 

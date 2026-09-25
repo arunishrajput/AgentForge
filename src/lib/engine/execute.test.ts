@@ -172,3 +172,65 @@ test("an unrunnable graph is rejected before any step exists", async () => {
   const noTrigger = graph([{ id: "lonely", type: "core.log" }], []);
   await assert.rejects(() => run(noTrigger), GraphInvalidError);
 });
+
+test("a log line written mid-node reaches the recorder before the step finishes", async () => {
+  // The whole point of streaming: an agent node that takes seconds has to be able to
+  // say what it is doing while it is still doing it. `core.delay` is the only node
+  // slow enough to make the ordering observable, so it is what asserts it.
+  const events: string[] = [];
+  const recorder: RunRecorder = {
+    stepStarted: (step) => { events.push(`start:${step.nodeId}`); },
+    stepFinished: (step) => { events.push(`finish:${step.nodeId}`); },
+    stepLogged: (step, log) => { events.push(`log:${step.nodeId}:${log.message}`); },
+    heartbeat: () => {},
+  };
+
+  const outcome = await run(
+    graph(
+      [
+        { id: "trigger", type: "core.manual_trigger" },
+        { id: "hold", type: "core.delay", config: { ms: 30 } },
+      ],
+      [{ source: "trigger", target: "hold" }],
+    ),
+    { name: "Arunish" },
+    recorder,
+  );
+
+  assert.equal(outcome.status, "succeeded");
+  assert.deepEqual(events, [
+    "start:trigger",
+    "log:trigger:Run started manually.",
+    "finish:trigger",
+    "start:hold",
+    "log:hold:Waiting 30 ms.",
+    "log:hold:Done waiting.",
+    "finish:hold",
+  ]);
+
+  // And the delay passes its input through, so it can be dropped into a chain.
+  const hold = outcome.steps.find((step) => step.nodeId === "hold")!;
+  assert.deepEqual(hold.output, { name: "Arunish" });
+  assert.equal(hold.logs.length, 2);
+});
+
+test("a delay is cut short by the run deadline rather than outliving it", async () => {
+  const outcome = await executeWorkflow({
+    runId: "run_test",
+    workflowId: "wf_test",
+    ownerId: "user_test",
+    graph: graph(
+      [
+        { id: "trigger", type: "core.manual_trigger" },
+        { id: "hold", type: "core.delay", config: { ms: 5000 } },
+      ],
+      [{ source: "trigger", target: "hold" }],
+    ),
+    deadlineMs: 40,
+  });
+
+  assert.equal(outcome.status, "failed");
+  const hold = outcome.steps.find((step) => step.nodeId === "hold")!;
+  assert.equal(hold.status, "failed");
+  assert.equal(hold.error, "The run stopped before this delay finished.");
+});

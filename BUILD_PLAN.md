@@ -318,7 +318,10 @@ they happen.
 **Tasks.**
 1. Define the SSE event shapes in `CONTRACT.md`
 2. Emit events from the engine at each node transition and log line
-3. An SSE endpoint per run, owner-scoped
+3. An SSE endpoint per run, owner-scoped — **refined during Phase 5 to per *workflow*, with an
+   optional `?runId=` pin.** A webhook-triggered run (Beat 6) is started by somebody else's
+   request, so the browser has no run id to open a stream for. See `CONTRACT.md` → *SSE event
+   messages*
 4. Client subscribes on run start, renders node status on the canvas and a log panel
 5. Close the stream when the run ends; fall back to fetching the run record when no stream is open
 6. Verify streaming works **through Cloud Run**, not only locally

@@ -14,7 +14,7 @@ import {
   type OnSelectionChangeParams,
 } from "@xyflow/react";
 import Link from "next/link";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import "@xyflow/react/dist/style.css";
 
@@ -35,6 +35,7 @@ import {
   type Run,
   type Workflow,
 } from "@/lib/canvas/client";
+import { useRunStream } from "@/lib/canvas/run-stream";
 import { defaultConfig } from "@/lib/canvas/schema";
 
 import { CanvasContext, type NodeRunState } from "./context";
@@ -56,13 +57,16 @@ import { WorkflowNodeView } from "./workflow-node";
 export function Editor({
   workflow,
   registry: palette,
+  liveRun = null,
 }: {
   workflow: Workflow;
   registry: NodeSummary[];
+  /** A run of this workflow still in flight when the page was rendered. */
+  liveRun?: Run | null;
 }) {
   return (
     <ReactFlowProvider>
-      <EditorInner workflow={workflow} palette={palette} />
+      <EditorInner workflow={workflow} palette={palette} liveRun={liveRun} />
     </ReactFlowProvider>
   );
 }
@@ -71,7 +75,15 @@ export function Editor({
 // on every render, and re-creates every node when it changes.
 const nodeTypes = { [CANVAS_NODE_TYPE]: WorkflowNodeView };
 
-function EditorInner({ workflow, palette }: { workflow: Workflow; palette: NodeSummary[] }) {
+function EditorInner({
+  workflow,
+  palette,
+  liveRun,
+}: {
+  workflow: Workflow;
+  palette: NodeSummary[];
+  liveRun: Run | null;
+}) {
   const initial = useMemo(() => toFlow(workflow.graph), [workflow.graph]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState<CanvasNode>(initial.nodes);
@@ -81,7 +93,7 @@ function EditorInner({ workflow, palette }: { workflow: Workflow; palette: NodeS
   const [saved, setSaved] = useState<Workflow>(workflow);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  const [run, setRun] = useState<Run | null>(null);
+  const { run, live, watch, stop, setRun } = useRunStream(workflow.id, liveRun);
   const [triggerInput, setTriggerInput] = useState("");
   const [busy, setBusy] = useState<null | "saving" | "running">(null);
   const [message, setMessage] = useState<{ tone: "error" | "info"; text: string } | null>(
@@ -112,6 +124,15 @@ function EditorInner({ workflow, palette }: { workflow: Workflow; palette: NodeS
     }
     return states;
   }, [run]);
+
+  // A page loaded mid-run reattaches to that run, so a reload during execution
+  // keeps showing it live instead of going blank until it finishes.
+  const attached = useRef(false);
+  useEffect(() => {
+    if (attached.current || !liveRun) return;
+    attached.current = true;
+    watch({ runId: liveRun.id });
+  }, [liveRun, watch]);
 
   const graph = useMemo(() => fromFlow(nodes, edges), [nodes, edges]);
   const dirty = !graphsEqual(graph, saved.graph) || name !== saved.name;
@@ -272,20 +293,34 @@ function EditorInner({ workflow, palette }: { workflow: Workflow; palette: NodeS
 
     setBusy("running");
     setMessage(null);
+    setSelectedId(null);
+    setNodes((all) => all.map((node) => ({ ...node, selected: false })));
+    // Clear the previous run first. The stream's first snapshot is a few hundred
+    // milliseconds away, and leaving the old run on screen means pressing Run shows
+    // a canvas full of green "Succeeded" badges for something that has not started.
+    setRun(null);
+
+    // The stream opens *before* the run is triggered. It has to: `POST /runs` is
+    // synchronous and does not return until the run is over, so a client that waited
+    // for a run id would have nothing left to watch. The stream works out which run
+    // is the new one by itself (D28).
+    watch();
+
     try {
-      const result = await api.runWorkflow(workflow.id, input);
-      setRun(result);
-      setSelectedId(null);
-      setNodes((all) => all.map((node) => ({ ...node, selected: false })));
+      // Authoritative, and it also covers the case where the stream never connected.
+      setRun(await api.runWorkflow(workflow.id, input));
     } catch (error) {
       setMessage({
         tone: "error",
         text: error instanceof ApiRequestError ? error.message : "The run could not start.",
       });
     } finally {
+      // The run is over by the time the POST resolves, so the stream has nothing
+      // left to say and Cloud Run should stop billing for it.
+      stop();
       setBusy(null);
     }
-  }, [dirty, save, saved, setNodes, triggerInput, workflow.id]);
+  }, [dirty, save, saved, setNodes, setRun, stop, triggerInput, watch, workflow.id]);
 
   const canvasValue = useMemo(() => ({ registry, runStates }), [registry, runStates]);
 
@@ -374,6 +409,7 @@ function EditorInner({ workflow, palette }: { workflow: Workflow; palette: NodeS
             definition={selected ? registry.get(selected.data.nodeType) : undefined}
             problems={saved.problems}
             run={run}
+            live={live}
             triggerInput={triggerInput}
             onChangeTriggerInput={setTriggerInput}
             onChangeNode={changeNode}

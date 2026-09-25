@@ -17,12 +17,12 @@ Built for the Zero Origin hackathon (Devpost) as a 72-hour solo build.
 
 ## Status
 
-**Phase 4 complete — workflows can be built visually and run, in production.**
+**Phase 5 complete — workflows can be built visually, run, and watched live, in production.**
 Google sign-in works; a workflow is built on a canvas from a registry-driven palette, configured
 through forms generated from each node's schema, saved and reloaded without loss, and run from the
-canvas with per-node status. Live status streaming (Phase 5), agent nodes (Phase 6) and
-natural-language generation (Phase 7) are still ahead. Current state is always in
-[`PROGRESS.md`](./PROGRESS.md).
+canvas. While it runs, each node's status and each log line stream to the browser over SSE as they
+happen, and reloading mid-run picks the run back up. Agent nodes (Phase 6) and natural-language
+generation (Phase 7) are still ahead. Current state is always in [`PROGRESS.md`](./PROGRESS.md).
 
 ---
 
@@ -95,7 +95,7 @@ A single Next.js process plus the Neon database. No separate worker, no Redis.
 npm run dev          # http://localhost:3000
 npm run build        # production build (needs no environment)
 npm run typecheck    # tsc --noEmit
-npm test             # critical-path tests: engine, validation, templates
+npm test             # critical-path tests: engine, validation, templates, streaming
 ```
 
 `npm test` runs the TypeScript sources directly on Node's built-in test runner — no framework, no

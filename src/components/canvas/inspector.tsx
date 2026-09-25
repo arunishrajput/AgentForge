@@ -19,6 +19,7 @@ export function Inspector({
   definition,
   problems,
   run,
+  live,
   triggerInput,
   onChangeTriggerInput,
   onChangeNode,
@@ -29,6 +30,8 @@ export function Inspector({
   definition: NodeSummary | undefined;
   problems: GraphProblem[];
   run: Run | null;
+  /** A stream is open on this run — the panel is watching, not showing history. */
+  live: boolean;
   triggerInput: string;
   onChangeTriggerInput: (value: string) => void;
   onChangeNode: (id: string, data: Partial<CanvasNode["data"]>) => void;
@@ -49,6 +52,7 @@ export function Inspector({
         <WorkflowInspector
           problems={problems}
           run={run}
+          live={live}
           triggerInput={triggerInput}
           onChangeTriggerInput={onChangeTriggerInput}
           onSelectNode={onSelectNode}
@@ -141,23 +145,38 @@ function NodeInspector({
 function WorkflowInspector({
   problems,
   run,
+  live,
   triggerInput,
   onChangeTriggerInput,
   onSelectNode,
 }: {
   problems: GraphProblem[];
   run: Run | null;
+  live: boolean;
   triggerInput: string;
   onChangeTriggerInput: (value: string) => void;
   onSelectNode: (id: string) => void;
 }) {
+  const watching = live && run?.status === "running";
+
   return (
     <>
-      <header className="border-b border-white/10 px-4 py-3">
-        <h2 className="text-sm font-medium">{run ? "Last run" : "Workflow"}</h2>
-        <p className="text-muted mt-0.5 text-[11px]">
-          {run ? "Select a node to edit it" : "Select a node to edit its configuration"}
-        </p>
+      <header className="flex items-start justify-between gap-2 border-b border-white/10 px-4 py-3">
+        <div className="min-w-0">
+          <h2 className="text-sm font-medium">
+            {run ? (run.status === "running" ? "Running" : "Last run") : "Workflow"}
+          </h2>
+          <p className="text-muted mt-0.5 text-[11px]">
+            {run ? "Select a node to edit it" : "Select a node to edit its configuration"}
+          </p>
+        </div>
+
+        {watching && (
+          <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-sky-400/15 px-2 py-0.5 text-[10px] font-medium text-sky-300 ring-1 ring-sky-400/40">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-sky-300" />
+            Live
+          </span>
+        )}
       </header>
 
       <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4">
@@ -179,7 +198,7 @@ function WorkflowInspector({
             when the webhook does not land (DEMO.md, contingency F). */}
         <TriggerInput value={triggerInput} onChange={onChangeTriggerInput} />
 
-        {run ? <RunSteps run={run} onSelectNode={onSelectNode} /> : null}
+        {run ? <RunSteps run={run} live={live} onSelectNode={onSelectNode} /> : null}
 
         {!run && problems.length === 0 && (
           <p className="text-muted text-[12px]">
@@ -236,7 +255,15 @@ function parses(value: string): boolean {
   }
 }
 
-function RunSteps({ run, onSelectNode }: { run: Run; onSelectNode: (id: string) => void }) {
+function RunSteps({
+  run,
+  live,
+  onSelectNode,
+}: {
+  run: Run;
+  live: boolean;
+  onSelectNode: (id: string) => void;
+}) {
   const runTone =
     run.status === "succeeded"
       ? "text-emerald-300"
@@ -248,9 +275,13 @@ function RunSteps({ run, onSelectNode }: { run: Run; onSelectNode: (id: string) 
     <section className="space-y-3">
       <div className="flex items-baseline justify-between">
         <span className={`text-[13px] font-medium ${runTone}`}>{run.status}</span>
-        {run.durationMs !== null && (
-          <span className="text-muted text-[11px]">{run.durationMs} ms</span>
-        )}
+        <span className="text-muted text-[11px]">
+          {run.durationMs !== null
+            ? `${run.durationMs} ms`
+            : live
+              ? "streaming"
+              : "in flight"}
+        </span>
       </div>
 
       {run.error && (

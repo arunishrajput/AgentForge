@@ -16,7 +16,7 @@ Do not pre-empt them.
 | Run and step records | **DEFINED** | Phase 3 — `src/lib/engine/types.ts`, `src/db/schema.ts` |
 | Execution state machine | **DEFINED** | Phase 3 — `src/lib/engine/types.ts` |
 | API request/response shapes | **DEFINED** for Phases 3's routes | Phase 3, extended by 4–9 |
-| SSE event messages | `NOT YET DECIDED` | Phase 5 |
+| SSE event messages | **DEFINED** | Phase 5 — `src/lib/engine/stream.ts` |
 | Agent tool-call schema | `NOT YET DECIDED` | Phase 6 |
 | Credential storage shape | Table **DEFINED**, API `NOT YET DECIDED` | Table Phase 3, API Phase 6 |
 | Generation request/response | `NOT YET DECIDED` | Phase 7 |
@@ -195,8 +195,10 @@ than trusting whatever `z.toJSONSchema` happens to build. The failure mode is a 
 render time, not a type error, so this is a property to keep deliberately.
 
 **Registered at Phase 3:** `core.manual_trigger`, `core.set`, `core.log`, `core.branch`,
-`core.loop`, `core.assert`. Phases 8–9 add entries to this table; they do not build a second
-registry.
+`core.loop`, `core.assert`. **Phase 5 added `core.delay`** — it waits a bounded number of
+milliseconds and passes its input through, which is both a real workflow need and the only node
+slow enough to make "status and logs arrive *incrementally*" something that can be asserted rather
+than assumed. Phases 8–9 add further entries to this table; they do not build a second registry.
 
 **Security boundary.** The agent reaches registry entries and nothing else. No shell node, no
 filesystem node, no arbitrary-network escape hatch.
@@ -309,22 +311,96 @@ loop.
 | `GET /api/workflows/:id/runs` | — | Run list for that workflow |
 | `GET /api/runs?workflowId=` | — | Run list |
 | `GET /api/runs/:id` | — | The run with its steps |
+| `GET /api/workflows/:id/stream` | — | **SSE.** The workflow's current run, live. `?runId=` pins one |
 
 A workflow is returned as `{ id, name, description, graph, runnable, problems, createdAt,
 updatedAt }`. `runnable` and `problems` come from `validateGraph`, so a client can show what is
 wrong without the save having failed.
 
 **`POST /runs` is synchronous.** Execution is in-process, so the request stays open until the run
-finishes. Phase 5 adds the SSE stream for watching a run live; this stays the way a run is started.
+finishes, and its response is the authoritative final state. Watching a run live is a *separate*
+concern — `GET /api/workflows/:id/stream`, below. The client opens that stream before it POSTs,
+because a request that does not return until the run is over cannot also tell you a run id to watch.
+
+A client disconnecting does **not** kill a run: verified against Cloud Run by aborting a `POST
+/runs` mid-flight and finding the run had still completed. So a mid-run reload recovers a run that
+is genuinely still going, rather than one its own reload killed.
 
 **Owner scoping is server-side on every route.** Every query filters on the session's user id;
 there is no code path that reads a workflow or run by id alone. Another user's record answers 404,
 not 403.
 
-## SSE event messages — `NOT YET DECIDED`
+## SSE event messages — **DEFINED**
 
-Filled by **Phase 5**. Must cover: event names, per-event payloads, node status transitions, log
-lines, run completion, and how a client that connects mid-run or reconnects recovers correct state.
+Shapes and framing live in `src/lib/engine/stream.ts`; the endpoint is
+`GET /api/workflows/:id/stream`, owner-scoped like every other route.
+
+### The endpoint is workflow-scoped, not run-scoped
+
+`BUILD_PLAN.md` Phase 5 said "an SSE endpoint per run". It is per *workflow*, with an optional
+`?runId=` pin, because a run fired by a webhook is started by somebody else's request and the
+browser has no run id to open a stream for — it can only ask what this workflow is doing. That is
+`DEMO.md` Beat 6 exactly. Pinning is for when the id is known: a mid-run reload, or a run opened
+from history.
+
+### The stream reads the database
+
+It polls the `run` and `run_step` rows every `STREAM_POLL_MS` (300 ms) rather than subscribing to
+an in-process emitter. Execution is in-process but the *watcher* is a different request, and under
+`max-instances 3` a different container — an emitter would show an empty canvas with no error.
+Reading rows also makes "connect mid-run", "reconnect" and "reload the page" one code path.
+
+### Events
+
+| Event | Payload | When |
+|---|---|---|
+| `snapshot` | the whole run, `steps` included — the same shape `GET /api/runs/:id` returns | The first time this stream sees a run, and whenever the run it is following changes |
+| `step` | `{ runId, step }` | A step appeared or changed: started, finished, branched, failed, or grew a log line |
+| `run` | `{ runId, status, output, error, finishedAt, durationMs }` — never `steps` | The run's own fields changed |
+| `done` | `{ runId, reason }` — `finished` \| `idle` \| `timeout` | The stream is over. **The client closes the `EventSource` on any reason** |
+| `stream_error` | `{ message }` | The stream cannot continue. Named `stream_error` because an event named `error` arrives on an `EventSource` indistinguishably from a transport failure |
+
+Comment frames (`: ping`) are keepalives and carry no meaning. `data` is always one line —
+`JSON.stringify` escapes every newline, and a raw newline would end the frame early.
+
+### Recovery is by snapshot, never by replay
+
+There are no event ids and no `Last-Event-ID` handling. Every connection begins with a `snapshot`
+of whatever the run currently is, so a client connecting mid-run, reconnecting after a dropped
+connection, or reloading the page is correct by construction. Steps are always emitted before the
+run-level change, so a client holds every final step status before it is told the run is over.
+
+### Which run a stream follows
+
+Not a timestamp comparison. **A run that was already finished the first time a stream looked is
+history**: its id becomes a baseline and it is never reported; any other id is. The client opens
+the stream and only then triggers the run, so at the first poll the newest run is very often the
+previous one — a first attempt compared `startedAt` against the container's clock with a five
+second window, and it adopted the wrong run the first time it ran against Cloud Run. The one case
+given up is a run that starts *and* finishes inside a single poll interval, and there the client
+already has the final state from `POST /runs`.
+
+### It is never idle for long
+
+Cloud Run bills CPU for as long as a stream is open. A stream closes on a terminal run, after
+`STREAM_IDLE_MS` (20 s) if no run ever appears, and at `STREAM_MAX_MS` (150 s) regardless — above
+the engine's 120 s deadline so a legitimate run is never cut off by its watcher.
+
+### Headers
+
+`content-type: text/event-stream`, `cache-control: no-cache, no-store, no-transform`,
+`x-accel-buffering: no`. `no-transform` is the one that matters: Next's production server runs the
+standard `compression` middleware — an HTML response from this build genuinely comes back gzipped —
+and that middleware buffers to 1 KiB and counts `text/event-stream` as compressible, which would
+present exactly as a broken stream.
+
+### `stepLogged`
+
+`RunRecorder` gained an optional `stepLogged`, so a log line is persisted when it is written rather
+than when its node finishes. It is not awaited, because `context.log` is synchronous by design; all
+of a run's writes are therefore serialised on one chain in `dbRecorder`, or a late log write could
+land after the finished step and silently drop a line. Without this a log only becomes visible when
+its node ends — which for an agent node is precisely when it stops being interesting.
 
 ## Agent tool-call schema — `NOT YET DECIDED`
 

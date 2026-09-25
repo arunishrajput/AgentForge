@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { assertNode } from "./core/assert";
 import { branchNode } from "./core/branch";
+import { delayNode } from "./core/delay";
 import { logNode } from "./core/log";
 import { loopNode } from "./core/loop";
 import { manualTrigger } from "./core/manual-trigger";
@@ -26,6 +27,7 @@ const definitions: RegisteredNode[] = [
   logNode,
   branchNode,
   loopNode,
+  delayNode,
   assertNode,
 ];
 

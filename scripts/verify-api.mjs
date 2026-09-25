@@ -38,6 +38,56 @@ async function page(path, cookie) {
   return { status: response.status, html: await response.text() };
 }
 
+/**
+ * Opens an SSE stream and records both the parsed frames and the raw chunk
+ * boundaries. The chunk timing is the point: it is the only way to tell "streaming"
+ * from "one buffered response that happened to contain every event".
+ */
+async function openStream(path, cookie) {
+  const controller = new AbortController();
+  const response = await fetch(`${base}${path}`, {
+    headers: {
+      accept: "text/event-stream",
+      ...(cookie ? { cookie: `${cookieName}=${cookie}` } : {}),
+    },
+    signal: controller.signal,
+  });
+
+  const frames = [];
+  const chunks = [];
+
+  const drained = (async () => {
+    if (!response.body || !response.headers.get("content-type")?.includes("event-stream")) return;
+    const decoder = new TextDecoder();
+    let buffer = "";
+    try {
+      for await (const chunk of response.body) {
+        chunks.push({ at: Date.now(), bytes: chunk.length });
+        buffer += decoder.decode(chunk, { stream: true });
+        let cut;
+        while ((cut = buffer.indexOf("\n\n")) !== -1) {
+          const raw = buffer.slice(0, cut);
+          buffer = buffer.slice(cut + 2);
+          const lines = raw.split("\n");
+          const name = lines.find((line) => line.startsWith("event: "))?.slice(7);
+          const payload = lines.find((line) => line.startsWith("data: "))?.slice(6);
+          frames.push({
+            at: Date.now(),
+            event: name ?? "comment",
+            data: name && payload ? JSON.parse(payload) : raw,
+          });
+        }
+      }
+    } catch (error) {
+      if (error?.name !== "AbortError") throw error;
+    }
+  })();
+
+  return { response, frames, chunks, drained, close: () => controller.abort() };
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 async function api(method, path, body, cookie) {
   const response = await fetch(`${base}${path}`, {
     method,
@@ -437,6 +487,165 @@ try {
     byNode("log")?.logs?.[0]?.message === "Branch matched: true",
     JSON.stringify(byNode("log")?.logs),
   );
+
+  // --- live execution streaming (Phase 5) -----------------------------------
+  // A run of only core nodes finishes in ~100 ms, which proves nothing about
+  // *incremental* delivery. This graph spends ~1.4 s in two delay nodes, so status
+  // transitions and log lines have to arrive spread out over several chunks.
+  const streamGraph = {
+    version: 1,
+    nodes: [
+      { id: "manual_trigger", type: "core.manual_trigger", position: { x: 0, y: 0 }, config: {} },
+      { id: "hold_1", type: "core.delay", position: { x: 260, y: 0 }, config: { ms: 700 } },
+      { id: "note_1", type: "core.log", position: { x: 520, y: 0 }, config: { message: "halfway", level: "info" } },
+      { id: "hold_2", type: "core.delay", position: { x: 780, y: 0 }, config: { ms: 700 } },
+      { id: "note_2", type: "core.log", position: { x: 1040, y: 0 }, config: { message: "done", level: "info" } },
+    ],
+    edges: [
+      { id: "e1", source: "manual_trigger", target: "hold_1", sourceHandle: null },
+      { id: "e2", source: "hold_1", target: "note_1", sourceHandle: null },
+      { id: "e3", source: "note_1", target: "hold_2", sourceHandle: null },
+      { id: "e4", source: "hold_2", target: "note_2", sourceHandle: null },
+    ],
+  };
+
+  const savedStream = await api("PATCH", `/api/workflows/${workflowId}`, { graph: streamGraph }, token);
+  check(
+    "the delay node is registered and a graph using it is runnable",
+    savedStream.status === 200 && savedStream.json?.data?.runnable === true,
+    JSON.stringify(savedStream.json?.data?.problems),
+  );
+
+  const anonymousStream = await fetch(`${base}/api/workflows/${workflowId}/stream`, {
+    headers: { accept: "text/event-stream" },
+  });
+  check(
+    "the stream refuses an unauthenticated request, as JSON rather than as a stream",
+    anonymousStream.status === 401 &&
+      !anonymousStream.headers.get("content-type")?.includes("event-stream"),
+    `got ${anonymousStream.status} ${anonymousStream.headers.get("content-type")}`,
+  );
+  await anonymousStream.body?.cancel();
+
+  const missingStream = await fetch(`${base}/api/workflows/does-not-exist/stream`, {
+    headers: { accept: "text/event-stream", cookie: `${cookieName}=${token}` },
+  });
+  check("the stream 404s for a workflow that is not yours", missingStream.status === 404,
+    `got ${missingStream.status}`);
+  await missingStream.body?.cancel();
+
+  const watcher = await openStream(`/api/workflows/${workflowId}/stream`, token);
+  check(
+    "the stream answers as text/event-stream",
+    watcher.response.status === 200 &&
+      watcher.response.headers.get("content-type")?.includes("text/event-stream"),
+    `${watcher.response.status} ${watcher.response.headers.get("content-type")}`,
+  );
+  check(
+    "the stream is marked no-transform, so nothing in the path may buffer it",
+    (watcher.response.headers.get("cache-control") ?? "").includes("no-transform"),
+    watcher.response.headers.get("cache-control"),
+  );
+
+  // Trigger the run without awaiting it: POST /runs is synchronous, so the whole
+  // point is that the stream reports progress while that request is still open.
+  const running = api("POST", `/api/workflows/${workflowId}/runs`, { input: { subject: "live" } }, token);
+
+  // Mid-run, a second client connects — a reload, or a judge opening a second tab.
+  await sleep(700);
+  const rejoined = await openStream(`/api/workflows/${workflowId}/stream`, token);
+
+  const streamedRun = await running;
+  await watcher.drained;
+  rejoined.close();
+  await rejoined.drained;
+
+  const runId = streamedRun.json?.data?.id;
+  check("the streamed run succeeded", streamedRun.json?.data?.status === "succeeded",
+    JSON.stringify(streamedRun.json?.data?.error));
+
+  const snapshots = watcher.frames.filter((frame) => frame.event === "snapshot");
+  check(
+    "the stream opens with a snapshot of the run it picked up by itself",
+    snapshots.length >= 1 && snapshots[0].data?.id === runId,
+    JSON.stringify(watcher.frames.map((frame) => frame.event)),
+  );
+
+  const stepFrames = watcher.frames.filter((frame) => frame.event === "step");
+  const runFrames = watcher.frames.filter((frame) => frame.event === "run");
+  const doneFrame = watcher.frames.find((frame) => frame.event === "done");
+
+  check(
+    "per-node status arrives while the run is still going, not in one batch at the end",
+    stepFrames.some((frame) => frame.data?.step?.status === "running") &&
+      stepFrames.some((frame) => frame.data?.step?.status === "succeeded"),
+    JSON.stringify(stepFrames.map((frame) => [frame.data?.step?.nodeId, frame.data?.step?.status])),
+  );
+
+  check(
+    "a log line written mid-node is streamed while that node is still running",
+    stepFrames.some(
+      (frame) =>
+        frame.data?.step?.status === "running" &&
+        (frame.data?.step?.logs ?? []).some((log) => log.message === "Waiting 700 ms."),
+    ),
+    JSON.stringify(
+      stepFrames.map((frame) => [frame.data?.step?.status, (frame.data?.step?.logs ?? []).length]),
+    ),
+  );
+
+  check(
+    "the run's own completion is streamed too",
+    runFrames.some((frame) => frame.data?.status === "succeeded"),
+    JSON.stringify(runFrames.map((frame) => frame.data?.status)),
+  );
+
+  check("the stream closes itself when the run ends", doneFrame?.data?.reason === "finished",
+    JSON.stringify(doneFrame));
+
+  const spread = watcher.chunks.length > 1
+    ? watcher.chunks.at(-1).at - watcher.chunks[0].at
+    : 0;
+  check(
+    "events cross the wire in separate chunks over time — genuinely not buffered",
+    watcher.chunks.length >= 3 && spread >= 400,
+    `${watcher.chunks.length} chunks over ${spread} ms`,
+  );
+
+  const rejoinSnapshot = rejoined.frames.find((frame) => frame.event === "snapshot");
+  check(
+    "a client joining mid-run recovers correct state from a snapshot",
+    rejoinSnapshot?.data?.id === runId &&
+      rejoinSnapshot?.data?.status === "running" &&
+      (rejoinSnapshot?.data?.steps ?? []).length >= 1,
+    JSON.stringify({
+      status: rejoinSnapshot?.data?.status,
+      steps: (rejoinSnapshot?.data?.steps ?? []).map((step) => [step.nodeId, step.status]),
+    }),
+  );
+
+  const pinned = await openStream(`/api/workflows/${workflowId}/stream?runId=${runId}`, token);
+  await pinned.drained;
+  check(
+    "a stream pinned to a finished run replays it once and closes",
+    pinned.frames.find((frame) => frame.event === "snapshot")?.data?.id === runId &&
+      pinned.frames.find((frame) => frame.event === "done")?.data?.reason === "finished",
+    JSON.stringify(pinned.frames.map((frame) => frame.event)),
+  );
+
+  // Cost, not correctness: a stream with nothing to watch must not stay open and
+  // bill Cloud Run CPU for ever. This is the only slow check in the script.
+  const idleWorkflow = await api("POST", "/api/workflows", { name: "verify: idle stream" }, token);
+  const idleId = idleWorkflow.json?.data?.id;
+  console.log("        (waiting ~21 s for the idle stream to close itself)");
+  const idle = await openStream(`/api/workflows/${idleId}/stream`, token);
+  await idle.drained;
+  check(
+    "a stream with no run to watch closes itself instead of idling",
+    idle.frames.find((frame) => frame.event === "done")?.data?.reason === "idle",
+    JSON.stringify(idle.frames.map((frame) => [frame.event, frame.data?.reason])),
+  );
+  await api("DELETE", `/api/workflows/${idleId}`, undefined, token);
 
   // Deleting the trigger is what a half-built canvas looks like: it must save.
   const halfBuilt = {

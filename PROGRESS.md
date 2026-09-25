@@ -7,19 +7,19 @@ concise and operational — prune stale detail rather than appending forever. Th
 
 ## Project Status
 
-**Phase 4 is complete. AgentForge has a working visual canvas in production.**
+**Phase 5 is complete. A run streams onto the canvas live, in production.**
 
 **https://agentforge-733000675212.asia-southeast1.run.app**
 
-A workflow can be built in the browser — nodes added from the registry-driven palette, connected by
-dragging handles, configured through forms generated from each node's schema — then saved, hard
-reloaded unchanged, and run from the canvas with per-node status shown on each node. Verified by 46
-live checks against the deployed URL **and** by driving the deployed canvas in a real browser. No
-manual actions pending.
+Press Run and the canvas fills in as the run proceeds: each node flips to `Running` and then
+`Succeeded`, log lines appear while the node that wrote them is still running, and a `Live` badge
+shows a stream is open. Reloading the page mid-run — or opening the canvas for a run someone else
+triggered — recovers correct state and keeps streaming. Verified by 61 live checks against the
+deployed URL **and** by driving the deployed canvas in a real browser. No manual actions pending.
 
 ## Current Phase
 
-**Phase 5 — live execution: per-node status and log streaming to the UI** (not started) —
+**Phase 6 — agent layer: LLM node, agent node with tool-calling, provider config** (not started) —
 `READY TO START`
 
 ## Completed Phases
@@ -31,6 +31,7 @@ manual actions pending.
 | **Phase 2** — first deploy, auth in production | **COMPLETE** — verified in a browser |
 | **Phase 3** — data model, node registry, execution engine | **COMPLETE** — verified on the deployed URL, 2026-09-25 |
 | **Phase 4** — visual canvas: build, edit, save, load | **COMPLETE** — verified on the deployed URL in a browser, 2026-09-26 |
+| **Phase 5** — live execution: per-node status and log streaming | **COMPLETE** — verified on the deployed URL in a browser, 2026-09-26 |
 
 ---
 
@@ -41,56 +42,76 @@ manual actions pending.
 | **Canonical URL** | **`https://agentforge-733000675212.asia-southeast1.run.app`** |
 | Legacy URL | `https://agentforge-i5d2u66boa-as.a.run.app` — works, do not publish it |
 | Service | `agentforge` on Cloud Run, `asia-southeast1` |
-| Revision | **`agentforge-00004-2xw`** — ready, 100% of traffic. Previous good revision: `agentforge-00003-ndb` |
+| Revision | **`agentforge-00008-l8q`** — ready, 100% of traffic. Previous good revision: `agentforge-00007-xx7` |
 | Scaling | `min-instances 1`, `max-instances 3`, 1 vCPU / 1 GiB, 3600 s timeout, port 8080 |
-| Env vars set | `NODE_ENV` `AUTH_URL` `APP_BASE_URL` `DATABASE_URL` `AUTH_SECRET` `GOOGLE_CLIENT_ID` `GOOGLE_CLIENT_SECRET` `ENCRYPTION_KEY` `CRON_SECRET` — 9, unchanged by Phase 4 |
+| Env vars set | `NODE_ENV` `AUTH_URL` `APP_BASE_URL` `DATABASE_URL` `AUTH_SECRET` `GOOGLE_CLIENT_ID` `GOOGLE_CLIENT_SECRET` `ENCRYPTION_KEY` `CRON_SECRET` — 9, unchanged by Phase 5 |
 | Database | Neon `super-mountain-39872886` — **8 tables**, migrations `0000` + `0001` applied |
-| Routes | `/` `/dashboard`→`/workflows` `/workflows` `/workflows/[id]` + 7 API routes |
-| Warm latency | health 142 ms India → Singapore; a 4-node run on the deployed canvas took **104 ms** |
-| Last verified | **2026-09-26** — `node --env-file=.env scripts/verify-api.mjs <url>`, all 46 checks passed, plus a browser build/save/reload/run on the deployed canvas |
+| Routes | `/` `/dashboard`→`/workflows` `/workflows` `/workflows/[id]` + 8 API routes (Phase 5 added `GET /api/workflows/[id]/stream`) |
+| Warm latency | health ~140 ms India → Singapore. A 5-node run whose two delay nodes wait 2.5 s each took **5.18 s**, with stream events at +449 ms, +2.98 s and +5.53 s |
+| Last verified | **2026-09-26** — `node --env-file=.env scripts/verify-api.mjs <url>`, all **61** checks passed, plus a browser run on the deployed canvas watched live from start to finish |
 
-**A redeploy preserves env vars.** Confirmed again on Phase 4's two deploys: `gcloud run deploy
+**A redeploy preserves env vars.** Confirmed again on Phase 5's four deploys: `gcloud run deploy
 agentforge --source . --region asia-southeast1` with no `--env-vars-file` carried all 9 variables
 to each new revision. The file is only needed when a variable changes.
 
 ---
 
-## Phase 4 — what was verified, not just written
+## Phase 5 — what was verified, not just written
 
-`npm test` — 41 tests, no database, ~130 ms. Phase 4 added 22: the canvas round trip and the
-schema→form mapping, both pure modules with no DOM.
-`scripts/verify-api.mjs` — **46 checks over HTTP**, run against localhost first, then the deployed
-URL. It mints a real database session row, drives the API exactly as a browser would, and deletes
-the row afterwards. Phase 4 added 13 covering the palette projection, page reachability and
-owner-scoping, and a canvas-shaped graph saving, running and reporting its problems.
+`npm test` — **60 tests**, no database, ~190 ms. Phase 5 added 19: the whole streaming protocol
+(`src/lib/engine/stream.test.ts`) plus two engine tests proving a log line reaches the recorder
+*before* its step finishes, and that a delay is cut short by the run deadline rather than outliving
+it.
+`scripts/verify-api.mjs` — **61 checks over HTTP**, run against localhost first, then the deployed
+URL. Phase 5 added 15, all of them about the stream.
 
-**A script cannot prove a canvas works.** So the deployed app was also driven in a real browser:
+**A script cannot prove a canvas streams.** So the deployed app was also driven in a real browser,
+sampling the DOM every 400 ms while a run was in flight:
 
 | Checked on the deployed canvas | Result |
 |---|---|
-| Palette built from the registry | ✓ six nodes, grouped by category, no hardcoded list |
-| Add four nodes by clicking the palette | ✓ laid out as a left-to-right chain, all in view |
-| Connect by dragging handles | ✓ 3 edges, ids `e1`–`e3`, branch edge carries `sourceHandle: "true"` |
-| Configure through generated forms | ✓ key/value editor, required marker, operator select, textarea |
-| Drag a node to a fractional position | ✓ `x: 884.784, y: 572.625` |
-| Save, then **hard reload** | ✓ every node position byte-identical, name and edges intact |
-| Header state after reload | ✓ reads `Saved`, not `Unsaved changes` — the jsonb key reorder does not read as dirty |
-| Run from the canvas with a trigger payload | ✓ succeeded in **104 ms**, all four nodes `Succeeded` |
-| Templates threaded end to end | ✓ `{{input.subject}}` → `{{input.topic}}` → `{{input.matched}}` |
-| Per-node status on the canvas | ✓ badge per node, branch shows `→ true` |
-| Delete the trigger, save | ✓ saves anyway, `runnable: false`, `no_trigger` shown in the panel |
-| Run an unrunnable workflow | ✓ blocked with a message, no run row created |
+| Press Run, watch the canvas fill in | ✓ `Manual trigger: Succeeded` at +0.4 s, first delay `Running`, second delay `Running` at +3.2 s, all `Succeeded` at +5.6 s |
+| `Live` badge while a stream is open | ✓ on from +0.8 s, off the moment the run ended |
+| Log lines mid-node | ✓ `Waiting 2500 ms.` shown while its node still read `Running`; `Done waiting.` added when it finished |
+| Press Run twice in a row | ✓ the second run starts from a clean canvas, does **not** show the first run's badges, and its stream follows the *new* run |
+| Load the canvas mid-run, run triggered from outside the browser | ✓ opened already showing 3 steps with the third `Running`, then advanced through each node for the next 28 s |
+| The run survives the client disconnecting | ✓ a `POST /runs` aborted after 1.2 s — the run still completed, `succeeded` in 5175 ms |
+| Stream closes itself | ✓ `done` with `reason: finished` at +5.53 s, and `reason: idle` after 20 s with no run |
 | Console | ✓ **0 errors, 0 warnings** |
-| Database left clean | ✓ 0 workflows, 0 runs, 0 steps; both test sessions revoked |
+| Database left clean | ✓ 0 workflows, 0 runs, 0 steps; every test session revoked |
 
-**Two real bugs were caught by warnings rather than by a failing check**, both fixed:
+**Wire timings, deployed, measured end to end** (Cloud Run, Singapore, from India):
 
-1. **The registry arrived after the first render.** It was fetched client-side, so every node
-   briefly drew with a single default output and React Flow could not resolve the edge leaving the
-   branch's `true` handle. On a cold instance a user would watch a branch node appear broken. The
-   page now passes `describeNodes()` from the server component.
-2. **`z.toJSONSchema` output would not cross the RSC boundary.** React rejects anything that is not
-   a plain object; `describeNode` now forces the schema through JSON. See `CONTRACT.md`.
+```
+stream open  +115 ms   200 text/event-stream
++  449 ms  snapshot  run running, 2 step(s)
++ 2979 ms  step      delay succeeded  logs=2 "Done waiting."
++ 2981 ms  step      delay_2 running  logs=1 "Waiting 2500 ms."     ← mid-node log
++ 5532 ms  step      delay_2 succeeded
++ 5532 ms  run       succeeded 5176 ms
++ 5534 ms  done      {"reason":"finished"}
++ 5535 ms  POST /runs resolved: succeeded
+```
+
+**Three real problems were found by running it, not by reading it:**
+
+1. **A `pull`-driven `ReadableStream` never polls.** The first version produced frames from the
+   stream's `pull` callback, which Next's Node adapter stops calling once its queue is satisfied.
+   It sent its opening frames and then went silent for ever — a stream that looks alive until you
+   watch the clock. The route now drives its own loop and enqueues on a timer.
+2. **The look-back adopted the wrong run.** Deciding which run to follow by comparing `startedAt`
+   against the stream's open time, with a 5 s window, passed locally and **failed the first time it
+   ran against Cloud Run**: the watcher latched onto the run from two seconds earlier, snapshotted
+   it and closed. It also compared two different clocks — the container's and Postgres's. Replaced
+   by a clock-free rule (D29).
+3. **Pressing Run showed the previous run's green badges** for the ~400 ms before the first
+   snapshot arrived, which reads as "already finished". The canvas now clears the run first.
+
+**One claim was measured rather than assumed.** `no-transform` on the stream was written down as
+"the thing stopping Next's `compression` middleware buffering the stream". Compression *is* active
+on this build — an HTML response comes back gzipped — but a route handler's response bypasses it in
+Next 16.3.6. The header stays, because that is an implementation detail and `no-transform` is the
+documented opt-out, but the code comment now says what was measured.
 
 ## Decisions — BINDING
 
@@ -119,6 +140,11 @@ Carried forward from every phase. These are the decisions later sessions must no
 | **D24** | **`describeNode` output must be plain JSON** | It crosses to a client component. React refuses to serialise anything else, and the failure is a console error at render time rather than a type error. See `CONTRACT.md` |
 | **D25** | **Dirty state is a structural graph comparison, never a string one** | Postgres `jsonb` reorders object keys, so a freshly loaded workflow would otherwise always read as having unsaved changes |
 | **D26** | **Adding a node is a click, not a drag** | It satisfies "the palette comes from the registry" with no drop-target failure mode, works on any input device, and the demo's editing beat opens a node rather than dragging one (`DEMO.md`, Beat 4) |
+| **D27** | **The run stream reads the database, not an in-process emitter** | The request *running* a workflow and the request *watching* it are different, and for a webhook-triggered run (`DEMO.md` Beat 6) they are different clients. Under `max-instances 3` they can be different containers, where an emitter delivers nothing and reports no error. Polling `run` + `run_step` costs two statements per 300 ms while a stream is open and is correct regardless |
+| **D28** | **The stream endpoint is workflow-scoped, with an optional `?runId=` pin** | Refines `BUILD_PLAN.md` Phase 5 task 3 deliberately. A browser cannot know the run id of a webhook-triggered run; it can only ask what a workflow is doing. `POST /runs` is also synchronous, so a client that waited for the response to learn a run id would have nothing left to watch |
+| **D29** | **Which run to follow is decided by id, never by clock** | A run already finished the first time a stream looks becomes a baseline and is never reported; any other id is. The first attempt compared `startedAt` to the stream's open time with a 5 s window — that is two different clocks (container and Postgres) and it adopted the wrong run the first time it met Cloud Run. Recovery is likewise by full `snapshot` on every connection, not by replaying events, so mid-run connect, reconnect and reload are one code path with no `Last-Event-ID` |
+| **D30** | **A log line is persisted when it is written, not when its node ends** | `RunRecorder.stepLogged`. `context.log` stays synchronous, so all of a run's writes are serialised on one chain in `dbRecorder` — otherwise a late log write lands after the finished step and silently drops a line. Without this an agent node's reasoning only appears once it has stopped reasoning |
+| **D31** | **A stream is never idle for long** | Cloud Run bills CPU for the whole time one is open. It closes on a terminal run, after 20 s with nothing to watch, and at a 150 s ceiling — above the engine's 120 s deadline, so a watcher can never cut a legitimate run short |
 
 ---
 
@@ -126,7 +152,7 @@ Carried forward from every phase. These are the decisions later sessions must no
 
 | Issue | Impact | Action |
 |---|---|---|
-| **Rollback is still untested** | Demo-day risk | Phase 3 created a second revision so it is now *possible*. The attempt was blocked by the session's production-deploy guard. **Run it manually once before demo day:** `gcloud run services update-traffic agentforge --region asia-southeast1 --to-revisions agentforge-00003-ndb=100`, verify, then shift back to the newest revision |
+| **Rollback is still untested** | Demo-day risk | Phase 3 created a second revision so it is now *possible*. The attempt was blocked by the session's production-deploy guard. **Run it manually once before demo day:** `gcloud run services update-traffic agentforge --region asia-southeast1 --to-revisions agentforge-00007-xx7=100`, verify, then shift back to `agentforge-00008-l8q` |
 | **Google OAuth changes take ~90 s to propagate** | Cost 90 s in Phase 2 | Wait and retry before suspecting a typo |
 | **A curl check cannot detect `redirect_uri_mismatch`** | Nearly caused a false "verified" | Only a real browser sign-in proves the OAuth redirect |
 | **`min-instances 1` bills continuously** | Cost, after the hackathon | **Set to 0 once judging ends** |
@@ -135,7 +161,9 @@ Carried forward from every phase. These are the decisions later sessions must no
 | **Discord rejects requests with no `User-Agent`** | Phase 9 Discord node | Send an explicit UA |
 | **`gemini-2.0-flash` is retired** | Phases 6, 7 | List models, never assume a name |
 | **No favicon — `/favicon.ico` 404s** | Cosmetic, visible in the browser tab on demo day | Phase 10 (UI/UX pass). `public/` already exists |
-| **A port-3000 `next dev` can outlive its session** | A stale server serves old code and the next session's `npm run dev` silently moves to 3001 | Check `lsof -nP -iTCP:3000 -sTCP:LISTEN` before trusting a local check |
+| **A port-3000 `next dev` can outlive its session** | A stale server serves old code and the next session's `npm run dev` silently moves to 3001 | Check `lsof -nP -iTCP:3000 -sTCP:LISTEN` before trusting a local check. **Hit again in Phase 5** — a stale `next-server` was still listening |
+| **`scripts/verify-api.mjs` leaves rows behind if it is killed** | Stray test workflows in the shared database | Its cleanup runs at the end, so a `ctrl-c` or a timeout skips it. Phase 5 found two orphans that way and deleted them. Check `select count(*) from "workflow"` after an interrupted run |
+| **A `pull`-driven `ReadableStream` does not stream under Next** | Would have shipped a stream that opens and then says nothing | The SSE route drives its own loop. Do not "simplify" it back to `pull` (see `src/app/api/workflows/[id]/stream/route.ts`) |
 | **Pinned Gemini models return 503 under load** | Demo reliability | The adapter needs retry + a fallback chain |
 | **Gemini first call took ~8.9 s** | Demo pacing | Warm the model before the demo |
 
@@ -148,7 +176,8 @@ Carried risks, recorded so they are not rediscovered:
 | Auth.js v5 is a beta | All phases | Pinned to exact `5.0.0-beta.32`; never track the `beta` tag |
 | Rotating `ENCRYPTION_KEY` destroys all stored credentials | Any time | Never rotate it |
 | Neon autosuspends independently of Cloud Run | Demo beat 1 | 9–32 ms warm, ~700 ms after ~6 min idle. `min-instances=1` does nothing for Neon — warm the database separately right before the demo |
-| A long run could outlive the request | Phases 6–9, when nodes call LLMs and APIs | Engine deadline is 120 s against Cloud Run's 3600 s. Raise deliberately if an agent node needs it |
+| A long run could outlive the request | Phases 6–9, when nodes call LLMs and APIs | Engine deadline is 120 s against Cloud Run's 3600 s. Raise deliberately if an agent node needs it — **and raise `STREAM_MAX_MS` (150 s) with it**, or the watcher closes before the run does |
+| A stream polls Neon twice every 300 ms | Cost, if many streams are open at once | Only while a run is being watched, and a stream closes itself. Revisit only if it shows up in Neon's compute hours |
 
 ---
 
@@ -166,7 +195,7 @@ Carried risks, recorded so they are not rediscovered:
 |---|---|---|---|
 | `AgentForge` git repository | GitHub | `arunishrajput/AgentForge` | **EXISTS** |
 | Google Cloud project | Google Cloud | `agentforge-hackathon-2026`, number **`733000675212`** | **EXISTS**, billing active ($300 / 90-day trial) |
-| **`agentforge` Cloud Run service** | Google Cloud | `asia-southeast1`, revision `agentforge-00002-zdg` | **LIVE 2026-09-25** |
+| **`agentforge` Cloud Run service** | Google Cloud | `asia-southeast1`, revision `agentforge-00008-l8q` | **LIVE 2026-09-26** |
 | **`cloud-run-source-deploy` repo** | Artifact Registry | `asia-southeast1` | **EXISTS** |
 | OAuth consent screen | Google Cloud | External, app "AgentForge" | **EXISTS** — status **Testing**, 1 test user |
 | OAuth 2.0 client | Google Cloud | "AgentForge Web", `733000675212-…ntm7` | **VERIFIED** — 4 redirect entries |
@@ -185,15 +214,15 @@ live. Phase 3's migration is purely additive, so the older revision still runs a
 
 All 15 contract variables have values; `.env.example` mirrors `CONTRACT.md`.
 
-### Installed stack — unchanged by Phase 3
+### Installed stack — unchanged by Phase 5
 
 `next` 16.3.6 · `react` / `react-dom` 19.3.0 · `next-auth` **5.0.0-beta.32** ·
 `@auth/drizzle-adapter` 1.11.3 · `drizzle-orm` 0.45.3 · `drizzle-kit` 0.31.11 ·
-`@neondatabase/serverless` 1.1.0 · `zod` 4.6.5 · **`@xyflow/react` 12.12.0** ·
+`@neondatabase/serverless` 1.1.0 · `zod` 4.6.5 · `@xyflow/react` 12.12.0 ·
 `tailwindcss` 4.3.3 · `typescript` 7.0.2
 
-**Phase 4 added exactly one dependency: `@xyflow/react` 12.12.0** (MIT, peer `react >= 17`), pinned
-exactly, as `ARCHITECTURE.md` planned. `ai` (Phase 6) is still deliberately not installed.
+**Phase 5 added no dependencies at all.** SSE needs none: a `ReadableStream` on the server and the
+browser's own `EventSource` on the client. `ai` (Phase 6) is still deliberately not installed.
 Tests run on Node's built-in runner.
 
 ### Local toolchain
@@ -206,10 +235,11 @@ Tests run on Node's built-in runner.
 ## How to verify the system, from a cold session
 
 ```bash
-npm run typecheck && npm test           # 41 tests, no database, ~130 ms
+npm run typecheck && npm test           # 60 tests, no database, ~190 ms
 npm run build                           # Turbopack; one expected process.exit warning
 
-# 46 checks end to end over HTTP. Mints a real session row, drives the API, cleans up.
+# 61 checks end to end over HTTP. Mints a real session row, drives the API, cleans up.
+# Takes ~40 s: one check deliberately waits 21 s for an idle stream to close itself.
 node --env-file=.env scripts/verify-api.mjs https://agentforge-733000675212.asia-southeast1.run.app
 
 # To look at the canvas without driving Google OAuth by hand: mint a session row,
@@ -223,23 +253,25 @@ Cookie name is `authjs.session-token` over http, `__Secure-authjs.session-token`
 `npm test` runs the TypeScript sources directly on Node's built-in runner via a 30-line resolve
 hook in `scripts/test-register.mjs`. **Consequence:** Node's strip-only mode rejects TypeScript
 that needs real transformation — no constructor parameter properties, no enums, no namespaces, no
-decorators anywhere in `src`. It cost one fix this phase.
+decorators anywhere in `src`.
 
 ---
 
-## Notes for Phase 5
+## Notes for Phase 6
 
-- **The canvas already has the shape Phase 5 needs.** `runStates` in
-  `src/components/canvas/editor.tsx` is a `Map<nodeId, NodeRunState>` derived from a finished run's
-  steps. Streaming means feeding that same map as events arrive instead of once at the end
-- **Status travels by context, not through node `data`** (D22). Keep it that way: a status change
-  must not rebuild every node object many times a second
-- **`POST /api/workflows/:id/runs` stays the way a run starts.** It is synchronous and returns the
-  finished run. The SSE stream is for *watching*, and `CONTRACT.md` → *SSE event messages* is still
-  `NOT YET DECIDED` — Phase 5 fills it
-- A client that connects mid-run or reconnects must recover correct state. The run and its steps
-  are already readable at `GET /api/runs/:id`, which is the obvious resync
-- `run_step.logs` is already `{ at, level, message }[]` and the inspector already renders it
+- **The streaming path is what makes an agent node watchable — use it.** `context.log` is already
+  persisted and streamed per line (D30), so an agent node that logs "calling tool X", "model chose
+  Y" gets a live reasoning trace on the canvas for free. Write those log lines deliberately; they
+  are `DEMO.md` Beat 7, the beat the product exists for
+- **`core.delay` is the only node currently slow enough to make streaming observable.** Once agent
+  nodes exist, they take over that job — but keep the delay node, it is what the streaming tests
+  assert against
+- **`agentCallable` defaults to false (D19).** Phase 6 decides deliberately which nodes the agent
+  may call; `core.delay` is currently `false`
+- The engine deadline is 120 s and the stream ceiling is 150 s. An agent node that needs longer
+  must raise `DEFAULT_DEADLINE_MS` *and* `STREAM_MAX_MS`, deliberately
+- `CONTRACT.md` → *Agent tool-call schema* is still `NOT YET DECIDED` — Phase 6 fills it
+- **`gemini-2.0-flash` is retired.** List models first, never assume a name (see Known Issues)
 
 ## Open, but blocking nothing
 
@@ -250,30 +282,29 @@ the user deliberately** — it governs whether others may commercialise the work
 
 ## Recent Changes
 
-**2026-09-26 — Phase 4 complete, the canvas is live**
+**2026-09-26 — Phase 5 complete, runs stream onto the canvas live**
 
-- Canvas, palette, config panel, workflow list and run view — deployed as revision
-  `agentforge-00004-2xw` and verified both by 46 HTTP checks and by driving the deployed canvas in
-  a browser
-- **Added `@xyflow/react` 12.12.0**, the one dependency this phase needed, pinned exactly
-- **Put the canvas↔graph mapping in one pure, tested module** (`src/lib/canvas/bridge.ts`), so the
-  round trip is asserted on Node with no DOM. `CONTRACT.md` now records its rules
-- **Generated every config form from the node's JSON Schema** (`src/lib/canvas/schema.ts`), tested
-  against the real registry — a node added in Phase 8 or 9 gets a working form with no UI work
-- **Found that the registry must be server-rendered, not fetched** (D23): fetching it made every
-  node briefly draw the wrong handles and broke the branch edge
-- **Found that `z.toJSONSchema` output will not cross the RSC boundary** (D24) — `describeNode`
-  now forces it through JSON
-- **Found that dirty-state detection must be structural** (D25): the Phase 3 note that `jsonb`
-  reorders keys turned out to matter here, not just in the verification script
-- Confirmed `z.unknown()` is *required* inside a zod 4 object, so a fresh Branch node is saveable
-  but not runnable until `left` is set — which is the behaviour the UI now shows
-- Added `scripts/mint-session.mjs` so a browser can reach the app without driving OAuth by hand
-- Sign-in now lands on `/workflows`; `/dashboard` redirects there
-
----
+- SSE endpoint, client hook, canvas status and log streaming — deployed as revision
+  `agentforge-00008-l8q` and verified by 61 HTTP checks plus a browser run watched start to finish
+- **Put the streaming protocol in one pure, tested module** (`src/lib/engine/stream.ts`): wire
+  shapes, framing, the follow rule, and the "what changed" diff. 19 tests, no database, no HTTP
+- **Chose to read the database rather than emit in-process** (D27), because the watcher and the
+  runner are different requests and, on Cloud Run, possibly different containers
+- **Found that a `pull`-driven `ReadableStream` silently stops polling** under Next's Node adapter;
+  the route drives its own loop
+- **Found that a clock-based "which run" rule fails on Cloud Run** — it adopted the previous run.
+  Replaced with an id baseline (D29)
+- **Added `RunRecorder.stepLogged`** (D30) so a log line is persisted as it is written; all of a
+  run's writes are now serialised on one chain so a late log write cannot clobber a finished step
+- **Added `core.delay`**, the one node slow enough to make incremental delivery assertable, and the
+  only current exercise of mid-node log streaming
+- **Deduplicated the run wire types**: `lib/canvas/client.ts` now imports them from
+  `lib/engine/stream.ts` instead of re-declaring them
+- Confirmed a client disconnecting does **not** kill a run on Cloud Run, so a mid-run reload
+  recovers a run that is genuinely still going
 
 ## Last Updated
 
-**2026-09-26** — Phase 4 complete. Revision `agentforge-00004-2xw` live, 46 deployed checks passed
-plus a browser build/save/reload/run on the deployed canvas. No manual actions pending.
+**2026-09-26** — Phase 5 complete. Revision `agentforge-00008-l8q` live, 61 deployed checks passed
+plus a browser run on the deployed canvas watched live from start to finish. No manual actions
+pending.

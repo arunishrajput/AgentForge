@@ -58,6 +58,16 @@ export interface RunOutcome {
 export interface RunRecorder {
   stepStarted: (step: StepRecord) => Promise<void> | void;
   stepFinished: (step: StepRecord) => Promise<void> | void;
+  /**
+   * A log line was written while the step was still running. Optional, and
+   * deliberately not awaited by the engine: `context.log` is synchronous, because
+   * a node author writing a log line should not have to think about a database.
+   *
+   * Without this a log only becomes visible when its node finishes, which for a
+   * node that takes seconds — every agent node from Phase 6 on — is precisely when
+   * it has stopped being interesting.
+   */
+  stepLogged?: (step: StepRecord, log: StepLog) => void;
   heartbeat: () => Promise<void> | void;
 }
 

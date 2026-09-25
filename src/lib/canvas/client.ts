@@ -1,6 +1,6 @@
 import type { ApiErrorCode } from "@/lib/api";
+import type { StreamRun } from "@/lib/engine/stream";
 import type { GraphProblem } from "@/lib/engine/validate";
-import type { StepLog } from "@/lib/nodes/types";
 import type { NodeSummary } from "@/lib/nodes";
 import type { WorkflowGraph } from "@/lib/workflow/graph";
 import type { describeWorkflow } from "@/lib/workflow/store";
@@ -18,40 +18,13 @@ import type { describeWorkflow } from "@/lib/workflow/store";
 export type Workflow = ReturnType<typeof describeWorkflow>;
 export type { NodeSummary, GraphProblem };
 
-/** CONTRACT.md → "Run and step records". Written out because `describeRun` returns
- *  a conditional shape that is awkward to consume. The table there is the arbiter. */
-export type RunStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
-export type StepStatus = "running" | "succeeded" | "failed" | "skipped";
-
-export interface RunStep {
-  seq: number;
-  nodeId: string;
-  nodeType: string;
-  iteration: number;
-  status: StepStatus;
-  config: unknown;
-  input: unknown;
-  output: unknown;
-  branch: string | null;
-  logs: StepLog[] | null;
-  error: string | null;
-  startedAt: string | null;
-  finishedAt: string | null;
-}
-
-export interface Run {
-  id: string;
-  workflowId: string;
-  status: RunStatus;
-  trigger: "manual" | "webhook" | "schedule" | "agent";
-  input: unknown;
-  output: unknown;
-  error: string | null;
-  startedAt: string;
-  finishedAt: string | null;
-  durationMs: number | null;
-  steps?: RunStep[];
-}
+/**
+ * CONTRACT.md → "Run and step records". The wire shapes live in
+ * `lib/engine/stream.ts`, which the SSE route and this client both read, so a
+ * streamed step and a fetched step cannot drift into two different shapes.
+ */
+export type { StreamRun as Run, StreamStep as RunStep } from "@/lib/engine/stream";
+export type { RunStatus, StepStatus } from "@/lib/engine/types";
 
 export class ApiRequestError extends Error {
   readonly code: ApiErrorCode | "network";
@@ -118,10 +91,10 @@ export const api = {
 
   /** Synchronous: the request stays open until the run finishes and returns every step. */
   runWorkflow: (id: string, input?: unknown) =>
-    request<Run>(`/api/workflows/${id}/runs`, {
+    request<StreamRun>(`/api/workflows/${id}/runs`, {
       method: "POST",
       body: JSON.stringify({ input: input ?? null }),
     }),
 
-  listRuns: (workflowId: string) => request<Run[]>(`/api/workflows/${workflowId}/runs`),
+  listRuns: (workflowId: string) => request<StreamRun[]>(`/api/workflows/${workflowId}/runs`),
 };
