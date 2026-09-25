@@ -9,16 +9,17 @@ to do at runtime.
 
 Built for the Zero Origin hackathon (Devpost) as a 72-hour solo build.
 
-**Live URL:** not yet deployed — created in Phase 2. `PROGRESS.md` → *Deployed State* is authoritative.
+**Live:** <https://agentforge-733000675212.asia-southeast1.run.app>
+
+`PROGRESS.md` → *Deployed State* is authoritative.
 
 ---
 
 ## Status
 
-**Phase 1 complete — the skeleton runs, locally and in a container, with real Google sign-in.**
+**Phase 2 complete — the skeleton is deployed and Google sign-in works in production.**
 Sessions persist in Neon. The canvas, execution engine and natural-language generation are still
-ahead. Not yet deployed; that is Phase 2. Current state is always in
-[`PROGRESS.md`](./PROGRESS.md).
+ahead — Phases 3, 4 and 7. Current state is always in [`PROGRESS.md`](./PROGRESS.md).
 
 ---
 
@@ -128,8 +129,17 @@ One container on Google Cloud Run, one database on Neon. Full procedure, verific
 in [`DEPLOYMENT.md`](./DEPLOYMENT.md).
 
 ```bash
-gcloud run deploy agentforge --source . --region "$GCP_REGION" --allow-unauthenticated
+gcloud run deploy agentforge --source . --region "$GCP_REGION" --allow-unauthenticated \
+  --min-instances 1 --max-instances 3 --memory 1Gi --cpu 1 --timeout 3600 --port 8080 \
+  --env-vars-file "$SCRATCH/run-env.yaml"
 ```
+
+Two things that are easy to get wrong, both covered in `DEPLOYMENT.md`:
+
+- **Environment variables belong on the deploy command**, not a follow-up update. A revision
+  missing one exits 1 on purpose, so the deploy fails rather than leaving a service to fix up
+- **The service has two URLs, and `--format='value(status.url)'` returns the wrong one.** The
+  canonical URL is the deterministic `https://<service>-<project-number>.<region>.run.app`
 
 ---
 

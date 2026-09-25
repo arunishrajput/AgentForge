@@ -1,0 +1,32 @@
+# What Cloud Build receives when deploying with `gcloud run deploy --source .`
+#
+# Written deliberately rather than letting gcloud generate one: an auto-generated
+# file lands untracked and its contents are not reviewed. Secrets must never enter
+# the build context — production values live on the Cloud Run service, not in the
+# image (DEPLOYMENT.md → Environment variables).
+#
+# This governs the UPLOAD. `.dockerignore` separately governs what `COPY . .`
+# puts inside the image.
+
+.git
+.gitignore
+.gcloudignore
+
+# Secrets.
+.env
+.env.*
+!.env.example
+
+# Rebuilt inside the container; uploading them is slow and can poison the build.
+node_modules
+.next
+*.tsbuildinfo
+next-env.d.ts
+
+# Documentation and local tooling are not build inputs.
+*.md
+.claude
+
+# Local noise.
+.DS_Store
+*.log

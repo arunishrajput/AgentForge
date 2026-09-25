@@ -36,11 +36,11 @@ live in `.env` locally (never committed) and on the Cloud Run service in product
 | `DATABASE_URL` | Neon Postgres connection, **pooled** endpoint | Application queries. Cloud Run multiplies connections; the pooled endpoint is not optional |
 | `DATABASE_URL_UNPOOLED` | Neon Postgres, **direct** endpoint | Migrations only — read by `drizzle.config.ts`, **not by the running server**. Phase 1 moved it out of the startup check deliberately: requiring it on Cloud Run would make the app refuse to boot over a variable it never opens. Pooling breaks the session-level operations migrations need |
 | `AUTH_SECRET` | Session/JWT signing secret | 32+ random bytes. Different per environment |
-| `AUTH_URL` | Canonical app origin for OAuth callbacks | Must match the deployed origin **exactly**, or the Google callback fails in a way that looks like a bad client id |
+| `AUTH_URL` | Canonical app origin for OAuth callbacks | Must match the deployed origin **exactly**, or the Google callback fails in a way that looks like a bad client id. In production this is `https://agentforge-733000675212.asia-southeast1.run.app` — the **deterministic** Cloud Run URL. The service also answers on a legacy hashed URL and `status.url` returns *that* one; using it here breaks sign-in (Phase 2, D10) |
 | `GOOGLE_CLIENT_ID` | Google OAuth client id | From the Phase 0 OAuth client. Auth.js v5 *auto-infers* `AUTH_GOOGLE_ID`/`AUTH_GOOGLE_SECRET`, not these names — pass these explicitly into the Google provider config. Verified Phase 0 |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth client secret | Secret |
 | `ENCRYPTION_KEY` | AES-256-GCM key for credentials at rest | 32 bytes, base64. **Rotating this makes every stored credential unreadable** |
-| `APP_BASE_URL` | Public base URL | Used to build webhook URLs shown to the user |
+| `APP_BASE_URL` | Public base URL | Used to build webhook URLs shown to the user. Same value as `AUTH_URL`, no trailing slash |
 | `CRON_SECRET` | Shared secret for `POST /api/cron/tick` | Cloud Scheduler sends it; the route rejects anything else |
 | `NODE_ENV` | `development` \| `production` | — |
 

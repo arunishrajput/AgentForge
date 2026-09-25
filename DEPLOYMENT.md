@@ -9,6 +9,22 @@ Every step is labelled **`AUTOMATED BY CLAUDE CODE`** or **`MANUAL HUMAN ACTION`
 
 ---
 
+## Live
+
+**https://agentforge-733000675212.asia-southeast1.run.app**
+
+| Field | Value |
+|---|---|
+| Service | `agentforge`, Cloud Run, `asia-southeast1` |
+| Revision | `agentforge-00001-h4k` — 100% of traffic |
+| Scaling | `min-instances 1`, `max-instances 3`, 1 vCPU / 1 GiB, 3600 s timeout |
+| Database | Neon `super-mountain-39872886`, `aws-ap-southeast-1` |
+| Last verified | 2026-09-25 — health, gating, and a full Google sign-in / reload / sign-out cycle |
+
+The service also answers on a legacy hashed URL. Do not use it — see *Deploy*.
+
+---
+
 ## Target platform
 
 **Google Cloud Run (single container) + Neon Postgres.** Binding — see `ARCHITECTURE.md` →
@@ -24,12 +40,12 @@ any overage during the hackathon. Neon's free tier and Gemini's free tier cover 
 
 | Requirement | Check | Status as of 2026-09-25 |
 |---|---|---|
-| `gcloud` CLI | `gcloud --version` | Installed (580.0.0), **not authenticated** |
+| `gcloud` CLI | `gcloud --version` | Installed (580.0.0), **authenticated**, project + region set |
 | `git` + `gh` | `gh auth status` | Authenticated as `arunishrajput` |
 | `docker` | `docker --version` | Installed (29.7.2) — local container testing only; Cloud Build builds for deploys |
 | Node toolchain | `node --version` | v26.8.2, npm 11.19.1, pnpm 11.21.0 |
-| Google Cloud project with billing | `gcloud config get-value project` | **Not yet created** — Phase 0 |
-| Neon project | a real query | **Not yet created** — Phase 0 |
+| Google Cloud project with billing | `gcloud config get-value project` | `agentforge-hackathon-2026`, billing **active** |
+| Neon project | a real query | `super-mountain-39872886`, **answers queries** |
 
 `psql` is **not** installed. Use Neon's SQL editor, or the app's own migration tooling, rather than
 adding a dependency.
@@ -43,10 +59,11 @@ across `/clear` boundaries this is how duplicate infrastructure gets created.
 
 | Resource | Type | Provider | Purpose | Created by | Claude Code may manage |
 |---|---|---|---|---|---|
-| `UNKNOWN — VERIFY` | Project | Google Cloud | Hosts Cloud Run, OAuth client, Scheduler | Phase 0 | Yes, after auth |
-| `agentforge` | Cloud Run service | Google Cloud | The whole application | Phase 2 | Yes |
-| `UNKNOWN — VERIFY` | OAuth 2.0 Client | Google Cloud | Google sign-in | Phase 0 manual, updated Phase 2 manual | No — console only |
-| `UNKNOWN — VERIFY` | Postgres project/branch | Neon | All persistence | Phase 0 | Partly — console for creation |
+| `agentforge-hackathon-2026` (number `733000675212`) | Project | Google Cloud | Hosts Cloud Run, OAuth client, Scheduler | Phase 0 | Yes |
+| `agentforge` | Cloud Run service | Google Cloud | The whole application | **Phase 2 — EXISTS** | Yes |
+| `cloud-run-source-deploy` | Artifact Registry repo | Google Cloud | Images built by `--source .` | **Phase 2 — auto-created** | Yes |
+| "AgentForge Web" (`733000675212-…ntm7`) | OAuth 2.0 Client | Google Cloud | Google sign-in | Phase 0 manual, updated Phase 2 manual | No — console only |
+| `agentforge` / `production` / `neondb` | Postgres project/branch | Neon | All persistence | Phase 0 | Partly — console for creation |
 | `agentforge-cron` | Cloud Scheduler job | Google Cloud | Fires due schedule triggers | Phase 8 | Yes |
 | Gemini API key | Credential | Google AI Studio | LLM calls | Phase 0 manual | No |
 | Discord webhook URL | Credential | Discord | Demo output target | Phase 0 manual | No |
@@ -74,16 +91,47 @@ and was the earlier recommendation, but Neon has no Mumbai region — the pair w
 `CONTRACT.md` → *Environment variables* is authoritative. `.env.example` mirrors it.
 
 - **Local:** `.env`, never committed
-- **Production:** set on the Cloud Run service. Secrets via `--set-env-vars` for the hackathon, or
+- **Production:** set on the Cloud Run service. Secrets via `--env-vars-file` for the hackathon, or
   Secret Manager if time permits. Never baked into the image
 
+**`DATABASE_URL_UNPOOLED` is deliberately NOT set on the service.** Only `drizzle.config.ts` reads
+it; the running container never opens the direct endpoint. Setting it would widen the production
+secret surface for a variable the app does not use. See `CONTRACT.md`.
+
+**Do not build the command with `--set-env-vars`.** Connection strings and base64 secrets contain
+`,` and `=`, which that flag treats as delimiters, and every value would land in shell history and
+in the process list. Use a file, written outside the repository:
+
 ```bash
-# AUTOMATED BY CLAUDE CODE — set production env vars
+# AUTOMATED BY CLAUDE CODE — set production env vars from a file, never inline.
+# Write it to a scratch directory outside the repo, chmod 600, delete it afterwards.
+cat > "$SCRATCH/run-env.yaml" <<'EOF'
+NODE_ENV: "production"
+AUTH_URL: "https://agentforge-733000675212.asia-southeast1.run.app"
+APP_BASE_URL: "https://agentforge-733000675212.asia-southeast1.run.app"
+DATABASE_URL: "<pooled Neon URL>"
+AUTH_SECRET: "<secret>"
+GOOGLE_CLIENT_ID: "<client id>"
+GOOGLE_CLIENT_SECRET: "<client secret>"
+ENCRYPTION_KEY: "<secret>"
+CRON_SECRET: "<secret>"
+EOF
+
 gcloud run services update agentforge --region "$GCP_REGION" \
-  --set-env-vars "NODE_ENV=production,AUTH_URL=$APP_BASE_URL,APP_BASE_URL=$APP_BASE_URL" \
-  --set-env-vars "DATABASE_URL=$DATABASE_URL,DATABASE_URL_UNPOOLED=$DATABASE_URL_UNPOOLED" \
-  --set-env-vars "AUTH_SECRET=...,GOOGLE_CLIENT_ID=...,GOOGLE_CLIENT_SECRET=..." \
-  --set-env-vars "ENCRYPTION_KEY=...,CRON_SECRET=..."
+  --env-vars-file "$SCRATCH/run-env.yaml"
+
+rm -f "$SCRATCH/run-env.yaml"
+```
+
+On the **first** deploy these go on `gcloud run deploy` itself with the same flag — see *Deploy*.
+A revision that boots without them exits 1 by design (`PROGRESS.md` → *Decisions*, D7), so the deploy fails.
+
+`--env-vars-file` **replaces** the entire set rather than merging, so the file must always list
+every variable. Confirm the names landed without printing any value:
+
+```bash
+gcloud run services describe agentforge --region "$GCP_REGION" \
+  --format='value(spec.template.spec.containers[0].env[].name)'
 ```
 
 Generate secrets locally, never by hand:
@@ -267,10 +315,9 @@ Steps:
 
 Values to enter:
 Authorised JavaScript origin:
-    <THE DEPLOYED CLOUD RUN URL>
+    https://agentforge-733000675212.asia-southeast1.run.app
 Authorised redirect URI:
-    <THE DEPLOYED CLOUD RUN URL>/api/auth/callback/google
-Claude Code will print both exact strings after the deploy.
+    https://agentforge-733000675212.asia-southeast1.run.app/api/auth/callback/google
 
 Expected result:
 Four entries total — two localhost, two production.
@@ -281,6 +328,18 @@ Sign in on the deployed URL; Claude Code confirms the user row in the production
 Resume by:
 Saying "production redirect URI added".
 ```
+
+**✅ DONE 2026-09-25.** Production sign-in completed end to end against the deployed URL.
+
+**Propagation is real and it is not instant.** The first attempt immediately after saving returned
+`Error 400: redirect_uri_mismatch` even though the registered URI was character-identical to the
+one the app sent. It succeeded ~90 seconds later with no further change. Wait and retry before
+suspecting a typo.
+
+**Do not "verify" this with curl.** Fetching the Google authorization URL without a Google session
+returns the ordinary sign-in page, *not* an error — Google validates `redirect_uri` only after it
+has identified the account. A clean curl is a false positive. The only valid check is a real
+browser sign-in with a session.
 
 ### 5. Gemini API key — **MANUAL HUMAN ACTION**
 
@@ -375,16 +434,19 @@ Pasting the webhook URL. Treat it as a secret — anyone holding it can post to 
 
 ## Deployment order
 
-1. Neon project exists and answers a query
-2. Google Cloud project exists, billing linked, APIs enabled
-3. OAuth client exists (localhost pass)
-4. `Dockerfile` builds and runs locally
-5. **Deploy** to Cloud Run
-6. Add the production redirect URI (OAuth pass 2)
-7. Set production environment variables
-8. Run migrations against the production database
-9. Verify behaviour
-10. Cloud Scheduler job (from Phase 8)
+1. ✅ Neon project exists and answers a query
+2. ✅ Google Cloud project exists, billing linked, APIs enabled
+3. ✅ OAuth client exists (localhost pass)
+4. ✅ `Dockerfile` builds and runs locally
+5. ✅ **Deploy** to Cloud Run — *with* the environment variables, not before them
+6. ✅ Add the production redirect URI (OAuth pass 2), then allow ~90 s to propagate
+7. ✅ Verify behaviour in a browser, against the database
+8. ⬜ Cloud Scheduler job (Phase 8)
+
+Steps 5 and 7 swapped places relative to the original plan, and the old step 8 is gone. Both
+follow from facts found in Phase 2: a revision missing a variable exits 1, so variables cannot come
+after the deploy; and there is **one** Neon database serving local and production alike, so
+migrations applied locally are already live. There is no separate production migration step.
 
 There is no separate frontend deploy. **One container serves UI and API** — see `ARCHITECTURE.md` →
 *Deployment topology*.
@@ -392,6 +454,9 @@ There is no separate frontend deploy. **One container serves UI and API** — se
 ---
 
 ## Deploy — **AUTOMATED BY CLAUDE CODE**
+
+This is the exact command that produced revision `agentforge-00001-h4k` on 2026-09-25.
+Environment variables go on the **first** deploy too, not afterwards — see below.
 
 ```bash
 gcloud run deploy agentforge \
@@ -403,22 +468,49 @@ gcloud run deploy agentforge \
   --memory 1Gi \
   --cpu 1 \
   --timeout 3600 \
-  --port 8080
+  --port 8080 \
+  --env-vars-file "$SCRATCH/run-env.yaml"
 ```
 
 Notes:
 - `--source .` makes Cloud Build build the `Dockerfile`. No local `docker push`, no ECR equivalent
+- **`--env-vars-file` belongs on the first deploy.** A revision with a missing variable calls
+  `process.exit(1)` by design (`PROGRESS.md` → *Decisions*, D7), so deploying bare and configuring afterwards
+  fails the deploy instead of producing a service to configure
+- The first `--source` deploy prompts to create the Artifact Registry repository
+  `cloud-run-source-deploy` in the region. Answer yes; it is created once and reused
 - `--min-instances 1` removes cold starts during the hackathon, funded by the $300 credit. **Drop
   to 0 after the event** or it bills continuously beyond the Always Free allowance
 - `--max-instances 3` is a cost guard, not a scaling strategy
 - `--timeout 3600` is the 60-minute ceiling that lets long runs finish inside a request
 - The container must listen on `$PORT` (8080). This is the most common first-deploy failure
+- `.gcloudignore` controls what is uploaded to Cloud Build. It is committed deliberately so the
+  upload is reviewable; without it gcloud writes an untracked one on first deploy
 
-Get the URL:
+### The service has two URLs — know which one is canonical
+
+**Verified 2026-09-25.** Cloud Run issued both, and both serve the same revision:
+
+| Form | URL | Use |
+|---|---|---|
+| **Deterministic — CANONICAL** | `https://agentforge-733000675212.asia-southeast1.run.app` | Everything: `AUTH_URL`, OAuth, the demo, the README |
+| Legacy hashed | `https://agentforge-i5d2u66boa-as.a.run.app` | Nothing. Works, but do not publish it |
+
+**`--format='value(status.url)'` returns the LEGACY one.** Following the obvious command would
+have put the wrong origin in `AUTH_URL` and broken production sign-in. Both are listed in the
+`run.googleapis.com/urls` annotation, deterministic first:
 
 ```bash
-gcloud run services describe agentforge --region "$GCP_REGION" --format='value(status.url)'
+# The canonical URL. Do not use status.url for this.
+gcloud run services describe agentforge --region "$GCP_REGION" \
+  --format='value(metadata.annotations."run.googleapis.com/urls")' \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)[0])'
 ```
+
+**`UNKNOWN — VERIFY` resolved: the deterministic URL CAN be pre-registered before the first
+deploy.** It is `https://<service>-<project-number>.<region>.run.app`, both parts knowable in
+advance (`gcloud projects describe <project> --format='value(projectNumber)'`). The predicted URL
+matched the deployed one exactly. A future rebuild can therefore register OAuth before deploying.
 
 ---
 
@@ -434,6 +526,12 @@ DATABASE_URL="$DATABASE_URL_UNPOOLED" <migration command>   # exact command set 
 Run migrations **after** the deploy that contains them, from a local shell against the production
 database. Do not run migrations on container start — with more than one instance, concurrent
 migrations race.
+
+> **There is one Neon database.** Local development and production share `super-mountain-39872886`
+> / `production` / `neondb`. A migration applied from a developer machine is **immediately live**.
+> There is no staging copy to practise on, so read a destructive migration twice, and never run one
+> on demo day. This also means Phase 2 had no separate "migrate production" step — the Phase 1
+> migration was already applied.
 
 ---
 
@@ -458,22 +556,33 @@ lengthen the schedule if usage becomes a concern.
 A deploy is verified only when all of these pass. Exit codes are not evidence.
 
 ```bash
-# 1. Service and revision — AUTOMATED
+# 1. Revision ready and taking 100% of traffic — AUTOMATED
 gcloud run services describe agentforge --region "$GCP_REGION" \
-  --format='value(status.url,status.latestReadyRevisionName)'
+  --format='value(status.latestReadyRevisionName,spec.traffic)'
 
-# 2. Health, from outside — AUTOMATED
+# 2. Health, from outside — AUTOMATED. Use the CANONICAL url, not status.url.
 curl -fsS "$APP_BASE_URL/api/health"
 
 # 3. Logs, no startup errors — AUTOMATED
 gcloud run services logs read agentforge --region "$GCP_REGION" --limit 50
 
-# 4. Database, real query through the app's client — AUTOMATED
+# 4. Route gating without a session — AUTOMATED. Must be 307 to /.
+curl -sS -o /dev/null -w '%{http_code} -> %{redirect_url}\n' "$APP_BASE_URL/dashboard"
+
+# 5. Env var NAMES landed, without printing any value — AUTOMATED
+gcloud run services describe agentforge --region "$GCP_REGION" \
+  --format='value(spec.template.spec.containers[0].env[].name)'
 ```
 
-**5. Auth flow — MANUAL HUMAN ACTION.** In a browser, ideally on a machine that has never run the
-project: load the URL, sign in with Google, reload and confirm the session persists. Claude Code
-then confirms the user row in the production database.
+**6. Auth flow — browser required.** Load the canonical URL, sign in with Google, reload to confirm
+the session persists, then sign out. Claude Code proves each step against the database rather than
+trusting the screen: count `session` rows before and after. A production sign-in on an account that
+already exists must add **one session row and zero user rows** — a second user row would mean
+account linking is broken. Sign-out must delete that session row and leave `user` and `account`
+intact.
+
+Result on 2026-09-25: sessions 1 → 2 on sign-in, same `userId`, users stayed 1; sign-out returned
+`POST 200 /dashboard` and took it back to 1.
 
 **6. Realtime — AUTOMATED + browser.** From Phase 5: trigger a run on the deployed URL and confirm
 per-node events arrive incrementally.
@@ -489,7 +598,7 @@ with this.
 gcloud run services logs read agentforge --region "$GCP_REGION" --limit 100
 gcloud run services logs tail agentforge --region "$GCP_REGION"
 gcloud run revisions list --service agentforge --region "$GCP_REGION"
-gcloud builds list --limit 5
+gcloud builds list --region="$GCP_REGION" --limit 5   # builds are REGIONAL; without it you see nothing
 gcloud builds log <BUILD_ID>          # when a deploy fails, read this before touching the Dockerfile
 ```
 
@@ -502,6 +611,10 @@ gcloud builds log <BUILD_ID>          # when a deploy fails, read this before to
 | Deploy fails during build | Dockerfile or dependency issue | `gcloud builds log <BUILD_ID>`. Read it; do not guess |
 | "Container failed to start and listen on PORT" | App hardcodes a port | Listen on `process.env.PORT`, default 8080 |
 | OAuth `redirect_uri_mismatch` | Production redirect URI missing, or `AUTH_URL` ≠ deployed origin | Complete OAuth pass 2; make `AUTH_URL` exactly the deployed origin, no trailing slash |
+| `redirect_uri_mismatch` when the URI *is* registered correctly | Google has not propagated the change | **Wait ~90 s and retry.** Seen 2026-09-25. Do not start editing a correct entry |
+| Auth works on one URL, mismatches on another | The service has two URLs; `status.url` returns the legacy one | Use the deterministic URL everywhere — see *Deploy* |
+| `gcloud builds list` shows nothing after a successful deploy | Builds are regional | `gcloud builds list --region=$GCP_REGION` |
+| A raw SQL string throws "can now be called only as a tagged-template function" | `@neondatabase/serverless` v1 | Use `sql.query(text, params)`; the tagged template is for interpolated values |
 | Sign-in works locally, fails deployed | `AUTH_URL` / `AUTH_SECRET` not set in production | Check `gcloud run services describe --format=export` |
 | Intermittent "too many connections" | Using the direct endpoint at runtime | Use the pooled `DATABASE_URL` for the app |
 | Migrations hang or error oddly | Running through the pooler | Use `DATABASE_URL_UNPOOLED` |
@@ -517,12 +630,31 @@ gcloud builds log <BUILD_ID>          # when a deploy fails, read this before to
 Cloud Run keeps every revision. Rollback is a traffic shift, not a rebuild.
 
 ```bash
-gcloud run revisions list --service agentforge --region "$GCP_REGION"
+# 1. List revisions, newest first. Pick the last known-good one.
+gcloud run revisions list --service agentforge --region "$GCP_REGION" \
+  --format='table(name,active,creationTimestamp)'
+
+# 2. Shift all traffic to it. Seconds, no rebuild.
 gcloud run services update-traffic agentforge --region "$GCP_REGION" \
   --to-revisions <PREVIOUS_REVISION>=100
+
+# 3. Confirm the shift actually happened.
+gcloud run services describe agentforge --region "$GCP_REGION" \
+  --format='value(status.traffic)'
+
+# 4. Re-verify: health, then the demo path.
+curl -fsS "$APP_BASE_URL/api/health"
 ```
 
-Then verify the health endpoint and the demo path again.
+To return to the newest revision afterwards:
+
+```bash
+gcloud run services update-traffic agentforge --region "$GCP_REGION" --to-latest
+```
+
+**As of 2026-09-25 there is exactly one revision (`agentforge-00001-h4k`), so there is nothing to
+roll back to.** The procedure is understood and the commands are correct, but it is untested and
+cannot be tested until a second revision exists. First opportunity: the Phase 3 deploy.
 
 **Caveat:** a rollback does **not** revert migrations. Prefer additive migrations so an older
 revision still runs against the newer schema. Before demo day, avoid destructive schema changes
