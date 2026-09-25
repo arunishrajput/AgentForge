@@ -318,10 +318,16 @@ Deliberately simplified, and what each costs:
 | No queue, in-process execution | Runs die on redeploy or instance recycle. No retry-after-crash |
 | Runs inside a request | Bounded by Cloud Run's 60-minute timeout |
 | No parallel node execution | A wide DAG runs slower than it could |
+| No join semantics — a node with several incoming edges runs when the first one reaches it | A diamond's merge point runs twice, once per arriving branch, rather than waiting and merging |
 | No partial resume | A failed run is re-run from the start |
 | Bounded loops only | No unbounded `while`. Deliberate — it is also a safety property |
 
-State machine: `CONTRACT.md` → *Execution state machine*, binding at Phase 3.
+**Implemented in Phase 3 as a work list, not a static topological sort.** Branch and loop outputs
+mean the order is only known as the run proceeds: start at the trigger, execute, follow the
+outgoing edges matching the handle the node left through, repeat. A topological pass is still used
+for validation — to reject any cycle that does not close through a loop node.
+
+State machine, bounds and record shapes: `CONTRACT.md` → *Execution state machine*.
 
 ---
 
@@ -372,8 +378,27 @@ Neon Postgres, free tier.
   because `@auth/drizzle-adapter` issues none (checked against the installed package, not the
   docs). If Phase 3's engine needs a real transaction, switch `src/db/index.ts` to
   `drizzle-orm/neon-serverless`; nothing outside that file should have to change
-- Entities: `NOT YET DECIDED` in detail, but at minimum users/accounts/sessions (auth), credentials,
-  workflows, runs, run_steps. Schema is binding at Phase 3 via `CONTRACT.md`
+- **Entities — settled in Phase 3**, migration `0001_smiling_leper_queen`:
+
+  | Table | Phase | Notes |
+  |---|---|---|
+  | `user`, `account`, `session`, `verificationToken` | 1 | Auth.js adapter tables |
+  | `workflow` | 3 | Owns the graph as a single `jsonb` column |
+  | `run` | 3 | One per execution; `heartbeatAt` is what makes an interrupted run observable |
+  | `run_step` | 3 | One per node execution, unique on `(runId, seq)`; snapshots its resolved config |
+  | `credential` | 3 | Table only. Encryption and the write-only API are Phase 6 |
+
+- **The graph is one `jsonb` column, not node and edge tables.** Decided in Phase 3. `neon-http`
+  has no transactions, so a graph spread over three tables could not be saved atomically; a
+  single-row update is atomic for free, the canvas saves the whole graph at once anyway, and no
+  query wants "all edges across all workflows". Shape in `CONTRACT.md`
+- **`neon-http` was re-examined in Phase 3 and kept.** The engine writes one step record per node
+  and one run update at the end — each independently meaningful, so a run cut short loses at most
+  the tail of its history and `reapStaleRuns` fails the run regardless. No transaction is needed,
+  so the swap to `neon-serverless` stays unspent
+- **Postgres `jsonb` normalises object key order.** A graph read back is deeply equal to what was
+  written but not byte-identical. Found while verifying the Phase 3 round-trip; nothing may compare
+  graphs as strings
 
 ---
 
@@ -384,8 +409,9 @@ Shapes are `NOT YET DECIDED` until the phase that needs them; the surface is:
 | Area | Routes | Phase |
 |---|---|---|
 | Auth | Auth.js handlers | 1 |
-| Workflows | list, create, read, update, delete | 3–4 |
-| Runs | trigger, list, read with steps | 3 |
+| Workflows | list, create, read, update, delete | **3 — done** |
+| Runs | trigger, list, read with steps | **3 — done** |
+| Registry | `GET /api/nodes`, the palette projection | **3 — done** |
 | Live | SSE stream for a run | 5 |
 | Generation | natural language → workflow | 7 |
 | Webhook | unguessable per-trigger receiver | 8 |

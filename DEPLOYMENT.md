@@ -16,10 +16,10 @@ Every step is labelled **`AUTOMATED BY CLAUDE CODE`** or **`MANUAL HUMAN ACTION`
 | Field | Value |
 |---|---|
 | Service | `agentforge`, Cloud Run, `asia-southeast1` |
-| Revision | `agentforge-00001-h4k` — 100% of traffic |
+| Revision | `agentforge-00002-zdg` — 100% of traffic. Last known-good before it: `agentforge-00001-h4k` |
 | Scaling | `min-instances 1`, `max-instances 3`, 1 vCPU / 1 GiB, 3600 s timeout |
 | Database | Neon `super-mountain-39872886`, `aws-ap-southeast-1` |
-| Last verified | 2026-09-25 — health, gating, and a full Google sign-in / reload / sign-out cycle |
+| Last verified | 2026-09-25 — health, gating, a full Google sign-in / reload / sign-out cycle, and 33 API checks including a workflow executed end to end |
 
 The service also answers on a legacy hashed URL. Do not use it — see *Deploy*.
 
@@ -472,6 +472,16 @@ gcloud run deploy agentforge \
   --env-vars-file "$SCRATCH/run-env.yaml"
 ```
 
+**A later redeploy that changes no variable omits `--env-vars-file` entirely:**
+
+```bash
+gcloud run deploy agentforge --source . --region "$GCP_REGION"
+```
+
+The new revision inherits every variable from the current service configuration. Verified on the
+Phase 3 deploy — all 9 names were present on `agentforge-00002-zdg` without being passed again.
+Pass the file only when a variable actually changes, and remember it **replaces** the whole set.
+
 Notes:
 - `--source .` makes Cloud Build build the `Dockerfile`. No local `docker push`, no ECR equivalent
 - **`--env-vars-file` belongs on the first deploy.** A revision with a missing variable calls
@@ -587,8 +597,22 @@ Result on 2026-09-25: sessions 1 → 2 on sign-in, same `userId`, users stayed 1
 **6. Realtime — AUTOMATED + browser.** From Phase 5: trigger a run on the deployed URL and confirm
 per-node events arrive incrementally.
 
-**7. One full workflow end to end on the deployed system.** From Phase 3 onward, every phase ends
-with this.
+**7. One full workflow end to end on the deployed system — AUTOMATED.** From Phase 3 onward, every
+phase ends with this.
+
+```bash
+node --env-file=.env scripts/verify-api.mjs "$APP_BASE_URL"
+```
+
+33 checks: auth gating, owner scoping, graph round-trip, a sequential run, both sides of a branch,
+a bounded loop, the failure path, invalid-graph rejection, stale-run reaping, and delete cascade.
+It exits non-zero if any check fails, so "it deployed" and "it works" stay different claims.
+
+How it authenticates without a browser: sessions are database-backed, so there is no API token to
+mint. The script inserts a real `session` row for an existing user, drives the API with that cookie
+exactly as a browser would — the same path `auth()` takes — and deletes the row afterwards. **There
+is no test-only bypass in the application.** It needs `DATABASE_URL_UNPOOLED` from `.env`, and a
+user row must already exist, so sign in once before running it against a fresh database.
 
 ---
 
@@ -658,7 +682,12 @@ cannot be tested until a second revision exists. First opportunity: the Phase 3 
 
 **Caveat:** a rollback does **not** revert migrations. Prefer additive migrations so an older
 revision still runs against the newer schema. Before demo day, avoid destructive schema changes
-entirely.
+entirely. Phase 3's migration is purely additive, so `agentforge-00001-h4k` still runs correctly
+against the current schema — which is what makes it a valid rollback target.
+
+**⚠️ This procedure is still UNTESTED.** Two revisions exist as of Phase 3, so it is now possible to
+test. Do it once, by hand, before demo day — shift to `agentforge-00001-h4k`, confirm
+`/api/health`, then shift back to the newest revision. An untested rollback is not a rollback plan.
 
 ---
 

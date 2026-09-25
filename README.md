@@ -17,9 +17,11 @@ Built for the Zero Origin hackathon (Devpost) as a 72-hour solo build.
 
 ## Status
 
-**Phase 2 complete — the skeleton is deployed and Google sign-in works in production.**
-Sessions persist in Neon. The canvas, execution engine and natural-language generation are still
-ahead — Phases 3, 4 and 7. Current state is always in [`PROGRESS.md`](./PROGRESS.md).
+**Phase 3 complete — workflows persist and the engine runs them in production.**
+Google sign-in works, workflows save and load losslessly, and the engine executes sequential,
+branch and loop workflows over the API with per-node step records. The visual canvas (Phase 4) and
+natural-language generation (Phase 7) are still ahead. Current state is always in
+[`PROGRESS.md`](./PROGRESS.md).
 
 ---
 
@@ -92,11 +94,24 @@ A single Next.js process plus the Neon database. No separate worker, no Redis.
 npm run dev          # http://localhost:3000
 npm run build        # production build (needs no environment)
 npm run typecheck    # tsc --noEmit
+npm test             # critical-path tests: engine, validation, templates
 ```
+
+`npm test` runs the TypeScript sources directly on Node's built-in test runner — no framework, no
+dependency, via a small resolve hook in `scripts/test-register.mjs`. The engine takes its recorder
+as an argument, so those tests touch no database and no network.
+
+One consequence to know before writing code here: Node's strip-only TypeScript mode rejects syntax
+that needs real transformation. **No constructor parameter properties, no enums, no namespaces, no
+decorators in `src`.**
 
 Verify it is actually working, rather than merely running:
 
 ```bash
+# The whole API, end to end: auth gating, owner scoping, graph round-trip, a
+# sequential run, both sides of a branch, a bounded loop, the failure path.
+node --env-file=.env scripts/verify-api.mjs http://localhost:3000
+
 curl -fsS localhost:3000/api/health
 # {"status":"ok","database":"reachable","databaseLatencyMs":129,...}
 ```

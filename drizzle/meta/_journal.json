@@ -8,6 +8,13 @@
       "when": 1790357156087,
       "tag": "0000_dark_paladin",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1790361501746,
+      "tag": "0001_smiling_leper_queen",
+      "breakpoints": true
     }
   ]
 }
