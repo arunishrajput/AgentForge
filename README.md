@@ -15,8 +15,10 @@ Built for the Zero Origin hackathon (Devpost) as a 72-hour solo build.
 
 ## Status
 
-**Bootstrap. No application code yet.** The repository currently holds the documentation that drives
-the build. Current state is always in [`PROGRESS.md`](./PROGRESS.md).
+**Phase 1 complete — the skeleton runs, locally and in a container, with real Google sign-in.**
+Sessions persist in Neon. The canvas, execution engine and natural-language generation are still
+ahead. Not yet deployed; that is Phase 2. Current state is always in
+[`PROGRESS.md`](./PROGRESS.md).
 
 ---
 
@@ -64,28 +66,61 @@ Full scope, including what is deliberately excluded, is in [`PRD.md`](./PRD.md).
 
 ## Setup
 
-Application setup lands in Phase 1 and this section gets replaced with real commands. What is
-already true:
-
-**Requires:** Node 22+ (developed on v26.8.2), a package manager (pnpm 11 / npm 11), Docker for
+**Requires:** Node >= 20.9 (developed on v26.8.2 — Next 16's floor is 20.9), npm 11, Docker for
 local container testing, `gcloud` for deploys, and `gh` for repository work.
 
 ```bash
 git clone https://github.com/arunishrajput/AgentForge.git
 cd AgentForge
+npm install
 cp .env.example .env     # then fill it in — see CONTRACT.md → Environment variables
+npm run db:migrate       # creates the auth tables; uses the DIRECT connection string
 ```
 
 You will need: a Neon Postgres database (two connection strings — pooled and direct), a Google OAuth
-client, and a Gemini API key. `DEPLOYMENT.md` → *One-time setup* has exact, copy-pasteable steps for
-each.
+client whose authorised redirect URI includes `http://localhost:3000/api/auth/callback/google`, and
+a Gemini API key. `DEPLOYMENT.md` → *One-time setup* has exact, copy-pasteable steps for each.
+
+The app refuses to start if a required variable is missing, and names every one of them at once.
 
 ## Running locally
 
 A single Next.js process plus the Neon database. No separate worker, no Redis.
 
-Exact commands land in Phase 1, when the scaffold exists — the foundation decision (Phase 0) fixed
-*what* it is, not yet *how to run it*.
+```bash
+npm run dev          # http://localhost:3000
+npm run build        # production build (needs no environment)
+npm run typecheck    # tsc --noEmit
+```
+
+Verify it is actually working, rather than merely running:
+
+```bash
+curl -fsS localhost:3000/api/health
+# {"status":"ok","database":"reachable","databaseLatencyMs":129,...}
+```
+
+Then open `http://localhost:3000`, sign in with Google, and reload — the session should survive.
+
+### In a container
+
+The same image Cloud Run runs. Port 8080 is mapped to 3000 so the OAuth redirect URI registered for
+local development still matches.
+
+```bash
+docker build -t agentforge .
+docker run --rm --env-file .env -p 3000:8080 agentforge
+curl -fsS localhost:3000/api/health
+```
+
+### Database changes
+
+```bash
+npm run db:generate   # write a migration from src/db/schema.ts into drizzle/
+npm run db:migrate    # apply it
+```
+
+Migrations are committed. They use `DATABASE_URL_UNPOOLED`; the app uses the pooled `DATABASE_URL`.
 
 ## Deploying
 

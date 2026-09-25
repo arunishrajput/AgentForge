@@ -364,7 +364,14 @@ Neon Postgres, free tier.
   wake-up. Combined with Cloud Run cold start this is the demo's slowest possible first moment —
   hence the warm-up step in `DEMO.md`
 - ORM and migration tool: **Drizzle** (`drizzle-orm` + `drizzle-kit`), decided in Phase 0 Part A.
-  Schema and migrations are written in Phase 3
+  The **auth** schema and its migration landed in Phase 1 (`src/db/schema.ts`, `drizzle/`), as
+  Phase 1 cannot persist a session without them. Workflow, run, step and credential tables are
+  still Phase 3 and still binding there via `CONTRACT.md`
+- **Driver: `drizzle-orm/neon-http`**, decided in Phase 1. Neon's HTTP endpoint, one round trip
+  per statement, no pool to manage. It does **not support transactions** — verified as safe
+  because `@auth/drizzle-adapter` issues none (checked against the installed package, not the
+  docs). If Phase 3's engine needs a real transaction, switch `src/db/index.ts` to
+  `drizzle-orm/neon-serverless`; nothing outside that file should have to change
 - Entities: `NOT YET DECIDED` in detail, but at minimum users/accounts/sessions (auth), credentials,
   workflows, runs, run_steps. Schema is binding at Phase 3 via `CONTRACT.md`
 

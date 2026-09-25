@@ -79,6 +79,20 @@ failure inside 72 hours.
 | `DEMO.md` | The 3-minute demo script, used as a scope contract | Before cutting scope, and before demo day |
 | `README.md` | Practical entry point | When orienting from scratch |
 
+### Framework docs — read them, do not recall them
+
+**Next 16 is not the Next.js in your training data.** APIs, conventions and file structure
+changed. The version's own docs ship inside the repo at `node_modules/next/dist/docs/` — read the
+relevant page there before writing framework code. `01-app/02-guides/upgrading/version-16.md` lists
+the breaking changes.
+
+Already bitten us: request APIs are async, `middleware` is renamed `proxy` (no edge runtime),
+`next lint` is removed, and Turbopack is the default builder. The same rule applies to
+`next-auth@5` beta and Drizzle — check the installed package's own types, not memory.
+
+`next dev` wants to append a generated block to this file; `agentRules: false` in `next.config.ts`
+disables it, because this file is hand-authored and must not churn.
+
 ---
 
 ## Source of truth

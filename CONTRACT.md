@@ -10,7 +10,7 @@ Do not pre-empt them.
 
 | Section | Status | Filled by |
 |---|---|---|
-| Environment variables | **DEFINED** | Phase 0 — verified against the chosen stack 2026-09-25 |
+| Environment variables | **DEFINED** | Phase 0 — verified against the chosen stack 2026-09-25; enforced in code since Phase 1 (`src/lib/env.ts`) |
 | Workflow / node / edge JSON | `NOT YET DECIDED` | Phase 3 |
 | Node definition interface | `NOT YET DECIDED` | Phase 3 |
 | Run and step records | `NOT YET DECIDED` | Phase 3 |
@@ -34,7 +34,7 @@ live in `.env` locally (never committed) and on the Cloud Run service in product
 | Variable | Purpose | Notes |
 |---|---|---|
 | `DATABASE_URL` | Neon Postgres connection, **pooled** endpoint | Application queries. Cloud Run multiplies connections; the pooled endpoint is not optional |
-| `DATABASE_URL_UNPOOLED` | Neon Postgres, **direct** endpoint | Migrations only. Pooling breaks session-level operations migrations need |
+| `DATABASE_URL_UNPOOLED` | Neon Postgres, **direct** endpoint | Migrations only — read by `drizzle.config.ts`, **not by the running server**. Phase 1 moved it out of the startup check deliberately: requiring it on Cloud Run would make the app refuse to boot over a variable it never opens. Pooling breaks the session-level operations migrations need |
 | `AUTH_SECRET` | Session/JWT signing secret | 32+ random bytes. Different per environment |
 | `AUTH_URL` | Canonical app origin for OAuth callbacks | Must match the deployed origin **exactly**, or the Google callback fails in a way that looks like a bad client id |
 | `GOOGLE_CLIENT_ID` | Google OAuth client id | From the Phase 0 OAuth client. Auth.js v5 *auto-infers* `AUTH_GOOGLE_ID`/`AUTH_GOOGLE_SECRET`, not these names — pass these explicitly into the Google provider config. Verified Phase 0 |

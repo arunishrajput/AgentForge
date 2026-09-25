@@ -1,0 +1,15 @@
+@import "tailwindcss";
+
+/* Deliberately minimal. The design system is Phase 10 — this is legibility only. */
+@theme {
+  --color-canvas: oklch(0.21 0.02 265);
+  --color-surface: oklch(0.26 0.02 265);
+  --color-ink: oklch(0.97 0.005 265);
+  --color-muted: oklch(0.72 0.015 265);
+  --color-accent: oklch(0.72 0.15 250);
+}
+
+body {
+  background-color: var(--color-canvas);
+  color: var(--color-ink);
+}
