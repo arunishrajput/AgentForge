@@ -31,12 +31,16 @@ export function NewWorkflowButton() {
 
   return (
     <div className="flex items-center gap-3">
-      {error && <span className="text-[12px] text-red-300">{error}</span>}
+      {error && (
+        <span role="alert" className="text-bad text-xs">
+          {error}
+        </span>
+      )}
       <button
         type="button"
         onClick={create}
         disabled={busy}
-        className="bg-accent text-canvas rounded-lg px-3.5 py-2 text-[13px] font-medium transition-opacity hover:opacity-90 disabled:opacity-40"
+        className="btn btn-primary"
       >
         {busy ? "Creating…" : "New workflow"}
       </button>
@@ -56,7 +60,7 @@ export function DeleteWorkflowButton({ id, name }: { id: string; name: string })
       <button
         type="button"
         onClick={() => setConfirming(true)}
-        className="text-muted hover:text-red-300 text-[12px] transition-colors"
+        className="btn btn-ghost hover:text-bad shrink-0 px-2 text-xs"
       >
         Delete
       </button>
@@ -64,8 +68,8 @@ export function DeleteWorkflowButton({ id, name }: { id: string; name: string })
   }
 
   return (
-    <span className="flex items-center gap-2">
-      <span className="text-muted text-[11px]">Delete {name} and its runs?</span>
+    <span className="animate-fade flex flex-wrap items-center justify-end gap-x-1.5 gap-y-1">
+      <span className="text-muted text-2xs">Delete {name} and its runs?</span>
       <button
         type="button"
         disabled={busy}
@@ -74,14 +78,14 @@ export function DeleteWorkflowButton({ id, name }: { id: string; name: string })
           await api.deleteWorkflow(id).catch(() => undefined);
           router.refresh();
         }}
-        className="text-[12px] text-red-300 disabled:opacity-40"
+        className="btn btn-ghost text-bad px-2 text-xs disabled:opacity-40"
       >
         {busy ? "Deleting…" : "Yes"}
       </button>
       <button
         type="button"
         onClick={() => setConfirming(false)}
-        className="text-muted text-[12px]"
+        className="btn btn-ghost px-2 text-xs"
       >
         Cancel
       </button>

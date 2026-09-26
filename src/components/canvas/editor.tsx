@@ -35,6 +35,7 @@ import {
   type Run,
   type Workflow,
 } from "@/lib/canvas/client";
+import { tweenMs } from "@/lib/canvas/motion";
 import { useRunStream } from "@/lib/canvas/run-stream";
 import { defaultConfig } from "@/lib/canvas/schema";
 
@@ -93,6 +94,18 @@ function EditorInner({
   const [saved, setSaved] = useState<Workflow>(workflow);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
+  // Below `lg` the palette and the inspector are overlay drawers rather than
+  // columns — three fixed columns do not fit a 375px screen and the canvas is the
+  // part that must survive. Both are always rendered; CSS decides whether they are
+  // in the layout or over it, so there is no viewport measurement to get wrong on
+  // the server render.
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const closePanels = useCallback(() => {
+    setPaletteOpen(false);
+    setInspectorOpen(false);
+  }, []);
+
   const { run, live, watch, stop, setRun } = useRunStream(workflow.id, liveRun);
   const [triggerInput, setTriggerInput] = useState("");
   const [busy, setBusy] = useState<null | "saving" | "running">(null);
@@ -109,6 +122,20 @@ function EditorInner({
     () => new Map(palette.map((node) => [node.type, node])),
     [palette],
   );
+
+  /**
+   * Left-to-right order of the graph as it was first loaded, used only to stagger
+   * each node's entry animation. Sorted by position rather than array index so a
+   * generated graph assembles in reading order (`DEMO.md` Beat 3), and derived from
+   * `initial` so a node added later has no entry and therefore no delay.
+   */
+  const entryOrder = useMemo(() => {
+    const order = new Map<string, number>();
+    [...initial.nodes]
+      .sort((a, b) => a.position.x - b.position.x || a.position.y - b.position.y)
+      .forEach((node, index) => order.set(node.id, index));
+    return order;
+  }, [initial.nodes]);
 
   /** Per-node outcome of the last run. A looped node contributes several steps. */
   const runStates = useMemo(() => {
@@ -134,13 +161,45 @@ function EditorInner({
     watch({ runId: liveRun.id });
   }, [liveRun, watch]);
 
+  /**
+   * The edges as *drawn*. `edges` itself stays exactly what will be saved — the run
+   * highlight is a projection over it, never state — which is what keeps
+   * `fromFlow(nodes, edges)` the clean inverse `bridge.ts` promises. React Flow
+   * reports changes by id, so selection and deletion still apply to the real state.
+   *
+   * Two states, and they are the execution animation BUILD_PLAN Phase 10 asks for:
+   * an edge into the node currently working pulses, and every edge the run has
+   * actually crossed stays lit. On a branch the untaken edge never lights, so when
+   * the run ends the canvas is showing the path the agent chose (`DEMO.md` Beat 7).
+   */
+  const displayEdges = useMemo(() => {
+    const live = run?.status === "running";
+    return edges.map((edge) => {
+      const source = runStates.get(edge.source);
+      if (source?.status !== "succeeded") return edge;
+
+      const target = runStates.get(edge.target);
+      if (live && target?.status === "running") {
+        return { ...edge, animated: true, className: "edge-live" };
+      }
+      if (target && target.status !== "skipped") {
+        return { ...edge, className: "edge-traversed" };
+      }
+      return edge;
+    });
+  }, [edges, run?.status, runStates]);
+
   const graph = useMemo(() => fromFlow(nodes, edges), [nodes, edges]);
   const dirty = !graphsEqual(graph, saved.graph) || name !== saved.name;
 
   const selected = nodes.find((node) => node.id === selectedId) ?? null;
 
   const onSelectionChange = useCallback((params: OnSelectionChangeParams) => {
-    setSelectedId(params.nodes.length === 1 ? params.nodes[0].id : null);
+    const id = params.nodes.length === 1 ? params.nodes[0].id : null;
+    setSelectedId(id);
+    // On a phone the inspector is a drawer, so selecting a node has to bring it in —
+    // otherwise tapping a node appears to do nothing at all (`DEMO.md` Beat 4).
+    if (id !== null) setInspectorOpen(true);
   }, []);
 
   const onConnect = useCallback(
@@ -163,6 +222,9 @@ function EditorInner({
 
   const addNode = useCallback(
     (definition: NodeSummary) => {
+      // The drawer covers the canvas below `lg`, so leaving it open would hide the
+      // node that was just added.
+      setPaletteOpen(false);
       const bounds = wrapper.current?.getBoundingClientRect();
       const viewportPosition = bounds
         ? screenToFlowPosition({ x: bounds.x + 140, y: bounds.y + bounds.height / 2 })
@@ -201,8 +263,10 @@ function EditorInner({
       // The chain grows rightwards, so without this the fourth node a user adds
       // lands outside the visible canvas and the click looks like it did nothing.
       // Deferred a frame so React Flow has measured the node it is fitting to.
+      // `tweenMs` is 0 when the user asks for reduced motion: this tween is driven
+      // in JavaScript, so the CSS media query in `globals.css` cannot reach it.
       requestAnimationFrame(() =>
-        fitView({ padding: 0.25, maxZoom: 1, duration: 250 }),
+        fitView({ padding: 0.25, maxZoom: 1, duration: tweenMs(250) }),
       );
     },
     [fitView, screenToFlowPosition, setNodes],
@@ -322,17 +386,25 @@ function EditorInner({
     }
   }, [dirty, save, saved, setNodes, setRun, stop, triggerInput, watch, workflow.id]);
 
-  const canvasValue = useMemo(() => ({ registry, runStates }), [registry, runStates]);
+  const canvasValue = useMemo(
+    () => ({ registry, runStates, entryOrder }),
+    [entryOrder, registry, runStates],
+  );
 
   return (
     <CanvasContext value={canvasValue}>
-      <div className="flex h-dvh flex-col">
-        <header className="flex shrink-0 items-center gap-3 border-b border-white/10 px-4 py-2.5">
-          <Link
-            href="/workflows"
-            className="text-muted hover:text-ink shrink-0 text-sm transition-colors"
-          >
-            ← Workflows
+      <div
+        className="flex h-dvh flex-col"
+        // Escape closes whichever drawer is open. It is the expected key for a
+        // panel over content, and the only way off the backdrop from a keyboard.
+        onKeyDown={(event) => {
+          if (event.key === "Escape") closePanels();
+        }}
+      >
+        <header className="border-line pad-safe flex shrink-0 flex-wrap items-center gap-x-2 gap-y-2 border-b pb-2">
+          <Link href="/workflows" className="btn btn-ghost shrink-0 px-2">
+            <span aria-hidden="true">←</span>
+            <span className="max-sm:sr-only">Workflows</span>
           </Link>
 
           <input
@@ -340,53 +412,114 @@ function EditorInner({
             value={name}
             maxLength={200}
             onChange={(event) => setName(event.target.value)}
-            className="focus:border-accent/60 min-w-0 flex-1 rounded-lg border border-transparent bg-transparent px-2 py-1 text-sm font-medium outline-none"
+            className="field hover:border-line min-w-0 flex-1 basis-32 border-transparent bg-transparent font-medium"
           />
 
-          {message && (
-            <span
-              className={`truncate text-[12px] ${message.tone === "error" ? "text-red-300" : "text-muted"}`}
+          {/* Drawer toggles. Only below `lg`, where the panels are not columns. */}
+          <div className="flex shrink-0 items-center gap-1.5 lg:hidden">
+            <button
+              type="button"
+              aria-expanded={paletteOpen}
+              aria-controls="node-palette"
+              onClick={() => {
+                setPaletteOpen((open) => !open);
+                setInspectorOpen(false);
+              }}
+              className="btn btn-quiet px-2.5"
             >
-              {message.text}
+              Nodes
+            </button>
+            <button
+              type="button"
+              aria-expanded={inspectorOpen}
+              aria-controls="node-inspector"
+              onClick={() => {
+                setInspectorOpen((open) => !open);
+                setPaletteOpen(false);
+              }}
+              className="btn btn-quiet px-2.5"
+            >
+              Details
+            </button>
+          </div>
+
+          <div className="flex min-w-0 items-center justify-end gap-2 max-sm:order-last max-sm:basis-full sm:flex-1">
+            {message && (
+              <span
+                role={message.tone === "error" ? "alert" : "status"}
+                className={`min-w-0 truncate text-xs ${
+                  message.tone === "error" ? "text-bad" : "text-muted"
+                }`}
+              >
+                {message.text}
+              </span>
+            )}
+
+            <span className="text-muted shrink-0 text-xs" role="status">
+              {busy === "saving"
+                ? "Saving…"
+                : dirty
+                  ? "Unsaved changes"
+                  : saved.runnable
+                    ? "Saved"
+                    : `Saved · ${saved.problems.length} problem${saved.problems.length === 1 ? "" : "s"}`}
             </span>
-          )}
 
-          <span className="text-muted shrink-0 text-[12px]">
-            {busy === "saving"
-              ? "Saving…"
-              : dirty
-                ? "Unsaved changes"
-                : saved.runnable
-                  ? "Saved"
-                  : `Saved · ${saved.problems.length} problem${saved.problems.length === 1 ? "" : "s"}`}
-          </span>
+            <button
+              type="button"
+              onClick={save}
+              disabled={busy !== null || !dirty}
+              className="btn btn-quiet shrink-0"
+            >
+              Save
+            </button>
 
-          <button
-            type="button"
-            onClick={save}
-            disabled={busy !== null || !dirty}
-            className="hover:bg-surface shrink-0 rounded-lg border border-white/15 px-3 py-1.5 text-[13px] transition-colors disabled:opacity-40"
-          >
-            Save
-          </button>
-
-          <button
-            type="button"
-            onClick={start}
-            disabled={busy !== null}
-            className="bg-accent text-canvas shrink-0 rounded-lg px-3 py-1.5 text-[13px] font-medium transition-opacity hover:opacity-90 disabled:opacity-40"
-          >
-            {busy === "running" ? "Running…" : "Run"}
-          </button>
+            <button
+              type="button"
+              onClick={start}
+              disabled={busy !== null}
+              className="btn btn-primary shrink-0"
+            >
+              {busy === "running" ? (
+                <>
+                  <span
+                    aria-hidden="true"
+                    className="animate-breathe bg-accent-ink h-1.5 w-1.5 rounded-full"
+                  />
+                  Running…
+                </>
+              ) : (
+                "Run"
+              )}
+            </button>
+          </div>
         </header>
 
-        <div className="flex min-h-0 flex-1">
-          <Palette nodes={palette} onAdd={addNode} disabled={busy !== null} />
+        <div className="relative flex min-h-0 flex-1">
+          {/* Backdrop for the drawers. Not focusable — Escape and the panel's own
+              close button are the keyboard paths, and a full-screen button in the
+              tab order between the header and the canvas is worse than neither. */}
+          {(paletteOpen || inspectorOpen) && (
+            <div
+              aria-hidden="true"
+              onClick={closePanels}
+              className="bg-sunken/70 animate-fade absolute inset-0 z-20 lg:hidden"
+            />
+          )}
 
-          <div ref={wrapper} className="min-w-0 flex-1">
+          <Palette
+            id="node-palette"
+            nodes={palette}
+            onAdd={addNode}
+            disabled={busy !== null}
+            open={paletteOpen}
+            onClose={closePanels}
+          />
+
+          <main id="main" ref={wrapper} className="min-w-0 flex-1">
             <ReactFlow
               nodes={nodes}
-              edges={edges}
+              edges={displayEdges}
               nodeTypes={nodeTypes}
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
@@ -395,16 +528,24 @@ function EditorInner({
               deleteKeyCode={["Delete", "Backspace"]}
               colorMode="dark"
               fitView
+              // Low enough that a seven-node graph still fits a 375px screen; the
+              // default floor of 0.5 cropped it and the demo's spine ran off-canvas.
+              minZoom={0.15}
               fitViewOptions={{ padding: 0.3, maxZoom: 1 }}
               proOptions={{ hideAttribution: false }}
             >
               <Background gap={20} />
               <Controls showInteractive={false} />
-              <MiniMap pannable zoomable className="!bg-surface" />
+              {/* A minimap on a phone costs a quarter of the canvas and duplicates
+                  what panning already gives. */}
+              <MiniMap pannable zoomable className="max-sm:!hidden" />
             </ReactFlow>
-          </div>
+          </main>
 
           <Inspector
+            id="node-inspector"
+            open={inspectorOpen}
+            onClose={closePanels}
             node={selected}
             definition={selected ? registry.get(selected.data.nodeType) : undefined}
             workflow={saved}

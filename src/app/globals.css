@@ -1,15 +1,456 @@
 @import "tailwindcss";
 
-/* Deliberately minimal. The design system is Phase 10 — this is legibility only. */
+/* React Flow's own stylesheet is imported *here*, not in `editor.tsx`, so the cascade
+   order is explicit: Tailwind's preflight, then React Flow's layout CSS, then the
+   overrides at the bottom of this file. Imported from the component it could land
+   either side of ours depending on how the client bundle was assembled, and the
+   symptom of losing that race is a canvas whose controls are unreadable. */
+@import "@xyflow/react/dist/style.css";
+
+/* ---------------------------------------------------------------------------
+   AgentForge design system — Phase 10.
+
+   One theme, dark (D48). Every colour, size, radius, shadow and easing the
+   product uses is declared here; a component names a token, never a raw value.
+
+   Colour is oklch throughout, so lightness is perceptual and a contrast check
+   can be computed from the token itself — `src/app/tokens.test.ts` does exactly
+   that and fails the build's test run if a text token drops below WCAG AA on
+   the surface it is used on.
+   --------------------------------------------------------------------------- */
 @theme {
-  --color-canvas: oklch(0.21 0.02 265);
-  --color-surface: oklch(0.26 0.02 265);
-  --color-ink: oklch(0.97 0.005 265);
-  --color-muted: oklch(0.72 0.015 265);
-  --color-accent: oklch(0.72 0.15 250);
+  /* Type. Geist and Geist Mono, self-hosted by `next/font` in the root layout. */
+  --font-sans:
+    var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    sans-serif;
+  --font-mono:
+    var(--font-geist-mono), ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  /* Three steps below Tailwind's `sm` (14px), because a node card, a status badge
+     and a log line are all denser than body text. `xs` (12px), `sm` and above are
+     Tailwind's own and unchanged, so every existing `text-xs`/`text-sm` is stable. */
+  --text-3xs: 0.625rem; /* 10px — status badges, handle labels */
+  --text-3xs--line-height: 1.4;
+  --text-2xs: 0.6875rem; /* 11px — captions, log lines, help text */
+  --text-2xs--line-height: 1.45;
+  --text-ui: 0.8125rem; /* 13px — form controls and buttons */
+  --text-ui--line-height: 1.45;
+
+  /* Surfaces, darkest to lightest. `canvas` is both the page and a recessed
+     control; `surface` is a card; `elevated` is a node, a drawer or a popover. */
+  --color-canvas: oklch(0.172 0.016 272);
+  --color-sunken: oklch(0.142 0.014 272);
+  --color-surface: oklch(0.222 0.018 272);
+  --color-elevated: oklch(0.268 0.019 272);
+
+  /* Hairlines. Two weights: a divider, and the edge of an interactive control. */
+  --color-line: oklch(1 0 0 / 0.09);
+  --color-line-strong: oklch(1 0 0 / 0.17);
+
+  /* Text. `faint` is for decorative and non-essential labels only — it is the one
+     step that does not clear AA against `surface` at small sizes. */
+  --color-ink: oklch(0.975 0.004 272);
+  --color-muted: oklch(0.765 0.014 272);
+  --color-faint: oklch(0.64 0.014 272);
+
+  /* Accent, and the ink that is legible on top of it. */
+  --color-accent: oklch(0.715 0.168 277);
+  --color-accent-ink: oklch(0.155 0.03 277);
+  --color-accent-dim: oklch(0.52 0.13 277);
+  /* The second hue, used only in the generation gradient and the run pulse. */
+  --color-spark: oklch(0.82 0.13 205);
+
+  /* Status. These are the engine's four step outcomes plus a warning, and they are
+     the same five colours in the canvas, the inspector and the settings pages. */
+  --color-ok: oklch(0.815 0.155 158);
+  --color-live: oklch(0.795 0.135 232);
+  --color-warn: oklch(0.85 0.15 86);
+  --color-bad: oklch(0.735 0.185 22);
+
+  /* Node category accents — the palette groups and the dot on a node card. */
+  --color-cat-trigger: oklch(0.815 0.155 158);
+  --color-cat-agent: oklch(0.78 0.19 325);
+  --color-cat-logic: oklch(0.795 0.135 232);
+  --color-cat-transform: oklch(0.76 0.16 295);
+  --color-cat-integration: oklch(0.85 0.15 86);
+
+  /* Elevation. Dark UI reads depth from a lifted highlight as much as a shadow. */
+  --shadow-card: 0 1px 0 0 oklch(1 0 0 / 0.04) inset, 0 1px 2px oklch(0 0 0 / 0.3);
+  --shadow-node:
+    0 1px 0 0 oklch(1 0 0 / 0.05) inset, 0 4px 12px -2px oklch(0 0 0 / 0.45);
+  --shadow-drawer: 0 0 0 1px oklch(1 0 0 / 0.08), 0 16px 48px -8px oklch(0 0 0 / 0.7);
+
+  /* Motion. Three durations and two curves — the whole vocabulary.
+     `spring` overshoots slightly and is reserved for something appearing. */
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.32, 0.64, 1);
+
+  --animate-rise: rise var(--dur-slow) var(--ease-spring) both;
+  --animate-fade: fade var(--dur-slow) var(--ease-out-soft) both;
+  --animate-pop: pop var(--dur) var(--ease-spring) both;
+  --animate-breathe: breathe 1.6s ease-in-out infinite;
+  --animate-sweep: sweep 1.15s linear infinite;
 }
 
-body {
-  background-color: var(--color-canvas);
+/* Durations live outside `@theme` so they are ordinary custom properties the
+   reduced-motion block below can collapse to zero in one place. */
+:root {
+  --dur-fast: 120ms;
+  --dur: 200ms;
+  --dur-slow: 380ms;
+
+  /* Native controls — `<select>`, the checkbox, the scrollbars — read this, and
+     without it they render as light widgets in a dark interface. */
+  color-scheme: dark;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 10px, 0) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: scale(0.82);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Opacity only, so the running pulse stays on the compositor even with thirty
+   nodes on the canvas. */
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+
+@keyframes sweep {
+  from {
+    transform: translate3d(-100%, 0, 0);
+  }
+  to {
+    transform: translate3d(200%, 0, 0);
+  }
+}
+
+@layer base {
+  body {
+    background-color: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    /* Geist's default tracking is loose at UI sizes. */
+    letter-spacing: -0.006em;
+  }
+
+  /* One focus ring for the whole product, on the keyboard only. Controls must not
+     set `outline-none`: the `field` and `btn` utilities below carry no outline
+     reset for exactly this reason. */
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+    border-radius: 0.375rem;
+  }
+
+  ::selection {
+    background-color: color-mix(in oklab, var(--color-accent) 40%, transparent);
+    color: var(--color-ink);
+  }
+
+  ::placeholder {
+    color: var(--color-faint);
+  }
+
+  /* Thin, dark scrollbars in the two panels and the log list. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-line-strong) transparent;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Component utilities. A button, a control and a card are declared once here,
+   so a new panel in a later phase looks like the rest of the product without
+   copying a class list.
+   --------------------------------------------------------------------------- */
+
+@utility btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: --spacing(1.5);
+  border-radius: 0.5rem;
+  padding-inline: --spacing(3);
+  padding-block: --spacing(1.5);
+  font-size: var(--text-ui);
+  line-height: var(--text-ui--line-height);
+  font-weight: 500;
+  white-space: nowrap;
+  transition-property: background-color, border-color, color, opacity, transform;
+  transition-duration: var(--dur-fast);
+  transition-timing-function: var(--ease-out-soft);
+
+  &:active:not(:disabled) {
+    transform: translateY(0.5px) scale(0.985);
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+}
+
+@utility btn-primary {
+  background-color: var(--color-accent);
+  color: var(--color-accent-ink);
+
+  &:hover:not(:disabled) {
+    background-color: color-mix(in oklab, var(--color-accent) 88%, white);
+  }
+}
+
+@utility btn-quiet {
+  border: 1px solid var(--color-line-strong);
   color: var(--color-ink);
+
+  &:hover:not(:disabled) {
+    background-color: var(--color-elevated);
+  }
+}
+
+@utility btn-ghost {
+  color: var(--color-muted);
+
+  &:hover:not(:disabled) {
+    background-color: var(--color-surface);
+    color: var(--color-ink);
+  }
+}
+
+@utility btn-danger {
+  border: 1px solid color-mix(in oklab, var(--color-bad) 35%, transparent);
+  color: var(--color-bad);
+
+  &:hover:not(:disabled) {
+    background-color: color-mix(in oklab, var(--color-bad) 14%, transparent);
+  }
+}
+
+/* Every text input, textarea and select. */
+@utility field {
+  width: 100%;
+  border-radius: 0.5rem;
+  border: 1px solid var(--color-line);
+  background-color: var(--color-canvas);
+  padding-inline: --spacing(2.5);
+  padding-block: --spacing(1.5);
+  font-size: var(--text-ui);
+  line-height: var(--text-ui--line-height);
+  color: var(--color-ink);
+  transition-property: border-color, box-shadow;
+  transition-duration: var(--dur-fast);
+
+  &:hover:not(:disabled, :focus) {
+    border-color: var(--color-line-strong);
+  }
+
+  /* The keyboard ring comes from `:focus-visible` in the base layer; this is the
+     pointer-and-keyboard affordance underneath it. */
+  &:focus {
+    border-color: color-mix(in oklab, var(--color-accent) 65%, transparent);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+  }
+}
+
+/* A card or a panel section. */
+@utility card {
+  border-radius: 0.75rem;
+  border: 1px solid var(--color-line);
+  background-color: var(--color-surface);
+  box-shadow: var(--shadow-card);
+}
+
+/* A small status pill. Tone comes from a `text-*`/`bg-*` pair at the call site. */
+@utility chip {
+  display: inline-flex;
+  align-items: center;
+  gap: --spacing(1);
+  border-radius: 9999px;
+  padding-inline: --spacing(2);
+  padding-block: --spacing(0.5);
+  font-size: var(--text-3xs);
+  line-height: var(--text-3xs--line-height);
+  font-weight: 500;
+  white-space: nowrap;
+  box-shadow: 0 0 0 1px color-mix(in oklab, currentcolor 32%, transparent);
+}
+
+/* The uppercase section label used across the inspector and the settings page. */
+@utility eyebrow {
+  font-size: var(--text-2xs);
+  line-height: var(--text-2xs--line-height);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-muted);
+}
+
+/* The one decorative light in the product, behind the sign-in heading. A gradient
+   rather than an animation: it is depth, and it must not move. Declared here because
+   `color-mix()` inside an arbitrary Tailwind value needs escaping that reads worse
+   than a named utility. */
+@utility hero-glow {
+  background-image: radial-gradient(
+    70% 50% at 50% 30%,
+    color-mix(in oklab, var(--color-accent) 22%, transparent),
+    transparent 72%
+  );
+}
+
+/* Safe-area padding for the one full-bleed surface in the product: the canvas
+   header, which on a phone in landscape sits under the notch. */
+@utility pad-safe {
+  padding-left: max(--spacing(3), env(safe-area-inset-left));
+  padding-right: max(--spacing(3), env(safe-area-inset-right));
+  padding-top: max(--spacing(2), env(safe-area-inset-top));
+}
+
+/* An indeterminate progress bar — the generation wait, and nothing else. */
+@utility sweep-bar {
+  position: relative;
+  overflow: hidden;
+  border-radius: 9999px;
+  background-color: var(--color-line);
+
+  &::after {
+    content: "";
+    position: absolute;
+    inset-block: 0;
+    inline-size: 45%;
+    border-radius: 9999px;
+    background-image: linear-gradient(
+      90deg,
+      transparent,
+      var(--color-accent),
+      var(--color-spark),
+      transparent
+    );
+    animation: var(--animate-sweep);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   React Flow. Its own CSS variables, pointed at our tokens.
+   --------------------------------------------------------------------------- */
+.react-flow {
+  --xy-background-color: var(--color-canvas);
+  --xy-edge-stroke: var(--color-line-strong);
+  --xy-edge-stroke-selected: var(--color-accent);
+  --xy-connectionline-stroke: var(--color-accent);
+  --xy-attribution-background-color: transparent;
+
+  --xy-controls-button-background-color: var(--color-surface);
+  --xy-controls-button-background-color-hover: var(--color-elevated);
+  --xy-controls-button-color: var(--color-muted);
+  --xy-controls-button-color-hover: var(--color-ink);
+  --xy-controls-button-border-color: var(--color-line);
+
+  --xy-minimap-background-color: var(--color-surface);
+  /* The mask is what dims the area *outside* the viewport. Too opaque and the
+     minimap reads as a black rectangle rather than a map. */
+  --xy-minimap-mask-background-color: oklch(0.142 0.014 272 / 0.55);
+  --xy-minimap-node-background-color: var(--color-accent-dim);
+
+  --xy-selection-background-color: color-mix(in oklab, var(--color-accent) 12%, transparent);
+  --xy-selection-border: 1px dashed var(--color-accent);
+}
+
+/* The dot grid. `<Background>` renders a pattern whose colour is a prop default
+   we do not pass, so it is set here rather than threaded through the component. */
+.react-flow__background-pattern.dots {
+  color: oklch(1 0 0 / 0.11);
+}
+
+.react-flow__controls {
+  border-radius: 0.5rem;
+  overflow: hidden;
+  box-shadow: var(--shadow-card);
+}
+
+.react-flow__minimap {
+  border-radius: 0.5rem;
+  border: 1px solid var(--color-line);
+  box-shadow: var(--shadow-card);
+}
+
+.react-flow__attribution a {
+  color: var(--color-faint);
+  font-size: 9px;
+}
+
+/* A node's own focus ring, for keyboard users tabbing the graph. React Flow makes
+   each node focusable; without this the selection is invisible from the keyboard. */
+.react-flow__node:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 4px;
+  border-radius: 0.85rem;
+}
+
+/* The path a run actually took, left on the canvas after it finishes. */
+.react-flow__edge.edge-traversed .react-flow__edge-path {
+  stroke: var(--color-accent);
+  stroke-width: 2;
+}
+
+.react-flow__edge.edge-live .react-flow__edge-path {
+  stroke: var(--color-spark);
+  stroke-width: 2.25;
+}
+
+/* ---------------------------------------------------------------------------
+   Reduced motion. One blanket rule, deliberately: every animation in this file
+   is decoration over a state that is also stated in text, so removing all of
+   them costs no information. The canvas's JS-driven `fitView` tween is handled
+   separately in `src/lib/canvas/motion.ts`, which reads the same query.
+   --------------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-fast: 0ms;
+    --dur: 0ms;
+    --dur-slow: 0ms;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
 }

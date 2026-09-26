@@ -7,43 +7,39 @@ concise and operational — prune stale detail rather than appending forever. Th
 
 ## Project Status
 
-**Phase 9 is built, deployed and verified — with one completion criterion honestly not yet met.**
-A workflow now reaches real outside services, and three of the four integrations are agent tools.
+**Phase 10 is built, deployed and verified.** The product has a design system now rather than
+legibility-only styling: one dark theme in tokens, Geist and Geist Mono self-hosted, a named type
+scale, motion on the two beats that matter, drawers instead of broken columns at 375 px, a keyboard
+focus ring, and error and 404 surfaces that read like sentences.
 
-**Proven against the real service: `integration.http` and `integration.discord`.**
-**Not yet proven against the real service: `integration.sheets` and `integration.gmail`** — their
-code, credential handling, scope checks and failure messages are deployed and verified, and the
-consent flow is verified up to the point where Google itself answers `redirect_uri_mismatch`. They
-cannot append a row or send a message until **M8** is done, which is a console click only the user
-can make. That is one criterion of *"four integrations work from the deployed app against real
-services"* outstanding, recorded rather than rounded up.
+**https://agentforge-733000675212.asia-southeast1.run.app** — revision `agentforge-00017-5k2`.
 
-**https://agentforge-733000675212.asia-southeast1.run.app**
+**No functional regression: 178 checks defined, 177 passed, 0 failed, 1 skipped** against the
+deployed URL — the same suite and the same result as Phase 9, re-run after the UI pass. `npm test`
+is **276 tests**, 9 of them new: the contrast of every text token, computed from `globals.css`
+itself.
 
-**`DEMO.md` Beat 2's target prompt is now the demo prompt.** Phase 8 predicted that registering the
-Discord and Sheets nodes would make its two `unsupported` lines disappear, and they did: **3/3 valid
-on the first attempt, `unsupported: []` every time**, each building the full spine
-`webhook → llm → agent → branch → Discord + Sheets`. That was the phase's acceptance test.
+**Phase 9's last criterion is still outstanding and Phase 10 did not touch it.** `integration.sheets`
+and `integration.gmail` cannot reach the real service until **M8** — two redirect URIs added to the
+OAuth client, a console click only the user can make. Everything else in Phase 9 is deployed and
+verified, including a real Discord message and a real HTTPS API call.
 
-Verified by the full HTTP suite against the deployed URL — **178 checks defined, 177 run and all passed,
-1 skipped** (52 of them Phase 9's) — including **a real
-message posted to `#agentforge-demo`** and the outbound guard refused every one of nine blocked
-targets *through the real engine on the deployed container*.
+**`DEMO.md` Beat 2's target prompt is the demo prompt**, pinned in Phase 9: measured 3/3 valid on the
+first attempt with `unsupported: []`, building `webhook → llm → agent → branch → Discord + Sheets`.
 
 ## Current Phase
 
-**Phase 10 — UI/UX pass: design system, motion, responsiveness, accessibility** (not started) —
-`READY TO START`. Nothing in Phase 10 depends on M8, so it does not wait.
+**Phase 11 — Hardening: demo-path reliability, critical-path tests, error surfaces** (not started) —
+`READY TO START`. Nothing in Phase 11 depends on M8 either.
 
 **Before Phase 12 ships, M8 must be done and Phase 9's last criterion closed**: connect Google, then
 run one workflow that actually appends a row and one that actually sends mail. Until then `DEMO.md`
 Beat 8's second payoff (the Sheet) is unproven on the deployed system.
 
-**One manual action is pending and it blocks only the Sheets and Gmail *runtime*, nothing else:** the
-two `/api/integrations/google/callback` redirect URIs must be added to the OAuth client before
-`Connect Google` can work. The block is in `DEPLOYMENT.md` (OAuth pass 3). Everything else in Phase 9
-is deployed and verified; both nodes' code, credential handling, scope checks and failure messages are
-in place and the flow is proved up to Google's own consent screen.
+**Two credentials are not connected on the demo account right now**, and both are already on
+`DEMO.md`'s setup checklist: the **Discord webhook** (deleted during Phase 9's revocation check) and
+**Google** (M8). The Gemini key *is* stored. Nothing is broken by this — it is demo-day setup, not a
+blocker — but a Phase 11 smoke test that assumes Discord is connected will fail until it is.
 
 ## Completed Phases
 
@@ -59,6 +55,7 @@ in place and the flow is proved up to Google's own consent screen.
 | **Phase 7** — natural language → workflow generation | **COMPLETE** — verified on the deployed URL in a browser, 2026-09-26 |
 | **Phase 8** — triggers: webhook + schedule | **COMPLETE** — verified on the deployed URL and by a real Cloud Scheduler invocation, 2026-09-26 |
 | **Phase 9** — integrations: HTTP, Discord, Sheets, Gmail | **COMPLETE except the Sheets/Gmail runtime, which is BLOCKED ON M8.** Verified on the deployed URL; a real Discord message posted and a real HTTPS API called. Sheets and Gmail are deployed and verified to the edge of Google's consent screen |
+| **Phase 10** — design system, motion, responsiveness, accessibility | **COMPLETE** — verified on the deployed URL in a browser at 1440 px and 375 px, 2026-09-26 |
 
 ---
 
@@ -69,15 +66,16 @@ in place and the flow is proved up to Google's own consent screen.
 | **Canonical URL** | **`https://agentforge-733000675212.asia-southeast1.run.app`** |
 | Legacy URL | `https://agentforge-i5d2u66boa-as.a.run.app` — works, do not publish it |
 | Service | `agentforge` on Cloud Run, `asia-southeast1` |
-| Revision | **`agentforge-00015-vwg`** — ready, 100% of traffic. Previous good revision: `agentforge-00014-cpb` |
+| Revision | **`agentforge-00017-5k2`** — ready, 100% of traffic. Previous good revision: `agentforge-00016-wbr` |
 | Scaling | `min-instances 1`, `max-instances 3`, 1 vCPU / 1 GiB, 3600 s timeout, port 8080 |
-| Env vars set | `NODE_ENV` `AUTH_URL` `APP_BASE_URL` `DATABASE_URL` `AUTH_SECRET` `GOOGLE_CLIENT_ID` `GOOGLE_CLIENT_SECRET` `ENCRYPTION_KEY` `CRON_SECRET` — **still 9. Phase 9 added none**: the Google integration flow reuses `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `APP_BASE_URL`, and every third-party credential is a `credential` row rather than an environment variable. No Gemini key on the service: the product path is the user's own key |
-| Database | Neon `super-mountain-39872886` — **8 tables**, migrations `0000` + `0001` + `0002_wooden_morlocks` applied. **Phase 9 needed no migration**: two new credential kinds are rows in the existing `credential` table, which is what `(ownerId, kind, label)` was for |
-| Routes | `/` `/dashboard`→`/workflows` `/workflows` `/workflows/[id]` `/settings` + **17** API routes (Phase 9 added `/api/integrations/discord`, `/api/integrations/google`, `/api/integrations/google/connect` and `/api/integrations/google/callback`) |
+| Env vars set | `NODE_ENV` `AUTH_URL` `APP_BASE_URL` `DATABASE_URL` `AUTH_SECRET` `GOOGLE_CLIENT_ID` `GOOGLE_CLIENT_SECRET` `ENCRYPTION_KEY` `CRON_SECRET` — **still 9. Phases 9 and 10 added none**: the Google integration flow reuses `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `APP_BASE_URL`, and every third-party credential is a `credential` row rather than an environment variable. No Gemini key on the service: the product path is the user's own key |
+| Database | Neon `super-mountain-39872886` — **8 tables**, migrations `0000` + `0001` + `0002_wooden_morlocks` applied. **Phases 9 and 10 needed no migration**: two new credential kinds are rows in the existing `credential` table, which is what `(ownerId, kind, label)` was for |
+| Routes | `/` `/dashboard`→`/workflows` `/workflows` `/workflows/[id]` `/settings` + **17** API routes, unchanged by Phase 10. Phase 10 added three file-convention routes only: `app/icon.svg` (the favicon), `app/error.tsx` and `app/not-found.tsx` |
 | Warm latency | health ~190 ms India → Singapore. A 7-node run with a 1.5 s delay and an agent node that calls a tool: **3.6 s end to end**. **Generation: 2.3–3.2 s** for a 5-node workflow, measured again in Phase 8 |
-| Last verified | **2026-09-26** — `VERIFY_GEMINI_KEY=… node --env-file=.env scripts/verify-api.mjs <url>`, **125 checks passed, 0 failed, 1 skipped** (the skip is storing a key, because one is already stored and the API is write-only), plus the trigger UI driven in a real browser |
+| Last verified | **2026-09-26, after Phase 10** — `VERIFY_GEMINI_KEY=… VERIFY_DISCORD_WEBHOOK=… node --env-file=.env scripts/verify-api.mjs <url>`, **177 passed, 0 failed, 1 skipped** of 178 (the skip is storing a key, because one is already stored and the API is write-only), plus the canvas run and both panel drawers driven in a real browser at 1440 px and 375 px |
 | Provider key stored | **Yes, deliberately left in place.** The user's own free-tier key is stored (encrypted) against their account on the deployed app, so no phase is blocked on re-pasting it |
-| Registry | **15 nodes.** Phase 9 added `integration.http`, `integration.discord`, `integration.sheets`, `integration.gmail` — **and nothing else**: no palette code, no config form, no validator rule, no second tool list |
+| Registry | **15 nodes**, unchanged by Phase 10 |
+| Fonts | **Geist + Geist Mono, self-hosted by `next/font`**, `latin` subset, variable axis. Two woff2 files in the image; no request leaves the browser for a font and there is no layout shift |
 
 **A redeploy preserves env vars.** Confirmed again on Phase 6's three deploys: `gcloud run deploy
 agentforge --source . --region asia-southeast1` with no `--env-vars-file` carried all 9 variables
@@ -85,81 +83,60 @@ to each new revision. The file is only needed when a variable changes.
 
 ---
 
-## Phase 9 — what was verified, not just written
+## Phase 10 — what was verified, not just written
 
-`npm test` — **267 tests**, no database, no network, ~860 ms. Phase 9 added 52: the outbound guard
-(every blocked range, the IPv4-in-IPv6 forms, the split-DNS rule), the Discord URL shapes, Gmail
-header injection and base64url, the OAuth parameters and scope arithmetic, the CSRF state comparison,
-and the registry projection for all four nodes.
-`scripts/verify-api.mjs` — **178 checks defined, 52 added by Phase 9.** Against the
-deployed URL: **177 passed, 0 failed, 1 skipped** (the skip is storing a provider key, because one is already stored and the API is write-only).
+`npm test` — **276 tests**, no database, no network, ~880 ms. Phase 10 added 9, all in
+`src/app/tokens.test.ts`: it parses the `oklch()` tokens out of `globals.css`, converts them to
+linear sRGB and asserts WCAG contrast for every text-on-surface pair the product actually uses.
+That exists because the failure mode is silent — darkening `--color-muted` to calm a panel down is
+an easy change to make and an impossible one to spot by eye.
 
-**Driven against the deployed URL:**
+`scripts/verify-api.mjs` against the deployed URL — **178 checks, 177 passed, 0 failed, 1 skipped.**
+Identical to Phase 9. **Phase 10 added no check and changed no behaviour the suite measures**, which
+is the point: it is the regression test for a UI pass.
 
-| Checked | Result |
-|---|---|
-| All four integrations in the registry, each with an `outputShape` | ✓ 15 nodes, 4 in `integration` |
-| HTTP, Discord and Sheets in the agent tool set; **Gmail not** | ✓ and a tool set narrowed to include Gmail reports it `rejected`, never grants it |
-| Every integration route without a session | ✓ 401 on all five |
-| A Discord channel link, an invite, a non-Discord host, plain http, not-a-URL | ✓ 400 each, with the message naming what to copy instead |
-| A well-formed but non-existent webhook | ✓ 400 from Discord itself, and **nothing stored** |
-| Any status response containing part of a stored secret | ✓ none — no webhook URL, no token, no `refresh` anywhere in either shape |
-| The consent URL | ✓ `access_type=offline`, `prompt=consent`, `include_granted_scopes=true`, exactly the two scopes, this deployment's own callback, and **no client secret in a URL the browser follows** |
-| The CSRF state | ✓ ≥20 chars, `HttpOnly`, and **a callback with no state cookie or a mismatched one is refused** — nothing connected |
-| `connect` and `callback` signed out | ✓ 302 home, not a JSON 401 |
-| **The outbound guard, through the real engine on the deployed container** | ✓ **9/9 refused**: the metadata server over http *and* by name, `localhost`, loopback, RFC 1918, link-local, IPv6 `::1`, a `.internal` name, and credentials in the URL |
-| A real public HTTPS API | ✓ `api.github.com/zen` → 200 with a body, which also proves the `User-Agent` is sent (GitHub answers 403 without one) |
-| A JSON response | ✓ parsed into `output.json`, so a `{{ }}` reference reaches a field |
-| A 404, with `failOnError` at its default | ✓ step **failed**, carrying the API's own message |
-| The same 404 with `failOnError: false` | ✓ step succeeded with `status: 404, ok: false`, so a branch can route on it |
-| **A real message posted to `#agentforge-demo`** | ✓ run succeeded, Discord returned a `messageId`, and the `{{trigger.note}}` in the template arrived resolved |
-| The webhook deleted, then the same workflow re-run | ✓ failed with *"No Discord webhook is connected. Add one in Settings → Integrations."* |
-| A Sheets node with no spreadsheet chosen | ✓ saves, reports **runnable**, and on a run says *"This node has no spreadsheet yet."* |
-| A Sheets node with Google not connected | ✓ *"Google is not connected. Connect it in Settings → Integrations."* — not a stack trace |
-
-**Driven in a real browser on the deployed app:**
+**Driven in a real browser on the deployed app, at 1440 px and at 375 px:**
 
 | Checked | Result |
 |---|---|
-| The settings page's new **Integrations** section | ✓ Discord and "Google Sheets & Gmail" both render, both "Not connected" |
-| The palette | ✓ an **INTEGRATIONS** group appeared on its own, with all four nodes and their descriptions — **no palette code changed** |
-| All four nodes on the canvas | ✓ labelled, edged, and the workflow saved `runnable: true` with no problems |
-| **The Discord node's inspector** (`DEMO.md` Beat 4) | ✓ Label, **Content** marked `required` as an editable textarea holding `Urgent: {{trigger.message}}`, and Username — **entirely from the registry, no node-specific UI** |
-| Console, on a fresh load with tracking active | ✓ **0 messages, 0 errors** — the new client component does not repeat Phase 6's hydration bug |
-| **Connect Google** | ✓ reaches `accounts.google.com`, which answers `redirect_uri_mismatch` naming exactly `…/api/integrations/google/callback`. **Google itself confirms the flow is correct and only the registration is missing** (M8) |
-
-**Generation — the acceptance test Phase 8 set:**
-
-| Prompt | Result |
-|---|---|
-| `DEMO.md` Beat 2's **target** prompt | **3/3 first attempt, `unsupported: []`** — `webhook → llm → agent → branch → Discord + Sheets`. The branch reads `{{steps.classify.output.decision}}` (D38 holding), the Sheets row is a proper cell array of `{{ }}` references, and `spreadsheetId` is left empty as instructed |
-| The same prompt's routing | The model wires the sheet off **both** branch outputs unprompted, because the request said "log *every* one" — which is correct, and not something it was told |
-| A request nothing can satisfy | ✓ still reported as `unsupported`, so Phase 7's honesty did not regress into silence |
+| A real run on the deployed canvas | ✓ 578 ms, six steps, every status chip correct |
+| **The path the run took, left lit on the graph** | ✓ the four traversed edges accent-coloured, **the untaken branch edge still grey** and its node badged `Skipped` — `DEMO.md` Beat 7 is now visible on the canvas, not only in the log |
+| Console on the canvas, signed in, after a run | ✓ **0 errors, 0 warnings** |
+| The canvas at 375 px | ✓ header wraps to two rows, palette and inspector become drawers, minimap hidden, **0 px horizontal overflow** |
+| Tapping a node at 375 px | ✓ opens the inspector drawer with the registry-generated form — otherwise the tap appears to do nothing (`DEMO.md` Beat 4 on a phone) |
+| A closed drawer and the keyboard | ✓ `visibility: hidden`, so it is out of the tab order rather than an invisible tab trap |
+| Escape, and the backdrop | ✓ both close whichever drawer is open |
+| `prefers-reduced-motion: reduce` | ✓ every animation collapses to 1 ms, the duration tokens to 0 s, nodes render fully opaque, and `tweenMs()` reports 0 for React Flow's JS-driven `fitView` |
+| The skip link, on first Tab | ✓ slides in, fully styled, and jumps to `#main` — which every page and the canvas now carry |
+| `/workflows/<a uuid that does not exist>` | ✓ the new 404 page, not a stack trace |
+| Fonts | ✓ Geist resolved as the computed body font, 13 `@font-face` rules served from our own origin |
+| `/icon.svg` | ✓ 200 — the browser tab has a favicon for the first time |
 
 **Four things worth recording, found while building:**
 
-1. **The generation prompt named the now-possible as impossible.** It hardcoded "sending email,
-   posting to a chat service, writing to a spreadsheet" as its examples of what to put in
-   `unsupported`. Phase 8's note predicted generation would need *no change*, and the **catalogue**
-   indeed needed none — but that sentence would have kept telling the model Discord and Sheets were
-   out of reach while the nodes sat in the list above it. Corrected, and the examples replaced with a
-   per-integration design note. **The lesson: a prompt that names specifics dates like code, and
-   nothing type-checks prose.**
-2. **A throwing `preprocess` escapes `safeParse` entirely** (measured on zod 4.6.5) rather than
-   producing an issue. The header-map coercion exists because Gemini cannot express an open-ended
-   object and degrades one to "a JSON object, given as a string" — so the model sends a string. Had
-   the coercion thrown on malformed JSON, a bad agent argument would have become an unhandled 500
-   instead of a tool error the model corrects itself from.
-3. **A registry test caught a UI consequence of a schema choice.** `describeFields` sends any string
-   over 200 characters to a textarea, so `to`, `cc` and `spreadsheetId` would have rendered as
-   multi-line boxes. Tightened to 200; `url` deliberately kept at 2000 and therefore a textarea,
-   because a URL can carry a long query string. Nothing but the test would have noticed before the
-   inspector was opened on stage.
-4. **`min(1)` on `spreadsheetId` would have broken Beat 2.** The prompt names no spreadsheet, so the
-   model must either invent an id — a valid graph pointing at a stranger's document — or fail the
-   whole generation. Empty, with a node that says *"This node has no spreadsheet yet"*, is the honest
-   third answer. Validation skips any config containing `{{`, so an unfilled field would otherwise
-   have slipped through to a cryptic runtime failure anyway.
+1. **A `loading.tsx` over a page whose first act is an auth redirect turns a 307 into a 200.** Both
+   `/workflows` and `/workflows/[id]` started answering **200 to a signed-out request** instead of
+   redirecting, and the deployed suite caught it. The cause is streaming: `loading.tsx` wraps the
+   segment in Suspense, the shell flushes with the status line already sent, and the later
+   `redirect()` can only arrive as a `NEXT_REDIRECT` instruction inside the stream. **No data
+   leaked** — the body was the skeleton plus that instruction, and a browser still redirects — but
+   the HTTP status at an auth boundary changed, which is not a thing to trade for polish.
+   **Both files were removed** (D51). The alternative, an auth guard in a segment `layout.tsx`,
+   costs a second database session lookup on the two hottest pages, and the skeleton was worth
+   roughly 200 ms of a client-side navigation.
+2. **A chip cannot be a translucent wash of its own colour and still clear AA.** `bg-<tone>/15` under
+   text of the same tone measured **3.34:1 for red** on a node card — the tint lifts the background
+   faster than it lifts the text. No usable alpha fixes it: even 8 % only reaches 4.13. The status
+   pill is the recessed neutral instead, with the tone as text and a hairline ring, which measures
+   7.4:1 and up. The rejected measurement is asserted in the test so a later phase that prefers the
+   softer look has to answer for the number.
+3. **`not-sr-only` sets `padding: 0`**, so the classic `sr-only focus:not-sr-only` skip link came
+   back with the `btn` padding stripped — focusable, styled, unreadable. It is parked above the
+   viewport with a transform instead.
+4. **`line-clamp-2` and `block` both set `display`, and `block` won.** Every node description in the
+   palette rendered in full, making the palette seven screens tall and pushing `INTEGRATIONS` far
+   below the fold. Pre-existing, invisible until the palette was looked at properly. `line-clamp-2`
+   already implies a block box; the extra class was the bug.
 
 ## Decisions — BINDING
 
@@ -212,6 +189,12 @@ Carried forward from every phase. These are the decisions later sessions must no
 
 ---
 
+| **D48** | **One theme, dark. There is no light mode** | `BUILD_PLAN.md` Phase 10 lists "dark mode" as part of the design system; the product had already been dark since Phase 1 and its canvas, node cards and status colours are all designed against a dark ground. A second theme doubles every colour decision and every visual check for a demo that is given once, on one screen. What "dark mode" actually cost us was `color-scheme: dark` on `:root` — without it the `<select>` in every generated config form and the checkbox in `core.http`'s `failOnError` rendered as light OS widgets in a dark panel |
+| **D49** | **A component names a token; it never names a colour** | Every `text-red-300`, `bg-white/10` and `text-[11px]` in the product was swept onto `text-bad`, `border-line` and `text-2xs` — 113 font sizes and ~60 colours, at identical values, so the sweep was provably invisible. The point is not tidiness: `CATEGORY_STYLE` and `STATUS_STYLE` are read by the canvas, the palette and the inspector, and a status colour that exists in three spellings drifts the first time one of them is edited |
+| **D50** | **The run leaves its path lit on the canvas** | Edges are projected, not stored: `displayEdges` derives `animated` and a class from `runStates`, and `edges` itself stays exactly what `fromFlow` will save. An edge into a node that is *running* pulses; an edge the run actually crossed stays accent-coloured. On a branch the untaken edge never lights, so when the run ends the graph is showing the path the agent chose. This is `DEMO.md` Beat 7 made visible on the canvas rather than only in the log |
+| **D51** | **No `loading.tsx` on a page whose first act is an auth redirect** | It converts the redirect from a 307 into a 200 carrying a `NEXT_REDIRECT` in the stream, because the shell flushes before the page body runs. Nothing leaks and a browser still redirects, but the status code at an auth boundary is not a thing to trade for a navigation skeleton. If a later phase wants the skeleton back, the guard has to move into a segment `layout.tsx`, which costs a second session lookup per request |
+| **D52** | **Contrast is computed from the tokens, not eyeballed** | `src/app/tokens.test.ts` parses `globals.css`, converts `oklch()` to linear sRGB and asserts WCAG ratios. Every other Phase 10 criterion is checked by looking; this one cannot be, because a token drifting 0.05 in lightness is invisible and still fails AA. It is also what rejected the tinted status chip |
+
 ## Known Issues
 
 | Issue | Impact | Action |
@@ -232,7 +215,7 @@ Carried forward from every phase. These are the decisions later sessions must no
 | **`models.list` lists models a key cannot call** | Phases 6, 7 | `gemini-2.5-flash` is in the catalogue and answers 404 "no longer available to new users". Never treat the list as the callable set — make a real call (D34) |
 | **`gemini-2.0-flash` and `gemini-2.5-flash*` are retired** | Phases 6, 7 | List models, never assume a name. Current default: `gemini-3.5-flash-lite` |
 | **Free-tier rate limits are tight** | Phases 6, 7, demo | Back-to-back probes hit 429/503. The adapter retries twice per model then falls down the chain; do not run the verify script in a tight loop. **Hit again in Phase 7:** a generated run's agent step failed once mid-suite and passed on a re-run 20 s later. The verify check now prints the failing step's error so the next occurrence diagnoses itself |
-| **No favicon — `/favicon.ico` 404s** | Cosmetic, visible in the browser tab on demo day | Phase 10 (UI/UX pass). `public/` already exists |
+| ~~No favicon — `/favicon.ico` 404s~~ | Was cosmetic, visible in the browser tab | **Handled in Phase 10.** `src/app/icon.svg` is Next's app-icon convention; the framework emits the `<link rel="icon">` and serves it at `/icon.svg`, verified 200 on the deployed URL. `/favicon.ico` still 404s and that is fine — nothing requests it once the link tag is present |
 | **A port-3000 `next dev` can outlive its session** | A stale server serves old code and the next session's `npm run dev` silently moves to 3001 | Check `lsof -nP -iTCP:3000 -sTCP:LISTEN` before trusting a local check. **Hit again in Phase 5** — a stale `next-server` was still listening |
 | **`scripts/verify-api.mjs` leaves rows behind if it is killed** | Stray test workflows in the shared database | Its cleanup runs at the end, so a `ctrl-c` or a timeout skips it. Phase 5 found two orphans that way and deleted them. Check `select count(*) from "workflow"` after an interrupted run |
 | **A `pull`-driven `ReadableStream` does not stream under Next** | Would have shipped a stream that opens and then says nothing | The SSE route drives its own loop. Do not "simplify" it back to `pull` (see `src/app/api/workflows/[id]/stream/route.ts`) |
@@ -241,6 +224,8 @@ Carried forward from every phase. These are the decisions later sessions must no
 | **A client component's `toLocaleString()` is a hydration error** | Any date rendered in a `"use client"` file | Server and browser disagree on locale and timezone → React #418. Format with `Intl.DateTimeFormat` pinned to a locale and `timeZone: "UTC"`. A **server** component is fine — the workflow list does it safely |
 | **`z.string().min(1)` accepts `"   "`** | Any user-supplied string that costs money downstream | Whitespace counts toward the length. `.trim()` must come **before** `.min(1)`; the other order silently accepts it. A whitespace prompt reached the provider and spent a model call before this was fixed |
 | **A generated graph can be valid and still do the wrong thing** | Generation, every phase that adds a node | Validation proves a graph *can* run, never that it does what was asked. The `{{ }}` reference bug passed validation and succeeded at runtime. **Give every non-pass-through node an `outputShape`** (D38), and eyeball a generated branch's `left` when adding nodes |
+| **`next start` cannot serve a `standalone` build** | Local verification only | It warns and then 404s every CSS chunk, which looks exactly like a broken stylesheet. Assemble the container's own layout instead — the commands are in *Notes for Phase 11* |
+| **`next dev` and `next build` share `.next` and poison each other** | Local verification only | A dev server started after a production build serves the build's manifest and 404s every asset. `rm -rf .next` between the two |
 | **A one-off React #418 on first page load** | Cosmetic; not reproduced | Seen once on revision `agentforge-00012-cs6` alongside an `ERR_NETWORK_CHANGED` from a fetch interrupted mid-hydration. **Not reproducible on `00013-zwt`**: signed-out landing, workflow list, canvas, and the whole generate → run path each read 0 errors, 0 warnings. Re-check with a clean profile before the demo |
 
 Carried risks, recorded so they are not rediscovered:
@@ -301,7 +286,7 @@ M1–M7 are all done and verified with live calls.
 |---|---|---|---|
 | `AgentForge` git repository | GitHub | `arunishrajput/AgentForge` | **EXISTS** |
 | Google Cloud project | Google Cloud | `agentforge-hackathon-2026`, number **`733000675212`** | **EXISTS**, billing active ($300 / 90-day trial) |
-| **`agentforge` Cloud Run service** | Google Cloud | `asia-southeast1`, revision `agentforge-00014-cpb` | **LIVE 2026-09-26** |
+| **`agentforge` Cloud Run service** | Google Cloud | `asia-southeast1`, revision `agentforge-00017-5k2` | **LIVE 2026-09-26** |
 | **`cloud-run-source-deploy` repo** | Artifact Registry | `asia-southeast1` | **EXISTS** |
 | OAuth consent screen | Google Cloud | External, app "AgentForge" | **EXISTS** — status **Testing**, 1 test user |
 | OAuth 2.0 client | Google Cloud | "AgentForge Web", `733000675212-…ntm7` | **VERIFIED** — 4 redirect entries |
@@ -386,27 +371,45 @@ decorators anywhere in `src`.
 
 ---
 
-## Notes for Phase 10
+## Notes for Phase 11
 
-- **The registry claim has now held three phases running.** Phases 8 and 9 added six nodes between
-  them and changed **no** palette code, **no** config form, **no** validator rule and **no** second
-  tool list. Phase 10 is the first phase whose job *is* the UI — so it is the phase that must not
-  break that property. A change that makes the palette or the inspector know a node type by name
-  undoes what Phases 3–9 bought
-- **One config field renders as a raw JSON box:** `integration.sheets.values`, because it is an array
-  (`src/lib/canvas/schema.ts`'s documented fallback). This is the list-shaped field the Phase 9 notes
-  deferred here. It is usable as-is and `DEMO.md` does not open it — Beat 4 opens the Discord node,
-  whose fields are a textarea and an input
-- **`integration.http.url` renders as a textarea**, deliberately: it is capped at 2000 characters
-  because a URL can carry a long query string, and `describeFields` sends anything over 200 to a text
-  box. Asserted in `src/lib/nodes/integration/integration.test.ts` so it stays deliberate
-- **No favicon** — `/favicon.ico` still 404s, and it is visible in the browser tab. `public/` exists
+- **The registry claim held a fourth time, through the phase most likely to break it.** Phase 10's
+  job *was* the UI and it still added **no** node-type name to the palette, the inspector or the
+  config form. `CATEGORY_STYLE` maps a *category* to a colour token and falls back to the category's
+  own name for a group it has never met; `STATUS_STYLE` maps the engine's four step outcomes. Nothing
+  else in the UI knows a node exists. Keep it that way
+- **The design system is `src/app/globals.css` and nothing else.** Tokens in `@theme`, component
+  classes as `@utility` (`btn`, `btn-primary`, `btn-quiet`, `btn-ghost`, `btn-danger`, `field`,
+  `card`, `chip`, `eyebrow`, `sweep-bar`, `hero-glow`, `pad-safe`). A new panel should name those, not
+  copy a class list. There is no component library and no `components/ui` — deliberately
+- **The type scale is Tailwind's, plus three steps**: `text-3xs` (10 px), `text-2xs` (11 px) and
+  `text-ui` (13 px, every form control and button). `xs`, `sm` and up are Tailwind's own and
+  unchanged, so existing `text-xs`/`text-sm` are stable
+- **React Flow's stylesheet is imported in `globals.css`, not in `editor.tsx`.** The cascade order is
+  load-bearing: Tailwind preflight → React Flow layout → our overrides. Imported from the component it
+  could land either side of ours and the symptom is unreadable canvas controls
+- **`prefers-reduced-motion` is handled in two places and both must stay.** The blanket CSS block in
+  `globals.css`, and `src/lib/canvas/motion.ts` for React Flow's `fitView`, which tweens in
+  JavaScript where a media query cannot reach it
+- **One config field still renders as a raw JSON box:** `integration.sheets.values`, because it is an
+  array (`src/lib/canvas/schema.ts`'s documented fallback). Usable as-is, and `DEMO.md` does not open
+  it — Beat 4 opens the Discord node, whose fields are a textarea and an input
+- **`integration.http.url` renders as a textarea**, deliberately: capped at 2000 characters because a
+  URL can carry a long query string, and `describeFields` sends anything over 200 to a text box.
+  Asserted in `src/lib/nodes/integration/integration.test.ts`
 - **Two client components format dates**, and both must keep formatting in UTC with a fixed locale or
   React throws hydration error #418: `provider-form.tsx` and `integrations-form.tsx`
-- **The settings page now has two sections and will grow a third if a provider is added.** If it
-  wants a tab or an accordion, that is Phase 10's call
-- **Read the console on the deployed page, not just locally.** Phase 6's hydration error and Phase 8's
-  clean run were both found that way, and it is the only check that catches them
+- **Read the console on the deployed page, not just locally.** Phase 6's hydration error, Phase 8's
+  clean run and Phase 10's clean canvas were all found that way
+- **Verify the production build the way the container runs it**, not with `next start`. `next start`
+  warns and then 404s CSS chunks because `output: standalone` moves them. The faithful local check is
+  the Dockerfile's own shape:
+  ```bash
+  npm run build && cp -r .next/static .next/standalone/.next/static && cp -r public .next/standalone/
+  (cd .next/standalone && PORT=3100 HOSTNAME=127.0.0.1 node --env-file=../../.env server.js)
+  ```
+  Never run `next dev` against a `.next` a production build wrote — they share the directory and the
+  dev server serves the build's manifest, which 404s every asset
 
 ## Open, but blocking nothing
 
@@ -416,6 +419,31 @@ the user deliberately** — it governs whether others may commercialise the work
 ---
 
 ## Recent Changes
+
+**2026-09-26 — Phase 10 complete, the product looks built on purpose**
+
+- A design system in `src/app/globals.css`: surfaces, hairlines, text, accent, four status tones and
+  five category accents as `oklch()` tokens; a type scale; elevation; two easings and three
+  durations; eleven `@utility` component classes. **Geist and Geist Mono self-hosted by `next/font`.**
+  Deployed as `agentforge-00017-5k2`
+- **113 arbitrary font sizes and ~60 raw colour classes swept onto tokens at identical values**, so
+  the sweep was provably invisible and the vocabulary is now singular (D49)
+- **Motion where it is watched**: a staggered entry for a generated graph, a breathing ring on the
+  running node, a status chip that replays its pop on every transition, an indeterminate sweep and a
+  live elapsed clock for the generation wait — and **the run's path left lit on the canvas**, with the
+  untaken branch edge deliberately dark (D50). All opacity and transform; `prefers-reduced-motion`
+  collapses every one of them, including React Flow's JavaScript `fitView`
+- **375 px works.** The canvas's two side panels become drawers below `lg`, opened from the header or
+  by tapping a node, closed by Escape or the backdrop, and `visibility: hidden` keeps a closed drawer
+  out of the tab order. 0 px horizontal overflow on every page
+- **Accessibility**: one `:focus-visible` ring for the whole product, a working skip link to `#main`
+  on every page, `color-scheme: dark` so native controls stop rendering as light widgets, and
+  **contrast computed from the tokens in a test** rather than judged by eye (D52)
+- **The deployed suite is the regression test and it is unchanged**: 178 checks, 177 passed, 0 failed
+- **Caught and reverted a real regression of my own**: `loading.tsx` turned the signed-out redirect on
+  `/workflows` and `/workflows/[id]` into a **200** carrying `NEXT_REDIRECT` in the stream. No data
+  leaked, but the status at an auth boundary is not worth a navigation skeleton (D51). The suite
+  caught it; looking at the pages would not have
 
 **2026-09-26 — Phase 9 complete, workflows reach real outside services**
 
@@ -502,13 +530,9 @@ dead billing-enabled key. Full detail is in git history at `56dce47`.
 
 ## Last Updated
 
-**2026-09-26** — Phase 9 complete. Revision `agentforge-00015-vwg` live; the deployed HTTP suite
-**passed in full** (177 of 178 checks run, 1 skipped, **0 failed**), a real message was posted to
-`#agentforge-demo` from a deployed run, the outbound guard refused all nine blocked targets through
-the real engine, and the settings page, palette and Discord inspector were driven in a real browser
-with 0 console errors. `DEMO.md` Beat 2's target prompt now generates the full spine with
-`unsupported: []`, 3/3 on the first attempt.
-
-**One manual action pending — M8**, the two integration redirect URIs on the OAuth client. It blocks
-only the Sheets and Gmail *runtime*; Google's own `redirect_uri_mismatch` confirms everything up to
-the registration is correct.
+**2026-09-26** — Phase 10 complete. Revision `agentforge-00017-5k2` live; the deployed HTTP suite
+**passed in full and unchanged** (177 of 178 checks run, 1 skipped, **0 failed**), `npm test` is 276
+including 9 new computed-contrast assertions, and the canvas was driven in a real browser at 1440 px
+and 375 px — a real run with its path lit on the graph, both drawers, Escape, the skip link, the 404
+page and `prefers-reduced-motion`, with **0 console errors**. Phase 9's Sheets/Gmail runtime remains
+**BLOCKED ON M8**, untouched by this phase. Next: **Phase 11 — hardening**.

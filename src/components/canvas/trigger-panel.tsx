@@ -45,7 +45,7 @@ function WebhookPanel({ workflow, dirty }: { workflow: Workflow; dirty: boolean 
   if (!workflow.webhookUrl) {
     return (
       <Section title="Webhook URL">
-        <p className="text-muted text-[12px] leading-relaxed">
+        <p className="text-muted text-xs leading-relaxed">
           Save the workflow to get its URL. The receiver reads the stored graph, so the
           URL only answers once this trigger is saved.
         </p>
@@ -73,30 +73,30 @@ function WebhookPanel({ workflow, dirty }: { workflow: Workflow; dirty: boolean 
         readOnly
         value={workflow.webhookUrl}
         onFocus={(event) => event.currentTarget.select()}
-        className="bg-canvas w-full rounded-lg border border-white/10 px-2.5 py-1.5 font-mono text-[11px] outline-none"
+        className="field font-mono text-2xs"
       />
 
       <button
         type="button"
         onClick={copy}
-        className="hover:bg-surface w-full rounded-lg border border-white/10 px-3 py-1.5 text-[12px] transition-colors"
+        className="btn btn-quiet w-full"
       >
         {copied ? "Copied" : "Copy URL"}
       </button>
 
       {copyFailed && (
-        <p className="text-[11px] text-amber-300">
+        <p className="text-2xs text-warn">
           The browser refused clipboard access — select the field and copy it manually.
         </p>
       )}
 
       {dirty && (
-        <p className="text-[11px] text-amber-300">
+        <p className="text-2xs text-warn">
           There are unsaved changes. The URL fires the workflow as it is <em>stored</em>.
         </p>
       )}
 
-      <p className="text-muted text-[11px] leading-relaxed">
+      <p className="text-muted text-2xs leading-relaxed">
         POST JSON here to start a run. Anyone holding this URL can trigger it, so treat
         it as a secret. The body becomes this node&apos;s output — reach it with{" "}
         <code>{"{{trigger.field}}"}</code>.
@@ -111,7 +111,7 @@ function SchedulePanel({ workflow, dirty }: { workflow: Workflow; dirty: boolean
       {workflow.scheduleNextAt ? (
         <Row label="Next run" value={formatUtc(workflow.scheduleNextAt)} />
       ) : (
-        <p className="text-muted text-[12px] leading-relaxed">
+        <p className="text-muted text-xs leading-relaxed">
           {dirty
             ? "Save the workflow to schedule it."
             : "Not scheduled. Check the cron expression above — an expression that cannot be read is reported as a problem."}
@@ -126,7 +126,7 @@ function SchedulePanel({ workflow, dirty }: { workflow: Workflow; dirty: boolean
         <Row label="Expression" value={workflow.scheduleCron} mono />
       )}
 
-      <p className="text-muted text-[11px] leading-relaxed">
+      <p className="text-muted text-2xs leading-relaxed">
         Cron is evaluated in <strong>UTC</strong>. Due schedules are swept every 15
         minutes, so a run starts at or shortly after its slot rather than on the second.
       </p>
@@ -137,9 +137,7 @@ function SchedulePanel({ workflow, dirty }: { workflow: Workflow; dirty: boolean
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="space-y-2">
-      <h3 className="text-muted text-[11px] font-medium tracking-wide uppercase">
-        {title}
-      </h3>
+      <h3 className="eyebrow">{title}</h3>
       {children}
     </section>
   );
@@ -156,8 +154,8 @@ function Row({
 }) {
   return (
     <div className="flex items-baseline justify-between gap-2">
-      <span className="text-muted text-[12px]">{label}</span>
-      <span className={`text-[12px] ${mono ? "font-mono text-[11px]" : ""}`}>{value}</span>
+      <span className="text-muted text-xs">{label}</span>
+      <span className={`text-xs ${mono ? "font-mono text-2xs" : ""}`}>{value}</span>
     </div>
   );
 }

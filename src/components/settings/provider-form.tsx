@@ -108,14 +108,14 @@ export function ProviderForm({ initial }: { initial: ProviderSettings }) {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="bg-surface rounded-xl p-5">
+    <div className="animate-rise space-y-6">
+      <div className="card p-5">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <h2 className="text-sm font-medium">Google Gemini</h2>
           <StatusBadge settings={settings} />
         </div>
 
-        <p className="text-muted mt-2 text-[13px]">
+        <p className="text-muted mt-2 text-ui">
           Your key is encrypted with AES-256-GCM before it is stored and is never sent back
           to this page — not even partially. Get one from{" "}
           <a
@@ -144,18 +144,18 @@ export function ProviderForm({ initial }: { initial: ProviderSettings }) {
             autoComplete="off"
             spellCheck={false}
             aria-label="Gemini API key"
-            className="bg-canvas min-w-0 flex-1 rounded-lg px-3 py-2 font-mono text-[13px] outline-none placeholder:font-sans"
+            className="field min-w-0 flex-1 font-mono placeholder:font-sans"
           />
           <button
             type="submit"
             disabled={busy !== null || apiKey.trim().length === 0}
-            className="bg-accent text-canvas rounded-lg px-3.5 py-2 text-[13px] font-medium transition-opacity hover:opacity-90 disabled:opacity-40"
+            className="btn btn-primary"
           >
             {busy === "saving" ? "Verifying…" : "Save key"}
           </button>
         </form>
 
-        <p className="text-muted mt-2 text-[12px]">
+        <p className="text-muted mt-2 text-xs">
           The key is checked against the provider before it is stored, so a wrong one fails
           here rather than halfway through a run.
         </p>
@@ -165,19 +165,19 @@ export function ProviderForm({ initial }: { initial: ProviderSettings }) {
             type="button"
             onClick={removeKey}
             disabled={busy !== null}
-            className="text-muted hover:text-red-300 mt-3 text-[12px] transition-colors disabled:opacity-40"
+            className="btn btn-ghost hover:text-bad mt-3 -ml-3 text-xs"
           >
             {busy === "removing" ? "Deleting…" : "Delete stored key"}
           </button>
         )}
       </div>
 
-      <div className="bg-surface rounded-xl p-5">
+      <div className="card p-5">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <h2 className="text-sm font-medium">Model</h2>
-          <code className="text-accent text-[12px]">{settings.model}</code>
+          <code className="text-accent text-xs">{settings.model}</code>
         </div>
-        <p className="text-muted mt-2 text-[13px]">
+        <p className="text-muted mt-2 text-ui">
           Used by every LLM and agent node that does not name its own. The list comes from
           the provider, live — a model this key cannot call will not appear.
         </p>
@@ -187,19 +187,19 @@ export function ProviderForm({ initial }: { initial: ProviderSettings }) {
             type="button"
             onClick={loadModels}
             disabled={busy !== null || settings.source === "none"}
-            className="bg-canvas rounded-lg px-3 py-2 text-[13px] transition-opacity hover:opacity-80 disabled:opacity-40"
+            className="btn btn-quiet"
           >
             {busy === "loading" ? "Asking the provider…" : "List available models"}
           </button>
           {models.length > 0 && (
-            <span className="text-muted text-[12px]">
+            <span className="text-muted text-xs">
               {models.length} model{models.length === 1 ? "" : "s"} available
             </span>
           )}
         </div>
 
         {models.length > 0 && (
-          <ul className="mt-4 space-y-1.5">
+          <ul className="animate-fade mt-4 space-y-1.5">
             {models.map((model) => {
               const selected = model.id === settings.model;
               return (
@@ -209,14 +209,16 @@ export function ProviderForm({ initial }: { initial: ProviderSettings }) {
                     onClick={() => chooseModel(model.id)}
                     disabled={busy !== null || selected}
                     aria-current={selected}
-                    className={`flex w-full items-baseline justify-between gap-3 rounded-lg px-3 py-2 text-left transition-colors ${
-                      selected ? "bg-accent/15 text-accent" : "bg-canvas hover:bg-canvas/60"
+                    className={`flex w-full items-baseline justify-between gap-3 rounded-lg px-3 py-2 text-left transition-colors duration-100 ${
+                      selected
+                        ? "bg-accent/15 text-accent ring-accent/30 ring-1"
+                        : "bg-canvas hover:bg-elevated"
                     }`}
                   >
-                    <span className="min-w-0 flex-1 truncate font-mono text-[12px]">
+                    <span className="min-w-0 flex-1 truncate font-mono text-xs">
                       {model.id}
                     </span>
-                    <span className="text-muted shrink-0 text-[12px]">{model.label}</span>
+                    <span className="text-muted shrink-0 text-xs">{model.label}</span>
                   </button>
                 </li>
               );
@@ -226,11 +228,15 @@ export function ProviderForm({ initial }: { initial: ProviderSettings }) {
       </div>
 
       {error && (
-        <p role="alert" className="text-[13px] text-red-300">
+        <p role="alert" className="text-bad animate-fade text-ui">
           {error}
         </p>
       )}
-      {notice && !error && <p className="text-[13px] text-emerald-300">{notice}</p>}
+      {notice && !error && (
+        <p role="status" className="text-ok animate-fade text-ui">
+          {notice}
+        </p>
+      )}
     </div>
   );
 }
@@ -238,7 +244,7 @@ export function ProviderForm({ initial }: { initial: ProviderSettings }) {
 function StatusBadge({ settings }: { settings: ProviderSettings }) {
   if (settings.source === "user") {
     return (
-      <span className="text-[12px] text-emerald-300">
+      <span className="text-xs text-ok">
         Your key, stored{settings.updatedAt ? ` ${storedAt(settings.updatedAt)}` : ""}
       </span>
     );
@@ -246,7 +252,7 @@ function StatusBadge({ settings }: { settings: ProviderSettings }) {
   if (settings.source === "environment") {
     // Worth saying out loud: a run that silently uses the server's development key
     // would make the whole feature look like it works when nobody has tested it.
-    return <span className="text-[12px] text-amber-300">Using the server&rsquo;s fallback key</span>;
+    return <span className="text-xs text-warn">Using the server&rsquo;s fallback key</span>;
   }
-  return <span className="text-muted text-[12px]">No key yet</span>;
+  return <span className="text-muted text-xs">No key yet</span>;
 }

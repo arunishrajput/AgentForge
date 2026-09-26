@@ -14,8 +14,16 @@ import { TriggerPanel } from "./trigger-panel";
  * Validation problems are shown rather than blocking the save. A half-built canvas
  * must be saveable (CONTRACT.md → "Graph validation"), so the honest UI is "saved,
  * and here is what is still wrong".
+ *
+ * Below `lg` it is a drawer over the canvas instead of a column beside it, opened by
+ * the header toggle or by selecting a node. Always rendered, with CSS deciding —
+ * `max-lg:invisible` keeps the closed drawer out of the tab order without a viewport
+ * measurement that could differ between the server render and the browser.
  */
 export function Inspector({
+  id,
+  open,
+  onClose,
   node,
   definition,
   workflow,
@@ -29,6 +37,9 @@ export function Inspector({
   onDeleteNode,
   onSelectNode,
 }: {
+  id: string;
+  open: boolean;
+  onClose: () => void;
   node: CanvasNode | null;
   definition: NodeSummary | undefined;
   /** The workflow as last SAVED — a webhook URL or a due time only exists once stored. */
@@ -45,7 +56,22 @@ export function Inspector({
   onSelectNode: (id: string) => void;
 }) {
   return (
-    <aside className="bg-canvas flex w-80 shrink-0 flex-col border-l border-white/10">
+    <aside
+      id={id}
+      aria-label="Inspector"
+      className={`border-line bg-canvas flex w-80 shrink-0 flex-col border-l transition-[transform,visibility] duration-200 ease-out max-lg:fixed max-lg:inset-y-0 max-lg:right-0 max-lg:z-30 max-lg:w-[min(22rem,90vw)] max-lg:shadow-drawer lg:visible lg:translate-x-0 ${
+        open ? "max-lg:translate-x-0" : "max-lg:invisible max-lg:translate-x-full"
+      }`}
+    >
+      <button
+        type="button"
+        onClick={onClose}
+        className="btn btn-ghost absolute top-2 right-2 z-10 px-2 lg:hidden"
+      >
+        <span aria-hidden="true">✕</span>
+        <span className="sr-only">Close inspector</span>
+      </button>
+
       {node ? (
         <NodeInspector
           node={node}
@@ -89,25 +115,25 @@ function NodeInspector({
 }) {
   return (
     <>
-      <header className="border-b border-white/10 px-4 py-3">
+      <header className="border-line border-b px-4 py-3 max-lg:pr-12">
         <h2 className="truncate text-sm font-medium">
           {definition?.label ?? node.data.nodeType}
         </h2>
-        <p className="text-muted mt-0.5 font-mono text-[11px]">{node.id}</p>
+        <p className="text-muted mt-0.5 font-mono text-2xs">{node.id}</p>
       </header>
 
       <div className="flex-1 space-y-5 overflow-y-auto px-4 py-4">
         {definition ? (
-          <p className="text-muted text-[12px] leading-relaxed">{definition.description}</p>
+          <p className="text-muted text-xs leading-relaxed">{definition.description}</p>
         ) : (
-          <p className="text-[12px] text-red-300">
+          <p className="text-xs text-bad">
             No registry entry for <code>{node.data.nodeType}</code>. This workflow cannot
             run until the node is removed.
           </p>
         )}
 
         {problems.length > 0 && (
-          <ul className="space-y-1 rounded-lg bg-amber-400/10 p-3 text-[12px] text-amber-200 ring-1 ring-amber-400/30">
+          <ul className="bg-warn/10 text-warn ring-warn/30 animate-fade space-y-1 rounded-lg p-3 text-xs ring-1">
             {problems.map((problem, index) => (
               <li key={index}>{problem.message}</li>
             ))}
@@ -115,7 +141,7 @@ function NodeInspector({
         )}
 
         <label className="block">
-          <span className="mb-1 block text-[13px] font-medium">Label</span>
+          <span className="mb-1 block text-ui font-medium">Label</span>
           <input
             type="text"
             value={node.data.label ?? ""}
@@ -126,7 +152,7 @@ function NodeInspector({
                 label: event.target.value === "" ? undefined : event.target.value,
               })
             }
-            className="bg-canvas focus:border-accent/60 w-full rounded-lg border border-white/10 px-2.5 py-1.5 text-[13px] outline-none"
+            className="field"
           />
         </label>
 
@@ -145,11 +171,11 @@ function NodeInspector({
         <TriggerPanel node={node} workflow={workflow} dirty={dirty} />
       </div>
 
-      <footer className="border-t border-white/10 px-4 py-3">
+      <footer className="border-t border-line px-4 py-3">
         <button
           type="button"
           onClick={() => onDelete(node.id)}
-          className="w-full rounded-lg border border-red-400/30 px-3 py-2 text-[13px] text-red-300 transition-colors hover:bg-red-400/10"
+          className="btn btn-danger w-full"
         >
           Delete node
         </button>
@@ -177,19 +203,22 @@ function WorkflowInspector({
 
   return (
     <>
-      <header className="flex items-start justify-between gap-2 border-b border-white/10 px-4 py-3">
+      <header className="border-line flex items-start justify-between gap-2 border-b px-4 py-3 max-lg:pr-12">
         <div className="min-w-0">
           <h2 className="text-sm font-medium">
             {run ? (run.status === "running" ? "Running" : "Last run") : "Workflow"}
           </h2>
-          <p className="text-muted mt-0.5 text-[11px]">
+          <p className="text-muted mt-0.5 text-2xs">
             {run ? "Select a node to edit it" : "Select a node to edit its configuration"}
           </p>
         </div>
 
         {watching && (
-          <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-sky-400/15 px-2 py-0.5 text-[10px] font-medium text-sky-300 ring-1 ring-sky-400/40">
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-sky-300" />
+          <span className="chip bg-sunken text-live shrink-0">
+            <span
+              aria-hidden="true"
+              className="animate-breathe bg-live h-1.5 w-1.5 rounded-full"
+            />
             Live
           </span>
         )}
@@ -198,10 +227,8 @@ function WorkflowInspector({
       <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4">
         {problems.length > 0 && (
           <section>
-            <h3 className="text-muted mb-1.5 text-[11px] font-medium tracking-wide uppercase">
-              Not runnable yet
-            </h3>
-            <ul className="space-y-1 rounded-lg bg-amber-400/10 p-3 text-[12px] text-amber-200 ring-1 ring-amber-400/30">
+            <h3 className="eyebrow mb-1.5">Not runnable yet</h3>
+            <ul className="space-y-1 rounded-lg bg-warn/10 p-3 text-xs text-warn ring-1 ring-warn/30">
               {problems.map((problem, index) => (
                 <li key={index}>{problem.message}</li>
               ))}
@@ -217,7 +244,7 @@ function WorkflowInspector({
         {run ? <RunSteps run={run} live={live} onSelectNode={onSelectNode} /> : null}
 
         {!run && problems.length === 0 && (
-          <p className="text-muted text-[12px]">
+          <p className="text-muted text-xs">
             Press Run to execute this workflow and see each node&apos;s outcome on the
             canvas.
           </p>
@@ -238,23 +265,21 @@ function TriggerInput({
 
   return (
     <label className="block">
-      <span className="text-muted mb-1.5 block text-[11px] font-medium tracking-wide uppercase">
-        Trigger input
-      </span>
+      <span className="eyebrow mb-1.5 block">Trigger input</span>
       <textarea
         value={value}
         rows={3}
         spellCheck={false}
         placeholder={'{ "subject": "launch" }'}
         onChange={(event) => onChange(event.target.value)}
-        className="bg-canvas focus:border-accent/60 w-full resize-y rounded-lg border border-white/10 px-2.5 py-1.5 font-mono text-[12px] outline-none"
+        className="field resize-y font-mono text-xs"
       />
       {invalid ? (
-        <span className="mt-1 block text-[11px] text-amber-300">
+        <span className="mt-1 block text-2xs text-warn">
           Not valid JSON — the run will be blocked until this parses.
         </span>
       ) : (
-        <span className="text-muted mt-1 block text-[11px]">
+        <span className="text-muted mt-1 block text-2xs">
           JSON handed to the trigger. Reach it with <code>{"{{input.x}}"}</code>.
         </span>
       )}
@@ -282,16 +307,16 @@ function RunSteps({
 }) {
   const runTone =
     run.status === "succeeded"
-      ? "text-emerald-300"
+      ? "text-ok"
       : run.status === "failed"
-        ? "text-red-300"
-        : "text-sky-300";
+        ? "text-bad"
+        : "text-live";
 
   return (
     <section className="space-y-3">
       <div className="flex items-baseline justify-between">
-        <span className={`text-[13px] font-medium ${runTone}`}>{run.status}</span>
-        <span className="text-muted text-[11px]">
+        <span className={`text-ui font-medium capitalize ${runTone}`}>{run.status}</span>
+        <span className="text-muted text-2xs">
           {run.durationMs !== null
             ? `${run.durationMs} ms`
             : live
@@ -301,7 +326,7 @@ function RunSteps({
       </div>
 
       {run.error && (
-        <p className="rounded-lg bg-red-400/10 p-3 text-[12px] text-red-200 ring-1 ring-red-400/30">
+        <p className="bg-bad/10 text-bad ring-bad/30 animate-fade rounded-lg p-3 text-xs ring-1">
           {run.error}
         </p>
       )}
@@ -312,26 +337,27 @@ function RunSteps({
             <button
               type="button"
               onClick={() => onSelectNode(step.nodeId)}
-              className="hover:bg-surface w-full rounded-lg px-2 py-1.5 text-left transition-colors"
+              className="hover:bg-surface animate-fade w-full rounded-lg px-2 py-1.5 text-left transition-colors duration-100"
             >
               <span className="flex items-center gap-1.5">
-                <span className="text-muted w-5 shrink-0 font-mono text-[11px]">
+                <span className="text-muted w-5 shrink-0 font-mono text-2xs">
                   {step.seq}
                 </span>
-                <span className="truncate font-mono text-[12px]">{step.nodeId}</span>
+                <span className="truncate font-mono text-xs">{step.nodeId}</span>
                 <span
-                  className={`ml-auto shrink-0 rounded px-1.5 py-0.5 text-[10px] ring-1 ${STATUS_STYLE[step.status].className}`}
+                  key={step.status}
+                  className={`chip animate-pop ml-auto shrink-0 ${STATUS_STYLE[step.status].className}`}
                 >
                   {STATUS_STYLE[step.status].label}
                 </span>
               </span>
 
               {step.error && (
-                <span className="mt-1 block text-[11px] text-red-300">{step.error}</span>
+                <span className="mt-1 block text-2xs text-bad">{step.error}</span>
               )}
 
               {(step.logs ?? []).map((log, index) => (
-                <span key={index} className="text-muted mt-0.5 block pl-6 text-[11px]">
+                <span key={index} className="text-muted mt-0.5 block pl-6 text-2xs">
                   {log.message}
                 </span>
               ))}
@@ -342,10 +368,8 @@ function RunSteps({
 
       {run.output !== null && run.output !== undefined && (
         <div>
-          <h3 className="text-muted mb-1.5 text-[11px] font-medium tracking-wide uppercase">
-            Output
-          </h3>
-          <pre className="bg-surface overflow-x-auto rounded-lg p-3 font-mono text-[11px]">
+          <h3 className="eyebrow mb-1.5">Output</h3>
+          <pre className="bg-sunken border-line overflow-x-auto rounded-lg border p-3 font-mono text-2xs">
             {JSON.stringify(run.output, null, 2)}
           </pre>
         </div>

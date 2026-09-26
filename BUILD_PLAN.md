@@ -18,7 +18,7 @@ phase is incomplete. Current position is in `PROGRESS.md`, not here.
  7  Natural language → workflow generation                                     ← HEADLINE FEATURE
  8  Triggers — webhook + schedule
  9  Integration nodes — Google Sheets, Gmail, Discord, generic HTTP
-10  UI/UX pass — design system, motion, responsiveness, accessibility
+10  UI/UX pass — design system, motion, responsiveness, accessibility          ← DONE
 11  Hardening — demo-path reliability, critical-path tests, error surfaces
 12  Demo readiness and final ship
 ──────────────────── CUT LINE: the project is submittable here ────────────────────
@@ -575,6 +575,15 @@ regression. Deployed and verified.
 **Documentation updates.** `PROGRESS.md`, `ARCHITECTURE.md` if component structure changed.
 
 **Commit.** `feat: complete phase 10 design system motion and responsive pass`
+
+**Status: COMPLETE, 2026-09-26** — `agentforge-00017-5k2`. All six tasks landed and were verified on
+the deployed URL in a browser at 1440 px and 375 px. Two refinements worth carrying:
+
+- Task 1's "dark mode" was resolved as **one dark theme, declared** (D48), not a second light theme.
+  The real work it implied was `color-scheme: dark` for native controls
+- Task 5's loading states were **partly reverted**: a route `loading.tsx` over a page whose first act
+  is an auth redirect turns the 307 into a 200 (D51). Empty, error and 404 states all shipped; the
+  navigation skeletons did not
 
 ---
 

@@ -154,7 +154,8 @@ this build.
 | `drizzle-orm` / `drizzle-kit` | 0.45.3 / 0.31.11 | peers include `@neondatabase/serverless >= 0.10.0` |
 | `@neondatabase/serverless` | 1.1.0 | |
 | `zod` | 4.6.5 | |
-| `tailwindcss` | 4.3.3 | |
+| `tailwindcss` | 4.3.3 | Tokens in `@theme`, component classes as `@utility`. **No component library** — see *Design system* |
+| `next/font` (Geist, Geist Mono) | bundled with Next | **Added in Phase 10.** Self-hosted, `latin` subset, variable axis. Not a dependency: `next/font` is part of Next |
 | `typescript` | 7.0.2 | |
 
 **Auth.js v5 is still a beta, and is still the right choice.** `next-auth@latest` is 4.24.15,
@@ -261,6 +262,7 @@ a handful of requests per page, not thirty per workflow run.
 | Component | Responsibility |
 |---|---|
 | **Web / API layer** | Auth, workflow CRUD, run trigger, SSE stream, webhook receiver, cron tick endpoint |
+| **Design system** | One stylesheet. Tokens, component utilities and the React Flow theme all live in `src/app/globals.css`; components name a token and never a raw value |
 | **Node registry** | The single source of node types. Each entry declares its type, schema, and execute function. Serves three consumers: the engine's dispatch, the canvas's palette, and the agent's tool set |
 | **Execution engine** | Walks the workflow DAG in-process, calls the registry per node, threads output forward, writes step records, emits events |
 | **Agent layer** | Provider adapter over the LLM, prompt assembly, and the bounded tool-calling loop whose tools are derived from the registry |
@@ -294,6 +296,45 @@ separate tool definitions, no drift between "nodes that exist" and "tools the ag
 Security boundary: the agent can call registry entries and nothing else. There is no shell tool, no
 filesystem tool, and no arbitrary-HTTP escape hatch beyond the explicit HTTP node, which is itself
 a registry entry with a schema.
+
+---
+
+## Design system — one stylesheet, no component library
+
+Everything visual is declared in **`src/app/globals.css`** and nothing else:
+
+```
+@theme      colour, type scale, elevation, easings, animations   → Tailwind tokens
+@utility    btn / btn-primary / btn-quiet / btn-ghost / btn-danger
+            field / card / chip / eyebrow / sweep-bar / hero-glow / pad-safe
+.react-flow React Flow's own CSS variables, pointed at those tokens
+@media      prefers-reduced-motion — one blanket rule
+```
+
+**There is deliberately no `components/ui`.** A button is a class, not a component. For a product
+this size a wrapper component per control buys indirection and costs a file each; the utilities give
+the same single point of change with none of it. A new panel in a later phase names `card`, `field`
+and `btn btn-primary` and looks like the rest of the product for free.
+
+Three properties this arrangement is protecting, each learned the hard way:
+
+- **A component names a token, never a colour** (D49). `CATEGORY_STYLE` and `STATUS_STYLE` in
+  `components/canvas/context.ts` are the *only* mapping from a domain concept to a colour, and they
+  are read by the canvas, the palette and the inspector alike.
+- **React Flow's stylesheet is imported here, not in `editor.tsx`**, so the cascade order — Tailwind
+  preflight, then React Flow's layout CSS, then our overrides — is explicit rather than dependent on
+  how the client bundle was assembled.
+- **Reduced motion is honoured in two places.** The CSS block covers every animation and transition;
+  `src/lib/canvas/motion.ts` covers React Flow's `fitView`, which tweens in JavaScript where a media
+  query cannot reach it.
+
+The theme is dark only, and that is a decision rather than an omission (D48). What it did require is
+`color-scheme: dark` on `:root`: without it the `<select>` in every registry-generated config form
+renders as a light OS widget inside a dark panel.
+
+Contrast is not a matter of opinion here — `src/app/tokens.test.ts` parses the `oklch()` tokens out
+of this stylesheet, converts them to linear sRGB and asserts WCAG AA for every text-on-surface pair
+the product uses (D52).
 
 ---
 

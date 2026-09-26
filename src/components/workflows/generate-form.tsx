@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   ApiRequestError,
@@ -22,7 +22,13 @@ import {
  * in sync, and the thing the user lands on is genuinely the saved workflow rather
  * than a rendering of the model's answer.
  *
- * Visual design is Phase 10. This is legibility and a working flow.
+ * **The wait is where Phase 10's motion budget goes**, along with the node entry
+ * stagger on the canvas — together they are `DEMO.md` Beat 3. Two to three seconds
+ * of nothing reads as a hang on stage, so the wait gets an indeterminate sweep and a
+ * live elapsed count. Deliberately *not* a staged "asking the model → validating →
+ * saving" sequence: the request is a single round trip and this component cannot see
+ * which of those the server is doing, so timed stage labels would be decoration
+ * pretending to be progress. An honest clock is better than a fake one.
  */
 
 /** Chosen so a demo has a second, visibly different request to hand. */
@@ -35,12 +41,24 @@ export function GenerateWorkflowForm() {
   const router = useRouter();
   const [prompt, setPrompt] = useState("");
   const [busy, setBusy] = useState(false);
+  const [elapsedMs, setElapsedMs] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [issues, setIssues] = useState<GenerationIssue[]>([]);
   // A workflow that was built but could not do everything asked. It is saved and
   // valid, so this is a note rather than an error — and the user goes to it when they
   // have read the note, instead of arriving at a canvas that quietly does less.
   const [gaps, setGaps] = useState<{ id: string; unsupported: string[] } | null>(null);
+
+  // The clock only exists while a request is in flight, so nothing ticks on an idle
+  // page. Cleared by the effect's own teardown when `busy` goes false.
+  const startedAt = useRef(0);
+  useEffect(() => {
+    if (!busy) return;
+    startedAt.current = Date.now();
+    setElapsedMs(0);
+    const timer = setInterval(() => setElapsedMs(Date.now() - startedAt.current), 100);
+    return () => clearInterval(timer);
+  }, [busy]);
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -75,11 +93,11 @@ export function GenerateWorkflowForm() {
   };
 
   return (
-    <form onSubmit={submit} className="bg-surface mb-8 rounded-xl p-5">
+    <form onSubmit={submit} className="card animate-rise mb-8 p-5">
       <label htmlFor="generate-prompt" className="block text-sm font-medium">
         Describe the workflow you want
       </label>
-      <p className="text-muted mt-1 text-[13px]">
+      <p className="text-muted mt-1 text-ui">
         Plain language. AgentForge builds a real workflow you can run and edit.
       </p>
 
@@ -98,19 +116,19 @@ export function GenerateWorkflowForm() {
         maxLength={4000}
         disabled={busy}
         placeholder="When I run this, summarise the message, decide whether it is urgent, and log urgent ones as a warning."
-        className="bg-canvas mt-3 w-full resize-y rounded-lg px-3 py-2.5 text-sm outline-none ring-1 ring-white/10 transition-shadow placeholder:text-muted/60 focus:ring-2 focus:ring-accent disabled:opacity-50"
+        className="field mt-3 resize-y px-3 py-2.5 text-sm"
       />
 
       <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-muted text-[12px]">Try:</span>
+          <span className="text-muted text-xs">Try:</span>
           {EXAMPLES.map((example, index) => (
             <button
               key={example}
               type="button"
               disabled={busy}
               onClick={() => setPrompt(example)}
-              className="bg-canvas text-muted hover:text-ink rounded-md px-2 py-1 text-[12px] ring-1 ring-white/10 transition-colors disabled:opacity-50"
+              className="btn btn-quiet text-muted hover:text-ink px-2 py-1 text-xs"
             >
               Example {index + 1}
             </button>
@@ -120,27 +138,35 @@ export function GenerateWorkflowForm() {
         <button
           type="submit"
           disabled={busy || prompt.trim().length === 0}
-          className="bg-accent text-canvas rounded-lg px-4 py-2 text-[13px] font-medium transition-opacity hover:opacity-90 disabled:opacity-40"
+          className="btn btn-primary px-4 py-2"
         >
           {busy ? "Building…" : "Generate workflow"}
         </button>
       </div>
 
       {busy && (
-        <p className="text-muted mt-3 text-[12px]" role="status">
-          Asking the model for a workflow, then validating it before it is saved. This
-          takes a few seconds.
-        </p>
+        <div className="animate-fade mt-4">
+          <div className="sweep-bar h-1" aria-hidden="true" />
+          <div className="mt-2 flex items-baseline justify-between gap-3">
+            <p className="text-muted text-xs" role="status">
+              Asking the model for a workflow, then validating every node and edge
+              against the registry before it is saved.
+            </p>
+            <span className="text-faint shrink-0 font-mono text-2xs tabular-nums">
+              {(elapsedMs / 1000).toFixed(1)}s
+            </span>
+          </div>
+        </div>
       )}
 
       {gaps && (
-        <div className="mt-3 rounded-lg bg-amber-500/10 px-3 py-2.5 ring-1 ring-amber-400/20">
-          <p className="text-[13px] text-amber-100">
+        <div className="bg-warn/10 ring-warn/25 animate-rise mt-4 rounded-lg px-3 py-2.5 ring-1">
+          <p className="text-warn text-ui">
             Built and saved — but no node can do these parts yet:
           </p>
           <ul className="mt-1.5 space-y-0.5">
             {gaps.unsupported.map((item) => (
-              <li key={item} className="text-[12px] text-amber-100/80">
+              <li key={item} className="text-xs text-warn/80">
                 {item}
               </li>
             ))}
@@ -148,7 +174,7 @@ export function GenerateWorkflowForm() {
           <button
             type="button"
             onClick={() => router.push(`/workflows/${gaps.id}`)}
-            className="mt-2.5 text-[12px] font-medium text-amber-100 underline underline-offset-4"
+            className="text-warn mt-2.5 text-xs font-medium underline underline-offset-4"
           >
             Open the workflow anyway
           </button>
@@ -156,12 +182,15 @@ export function GenerateWorkflowForm() {
       )}
 
       {error && (
-        <div className="mt-3 rounded-lg bg-red-500/10 px-3 py-2.5 ring-1 ring-red-400/20">
-          <p className="text-[13px] text-red-200">{error}</p>
+        <div
+          role="alert"
+          className="bg-bad/10 ring-bad/25 animate-rise mt-4 rounded-lg px-3 py-2.5 ring-1"
+        >
+          <p className="text-bad text-ui">{error}</p>
           {issues.length > 0 && (
             <ul className="mt-1.5 space-y-0.5">
               {issues.slice(0, 6).map((issue, index) => (
-                <li key={index} className="text-[12px] text-red-200/75">
+                <li key={index} className="text-xs text-bad/75">
                   {issue.message}
                 </li>
               ))}

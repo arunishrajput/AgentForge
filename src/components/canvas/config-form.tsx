@@ -22,8 +22,9 @@ import {
  * parent remounts this form when the selection changes (`key={nodeId}`), which is
  * what reloads the drafts.
  */
-const inputClass =
-  "w-full rounded-lg border border-white/10 bg-canvas px-2.5 py-1.5 text-[13px] outline-none focus:border-accent/60";
+// Every control in a generated config form. `field` is the shared control style
+// from `globals.css`, so a node added in a later phase inherits it for free.
+const inputClass = "field";
 
 export function ConfigForm({
   schema,
@@ -38,7 +39,7 @@ export function ConfigForm({
 
   if (fields.length === 0) {
     return (
-      <p className="text-muted text-[13px]">This node has no configuration.</p>
+      <p className="text-muted text-ui">This node has no configuration.</p>
     );
   }
 
@@ -69,8 +70,8 @@ function Field({
 }) {
   const caption = (
     <span className="mb-1 flex items-baseline gap-1.5">
-      <span className="text-[13px] font-medium">{field.label}</span>
-      {field.required && <span className="text-[11px] text-amber-300">required</span>}
+      <span className="text-ui font-medium">{field.label}</span>
+      {field.required && <span className="text-2xs text-warn">required</span>}
     </span>
   );
 
@@ -110,7 +111,7 @@ function Control({
           type="checkbox"
           checked={value === true}
           onChange={(event) => onChange(field.key, event.target.checked)}
-          className="accent-accent h-4 w-4 align-middle"
+          className="accent-accent h-4 w-4 cursor-pointer align-middle"
         />
       );
 
@@ -198,7 +199,7 @@ function TextControl({
         <input type="text" {...shared} />
       )}
       {isValue && (
-        <span className="text-muted mt-1 block text-[11px]">
+        <span className="text-muted mt-1 block text-2xs">
           Literal, or a reference like <code>{"{{input.topic}}"}</code>.
         </span>
       )}
@@ -245,7 +246,7 @@ function JsonControl({
         className={`${inputClass} resize-y font-mono`}
         placeholder="[]"
       />
-      {error && <span className="mt-1 block text-[11px] text-amber-300">{error}</span>}
+      {error && <span className="mt-1 block text-2xs text-warn">{error}</span>}
     </>
   );
 }
@@ -306,7 +307,7 @@ function RecordEditor({
             type="button"
             aria-label={`Remove ${row.key || "field"}`}
             onClick={() => commit(rows.filter((_, i) => i !== index))}
-            className="text-muted hover:text-ink shrink-0 px-1.5 text-sm"
+            className="btn btn-ghost shrink-0 px-1.5"
           >
             ×
           </button>
@@ -315,7 +316,7 @@ function RecordEditor({
       <button
         type="button"
         onClick={() => setRows([...rows, { key: "", text: "" }])}
-        className="text-muted hover:text-ink text-[12px] underline underline-offset-4"
+        className="text-muted hover:text-ink text-xs underline underline-offset-4 transition-colors"
       >
         Add field
       </button>

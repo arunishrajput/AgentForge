@@ -35,15 +35,12 @@ export default async function SettingsPage({
   ]);
 
   return (
-    <main className="mx-auto max-w-2xl px-6 py-10">
-      <header className="mb-8">
-        <Link
-          href="/workflows"
-          className="text-muted hover:text-ink text-[12px] transition-colors"
-        >
-          ← Workflows
+    <main id="main" className="mx-auto max-w-2xl px-5 py-8 sm:px-6 sm:py-10">
+      <header className="animate-rise mb-8">
+        <Link href="/workflows" className="btn btn-ghost -ml-3 text-xs">
+          <span aria-hidden="true">←</span> Workflows
         </Link>
-        <h1 className="mt-3 text-xl font-semibold tracking-tight">Settings</h1>
+        <h1 className="mt-2 text-xl font-semibold tracking-tight">Settings</h1>
         <p className="text-muted mt-0.5 text-sm">
           The model your LLM and agent nodes run on, and the services your integration
           nodes reach.
@@ -53,7 +50,7 @@ export default async function SettingsPage({
       <div className="space-y-10">
         <ProviderForm initial={settings} />
 
-        <section>
+        <section className="animate-rise" style={{ animationDelay: "90ms" }}>
           <h2 className="mb-4 text-sm font-semibold tracking-tight">Integrations</h2>
           <IntegrationsForm
             discord={discord}

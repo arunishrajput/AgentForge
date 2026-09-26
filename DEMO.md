@@ -151,7 +151,7 @@ Every MVP-Critical feature appears:
 | C13 Schedule trigger | *Not on the path* — mention verbally, show in the trigger picker. It works: a Cloud Scheduler job sweeps due schedules every 15 min (Phase 8) |
 | C14 Four integrations | 8 — Discord and Sheets on the path; Gmail and generic HTTP are in the palette and in the same registry, shown if asked |
 | C15 Deployed URL | 1 |
-| C16 Responsive UI with motion | Throughout |
+| C16 Responsive UI with motion | Throughout — **delivered in Phase 10.** The two beats it is most visible in are 3 (the prompt box's sweep and elapsed clock, then the generated graph staggering in) and 6–7 (the running node's pulse, and the run's path left lit on the canvas with the untaken branch dark). Usable down to 375 px, where the canvas's side panels become drawers |
 
 **C13 is the only Critical feature not demonstrated live.** It is 30 seconds of unwatchable waiting.
 It is still built, still shown in the UI, and mentioned in one sentence.

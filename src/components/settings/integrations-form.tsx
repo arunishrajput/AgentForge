@@ -129,26 +129,26 @@ export function IntegrationsForm({
       {callback && (
         <p
           role={callback.tone === "bad" ? "alert" : undefined}
-          className={`text-[13px] ${callback.tone === "good" ? "text-emerald-300" : "text-amber-300"}`}
+          className={`animate-rise text-ui ${callback.tone === "good" ? "text-ok" : "text-warn"}`}
         >
           {callback.text}
         </p>
       )}
 
-      <section className="bg-surface rounded-xl p-5">
+      <section className="card p-5">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <h2 className="text-sm font-medium">Discord</h2>
           {discord.configured ? (
-            <span className="text-[12px] text-emerald-300">
+            <span className="text-xs text-ok">
               Connected{discord.webhookName ? ` as “${discord.webhookName}”` : ""}
               {discord.updatedAt ? ` · ${storedAt(discord.updatedAt)}` : ""}
             </span>
           ) : (
-            <span className="text-muted text-[12px]">Not connected</span>
+            <span className="text-muted text-xs">Not connected</span>
           )}
         </div>
 
-        <p className="text-muted mt-2 text-[13px]">
+        <p className="text-muted mt-2 text-ui">
           In Discord: channel settings → Integrations → Webhooks → <em>Copy Webhook URL</em>.
           That URL is itself a secret — anyone holding it can post to the channel — so it is
           encrypted before storage and never sent back to this page.
@@ -173,18 +173,18 @@ export function IntegrationsForm({
             autoComplete="off"
             spellCheck={false}
             aria-label="Discord webhook URL"
-            className="bg-canvas min-w-0 flex-1 rounded-lg px-3 py-2 font-mono text-[13px] outline-none placeholder:font-sans"
+            className="field min-w-0 flex-1 font-mono placeholder:font-sans"
           />
           <button
             type="submit"
             disabled={busy !== null || webhookUrl.trim().length === 0}
-            className="bg-accent text-canvas rounded-lg px-3.5 py-2 text-[13px] font-medium transition-opacity hover:opacity-90 disabled:opacity-40"
+            className="btn btn-primary"
           >
             {busy === "discord-save" ? "Verifying…" : "Save webhook"}
           </button>
         </form>
 
-        <p className="text-muted mt-2 text-[12px]">
+        <p className="text-muted mt-2 text-xs">
           Checked against Discord before it is stored, so a revoked or mistyped webhook
           fails here rather than halfway through a run.
         </p>
@@ -194,26 +194,26 @@ export function IntegrationsForm({
             type="button"
             onClick={removeWebhook}
             disabled={busy !== null}
-            className="text-muted hover:text-red-300 mt-3 text-[12px] transition-colors disabled:opacity-40"
+            className="btn btn-ghost hover:text-bad mt-3 -ml-3 text-xs"
           >
             {busy === "discord-remove" ? "Deleting…" : "Delete stored webhook"}
           </button>
         )}
       </section>
 
-      <section className="bg-surface rounded-xl p-5">
+      <section className="card p-5">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <h2 className="text-sm font-medium">Google Sheets &amp; Gmail</h2>
           {google.connected ? (
-            <span className="text-[12px] text-emerald-300">
+            <span className="text-xs text-ok">
               Connected{google.email ? ` · ${google.email}` : ""}
             </span>
           ) : (
-            <span className="text-muted text-[12px]">Not connected</span>
+            <span className="text-muted text-xs">Not connected</span>
           )}
         </div>
 
-        <p className="text-muted mt-2 text-[13px]">
+        <p className="text-muted mt-2 text-ui">
           Asked for separately from sign-in, and only when you want it: signing in never
           requests access to your spreadsheets or your mail. Leave both boxes ticked on
           Google&rsquo;s screen — unticking one connects successfully and then fails inside a
@@ -221,7 +221,7 @@ export function IntegrationsForm({
         </p>
 
         {google.connected && (
-          <ul className="mt-4 space-y-1.5 text-[13px]">
+          <ul className="mt-4 space-y-1.5 text-ui">
             <Capability granted={google.canAppendSheets} label="Append rows to your Sheets" />
             <Capability granted={google.canSendMail} label="Send email as you" />
           </ul>
@@ -231,7 +231,7 @@ export function IntegrationsForm({
           {/* A link, not a fetch: consent is a top-level navigation Google must control. */}
           <a
             href="/api/integrations/google/connect"
-            className="bg-accent text-canvas rounded-lg px-3.5 py-2 text-[13px] font-medium transition-opacity hover:opacity-90"
+            className="btn btn-primary"
           >
             {google.connected ? "Reconnect Google" : "Connect Google"}
           </a>
@@ -240,7 +240,7 @@ export function IntegrationsForm({
               type="button"
               onClick={disconnectGoogle}
               disabled={busy !== null}
-              className="text-muted hover:text-red-300 text-[12px] transition-colors disabled:opacity-40"
+              className="btn btn-ghost hover:text-bad px-2 text-xs"
             >
               {busy === "google-remove" ? "Disconnecting…" : "Disconnect"}
             </button>
@@ -249,11 +249,15 @@ export function IntegrationsForm({
       </section>
 
       {error && (
-        <p role="alert" className="text-[13px] text-red-300">
+        <p role="alert" className="text-bad animate-fade text-ui">
           {error}
         </p>
       )}
-      {notice && !error && <p className="text-[13px] text-emerald-300">{notice}</p>}
+      {notice && !error && (
+        <p role="status" className="text-ok animate-fade text-ui">
+          {notice}
+        </p>
+      )}
     </div>
   );
 }
@@ -265,7 +269,7 @@ export function IntegrationsForm({
  */
 function Capability({ granted, label }: { granted: boolean; label: string }) {
   return (
-    <li className={granted ? "text-muted" : "text-amber-300"}>
+    <li className={granted ? "text-muted" : "text-warn"}>
       <span aria-hidden="true" className="mr-2">
         {granted ? "✓" : "✗"}
       </span>
