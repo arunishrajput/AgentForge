@@ -271,6 +271,8 @@ clearing `#agentforge-demo` is a human with a mouse. It also cannot sign the dem
 
 Ordered by what fails. **A was rehearsed in Phase 12 and the backup workflow it depends on now
 exists and has been run.** B still needs a recording — see *What Phase 12 could not rehearse*.
+**The published pitch video is not Fallback B.** It is a narrated deck, so it proves nothing is
+broken but shows no live product; do not reach for it when the network dies.
 
 **Phase 11 added one retry to every outbound call on this path** — the Discord post, the Sheets
 append and the Google token refresh — on the statuses that mean *nothing happened* (429, 502, 503,
@@ -410,7 +412,9 @@ page, the **Continue with Google** button by name, and the 307 on a signed-out `
 asserted by the smoke script every walk; the click itself is yours.
 
 **3. The Fallback B recording.** Nothing in this repository can record a screen. It is the last
-un-built fallback and the only one that covers a total outage.
+un-built fallback and the only one that covers a total outage. **Still outstanding.** The pitch
+video published at https://www.youtube.com/watch?v=Suc4RV9LnLs does not replace it — that is a
+narrated slide deck, and Fallback B has to be the product itself, running.
 
 ```text
 MANUAL ACTION REQUIRED

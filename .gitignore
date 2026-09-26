@@ -67,3 +67,6 @@ Thumbs.db
 *.key
 service-account*.json
 gcp-credentials*.json
+
+# Pitch deck and video — build artifacts, not source
+presentation/

@@ -7,9 +7,11 @@ by AI agents rather than hand-wired by you*. Type a request in plain language an
 a real, executable, visually editable workflow whose agent nodes reason, call tools, and decide what
 to do at runtime.
 
-Built for the Zero Origin hackathon (Devpost) as a 72-hour solo build.
+Built for the Zero Origin hackathon (Devpost).
 
 **Live:** <https://agentforge-733000675212.asia-southeast1.run.app>
+
+**Pitch video (4:00):** <https://www.youtube.com/watch?v=Suc4RV9LnLs>
 
 `PROGRESS.md` → *Deployed State* is authoritative.
 

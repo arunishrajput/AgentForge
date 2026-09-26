@@ -35,7 +35,7 @@ nodes, connections, editable configuration — not a mockup. It runs, streams pe
 logs live, and its agent nodes use tool-calling to decide what to do at runtime instead of
 following a fixed script.
 
-**Context:** 72-hour solo hackathon build (Zero Origin, Devpost). Judging category is
+**Context:** Hackathon build (Zero Origin, Devpost). Judging category is
 `UNKNOWN — VERIFY`; assume a general "best working product" rubric until told otherwise.
 
 ---
@@ -46,7 +46,7 @@ following a fixed script.
 metric — not scale, not architectural elegance, not feature count.
 
 The goal is the strongest realistic MVP that can actually be deployed and demonstrated without
-failure inside 72 hours.
+failure inside the hackathon timebox.
 
 ---
 
@@ -54,8 +54,8 @@ failure inside 72 hours.
 
 | Constraint | Value |
 |---|---|
-| Time | ~72 hours of focused solo time |
-| Developer | One person, operating Claude Code. No team, no review process, no parallel agents |
+| Time | A fixed hackathon timebox — treat it as the binding constraint |
+| Developer | Operating Claude Code directly. No review process, no parallel agents |
 | Host | Google Cloud Run (single container) — **binding**, see `ARCHITECTURE.md` |
 | Database | Neon Postgres, free tier, pooled connection string |
 | Queue | **None.** Executor runs in-process. Cron via Cloud Scheduler |
@@ -203,7 +203,7 @@ Update it at the end of every phase, and mid-phase whenever the project state ma
 
 ## Git workflow
 
-Solo developer. **Work directly on `main`.** Use a short-lived phase branch only when a phase is
+**Work directly on `main`.** Use a short-lived phase branch only when a phase is
 genuinely risky — a large refactor, or a deployment experiment that could break a working deploy —
 and merge it in the same session.
 

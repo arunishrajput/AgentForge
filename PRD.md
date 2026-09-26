@@ -50,7 +50,7 @@ requiring on-premise or compliance guarantees.
 **A working, publicly deployed, reliably demonstrable product.**
 
 Not a production-scale platform. The strongest realistic MVP that can be deployed and
-demonstrated without failure inside 72 hours.
+demonstrated without failure inside the hackathon timebox.
 
 ---
 

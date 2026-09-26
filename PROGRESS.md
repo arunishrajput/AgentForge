@@ -39,17 +39,21 @@ demo account into the state `DEMO.md` assumes and *proves* it), `scripts/demo-fi
 to Phase 11's tally. `npm test` is **297 tests**, 4 of them new and all on the agent-budget guard.
 **`smoke.mjs --loop 10`: 10 consecutive clean walks, 0 failures, 123 s**, at the original 3 s gap.
 
-**The Fallback B recording is the one thing Phase 12 could not produce** — nothing here can record a
-screen. It is a `MANUAL ACTION REQUIRED` block in `DEMO.md`, with the exact script to perform.
+**The pitch video is published** — https://www.youtube.com/watch?v=Suc4RV9LnLs (4:00, narrated deck over real
+screenshots of the deployed app, including a run in flight). **The Fallback B recording is still
+outstanding** and is a different artefact: nothing here can record a screen, and a narrated deck
+cannot stand in for a live product when the network dies on stage. It remains a
+`MANUAL ACTION REQUIRED` block in `DEMO.md`, with the exact script to perform.
 
 ## Current Phase
 
 **Phase 12 — COMPLETE.** Phases 0–12 are all done and verified.
 
-**Nothing is blocking a submission** except the two entries only the user can supply, both recorded
-in `SUBMISSION.md`: the **hackathon category** (`UNKNOWN — VERIFY` since Phase 0) and the **demo
-video**. Stretch phases 13–14 are now unblocked but **`DEMO.md` is the scope contract and nothing on
-it needs them.**
+**Nothing is blocking a submission** except the **hackathon category** (`UNKNOWN — VERIFY` since
+Phase 0), recorded in `SUBMISSION.md`. The **demo video is published** (https://www.youtube.com/watch?v=Suc4RV9LnLs).
+The **Fallback B screen recording is still outstanding** — a demo-day risk, not a submission
+blocker. Stretch phases 13–14 are now unblocked but **`DEMO.md` is the scope contract and nothing
+on it needs them.**
 
 ## Completed Phases
 
@@ -264,6 +268,7 @@ Carried forward from every phase. These are the decisions later sessions must no
 | **The `agentforge-hackathon-2026` Gemini key is dead** | Was a Phase 6 blocker | Every model answers **402 "prepayment credits are depleted"**: the project has billing enabled, which moves it off the Gemini free tier. `GOOGLE_GENERATIVE_AI_API_KEY` in local `.env` is this dead key. **Use the `agentforge-gemini-free` key instead** (no billing → free tier). Do not enable billing on that project |
 | **`models.list` lists models a key cannot call** | Phases 6, 7 | `gemini-2.5-flash` is in the catalogue and answers 404 "no longer available to new users". Never treat the list as the callable set — make a real call (D34) |
 | **`gemini-2.0-flash` and `gemini-2.5-flash*` are retired** | Phases 6, 7 | List models, never assume a name. Current default: `gemini-3.5-flash-lite` |
+| **The agent node fell back and cost ~92 s — measured 2026-09-26, after Phase 12** | Demo pacing, on the headline beat | Two runs of the demo path took **94.6 s and 94.5 s**, against the **3.1–5.7 s** recorded above. The whole cost is one step: `decide_urgency` (`ai.agent`) at **91.9 s**, whose log reads `Model gemini-3.5-flash-lite was unavailable; answered by gemini-3.1-flash-lite`. The adapter behaved as designed — two retries with backoff per model, then down `FALLBACK_MODELS` — but the retry ladder is the latency. **`ai.llm` answered on the same model in 1.4 s in the same run**, so the model is not down generally; it is the tool-calling path that fails over. **Before demoing live, point the stored provider model at one that is actually answering and re-measure**, or Beats 6–8 will not fit inside 3:00 |
 | **Free-tier rate limits are tight** | Phases 6, 7, demo | Back-to-back probes hit 429/503. The adapter retries twice per model then falls down the chain; do not run the verify script in a tight loop. **Hit again in Phase 7:** a generated run's agent step failed once mid-suite and passed on a re-run 20 s later. The verify check now prints the failing step's error so the next occurrence diagnoses itself |
 | ~~No favicon — `/favicon.ico` 404s~~ | Was cosmetic, visible in the browser tab | **Handled in Phase 10.** `src/app/icon.svg` is Next's app-icon convention; the framework emits the `<link rel="icon">` and serves it at `/icon.svg`, verified 200 on the deployed URL. `/favicon.ico` still 404s and that is fine — nothing requests it once the link tag is present |
 | **A port-3000 `next dev` can outlive its session** | A stale server serves old code and the next session's `npm run dev` silently moves to 3001 | Check `lsof -nP -iTCP:3000 -sTCP:LISTEN` before trusting a local check. **Hit again in Phase 5** — a stale `next-server` was still listening |
@@ -459,7 +464,8 @@ decorators anywhere in `src`.
 
 **Phases 0–12 are complete. There is no next phase that has to happen.** 13 and 14 are stretch, and
 `DEMO.md` — the scope contract — needs nothing from either. The highest-value work left is not code:
-record the Fallback B video and fill in the two blanks in `SUBMISSION.md`.
+record the **Fallback B** screen video and fill in the one remaining blank in `SUBMISSION.md` (the
+hackathon category). The pitch video is done and published.
 
 **If you do touch the code:**
 
@@ -500,6 +506,23 @@ the user deliberately** — it governs whether others may commercialise the work
 ---
 
 ## Recent Changes
+
+**2026-09-26 — pitch video published, submission copy reshaped**
+
+- **Pitch video live:** https://www.youtube.com/watch?v=Suc4RV9LnLs — 4:00, 1920×1080, narrated deck.
+  Source assets are in `presentation/`, which is **gitignored** (14 MB video, and the slides show
+  the demo account): `AgentForge-Pitch.mp4`, `AgentForge-Presentation.pdf`, `slides/*.png`,
+  `deck.html` (re-renderable), `narration.json`/`.txt`, `youtube.md` (title, description, chapters)
+- **Voiceover is Amazon Polly**, generative engine, voice `Matthew`, `us-east-1`, ~4.1k characters
+  (~$0.12). Audio normalised to −14 LUFS / −1.5 dBTP for YouTube
+- **Slides 4 and 5 are real screenshots of the deployed app**, captured through a minted session
+  (revoked afterwards), not mockups. Slide 5 is a genuine run in flight
+- **`SUBMISSION.md` restructured** around Devpost's seven `About the project` headings, between
+  paste markers, with a `Supporting reference` section for the side fields
+- **Team-size and timebox phrasing removed** from every outward- and inward-facing file at the
+  user's request, rewritten rather than deleted so the constraints still explain the decisions they
+  drove. `CLAUDE.md` *Core constraints* now reads "a fixed hackathon timebox"
+- **Only remaining submission blank: the hackathon category.** Fallback B is still un-recorded
 
 **2026-09-26 — Phase 12 complete, the project is submittable**
 
@@ -647,6 +670,11 @@ Full detail is in git history at `56dce47`, `59f7adb` and `26ed481`.
 
 ## Last Updated
 
+**2026-09-26** — **Pitch video published** (https://www.youtube.com/watch?v=Suc4RV9LnLs) and
+`SUBMISSION.md` reshaped to Devpost's seven headings. Only the **hackathon category** is still blank;
+**Fallback B is still un-recorded**. New known issue: the **agent node fell back and cost ~92 s** on
+two consecutive runs — see *Known Issues*, and fix it before demoing live.
+
 **2026-09-26** — **Phase 12 complete. Phases 0–12 all done; the project is submittable.** Revision
 `agentforge-00021-v4s` live. **10 consecutive clean walks** of the full `DEMO.md` path (123 s),
 `verify-api.mjs` at **176 passed / 0 failed / 2 skipped of 178**, `npm test` at **297 passing**, a
@@ -659,6 +687,7 @@ canvas (D59). Also fixed: generated agents starved at `maxIterations: 1` in 42% 
 (D57), and Beat 5 firing a webhook URL that did not exist yet (D58).
 
 **No phase from 0 to 12 has an outstanding completion criterion.** Nothing is blocking submission
-except the two entries only the user can supply — the **hackathon category** and the **demo video**,
-both recorded in `SUBMISSION.md`, plus the **Fallback B recording** (`DEMO.md` → *What Phase 12 could
-not rehearse*). Stretch phases 13–14 are unblocked but `DEMO.md` needs nothing from them.
+except the **hackathon category**, recorded in `SUBMISSION.md`. The **demo video is published**
+(https://www.youtube.com/watch?v=Suc4RV9LnLs). The **Fallback B recording** is still outstanding
+(`DEMO.md` → *What Phase 12 could not rehearse*) — a demo-day risk, not a submission blocker.
+Stretch phases 13–14 are unblocked but `DEMO.md` needs nothing from them.

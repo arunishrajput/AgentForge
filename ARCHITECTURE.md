@@ -208,8 +208,8 @@ the strongest argument for it. Rejected anyway: no AWS container service has a m
 always-free tier (App Runner and ECS Fargate have none; Aurora Serverless v2's floor is ~$40/mo),
 the current free tier is credit-based ($100 + up to $100 more, expiring after 6 months with the
 account auto-closing), and reaching a first deploy costs ~1–2 hours of ECR, IAM, RDS, and service
-wiring, then 5–10 minutes per deploy thereafter. Against a 72-hour budget with a non-negotiable
-Phase 2 deploy, that is the wrong trade.
+wiring, then 5–10 minutes per deploy thereafter. Against a tight hackathon budget with a
+non-negotiable Phase 2 deploy, that is the wrong trade.
 
 **Railway** — `SUPERSEDED`. Docker-native and pleasant, but the only candidate that is not free
 through judging: the Free plan gives $1/month of credits capped at 1 vCPU / 0.5 GB per service,
