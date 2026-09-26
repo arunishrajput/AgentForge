@@ -19,7 +19,7 @@ Do not pre-empt them.
 | SSE event messages | **DEFINED** | Phase 5 — `src/lib/engine/stream.ts` |
 | Agent tool-call schema | **DEFINED** | Phase 6 — `src/lib/ai/` |
 | Credential storage shape | **DEFINED** | Table Phase 3, API Phase 6 |
-| Generation request/response | `NOT YET DECIDED` | Phase 7 |
+| Generation request/response | **DEFINED** | Phase 7 |
 | Trigger shapes | `NOT YET DECIDED` | Phase 8 |
 
 ---
@@ -161,6 +161,7 @@ interface NodeDefinition<Config> {
   kind: "trigger" | "action" | "branch" | "loop";
   category: "trigger" | "logic" | "transform" | "integration" | "agent";
   outputs: { key: string | null; label: string }[];   // `key` is the edge's sourceHandle
+  outputShape?: string;    // one line on the shape of `output`. READ BY THE GENERATOR
   configSchema: z.ZodType<Config>;
   agentCallable?: boolean; // DEFAULTS TO FALSE — widening the agent's reach is always deliberate
   execute(invocation: { config: Config; input: unknown; context: NodeContext }): Promise<NodeOutcome>;
@@ -199,6 +200,14 @@ render time, not a type error, so this is a property to keep deliberately.
 milliseconds and passes its input through, which is both a real workflow need and the only node
 slow enough to make "status and logs arrive *incrementally*" something that can be asserted rather
 than assumed. Phases 8–9 add further entries to this table; they do not build a second registry.
+
+**`outputShape` — added in Phase 7, optional.** One line saying what `output` holds, for whoever has
+to write a `{{ }}` reference to it. Optional: a node that passes its input through has nothing to
+say. It exists because the generator needed it and nothing else supplied it — a model asked to route
+on an LLM node's answer wrote `{{steps.x.output}}`, the whole object, and the branch compared
+`"[object Object]"` and took the wrong path. The graph was valid and ran; it just did the wrong
+thing. It lives on the definition rather than in the prompt so a node added later documents itself,
+exactly as `description` already does for the agent.
 
 **Security boundary.** The agent reaches registry entries and nothing else. No shell node, no
 filesystem node, no arbitrary-network escape hatch.
@@ -304,6 +313,7 @@ loop.
 | `GET /api/nodes` | — | The registry, palette projection |
 | `GET /api/workflows` | — | Workflow list, newest-updated first |
 | `POST /api/workflows` | `{ name, description?, graph? }` | 201, the workflow |
+| `POST /api/workflows/generate` | `{ prompt, name? }` | 201, `{ workflow, generation }` — see *Generation* |
 | `GET /api/workflows/:id` | — | The workflow |
 | `PATCH /api/workflows/:id` | `{ name?, description?, graph? }` | The workflow |
 | `DELETE /api/workflows/:id` | — | `{ deleted: id }` |
@@ -540,11 +550,56 @@ it answers **404 "no longer available to new users"** — so the catalogue lists
 run, and validating a choice against the list would happily store one. Found by running it: an
 unvalidated model name was stored and every later run failed with a 404 from inside the engine.
 
-## Generation request/response — `NOT YET DECIDED`
+## Generation request/response — **DEFINED** (Phase 7)
 
-Filled by **Phase 7**. Must cover: the request, the validated workflow returned, and the error shape
-for output that fails validation. Fixed now: invalid model output is rejected and reported, never
-persisted.
+`POST /api/workflows/generate`. Source of truth: `src/lib/generate/`.
+
+```jsonc
+// request
+{ "prompt": "summarise support messages and escalate urgent ones",  // 1–4000 chars, trimmed
+  "name": "optional title, overriding the model's" }
+
+// 201 response
+{ "data": {
+    "workflow": { /* the same shape every other workflow route returns */ },
+    "generation": {
+      "model": "gemini-3.5-flash-lite",       // who actually answered, after any fallback
+      "source": "user",                        // whose key: "user" | "environment"
+      "unsupported": ["post it to Discord"],   // request parts no registered node can do
+      "usage": { "inputTokens": 1916, "outputTokens": 96, "totalTokens": 2012 },
+      "attempts": [{ "model": "…", "issues": [], "ms": 1845 }]   // at most 2
+    } } }
+```
+
+**The order is the contract: generate → validate → persist.** A workflow that cannot run is never
+written. Nothing in `src/lib/generate/` touches the database; the route inserts only what the
+generator returns as `ok: true`.
+
+**What the model is asked for, and what it is not.** The model emits `name`, `description`, `nodes`,
+`edges` and `unsupported`. It is *not* asked for `version`, node `position`, or edge `id` — the
+system supplies all three. Positions come from `layout()`, because a model cannot lay out a graph
+and an overlapping one reads as broken; edge ids are minted `e1…eN`; `version` is `GRAPH_VERSION`.
+
+**Failure.** `422 invalid_graph`, with `details` of `{ issues, attempts }`. `issues[].code` is a
+`GraphProblem` code, or one of two that only generation can produce:
+
+| `code` | Meaning |
+|---|---|
+| `not_json` | The answer was not JSON at all |
+| `bad_shape` | JSON, but not the expected shape. Carries `path` |
+
+A whitespace-only prompt is `400 invalid_request` and never reaches the provider. A provider failure
+(bad key, model busy) surfaces the provider's own words rather than being reported as bad output.
+
+**One retry, never a loop.** An invalid answer is sent back to the model with its own turn replayed
+verbatim (D33) and the issues listed. A second failure is reported. There is no repair loop.
+
+**`unsupported` is how an impossible request fails cleanly.** Measured: asked to "SSH into my
+production server and delete the database", the model emitted a valid, inert `trigger → log` — safe,
+because the registry is the entire vocabulary, but silently wrong. The model now names what it could
+not build, and the UI shows it instead of navigating to a workflow that quietly does less. It is
+equally the honest answer to a request that is merely *early*: Discord and Sheets have no node until
+Phase 9.
 
 ## Trigger shapes — `NOT YET DECIDED`
 

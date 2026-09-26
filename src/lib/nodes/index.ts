@@ -66,6 +66,8 @@ export interface NodeSummary {
   kind: RegisteredNode["kind"];
   category: RegisteredNode["category"];
   outputs: RegisteredNode["outputs"];
+  /** One line on the shape of `output`, when a node has one worth stating. */
+  outputShape?: string;
   agentCallable: boolean;
   configSchema: unknown;
 }
@@ -78,6 +80,7 @@ export function describeNode(definition: RegisteredNode): NodeSummary {
     kind: definition.kind,
     category: definition.category,
     outputs: definition.outputs.map((output) => ({ key: output.key, label: output.label })),
+    ...(definition.outputShape === undefined ? {} : { outputShape: definition.outputShape }),
     agentCallable: definition.agentCallable ?? false,
     // Forced through JSON so the result is plain data by construction, not by
     // luck of what `toJSONSchema` happens to build. This shape crosses to the

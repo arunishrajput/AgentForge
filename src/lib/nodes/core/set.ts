@@ -15,6 +15,8 @@ export const setNode = defineNode({
   kind: "action",
   category: "transform",
   outputs: [{ key: null, label: "Out" }],
+  outputShape:
+    "the object you configured in `fields`, merged over the incoming input when `merge` is true. Reference a field directly, e.g. output.subject.",
   agentCallable: true,
   configSchema: z.object({
     fields: z.record(z.string(), z.unknown()).default({}),

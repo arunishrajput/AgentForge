@@ -7,19 +7,21 @@ concise and operational — prune stale detail rather than appending forever. Th
 
 ## Project Status
 
-**Phase 6 is complete. Agent nodes reason at runtime, in production, on a user-supplied key.**
+**Phase 7 is complete. A sentence becomes a real, runnable, editable workflow — in production.**
 
 **https://agentforge-733000675212.asia-southeast1.run.app**
 
-Paste a Gemini key in Settings and it is verified against the provider, encrypted, and never shown
-again. An agent node then reads its input, calls registry nodes as tools, and reaches a decision a
-branch node routes on — with every step of its reasoning streaming onto the canvas while it is still
-thinking. Verified by 82 live checks against the deployed URL **and** by driving the deployed
-settings page and canvas in a real browser. No manual actions pending.
+Type what you want on the workflow list. A model is given the registry — the same projection the
+palette and the agent's tool set read — and answers with nodes and edges. The system lays them out,
+validates them, and only then saves. On the deployed URL the pinned demo prompt produced a valid,
+runnable workflow **5/5 times on the first attempt in 2.5–3.6 s**, every one shaped
+`trigger → LLM summary → agent decides → branch → log`. Verified by the full HTTP suite against the
+deployed URL — 87 checks run, all passed — **and** by generating, running and editing a workflow in a
+real browser, with 0 console errors. No manual actions pending.
 
 ## Current Phase
 
-**Phase 7 — natural language → workflow generation** (not started) — `READY TO START`
+**Phase 8 — triggers: webhook + schedule** (not started) — `READY TO START`
 
 ## Completed Phases
 
@@ -32,6 +34,7 @@ settings page and canvas in a real browser. No manual actions pending.
 | **Phase 4** — visual canvas: build, edit, save, load | **COMPLETE** — verified on the deployed URL in a browser, 2026-09-26 |
 | **Phase 5** — live execution: per-node status and log streaming | **COMPLETE** — verified on the deployed URL in a browser, 2026-09-26 |
 | **Phase 6** — agent layer: LLM node, agent node, provider config | **COMPLETE** — verified on the deployed URL in a browser, 2026-09-26 |
+| **Phase 7** — natural language → workflow generation | **COMPLETE** — verified on the deployed URL in a browser, 2026-09-26 |
 
 ---
 
@@ -42,13 +45,13 @@ settings page and canvas in a real browser. No manual actions pending.
 | **Canonical URL** | **`https://agentforge-733000675212.asia-southeast1.run.app`** |
 | Legacy URL | `https://agentforge-i5d2u66boa-as.a.run.app` — works, do not publish it |
 | Service | `agentforge` on Cloud Run, `asia-southeast1` |
-| Revision | **`agentforge-00008-l8q`** — ready, 100% of traffic. Previous good revision: `agentforge-00007-xx7` |
+| Revision | **`agentforge-00013-zwt`** — ready, 100% of traffic. Previous good revision: `agentforge-00012-cs6` |
 | Scaling | `min-instances 1`, `max-instances 3`, 1 vCPU / 1 GiB, 3600 s timeout, port 8080 |
-| Env vars set | `NODE_ENV` `AUTH_URL` `APP_BASE_URL` `DATABASE_URL` `AUTH_SECRET` `GOOGLE_CLIENT_ID` `GOOGLE_CLIENT_SECRET` `ENCRYPTION_KEY` `CRON_SECRET` — 9, **unchanged by Phase 6**. No Gemini key on the service: the product path is the user's own key, and leaving the env fallback unset is what proved it |
+| Env vars set | `NODE_ENV` `AUTH_URL` `APP_BASE_URL` `DATABASE_URL` `AUTH_SECRET` `GOOGLE_CLIENT_ID` `GOOGLE_CLIENT_SECRET` `ENCRYPTION_KEY` `CRON_SECRET` — 9, **unchanged by Phase 7**. No Gemini key on the service: the product path is the user's own key, and leaving the env fallback unset is what proved it |
 | Database | Neon `super-mountain-39872886` — **8 tables**, migrations `0000` + `0001` applied |
-| Routes | `/` `/dashboard`→`/workflows` `/workflows` `/workflows/[id]` `/settings` + 10 API routes (Phase 6 added `/api/settings/provider` and `/api/settings/provider/models`) |
-| Warm latency | health ~140 ms India → Singapore. A 7-node run with a 1.5 s delay and an agent node that calls a tool: **3.6 s end to end**, agent step ~2 s of it (two `gemini-3.5-flash-lite` calls) |
-| Last verified | **2026-09-26** — `VERIFY_GEMINI_KEY=… node --env-file=.env scripts/verify-api.mjs <url>`, all **82** checks passed, plus the deployed settings page and an agent run driven in a real browser |
+| Routes | `/` `/dashboard`→`/workflows` `/workflows` `/workflows/[id]` `/settings` + 11 API routes (Phase 7 added `POST /api/workflows/generate`) |
+| Warm latency | health ~140 ms India → Singapore. A 7-node run with a 1.5 s delay and an agent node that calls a tool: **3.6 s end to end**. **Generation: 2.5–3.6 s** for a 5-node workflow; generating then running one, in a browser: ~4.2 s for the run |
+| Last verified | **2026-09-26** — `VERIFY_GEMINI_KEY=… node --env-file=.env scripts/verify-api.mjs <url>`, **all checks passed** (92 defined; 87 run, 1 skipped, 4 in a block not entered because a key was already stored), plus generating, running and editing a workflow in a real browser |
 | Provider key stored | **Yes, deliberately left in place.** The user's own free-tier key is stored (encrypted) against their account on the deployed app, so Phase 7 is not blocked on re-pasting it |
 
 **A redeploy preserves env vars.** Confirmed again on Phase 6's three deploys: `gcloud run deploy
@@ -57,70 +60,52 @@ to each new revision. The file is only needed when a variable changes.
 
 ---
 
-## Phase 6 — what was verified, not just written
+## Phase 7 — what was verified, not just written
 
-`npm test` — **128 tests**, no database, no network, ~490 ms. Phase 6 added 68: the Gemini wire
-format, the schema sanitiser, the tool projection, the agent loop against a fake model, and the
-crypto round trip.
-`scripts/verify-api.mjs` — **82 checks over HTTP**, run against localhost first, then the deployed
-URL. Phase 6 added 21, all of them about keys, models, or an agent actually deciding something.
+`npm test` — **169 tests**, no database, no network, ~500 ms. Phase 7 added 41: layout (including
+that a cycle terminates and a fan-out cannot overlap), the parse/validate gate, the one-retry rule,
+the canvas round-trip of a generated graph, and that the registry reaches the prompt.
+`scripts/verify-api.mjs` — **92 checks defined**, 10 added by Phase 7. Against the deployed URL: 87
+run, all passed, 1 skipped, 4 in a block not entered because a key was already stored.
 
-**A script cannot prove the settings page or a live reasoning trace.** So the deployed app was also
-driven in a real browser:
+**Generation reliability, measured on the deployed model, not assumed:**
 
-| Checked on the deployed app | Result |
+| Prompt | Result |
 |---|---|
-| Settings shows a stored key without showing the key | ✓ "Your key, stored 26 Sept 2026, 01:38 UTC", input reads "Replace the stored key…" |
-| A wrong key typed into the form | ✓ refused with the provider's own words: "API key not valid. Please pass a valid API key." — and the stored key was **not** overwritten |
-| Live model list | ✓ 18 models from the provider, current one marked `aria-current` |
-| Choosing a model the key cannot serve | ✓ refused: "This key cannot use gemini-2.5-flash: … no longer available to new users", working model stays selected |
-| Palette picks up the new nodes | ✓ "LLM" and "AI Agent" appear under **Agents**, from the registry, with no palette code touched |
-| Agent config form | ✓ Objective, System, Model, Tools, Choices, Max iterations, Temperature — all derived from the Zod schema, no per-node UI |
-| Agent reasoning streams mid-node | ✓ at +7.0 s `agent` reads **Running** with "Agent starting on gemini-3.5-flash-lite (key from user)"; at +8.05 s, **still Running**, "Calling tool core_log with {…}" and "[core_log] Production checkout is down for 40 minutes…" |
-| The decision drives the branch | ✓ "Model answered: DECISION: urgent" → `route` took `true`, `escalate` Succeeded, `queue` **Skipped** |
-| The same graph, a calm message | ✓ decision `normal`, the other branch taken. Nothing in the workflow changed |
-| The iteration cap | ✓ a deliberately non-converging agent failed its step: "still calling tools after 2 model calls" |
-| Console | ✓ **0 errors, 0 warnings** |
-| Database left clean | ✓ 0 workflows, 0 runs, 0 steps; test sessions revoked |
+| The pinned demo prompt, 5 runs | **5/5 valid, 5/5 on the first attempt**, 2.5–3.6 s, every one `trigger → llm → agent → branch → log` |
+| Same prompt, 6 runs before the output-shape fix | 6/6 valid, but 1/6 used two LLM nodes instead of an agent |
+| The loop example, 3 runs | 3/3 valid first try, `trigger → loop → delay → log` |
+| `DEMO.md` Beat 2's own prompt, 2 runs | 2/2 valid, and both named Discord and Sheets as unsupported |
+| "SSH in, delete the database, mine bitcoin", 2 runs | 2/2 named every part unsupported and built only a trigger |
 
-**What the agent step actually contains, deployed:**
+**Driven in a real browser on the deployed app:**
 
-```
-decision:   "urgent"
-reason:     "The customer reports a production outage lasting 40 minutes with
-             active financial loss, which requires immediate escalation."
-toolCalls:  [{ name: "core_log", ok: true, ms: 1, args: { level: "warn", message: … } }]
-iterations: 2      model: gemini-3.5-flash-lite      usage: 684 tokens
-```
+| Checked | Result |
+|---|---|
+| The prompt box | ✓ labelled, Generate disabled while empty, ⌘/Ctrl+Enter submits |
+| Generating the demo prompt | ✓ 5 nodes on the canvas, named, with True/False handles drawn |
+| The workflow is genuinely saved | ✓ header reads **Saved** with Save disabled — a generated graph is not falsely dirty (D25 holds on generated output) |
+| Running it, unedited | ✓ succeeded in 4.15 s, per-node status live on the canvas |
+| The agent decided, and the branch followed | ✓ agent called `core_log`, answered `DECISION: urgent`, branch took **true**, `Log Warning` **Succeeded** |
+| A request needing Phase 9 nodes | ✓ stayed on the list and showed "Built and saved — but no node can do these parts yet: post urgent ones to Discord / log every one to my Google Sheet" |
+| Console, across generate → run | ✓ **0 errors, 0 warnings** |
+| Database left clean | ✓ 0 workflows, 0 runs, 0 steps; session revoked |
 
-**The blocker this phase opened with.** Every Gemini model on the `agentforge-hackathon-2026` key
-answered **402 "Your prepayment credits are depleted"** — because that project has billing enabled,
-which moves it off the Gemini free tier. A free-tier key needs a project with **no** billing, so
-`agentforge-gemini-free` was created for exactly that and nothing else. The old key is dead; see
-*Known Issues*.
+**Three problems found by running it, not by reading it:**
 
-**Five problems found by calling the real API, not by reading about it:**
-
-1. **A lossy adapter fails on the second tool call.** Gemini 3 signs `functionCall` parts with a
-   `thoughtSignature` and answers **400** to a history that has lost one. A normalising adapter
-   passes its first tool call and breaks on the next — so a model turn is replayed verbatim (D33).
-2. **Gemini rejects `additionalProperties`.** Its `parameters` is a narrow OpenAPI subset, and
-   `z.toJSONSchema()` emits keys it 400s on for nodes already in the registry. Every agent tool
-   would have been rejected, first visible on demo day. Hence the allow-list sanitiser.
-3. **`models.list` lists models a key cannot call.** `gemini-2.5-flash` is in the catalogue and
-   answers **404 "no longer available to new users"**. Validating a model choice against the list
-   stored a model that could not run — and it *did*: an unvalidated name got stored and every
-   subsequent run failed with a 404 from inside the engine. A model is now proved with a real call.
-4. **A client component's `toLocaleString()` is a hydration error.** React renders it on the server
-   and again in the browser; the two disagreed and threw #418 on the deployed settings page. Caught
-   by reading the console, not by any test. Now formatted in UTC with a fixed locale.
-5. **A model given only a sentinel answers with only the sentinel**, leaving `output.reason` empty.
-   The system prompt now asks for one sentence first.
-
-**`gemini-3.8-flash` answered 503 "experiencing high demand" on a first call** and 200 twenty
-seconds later, which is the *Known Issues* entry reproduced on demand. It is why the adapter retries
-and then falls back down a chain, and why the chain is ordered by measured latency:
-flash-lite ~1.2 s, 3.8-flash ~2.5 s, 3.5-flash ~8.9 s.
+1. **A valid graph that did the wrong thing.** The model routed on `{{steps.x.output}}` — the whole
+   LLM output object — so the branch compared `"[object Object]"`, took the false path, and skipped
+   the urgent log. Nothing reported it: the graph validated and the run succeeded. The registry now
+   carries `outputShape` per node and the prompt renders it (D38). After the fix, 5/5 referenced
+   `.decision` correctly **and** 5/5 chose the agent node over two LLM nodes.
+2. **A whitespace-only prompt reached the provider.** `z.string().min(1)` counts whitespace, so
+   `"   "` passed and spent a real model call on nothing. `.trim()` must come *before* `.min(1)` —
+   verified both orderings against the installed Zod rather than assumed. Caught by the deployed
+   check, not by review.
+3. **An impossible request produced a valid, inert workflow and said nothing.** Asked to SSH into
+   production and delete a database, the model built `trigger → assert → log`. Safe — the registry
+   is the entire vocabulary, so there was no node that could express either verb — but silently
+   wrong. Hence `unsupported` (D39).
 
 ## Decisions — BINDING
 
@@ -160,6 +145,9 @@ Carried forward from every phase. These are the decisions later sessions must no
 | **D35** | **The Gemini tool schema is an allow-list, not a deny-list** | `parameters` is a narrow OpenAPI 3.0 subset where an unknown key is a hard 400, and `z.toJSONSchema()` emits `$schema`, `additionalProperties` and `propertyNames` for nodes already in the registry. Dropping undocumented keys means a future node with an exotic config degrades to a vaguer tool signature instead of breaking the agent for every node |
 | **D36** | **`core.branch` and `core.assert` are closed to the agent; `core.log` and `core.set` are open** | Phase 6's deliberate exercise of D19. A branch called as a tool returns a boolean the model could compute itself, since there is no edge to take; an assert's effect is to fail the run, which is a guard an author places, not a capability to hand a model. Phase 9 opts each integration node in individually |
 | **D37** | **An agent node routes through its output, not through its own handles** | `output.decision` is constrained to a configured `choices` list and a `core.branch` reads `{{input.decision}}`. Per-instance output handles would break D21/D23 — the canvas draws a node's edges from its registry entry, so handles must not depend on having run. An unreadable decision is `null` and takes the default path rather than failing the run |
+| **D38** | **A node declares the shape of its output; the generator reads it** | Optional `outputShape` on the node definition. A model told only what a node *does* wrote `{{steps.x.output}}` where it meant `{{steps.x.output.text}}`, and the branch compared `"[object Object]"` and took the wrong path — valid graph, successful run, wrong behaviour, nothing reporting it. On the definition rather than in the prompt so a Phase 9 node documents itself, exactly as `description` already does for the agent. Optional, so a pass-through node says nothing |
+| **D39** | **What the model could not build is reported, never swallowed** | `unsupported` on the generated output. The registry is the entire vocabulary, so an impossible request cannot produce a dangerous workflow — but it did produce a valid, inert one with no explanation. It is equally the honest answer to a request that is merely early: Discord has no node until Phase 9. **Deliberately not a hard failure** — judging a request unsatisfiable and refusing it would break a valid request on stage, which is strictly worse than building what is possible and naming the rest |
+| **D40** | **The model emits nodes and edges; the system supplies `version`, positions and edge ids** | A model cannot lay out a graph, and an overlapping one reads as broken on stage, so `layout()` derives positions from the edges. Edge ids must be unique and nothing but the graph reads them, so minting `e1…eN` beats asking and de-duplicating. `GRAPH_VERSION` is ours to set. Layout is bounded relaxation, not a topological sort, because a generated graph is not reliably acyclic and an illegal cycle must survive layout for `validateGraph` to report it |
 
 ---
 
@@ -177,7 +165,7 @@ Carried forward from every phase. These are the decisions later sessions must no
 | **The `agentforge-hackathon-2026` Gemini key is dead** | Was a Phase 6 blocker | Every model answers **402 "prepayment credits are depleted"**: the project has billing enabled, which moves it off the Gemini free tier. `GOOGLE_GENERATIVE_AI_API_KEY` in local `.env` is this dead key. **Use the `agentforge-gemini-free` key instead** (no billing → free tier). Do not enable billing on that project |
 | **`models.list` lists models a key cannot call** | Phases 6, 7 | `gemini-2.5-flash` is in the catalogue and answers 404 "no longer available to new users". Never treat the list as the callable set — make a real call (D34) |
 | **`gemini-2.0-flash` and `gemini-2.5-flash*` are retired** | Phases 6, 7 | List models, never assume a name. Current default: `gemini-3.5-flash-lite` |
-| **Free-tier rate limits are tight** | Phases 6, 7, demo | Back-to-back probes hit 429/503. The adapter retries twice per model then falls down the chain; do not run the verify script in a tight loop |
+| **Free-tier rate limits are tight** | Phases 6, 7, demo | Back-to-back probes hit 429/503. The adapter retries twice per model then falls down the chain; do not run the verify script in a tight loop. **Hit again in Phase 7:** a generated run's agent step failed once mid-suite and passed on a re-run 20 s later. The verify check now prints the failing step's error so the next occurrence diagnoses itself |
 | **No favicon — `/favicon.ico` 404s** | Cosmetic, visible in the browser tab on demo day | Phase 10 (UI/UX pass). `public/` already exists |
 | **A port-3000 `next dev` can outlive its session** | A stale server serves old code and the next session's `npm run dev` silently moves to 3001 | Check `lsof -nP -iTCP:3000 -sTCP:LISTEN` before trusting a local check. **Hit again in Phase 5** — a stale `next-server` was still listening |
 | **`scripts/verify-api.mjs` leaves rows behind if it is killed** | Stray test workflows in the shared database | Its cleanup runs at the end, so a `ctrl-c` or a timeout skips it. Phase 5 found two orphans that way and deleted them. Check `select count(*) from "workflow"` after an interrupted run |
@@ -185,6 +173,9 @@ Carried forward from every phase. These are the decisions later sessions must no
 | **Pinned Gemini models return 503 under load** | Demo reliability | **Handled.** Reproduced in Phase 6 (`gemini-3.8-flash`, 503 "experiencing high demand"). The adapter retries twice per model with backoff, then falls down `FALLBACK_MODELS`, and logs the fallback so it is never silent |
 | **`gemini-3.5-flash` takes ~8.9 s; flash-lite ~1.2 s** | Demo pacing | Default is `gemini-3.5-flash-lite`. Still warm the model right before the demo |
 | **A client component's `toLocaleString()` is a hydration error** | Any date rendered in a `"use client"` file | Server and browser disagree on locale and timezone → React #418. Format with `Intl.DateTimeFormat` pinned to a locale and `timeZone: "UTC"`. A **server** component is fine — the workflow list does it safely |
+| **`z.string().min(1)` accepts `"   "`** | Any user-supplied string that costs money downstream | Whitespace counts toward the length. `.trim()` must come **before** `.min(1)`; the other order silently accepts it. A whitespace prompt reached the provider and spent a model call before this was fixed |
+| **A generated graph can be valid and still do the wrong thing** | Generation, every phase that adds a node | Validation proves a graph *can* run, never that it does what was asked. The `{{ }}` reference bug passed validation and succeeded at runtime. **Give every non-pass-through node an `outputShape`** (D38), and eyeball a generated branch's `left` when adding nodes |
+| **A one-off React #418 on first page load** | Cosmetic; not reproduced | Seen once on revision `agentforge-00012-cs6` alongside an `ERR_NETWORK_CHANGED` from a fetch interrupted mid-hydration. **Not reproducible on `00013-zwt`**: signed-out landing, workflow list, canvas, and the whole generate → run path each read 0 errors, 0 warnings. Re-check with a clean profile before the demo |
 
 Carried risks, recorded so they are not rediscovered:
 
@@ -214,7 +205,7 @@ Carried risks, recorded so they are not rediscovered:
 |---|---|---|---|
 | `AgentForge` git repository | GitHub | `arunishrajput/AgentForge` | **EXISTS** |
 | Google Cloud project | Google Cloud | `agentforge-hackathon-2026`, number **`733000675212`** | **EXISTS**, billing active ($300 / 90-day trial) |
-| **`agentforge` Cloud Run service** | Google Cloud | `asia-southeast1`, revision `agentforge-00011-tfq` | **LIVE 2026-09-26** |
+| **`agentforge` Cloud Run service** | Google Cloud | `asia-southeast1`, revision `agentforge-00013-zwt` | **LIVE 2026-09-26** |
 | **`cloud-run-source-deploy` repo** | Artifact Registry | `asia-southeast1` | **EXISTS** |
 | OAuth consent screen | Google Cloud | External, app "AgentForge" | **EXISTS** — status **Testing**, 1 test user |
 | OAuth 2.0 client | Google Cloud | "AgentForge Web", `733000675212-…ntm7` | **VERIFIED** — 4 redirect entries |
@@ -243,10 +234,10 @@ All 15 contract variables have values; `.env.example` mirrors `CONTRACT.md`.
 `@neondatabase/serverless` 1.1.0 · `zod` 4.6.5 · `@xyflow/react` 12.12.0 ·
 `tailwindcss` 4.3.3 · `typescript` 7.0.2
 
-**Phase 6 added no dependencies either.** The provider adapter is `fetch` and the encryption is
-`node:crypto`; `ai` and `@ai-sdk/google` are **deliberately not installed** (D32), and
-`ARCHITECTURE.md`'s stack table now records that. Five phases in, the dependency list is still the
-Phase 4 one. Tests run on Node's built-in runner.
+**Phase 7 added no dependencies either.** Generation is the existing provider adapter plus four pure
+modules; the layout is forty lines of arithmetic, not a graph library. `ai` and `@ai-sdk/google`
+remain **deliberately not installed** (D32). Six phases in, the dependency list is still the Phase 4
+one. Tests run on Node's built-in runner.
 
 ### Local toolchain
 
@@ -258,14 +249,14 @@ Phase 4 one. Tests run on Node's built-in runner.
 ## How to verify the system, from a cold session
 
 ```bash
-npm run typecheck && npm test           # 128 tests, no database, no network, ~490 ms
+npm run typecheck && npm test           # 169 tests, no database, no network, ~500 ms
 npm run build                           # Turbopack; one expected process.exit warning
 
-# 82 checks end to end over HTTP. Mints a real session row, drives the API, cleans up.
-# Takes ~90 s: one check deliberately waits 21 s for an idle stream to close itself, and the
-# agent checks make real model calls.
+# 92 checks end to end over HTTP. Mints a real session row, drives the API, cleans up.
+# Takes ~2 min: one check deliberately waits 21 s for an idle stream to close itself, and the
+# agent and generation checks make real model calls.
 #
-# VERIFY_GEMINI_KEY turns on the 15 key/model/agent checks. Pipe the key in rather than
+# VERIFY_GEMINI_KEY turns on the key/model/agent/generation checks. Pipe the key in rather than
 # pasting it anywhere — it is never printed:
 VERIFY_GEMINI_KEY="$(gcloud services api-keys get-key-string \
   "$(gcloud services api-keys list --project=agentforge-gemini-free --format='value(name)' | head -1)" \
@@ -290,25 +281,24 @@ decorators anywhere in `src`.
 
 ---
 
-## Notes for Phase 7
+## Notes for Phase 8
 
-- **The provider adapter is ready and the key is already stored.** `resolveProvider(ownerId)` hands
-  back a `LanguageModel`; `generate({ json: true })` asks for a JSON body and parses it. Generation
-  is a single call with no tools, so JSON mode is available (Gemini forbids JSON mode *with* tools)
-- **`json: true` is a request, not a guarantee.** `stripCodeFence` in `src/lib/nodes/ai/llm.ts`
-  already handles a model that fences its JSON anyway. Reuse it
-- **The generated graph must go through `validateGraph` before it is persisted**, and a failure must
-  be reported, never saved broken (`CONTRACT.md` → *Generation request/response*, still
-  `NOT YET DECIDED` — Phase 7 fills it)
-- **Feed the model the registry, not a hand-written node list.** `describeNodes()` is the same
-  projection the palette and the agent's tool set use; a separate prompt-side catalogue would drift
-  the first time a node changes
-- **D16's bounds are the containment for generated graphs.** A model that emits a cycle is caught by
-  validation; one that emits something pathological is caught by the run caps
-- **Ask for `gemini-3.5-flash-lite` first** but expect to need a stronger model for graph synthesis —
-  `FALLBACK_MODELS` in `src/lib/ai/gemini.ts` is where the chain lives. Measure before assuming
-- **A generation call is slower than a chat call.** Watch it against `DEFAULT_DEADLINE_MS` (120 s) if
-  generation ever runs inside a node rather than in its own route
+- **`core.manual_trigger` is currently the only trigger, and the generator knows it from the
+  registry.** Registering a webhook trigger makes it generatable with no change to any generation
+  code — the prompt lists trigger types from `describeNodes()`. Verify that by regenerating
+  `DEMO.md` Beat 2's own prompt once the node exists
+- **`unsupported` is the measure of Phase 8 and 9 progress.** Beat 2's prompt currently reports
+  "post urgent ones to Discord" and "log every one to my Google Sheet". Those lines disappearing is
+  the acceptance test for Phase 9
+- **Give a new node an `outputShape`** (D38) if its output is anything but a pass-through. A webhook
+  trigger's body shape is exactly what a generated `{{ }}` reference will need
+- **`agentCallable` still defaults to false** (D19). Opt each new node in deliberately
+- **The trigger contract is still `NOT YET DECIDED` in `CONTRACT.md`** — Phase 8 fills it: the
+  webhook URL form and token, how a request body becomes trigger output, the cron field, and
+  `/api/cron/tick`. Fixed already: tokens are cryptographically random and the tick route rejects
+  any request without `CRON_SECRET`
+- **`POST /runs` is synchronous and a webhook receiver cannot be.** A webhook-triggered run is the
+  case D28 built the workflow-scoped stream for — a browser cannot know that run's id
 
 ## Open, but blocking nothing
 
@@ -318,6 +308,24 @@ the user deliberately** — it governs whether others may commercialise the work
 ---
 
 ## Recent Changes
+
+**2026-09-26 — Phase 7 complete, a sentence becomes a workflow in production**
+
+- `POST /api/workflows/generate`, a prompt box on the workflow list, registry-derived prompt,
+  auto-layout and hard validation before persistence — deployed as `agentforge-00013-zwt`
+- **Generate → validate → persist, in that order.** Nothing in `src/lib/generate/` touches the
+  database; a graph that cannot run is never written (D40)
+- **Found a valid graph that did the wrong thing** — a `{{steps.x.output}}` reference where
+  `.text` was meant, so the branch compared `"[object Object]"` and skipped the urgent path. The
+  run *succeeded*, which is why no check caught it and a browser did. Fixed by putting
+  `outputShape` on the node definition (D38); afterwards 5/5 wired it correctly and 5/5 also
+  switched to the agent node, which is the demo's Beat 7
+- **Found a whitespace prompt reaching the provider** — `.trim()` must precede `.min(1)`
+- **Found that an impossible request produced a valid, inert workflow silently.** Now reported as
+  `unsupported` (D39) and shown in the UI rather than navigating to a workflow that does less
+- **Confirmed the registry-derived prompt pays off:** `DEMO.md` Beat 2's prompt already builds its
+  agent spine and names Discord and Sheets as unsupported. Phase 9 needs no generation change
+- Added no dependencies. Six phases in, the list is still the Phase 4 one
 
 **2026-09-26 — Phase 6 complete, agent nodes reason at runtime in production**
 
@@ -342,6 +350,6 @@ the user deliberately** — it governs whether others may commercialise the work
 
 ## Last Updated
 
-**2026-09-26** — Phase 6 complete. Revision `agentforge-00011-tfq` live, 82 deployed checks passed
-plus the deployed settings page and an agent run driven in a real browser. No manual actions
-pending.
+**2026-09-26** — Phase 7 complete. Revision `agentforge-00013-zwt` live; the deployed HTTP suite
+passed (87 checks run of 92 defined), and generating, running and editing a workflow was driven in a
+real browser with 0 console errors. No manual actions pending.

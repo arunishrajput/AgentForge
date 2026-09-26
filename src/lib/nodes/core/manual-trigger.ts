@@ -15,6 +15,7 @@ export const manualTrigger = defineNode({
   kind: "trigger",
   category: "trigger",
   outputs: [{ key: null, label: "Out" }],
+  outputShape: "whatever JSON the run was started with. Reach its fields with {{trigger.<field>}}.",
   configSchema: z.object({}).loose(),
   async execute({ input, context }) {
     context.log("Run started manually.");

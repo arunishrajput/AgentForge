@@ -41,6 +41,8 @@ export const agentNode = defineNode({
   kind: "action",
   category: "agent",
   outputs: [{ key: null, label: "Out" }],
+  outputShape:
+    "{ decision: one of the configured choices, or null, reason: one sentence explaining it, text: the full answer, toolCalls, iterations, model, usage, input }. Route on output.decision.",
   // An agent that could call an agent would recurse past every cap, since each nested
   // run carries its own fresh iteration budget.
   agentCallable: false,

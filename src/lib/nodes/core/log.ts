@@ -15,6 +15,7 @@ export const logNode = defineNode({
   kind: "action",
   category: "logic",
   outputs: [{ key: null, label: "Out" }],
+  outputShape: "its input, unchanged.",
   agentCallable: true,
   configSchema: z.object({
     message: z.string().max(2000).default(""),

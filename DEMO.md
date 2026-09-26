@@ -4,8 +4,15 @@
 is MVP-Supporting or lower by default. When time runs short, the question is always: *does cutting
 this break a beat below?*
 
-Status: **PROPOSED.** Phase 0 validates and refines it; Phase 7 pins the exact prompt that reliably
-works; Phase 12 rehearses and finalises it.
+Status: **PROPOSED.** Phase 0 validates and refines it; **Phase 7 has pinned the prompt** (Beat 2);
+Phase 12 rehearses and finalises it.
+
+> **Beat 2's prompt needs Phases 8 and 9.** It names a webhook trigger, Discord and Google Sheets,
+> none of which are in the registry yet. Run against today's registry it builds the agent-decision
+> spine and honestly reports the rest as unsupported — verified on the deployed URL, twice. The
+> generator reads `describeNodes()`, so those parts start generating the moment the nodes are
+> registered, with no change to any generation code. **Until Phase 9 lands, demo the Phase 7 prompt
+> below.** Re-verify Beat 2's own prompt at Phase 9 and delete this note.
 
 ---
 
@@ -31,12 +38,26 @@ Land on the workflow list, signed in.
 
 ### Beat 2 — the ask (0:20 → 0:45)
 
-Type into the prompt box (pre-written, pasted, not typed live):
+Type into the prompt box (pre-written, pasted, not typed live).
+
+**The target prompt, once Phases 8–9 land:**
 
 ```text
 When my form webhook fires, summarise the submission, decide whether it's urgent,
 post urgent ones to Discord, and log every one to my Google Sheet.
 ```
+
+**The prompt that works today — pinned by Phase 7, verified on the deployed URL:**
+
+```text
+When I run this, summarise the support message I give it, decide whether it is urgent,
+and log urgent ones as a warning.
+```
+
+Measured on the deployed app, `gemini-3.5-flash-lite`: **5/5 valid on the first attempt**, 2.5–3.6 s,
+and every one produced `manual trigger → LLM summary → agent decides → branch → log`. That shape is
+what Beats 3, 6 and 7 need. The second example button on the page is the loop workflow, if a judge
+asks for another.
 
 > "No node picking. No wiring. Just what I want."
 

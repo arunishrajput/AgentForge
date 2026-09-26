@@ -195,6 +195,12 @@ try {
   // --- registry -------------------------------------------------------------
   const nodes = await api("GET", "/api/nodes", undefined, token);
   const types = (nodes.json?.data ?? []).map((node) => node.type);
+  // Phase 7 checks generated graphs against the registry the server actually serves,
+  // rather than against a list written here that could drift from it.
+  const registryTypes = new Set(types);
+  const triggerTypes = new Set(
+    (nodes.json?.data ?? []).filter((node) => node.kind === "trigger").map((node) => node.type),
+  );
   check(
     "registry serves the seeded node types",
     nodes.status === 200 &&
@@ -993,8 +999,180 @@ try {
       JSON.stringify({ run: capRun.json?.data?.status, error: capStep?.error }),
     );
     await api("DELETE", `/api/workflows/${capId}`, undefined, token);
+
+    // --- phase 7: natural language -> workflow generation --------------------
+    //
+    // The headline feature. What a script can prove that a unit test cannot: a real
+    // model, reached through the deployed route, with the caller's own stored key,
+    // produces a workflow that is persisted, runnable and editable.
+    const demoPrompt =
+      "When I run this, summarise the support message I give it, decide whether it is urgent, and log urgent ones as a warning.";
+
+    const generated = await api("POST", "/api/workflows/generate", { prompt: demoPrompt }, token);
+    const madeWorkflow = generated.json?.data?.workflow;
+    const madeGraph = madeWorkflow?.graph;
+    check(
+      "a plain-language request generates a real, runnable, persisted workflow",
+      generated.status === 201 &&
+        madeWorkflow?.runnable === true &&
+        madeGraph?.version === 1 &&
+        madeGraph.nodes.length >= 3 &&
+        madeGraph.edges.length >= 2 &&
+        (madeWorkflow.problems ?? []).length === 0,
+      JSON.stringify({
+        status: generated.status,
+        runnable: madeWorkflow?.runnable,
+        nodes: madeGraph?.nodes?.length,
+        edges: madeGraph?.edges?.length,
+        problems: madeWorkflow?.problems,
+        error: generated.json?.error,
+      }),
+    );
+
+    const madeId = madeWorkflow?.id;
+
+    check(
+      "every generated node names a registry type and carries a position",
+      Array.isArray(madeGraph?.nodes) &&
+        madeGraph.nodes.every(
+          (node) =>
+            registryTypes.has(node.type) &&
+            Number.isFinite(node.position?.x) &&
+            Number.isFinite(node.position?.y),
+        ),
+      JSON.stringify(madeGraph?.nodes?.map((node) => [node.type, node.position])),
+    );
+
+    // An overlapping graph reads as broken on stage, so this is a demo property, not
+    // a cosmetic one. A canvas node is 224 px wide and about 100 px tall.
+    let overlapping = null;
+    for (const a of madeGraph?.nodes ?? []) {
+      for (const b of madeGraph?.nodes ?? []) {
+        if (a.id >= b.id) continue;
+        if (Math.abs(a.position.x - b.position.x) < 224 && Math.abs(a.position.y - b.position.y) < 100) {
+          overlapping = [a.id, b.id];
+        }
+      }
+    }
+    check("no two generated nodes overlap on the canvas", overlapping === null, JSON.stringify(overlapping));
+
+    const triggerIds = new Set(
+      (madeGraph?.nodes ?? []).filter((node) => triggerTypes.has(node.type)).map((node) => node.id),
+    );
+    check(
+      "exactly one trigger, and nothing edges into it",
+      triggerIds.size === 1 && !(madeGraph?.edges ?? []).some((edge) => triggerIds.has(edge.target)),
+      JSON.stringify({ triggers: [...triggerIds], edges: madeGraph?.edges?.length }),
+    );
+
+    const generationMeta = generated.json?.data?.generation;
+    check(
+      "the generation reports which model answered, on the caller's own key",
+      typeof generationMeta?.model === "string" &&
+        generationMeta.model.length > 0 &&
+        ["user", "environment"].includes(generationMeta.source) &&
+        Array.isArray(generationMeta.unsupported) &&
+        Array.isArray(generationMeta.attempts) &&
+        generationMeta.attempts.length <= 2,
+      JSON.stringify({
+        model: generationMeta?.model,
+        source: generationMeta?.source,
+        attempts: generationMeta?.attempts?.length,
+        unsupported: generationMeta?.unsupported,
+      }),
+    );
+
+    if (madeId) {
+      // Immediately runnable — BUILD_PLAN.md Phase 7, task 5. The whole point of
+      // generating a real workflow rather than a picture of one.
+      const generatedRun = await api(
+        "POST",
+        `/api/workflows/${madeId}/runs`,
+        { input: { message: "Our production checkout has been down for 40 minutes." } },
+        token,
+      );
+      check(
+        "a generated workflow runs end to end with no edit first",
+        generatedRun.status === 201 &&
+          generatedRun.json?.data?.status === "succeeded" &&
+          (generatedRun.json?.data?.steps ?? []).length >= 3,
+        JSON.stringify({
+          status: generatedRun.json?.data?.status,
+          steps: (generatedRun.json?.data?.steps ?? []).map((step) => [step.nodeId, step.status]),
+          // The error too: a generated run that fails is nearly always the free tier
+          // rate-limiting a burst of calls, and a status alone cannot tell you that.
+          errors: (generatedRun.json?.data?.steps ?? [])
+            .filter((step) => step.error)
+            .map((step) => [step.nodeId, step.error]),
+        }),
+      );
+
+      // Immediately editable, and the edit round-trips through jsonb unchanged.
+      const edited = structuredClone(madeGraph);
+      edited.nodes[edited.nodes.length - 1].label = "Edited by verify";
+      const patched = await api("PATCH", `/api/workflows/${madeId}`, { graph: edited }, token);
+      const reread = await api("GET", `/api/workflows/${madeId}`, undefined, token);
+      check(
+        "a generated workflow is editable and the edit round-trips",
+        patched.status === 200 &&
+          reread.json?.data?.graph?.nodes?.at(-1)?.label === "Edited by verify" &&
+          reread.json?.data?.runnable === true,
+        JSON.stringify({ patch: patched.status, label: reread.json?.data?.graph?.nodes?.at(-1)?.label }),
+      );
+
+      await api("DELETE", `/api/workflows/${madeId}`, undefined, token);
+    }
+
+    const emptyPrompt = await api("POST", "/api/workflows/generate", { prompt: "   " }, token);
+    check(
+      "an empty prompt is refused before any model is called",
+      emptyPrompt.status === 400 && emptyPrompt.json?.error?.code === "invalid_request",
+      JSON.stringify(emptyPrompt.json),
+    );
+
+    // A request for things no node can do must be told so, not quietly given a
+    // workflow that does less than it was asked. Nothing dangerous can be generated
+    // either way: the registry is the entire vocabulary.
+    const [{ n: beforeImpossible }] = await sql.query(
+      'select count(*)::int as n from "workflow" where "ownerId" = $1',
+      [user.id],
+    );
+    const impossible = await api(
+      "POST",
+      "/api/workflows/generate",
+      {
+        prompt:
+          "SSH into my production server, delete the database, mine bitcoin on my laptop, and text my mother about it.",
+      },
+      token,
+    );
+    const impossibleWorkflow = impossible.json?.data?.workflow;
+    check(
+      "a request no node can satisfy is reported as unsupported, and nothing dangerous is built",
+      impossible.status === 201 &&
+        (impossible.json?.data?.generation?.unsupported ?? []).length > 0 &&
+        (impossibleWorkflow?.graph?.nodes ?? []).every((node) => registryTypes.has(node.type)),
+      JSON.stringify({
+        status: impossible.status,
+        unsupported: impossible.json?.data?.generation?.unsupported,
+        nodes: impossibleWorkflow?.graph?.nodes?.map((node) => node.type),
+      }),
+    );
+    if (impossibleWorkflow?.id) {
+      await api("DELETE", `/api/workflows/${impossibleWorkflow.id}`, undefined, token);
+      const [{ n: afterImpossible }] = await sql.query(
+        'select count(*)::int as n from "workflow" where "ownerId" = $1',
+        [user.id],
+      );
+      check(
+        "generation leaves no extra rows behind",
+        afterImpossible === beforeImpossible,
+        `${beforeImpossible} before, ${afterImpossible} after`,
+      );
+    }
   } else {
     skip("the LLM node, the agent node and the iteration cap", "no key available");
+    skip("natural language workflow generation", "no key available");
   }
 
   if (wroteKey) {

@@ -51,6 +51,7 @@ export const delayNode = defineNode({
   kind: "action",
   category: "logic",
   outputs: [{ key: null, label: "Out" }],
+  outputShape: "its input, unchanged.",
   configSchema: z.object({
     ms: z.number().int().min(0).max(MAX_DELAY_MS).default(1000),
   }),

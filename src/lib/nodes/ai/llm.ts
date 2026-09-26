@@ -25,6 +25,8 @@ export const llmNode = defineNode({
   kind: "action",
   category: "agent",
   outputs: [{ key: null, label: "Out" }],
+  outputShape:
+    "{ text: the model's answer as a string, json: the parsed answer when json is true else null, model, usage, input }. To use the answer, reference output.text — output on its own is the whole object.",
   agentCallable: false,
   configSchema: z.object({
     prompt: z.string().min(1).max(20_000),

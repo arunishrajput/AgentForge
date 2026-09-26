@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { auth, signOut } from "@/auth";
 import { DeleteWorkflowButton, NewWorkflowButton } from "@/components/workflows/actions";
+import { GenerateWorkflowForm } from "@/components/workflows/generate-form";
 import { describeWorkflow, listWorkflows } from "@/lib/workflow/store";
 
 export const dynamic = "force-dynamic";
@@ -36,11 +37,13 @@ export default async function WorkflowsPage() {
         </div>
       </header>
 
+      <GenerateWorkflowForm />
+
       {workflows.length === 0 ? (
         <div className="bg-surface rounded-xl p-8 text-center">
           <p className="text-sm font-medium">No workflows yet.</p>
           <p className="text-muted mt-1 text-[13px]">
-            Create one to open the canvas, add nodes from the registry, and run it.
+            Describe one above, or create an empty workflow to build it by hand.
           </p>
         </div>
       ) : (

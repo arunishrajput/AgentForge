@@ -1,4 +1,5 @@
 import type { ProviderSettings } from "@/lib/ai/settings";
+import type { GenerationAttempt, GenerationIssue } from "@/lib/generate/generate";
 import type { ModelInfo } from "@/lib/ai/types";
 import type { ApiErrorCode } from "@/lib/api";
 import type { StreamRun } from "@/lib/engine/stream";
@@ -20,6 +21,26 @@ import type { describeWorkflow } from "@/lib/workflow/store";
 export type Workflow = ReturnType<typeof describeWorkflow>;
 export type { NodeSummary, GraphProblem };
 export type { ProviderSettings, ModelInfo };
+export type { GenerationIssue, GenerationAttempt };
+
+/** CONTRACT.md → "Generation request/response". */
+export interface GenerationResponse {
+  workflow: Workflow;
+  generation: {
+    model: string;
+    source: "user" | "environment";
+    /** Parts of the request no registered node can do. Shown to the user. */
+    unsupported: string[];
+    usage: { inputTokens: number; outputTokens: number; totalTokens: number } | null;
+    attempts: GenerationAttempt[];
+  };
+}
+
+/** The `details` of a 422 from the generation route. */
+export interface GenerationErrorDetails {
+  issues: GenerationIssue[];
+  attempts: GenerationAttempt[];
+}
 
 /**
  * CONTRACT.md → "Run and step records". The wire shapes live in
@@ -82,6 +103,16 @@ export const api = {
     request<Workflow>("/api/workflows", { method: "POST", body: JSON.stringify(body) }),
 
   getWorkflow: (id: string) => request<Workflow>(`/api/workflows/${id}`),
+
+  /**
+   * Natural language → a persisted workflow. Rejects with `invalid_graph` when the
+   * model's output could not run; nothing is saved in that case.
+   */
+  generateWorkflow: (body: { prompt: string; name?: string }) =>
+    request<GenerationResponse>("/api/workflows/generate", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 
   /** The whole graph goes in one PATCH — it is a single atomic row update (D14). */
   updateWorkflow: (

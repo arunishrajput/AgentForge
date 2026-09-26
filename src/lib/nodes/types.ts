@@ -82,6 +82,18 @@ export interface NodeDefinition<Config = Record<string, unknown>> {
   kind: NodeKind;
   category: NodeCategory;
   outputs: NodeOutput[];
+  /**
+   * The shape of `output`, in one line, for whoever has to write a `{{ }}` reference
+   * to it. Optional: a node that passes its input straight through has nothing to say.
+   *
+   * Added in Phase 7 because the generator needs it and nothing else supplied it. A
+   * model asked to route on an LLM node's answer wrote `{{steps.x.output}}` — the
+   * whole object — and the branch compared "[object Object]" and took the wrong path.
+   * The graph was valid and ran; it just did the wrong thing, which is the worst kind
+   * of generation bug because nothing reports it. Documented here rather than in the
+   * prompt so a node added later describes itself, the way `description` already does.
+   */
+  outputShape?: string;
   configSchema: z.ZodType<Config>;
   /**
    * Whether the agent may call this node as a tool. Defaults to false: widening

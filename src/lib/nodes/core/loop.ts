@@ -28,6 +28,8 @@ export const loopNode = defineNode({
     { key: "loop", label: "Each item" },
     { key: "done", label: "Done" },
   ],
+  outputShape:
+    "on the loop output, { index, item, total } for the current item; on the done output, { done: true, iterations, items }.",
   configSchema: z.object({
     items: z.array(z.unknown()).optional(),
     maxIterations: z.number().int().min(1).max(HARD_MAX_ITERATIONS).default(5),

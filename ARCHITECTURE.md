@@ -356,6 +356,34 @@ Agent node
 
 Tool-call schema: `CONTRACT.md` → *Agent tool-call schema*, **DEFINED** in Phase 6.
 
+### Generation as built — Phase 7
+
+```
+src/lib/generate/
+  schema.ts    what a model may emit (pure) — no positions, no edge ids, no version
+  prompt.ts    registry -> the node catalogue the model is given (pure, tested)
+  layout.ts    nodes + edges -> positions, cycle-safe and non-overlapping (pure, tested)
+  generate.ts  the pipeline: ask -> parse -> assemble -> validate -> one retry (takes the model)
+```
+
+**Generate → validate → persist, and nothing in this directory touches the database.** The route
+inserts only what `generateWorkflow` returns as `ok: true`, which is what makes "a broken workflow is
+never saved" a structural property rather than a promise.
+
+**The catalogue is the registry**, via the same `describeNodes()` the palette and the agent tool set
+read. A hand-written node list in a prompt drifts the first time a node changes, and the drift shows
+up as a model emitting config the engine rejects — on demo day. This is also why Phases 8 and 9 need
+no generation change: registering a node makes it generatable.
+
+**The model is asked only for what it alone knows.** Nodes and edges, plus `unsupported`. The system
+supplies `version`, layout positions and edge ids (D40) — a model cannot lay out a graph, and an
+overlapping one reads as broken on stage.
+
+`generateWorkflow` takes its `LanguageModel` as an argument, the same trick as the engine's recorder
+(D18): the whole pipeline is tested against a scripted model in milliseconds, with no key and no
+quota. What a live model adds is whether it can follow the prompt, which is what the deployed
+verification measures.
+
 ### The adapter as built — `fetch`, no SDK (D32)
 
 ```
