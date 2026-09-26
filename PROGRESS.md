@@ -49,11 +49,22 @@ cannot stand in for a live product when the network dies on stage. It remains a
 
 **Phase 12 — COMPLETE.** Phases 0–12 are all done and verified.
 
-**Nothing is blocking a submission** except the **hackathon category** (`UNKNOWN — VERIFY` since
-Phase 0), recorded in `SUBMISSION.md`. The **demo video is published** (https://www.youtube.com/watch?v=Suc4RV9LnLs).
-The **Fallback B screen recording is still outstanding** — a demo-day risk, not a submission
-blocker. Stretch phases 13–14 are now unblocked but **`DEMO.md` is the scope contract and nothing
-on it needs them.**
+**SUBMITTED 2026-09-26.** https://devpost.com/software/agentforge-kz832x — verified on the public page:
+story with all seven Devpost headings, the pitch video embedded in the gallery
+(`youtube.com/embed/Suc4RV9LnLs`), the repo link, and the live-app link (which 307s to the landing
+page and serves **Continue with Google**, so a judge lands correctly).
+
+**The rubric is RESOLVED, and Phases 0–12 assumed the wrong one.** Zero Origin has one track, no
+sub-categories; top prize is **"Impact Champion"**. **Round 1 — Ideate & Validate** marks problem
+validation, affected users, an innovative and feasible solution, and potential real-world impact —
+**through the PPT and pitch video, not the running software**. Full wording in `CLAUDE.md` →
+*Context*. **The deck is the graded artefact now, not the deployment.**
+
+**Open against that rubric** (see *Known Issues*): the deck asserts the problem rather than
+validating it, never names the affected users, and slide 8 spends its impact section on engineering
+proof. **The Fallback B screen recording is still outstanding** — a demo-day risk, not a submission
+blocker. Stretch phases 13–14 are unblocked but **`DEMO.md` is the scope contract and nothing on it
+needs them.**
 
 ## Completed Phases
 
@@ -268,6 +279,7 @@ Carried forward from every phase. These are the decisions later sessions must no
 | **The `agentforge-hackathon-2026` Gemini key is dead** | Was a Phase 6 blocker | Every model answers **402 "prepayment credits are depleted"**: the project has billing enabled, which moves it off the Gemini free tier. `GOOGLE_GENERATIVE_AI_API_KEY` in local `.env` is this dead key. **Use the `agentforge-gemini-free` key instead** (no billing → free tier). Do not enable billing on that project |
 | **`models.list` lists models a key cannot call** | Phases 6, 7 | `gemini-2.5-flash` is in the catalogue and answers 404 "no longer available to new users". Never treat the list as the callable set — make a real call (D34) |
 | **`gemini-2.0-flash` and `gemini-2.5-flash*` are retired** | Phases 6, 7 | List models, never assume a name. Current default: `gemini-3.5-flash-lite` |
+| **The pitch deck is not cut for the rubric it will actually be judged against** | Round 1, which is the round that is happening | Criteria name, in order: *identifies and **validates** the real-world problem*, *understands the **affected users***, *innovative and **feasible** solution*, *potential **real-world impact***. The deck is strongest on solution and implementation — the two things Round 1 weights least. It **asserts** the problem with no evidence, **never names a user segment**, and slide 8 fills its impact section with 178 checks / 297 tests, which is product-quality proof, not impact. Feasibility is the one criterion it nails, because the thing is deployed. **Re-cutting slides 2 and 8 plus their narration targets the named top prize directly**; Devpost allows edits, and the video can be re-rendered in minutes |
 | **The agent node fell back and cost ~92 s — measured 2026-09-26, after Phase 12** | Demo pacing, on the headline beat | Two runs of the demo path took **94.6 s and 94.5 s**, against the **3.1–5.7 s** recorded above. The whole cost is one step: `decide_urgency` (`ai.agent`) at **91.9 s**, whose log reads `Model gemini-3.5-flash-lite was unavailable; answered by gemini-3.1-flash-lite`. The adapter behaved as designed — two retries with backoff per model, then down `FALLBACK_MODELS` — but the retry ladder is the latency. **`ai.llm` answered on the same model in 1.4 s in the same run**, so the model is not down generally; it is the tool-calling path that fails over. **Before demoing live, point the stored provider model at one that is actually answering and re-measure**, or Beats 6–8 will not fit inside 3:00 |
 | **Free-tier rate limits are tight** | Phases 6, 7, demo | Back-to-back probes hit 429/503. The adapter retries twice per model then falls down the chain; do not run the verify script in a tight loop. **Hit again in Phase 7:** a generated run's agent step failed once mid-suite and passed on a re-run 20 s later. The verify check now prints the failing step's error so the next occurrence diagnoses itself |
 | ~~No favicon — `/favicon.ico` 404s~~ | Was cosmetic, visible in the browser tab | **Handled in Phase 10.** `src/app/icon.svg` is Next's app-icon convention; the framework emits the `<link rel="icon">` and serves it at `/icon.svg`, verified 200 on the deployed URL. `/favicon.ico` still 404s and that is fine — nothing requests it once the link tag is present |
@@ -463,9 +475,10 @@ decorators anywhere in `src`.
 ## Notes for whoever comes next
 
 **Phases 0–12 are complete. There is no next phase that has to happen.** 13 and 14 are stretch, and
-`DEMO.md` — the scope contract — needs nothing from either. The highest-value work left is not code:
-record the **Fallback B** screen video and fill in the one remaining blank in `SUBMISSION.md` (the
-hackathon category). The pitch video is done and published.
+`DEMO.md` — the scope contract — needs nothing from either. **The project is submitted and every
+blank in `SUBMISSION.md` is filled.** The highest-value work left is not code: **re-cut the deck for
+the rubric it is actually judged against** (problem validation, affected users, real-world impact —
+see *Known Issues*), and record the **Fallback B** screen video.
 
 **If you do touch the code:**
 
@@ -507,6 +520,17 @@ the user deliberately** — it governs whether others may commercialise the work
 
 ## Recent Changes
 
+**2026-09-26 — SUBMITTED, and the rubric turned out to be a different one**
+
+- **Submitted:** https://devpost.com/software/agentforge-kz832x. Verified on the public page rather than assumed:
+  seven story headings, video embedded in the gallery, repo and live links both present and working
+- **`UNKNOWN — VERIFY` on the category/rubric, carried since Phase 0, is RESOLVED.** One track, no
+  sub-categories, top prize **"Impact Champion"**. **Round 1 marks the PPT and pitch video**, not the
+  deployed software: problem validation, affected users, innovative and feasible solution, real-world
+  impact. Every phase to date assumed "best working product". Recorded in `CLAUDE.md` → *Context*
+- **New known issue:** the deck is mis-aimed for that rubric — asserts rather than validates the
+  problem, names no user segment, and spends its impact slide on engineering proof
+
 **2026-09-26 — pitch video published, submission copy reshaped**
 
 - **Pitch video live:** https://www.youtube.com/watch?v=Suc4RV9LnLs — 4:00, 1920×1080, narrated deck.
@@ -522,7 +546,8 @@ the user deliberately** — it governs whether others may commercialise the work
 - **Team-size and timebox phrasing removed** from every outward- and inward-facing file at the
   user's request, rewritten rather than deleted so the constraints still explain the decisions they
   drove. `CLAUDE.md` *Core constraints* now reads "a fixed hackathon timebox"
-- **Only remaining submission blank: the hackathon category.** Fallback B is still un-recorded
+- At the time of this entry the category was still blank; it was **resolved later the same day** —
+  see the entry above. Fallback B is still un-recorded
 
 **2026-09-26 — Phase 12 complete, the project is submittable**
 
@@ -670,10 +695,15 @@ Full detail is in git history at `56dce47`, `59f7adb` and `26ed481`.
 
 ## Last Updated
 
+**2026-09-26** — **SUBMITTED** (https://devpost.com/software/agentforge-kz832x).
+**The judging rubric is resolved and it is not the one this project was built against**: Round 1
+marks the PPT and pitch video on problem validation, affected users, feasibility and real-world
+impact — not the running product. The deck needs a re-cut to match. See *Known Issues*.
+
 **2026-09-26** — **Pitch video published** (https://www.youtube.com/watch?v=Suc4RV9LnLs) and
-`SUBMISSION.md` reshaped to Devpost's seven headings. Only the **hackathon category** is still blank;
-**Fallback B is still un-recorded**. New known issue: the **agent node fell back and cost ~92 s** on
-two consecutive runs — see *Known Issues*, and fix it before demoing live.
+`SUBMISSION.md` reshaped to Devpost's seven headings. **Fallback B is still un-recorded.** New known
+issue: the **agent node fell back and cost ~92 s** on two consecutive runs — see *Known Issues*, and
+fix it before demoing live.
 
 **2026-09-26** — **Phase 12 complete. Phases 0–12 all done; the project is submittable.** Revision
 `agentforge-00021-v4s` live. **10 consecutive clean walks** of the full `DEMO.md` path (123 s),
@@ -686,8 +716,9 @@ them a product bug that both suites passed over: a webhook-triggered run was inv
 canvas (D59). Also fixed: generated agents starved at `maxIterations: 1` in 42% of generations
 (D57), and Beat 5 firing a webhook URL that did not exist yet (D58).
 
-**No phase from 0 to 12 has an outstanding completion criterion.** Nothing is blocking submission
-except the **hackathon category**, recorded in `SUBMISSION.md`. The **demo video is published**
-(https://www.youtube.com/watch?v=Suc4RV9LnLs). The **Fallback B recording** is still outstanding
-(`DEMO.md` → *What Phase 12 could not rehearse*) — a demo-day risk, not a submission blocker.
+**No phase from 0 to 12 has an outstanding completion criterion, and the project is submitted**
+(https://devpost.com/software/agentforge-kz832x). The **demo video is published**
+(https://www.youtube.com/watch?v=Suc4RV9LnLs) and embedded on the Devpost page. What is open is no
+longer submission plumbing but **fit to the Round 1 rubric** (see *Known Issues*), plus the
+**Fallback B recording** (`DEMO.md` → *What Phase 12 could not rehearse*) — a demo-day risk.
 Stretch phases 13–14 are unblocked but `DEMO.md` needs nothing from them.

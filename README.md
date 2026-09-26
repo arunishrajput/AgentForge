@@ -13,6 +13,8 @@ Built for the Zero Origin hackathon (Devpost).
 
 **Pitch video (4:00):** <https://www.youtube.com/watch?v=Suc4RV9LnLs>
 
+**Devpost:** <https://devpost.com/software/agentforge-kz832x>
+
 `PROGRESS.md` → *Deployed State* is authoritative.
 
 ---

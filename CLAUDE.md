@@ -35,8 +35,19 @@ nodes, connections, editable configuration — not a mockup. It runs, streams pe
 logs live, and its agent nodes use tool-calling to decide what to do at runtime instead of
 following a fixed script.
 
-**Context:** Hackathon build (Zero Origin, Devpost). Judging category is
-`UNKNOWN — VERIFY`; assume a general "best working product" rubric until told otherwise.
+**Context:** Hackathon build (Zero Origin, Devpost). **Submitted 2026-09-26:** https://devpost.com/software/agentforge-kz832x
+
+**The rubric is RESOLVED, and it is not what Phases 0–12 assumed.** Zero Origin has one track, no
+sub-categories. Top prize is **"Impact Champion"**. Judging, verbatim from the hackathon page:
+
+> Round 1 — Ideate & Validate: "Evaluate how clearly the team identifies and **validates the
+> real-world problem**, understands the **affected users**, presents an **innovative and feasible
+> solution**, and demonstrates its **potential real-world impact** — **through the PPT and pitch
+> video**."
+
+**Round 1 does not score the running software. It scores the deck and the pitch video.** The
+deployed product is evidence of feasibility, not the thing being marked. Weight problem
+validation, named affected users, and real-world impact accordingly.
 
 ---
 
@@ -407,7 +418,8 @@ Do not invent details. Use these markers, in the docs and in conversation:
 - `NOT YET DECIDED` — a decision deliberately deferred to a later phase
 - `SUPERSEDED` — previously considered, now replaced (keep the reason)
 
-Known unknowns carried forward: the hackathon category and rubric; whether the deterministic
+Known unknowns carried forward: ~~the hackathon category and rubric~~ (**RESOLVED 2026-09-26** —
+see *Context* above); whether the deterministic
 Cloud Run URL form allows pre-registering the OAuth redirect URI; the Foundation Decision until
 Phase 0 resolves it.
 

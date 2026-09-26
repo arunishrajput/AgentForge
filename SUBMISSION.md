@@ -1,7 +1,8 @@
 # SUBMISSION.md — AgentForge, Zero Origin (Devpost)
 
 Everything the submission form asks for, written once so it is not re-improvised at the deadline.
-**Copy from here into Devpost.** Anything marked `UNKNOWN — VERIFY` needs the entrant, not the code.
+**SUBMITTED 2026-09-26:** <https://devpost.com/software/agentforge-kz832x> — story, video, repo and
+live link all verified present on the public page.
 
 ---
 
@@ -9,7 +10,7 @@ Everything the submission form asks for, written once so it is not re-improvised
 
 | Field | Status |
 |---|---|
-| **Category / track** | `UNKNOWN — VERIFY` — carried since Phase 0. Every phase has assumed a general "best working product" rubric. If the real rubric weights something specific (design, agents, social impact, a named sponsor's API), say so and the emphasis below can be re-cut in minutes |
+| **Category / track** | **RESOLVED 2026-09-26.** One track, no sub-categories. Top prize is **"Impact Champion"**. **Round 1 — Ideate & Validate** marks *problem validation, affected users, innovative and feasible solution, and potential real-world impact* — **through the PPT and pitch video**, not the running software. Phases 0–12 assumed "best working product", which is wrong for Round 1. See `CLAUDE.md` → *Context* |
 | **Demo video URL** | **DONE** — <https://www.youtube.com/watch?v=Suc4RV9LnLs> · 4:00 narrated pitch deck, with real screenshots of the deployed app including a run in flight. **This is not the Fallback B screen recording**, which is still un-recorded — see `DEMO.md` |
 | **Team** | Arunish Rajput |
 | **Licence** | Still deliberately open. MIT is the obvious default; it is your call because it governs whether others may commercialise this. `README.md` → *License* |
@@ -32,6 +33,7 @@ hand-wired by you.*
 
 | What | Where |
 |---|---|
+| **Devpost project** | <https://devpost.com/software/agentforge-kz832x> |
 | **Live app** | <https://agentforge-733000675212.asia-southeast1.run.app> |
 | Repository | <https://github.com/arunishrajput/AgentForge> |
 | Demo video | <https://www.youtube.com/watch?v=Suc4RV9LnLs> — 4:00 pitch video |
