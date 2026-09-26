@@ -27,7 +27,8 @@ import {
 import { Playground } from "./playground";
 
 export const metadata: Metadata = {
-  title: "Toybox — the AgentForge design system",
+  // The root layout appends "· AgentForge", so the product name is not repeated here.
+  title: "Toybox — the design system",
   description:
     "Every token, primitive and motion state in AgentForge's design language, on one page, with measured contrast ratios.",
 };

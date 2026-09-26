@@ -9,6 +9,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { Input, Labelled, Select, Textarea, Toggle } from "@/components/ui/field";
 import { Menu } from "@/components/ui/menu";
 import { Tabs } from "@/components/ui/tabs";
+import { Notice } from "@/components/ui/notice";
 import { ToastProvider, useToast } from "@/components/ui/toast";
 import { Tooltip } from "@/components/ui/tooltip";
 
@@ -226,6 +227,50 @@ function OverlayBoard() {
   );
 }
 
+function MessageBoard() {
+  return (
+    <div className="space-y-4">
+      <p className="text-muted max-w-2xl text-2xs text-pretty">
+        A <strong>notice</strong> is anchored to the thing it is about and stays until that
+        changes; a <strong>toast</strong> reports the result of something the user just did
+        and clears itself. Both take their fill, their glyph and — importantly — their WORD
+        from one table, so the same failure never announces itself two different ways.
+      </p>
+
+      <Notice tone="ok" title="Key verified against the provider and stored, encrypted." />
+
+      <Notice tone="warn" title="Built and saved — but no node can do these parts yet">
+        <ul className="list-disc space-y-0.5 pl-4">
+          <li>Read the attachment on the incoming email</li>
+          <li>Wait for a human to approve it</li>
+        </ul>
+      </Notice>
+
+      <Notice
+        tone="bad"
+        title="The model returned a graph that does not validate"
+        action={
+          <Button size="sm" tone="quiet">
+            Try again
+          </Button>
+        }
+      >
+        <ul className="list-disc space-y-0.5 pl-4">
+          <li>Edge e2 leaves an output handle that core.branch does not declare</li>
+        </ul>
+      </Notice>
+
+      <Notice tone="info" title="This workflow has no trigger yet, so it cannot run." />
+
+      <p className="text-muted max-w-2xl text-2xs text-pretty">
+        The failure carries <code className="font-mono">role=&quot;alert&quot;</code> and a
+        single short shake. Deliberately small: it says &ldquo;look here&rdquo;, not
+        &ldquo;your work is gone&rdquo;.
+      </p>
+    </div>
+  );
+}
+
 function CardBoard() {
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -294,6 +339,7 @@ export function Playground() {
           { id: "buttons", label: "Buttons", content: <ButtonBoard /> },
           { id: "fields", label: "Fields", content: <FieldBoard /> },
           { id: "cards", label: "Cards & badges", content: <CardBoard /> },
+          { id: "messages", label: "Messages", content: <MessageBoard /> },
           { id: "overlays", label: "Overlays", content: <OverlayBoard /> },
         ]}
       />

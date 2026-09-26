@@ -11,6 +11,7 @@ import {
 } from "react";
 
 import { cn } from "./cn";
+import { TONE, liveRole, type Tone } from "./tone";
 
 /**
  * Toasts.
@@ -28,7 +29,8 @@ import { cn } from "./cn";
  *      wants the user in control of a timed message; `duration: null` keeps one up
  *      until it is dismissed, which is what a failure worth acting on should do.
  */
-export type ToastTone = "ok" | "bad" | "warn" | "info";
+/** The tone table is shared with `Notice` — see `./tone.ts`. */
+export type ToastTone = Tone;
 
 export type Toast = {
   id: number;
@@ -50,13 +52,6 @@ export function useToast() {
   if (!push) throw new Error("useToast() needs a <ToastProvider> above it");
   return push;
 }
-
-const TONE: Record<ToastTone, { fill: string; icon: string; label: string }> = {
-  ok: { fill: "bg-ok-pop", icon: "✓", label: "Success" },
-  bad: { fill: "bg-bad-pop", icon: "!", label: "Error" },
-  warn: { fill: "bg-warn-pop", icon: "▲", label: "Warning" },
-  info: { fill: "bg-live-pop", icon: "i", label: "Note" },
-};
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -101,7 +96,7 @@ function ToastCard({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }
   const tone = TONE[toast.tone];
   return (
     <div
-      role={toast.tone === "bad" ? "alert" : "status"}
+      role={liveRole(toast.tone)}
       className={cn(
         "card-raised animate-rise pointer-events-auto flex w-[min(26rem,calc(100vw-2rem))] items-start gap-3 p-3",
         toast.tone === "bad" && "animate-wiggle",

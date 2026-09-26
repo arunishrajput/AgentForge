@@ -2,6 +2,12 @@
 
 import { useState } from "react";
 
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Input, Labelled } from "@/components/ui/field";
+import { Notice } from "@/components/ui/notice";
+import { formatUtc } from "@/lib/format/date";
 import {
   api,
   ApiRequestError,
@@ -16,34 +22,19 @@ import {
  * bearer secret and the Google refresh token never leaves the server, so this
  * component has no way to read either back and does not pretend to. What it *can*
  * show is which channel and which account are connected, which is the part a user
- * actually needs in order to trust that the right thing is wired up.
+ * needs in order to trust that the right thing is wired up.
  *
  * Google is a link, not a button with a `fetch` behind it: consent is a top-level
  * navigation to accounts.google.com and back.
  */
 
-const STORED_AT = new Intl.DateTimeFormat("en-GB", {
-  dateStyle: "medium",
-  timeStyle: "short",
-  timeZone: "UTC",
-});
-
 /**
- * UTC, fixed locale. This is a client component, so React renders it on the server
- * for the initial HTML and again in the browser — and `toLocaleString()` disagrees
- * across the two, which is hydration error #418 (found on the deployed settings page
- * in Phase 6, not by a test).
+ * The callback redirects with a fixed code, never with Google's own words, so
+ * nothing from the query string is rendered. This map is the only text those codes
+ * produce.
  */
-function storedAt(iso: string): string {
-  return `${STORED_AT.format(new Date(iso))} UTC`;
-}
-
-/**
- * The callback redirects with a fixed code, never with Google's own words, so nothing
- * from the query string is rendered. This map is the only text those codes produce.
- */
-const CALLBACK_MESSAGES: Record<string, { text: string; tone: "good" | "bad" }> = {
-  connected: { text: "Google connected. Sheets and Gmail nodes can run now.", tone: "good" },
+const CALLBACK_MESSAGES: Record<string, { text: string; tone: "ok" | "bad" }> = {
+  connected: { text: "Google connected. Sheets and Gmail nodes can run now.", tone: "ok" },
   denied: { text: "Google consent was cancelled, so nothing was connected.", tone: "bad" },
   state: {
     text: "That connection attempt could not be verified. Start it again from this page.",
@@ -125,95 +116,92 @@ export function IntegrationsForm({
   };
 
   return (
-    <div className="space-y-6">
-      {callback && (
-        <p
-          role={callback.tone === "bad" ? "alert" : undefined}
-          className={`animate-rise text-ui ${callback.tone === "good" ? "text-ok" : "text-warn"}`}
-        >
-          {callback.text}
-        </p>
-      )}
+    <div className="space-y-5">
+      {callback && <Notice tone={callback.tone} title={callback.text} />}
 
-      <section className="card p-5">
+      <Card className="p-5">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="text-sm font-medium">Discord</h2>
+          <h2 className="text-base font-bold">Discord</h2>
           {discord.configured ? (
-            <span className="text-xs text-ok">
-              Connected{discord.webhookName ? ` as “${discord.webhookName}”` : ""}
-              {discord.updatedAt ? ` · ${storedAt(discord.updatedAt)}` : ""}
-            </span>
+            <Badge className="text-ok">
+              <span aria-hidden="true">✓</span> Connected
+              {discord.webhookName ? ` as “${discord.webhookName}”` : ""}
+              {discord.updatedAt ? ` · ${formatUtc(discord.updatedAt)}` : ""}
+            </Badge>
           ) : (
-            <span className="text-muted text-xs">Not connected</span>
+            <Badge className="text-muted">Not connected</Badge>
           )}
         </div>
 
-        <p className="text-muted mt-2 text-ui">
+        <p className="text-muted mt-2 text-sm text-pretty">
           In Discord: channel settings → Integrations → Webhooks → <em>Copy Webhook URL</em>.
           That URL is itself a secret — anyone holding it can post to the channel — so it is
           encrypted before storage and never sent back to this page.
         </p>
 
         <form
-          className="mt-4 flex flex-wrap gap-2"
+          className="mt-4 flex flex-wrap items-end gap-2"
           onSubmit={(event) => {
             event.preventDefault();
             void saveWebhook();
           }}
         >
-          <input
-            type="password"
-            value={webhookUrl}
-            onChange={(event) => setWebhookUrl(event.target.value)}
-            placeholder={
-              discord.configured
-                ? "Replace the stored webhook URL…"
-                : "https://discord.com/api/webhooks/…"
-            }
-            autoComplete="off"
-            spellCheck={false}
-            aria-label="Discord webhook URL"
-            className="field min-w-0 flex-1 font-mono placeholder:font-sans"
-          />
-          <button
+          <Labelled
+            label="Webhook URL"
+            hint="Checked against Discord before it is stored, so a revoked or mistyped webhook fails here rather than halfway through a run."
+            className="min-w-56 flex-1"
+          >
+            <Input
+              type="password"
+              value={webhookUrl}
+              onChange={(event) => setWebhookUrl(event.target.value)}
+              placeholder={
+                discord.configured
+                  ? "Replace the stored webhook URL…"
+                  : "https://discord.com/api/webhooks/…"
+              }
+              autoComplete="off"
+              spellCheck={false}
+              className="font-mono placeholder:font-sans"
+            />
+          </Labelled>
+          <Button
             type="submit"
+            tone="primary"
+            loading={busy === "discord-save"}
             disabled={busy !== null || webhookUrl.trim().length === 0}
-            className="btn btn-primary"
           >
             {busy === "discord-save" ? "Verifying…" : "Save webhook"}
-          </button>
+          </Button>
         </form>
 
-        <p className="text-muted mt-2 text-xs">
-          Checked against Discord before it is stored, so a revoked or mistyped webhook
-          fails here rather than halfway through a run.
-        </p>
-
         {discord.configured && (
-          <button
-            type="button"
+          <Button
+            tone="ghost"
+            size="sm"
             onClick={removeWebhook}
             disabled={busy !== null}
-            className="btn btn-ghost hover:text-bad mt-3 -ml-3 text-xs"
+            className="hover:text-bad mt-3 -ml-2.5"
           >
             {busy === "discord-remove" ? "Deleting…" : "Delete stored webhook"}
-          </button>
+          </Button>
         )}
-      </section>
+      </Card>
 
-      <section className="card p-5">
+      <Card className="p-5">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="text-sm font-medium">Google Sheets &amp; Gmail</h2>
+          <h2 className="text-base font-bold">Google Sheets &amp; Gmail</h2>
           {google.connected ? (
-            <span className="text-xs text-ok">
-              Connected{google.email ? ` · ${google.email}` : ""}
-            </span>
+            <Badge className="text-ok">
+              <span aria-hidden="true">✓</span> Connected
+              {google.email ? ` · ${google.email}` : ""}
+            </Badge>
           ) : (
-            <span className="text-muted text-xs">Not connected</span>
+            <Badge className="text-muted">Not connected</Badge>
           )}
         </div>
 
-        <p className="text-muted mt-2 text-ui">
+        <p className="text-muted mt-2 text-sm text-pretty">
           Asked for separately from sign-in, and only when you want it: signing in never
           requests access to your spreadsheets or your mail. Leave both boxes ticked on
           Google&rsquo;s screen — unticking one connects successfully and then fails inside a
@@ -221,57 +209,47 @@ export function IntegrationsForm({
         </p>
 
         {google.connected && (
-          <ul className="mt-4 space-y-1.5 text-ui">
+          <ul className="mt-4 space-y-1.5 text-sm">
             <Capability granted={google.canAppendSheets} label="Append rows to your Sheets" />
             <Capability granted={google.canSendMail} label="Send email as you" />
           </ul>
         )}
 
-        <div className="mt-4 flex flex-wrap items-center gap-3">
+        <div className="mt-4 flex flex-wrap items-center gap-2">
           {/* A link, not a fetch: consent is a top-level navigation Google must control. */}
           {/* oxlint-disable-next-line nextjs/no-html-link-for-pages -- an API route, not a page:
               Link would client-navigate and never reach Google's consent screen. */}
-          <a
-            href="/api/integrations/google/connect"
-            className="btn btn-primary"
-          >
+          <a href="/api/integrations/google/connect" className="btn btn-primary">
             {google.connected ? "Reconnect Google" : "Connect Google"}
           </a>
           {google.connected && (
-            <button
-              type="button"
+            <Button
+              tone="ghost"
+              size="sm"
               onClick={disconnectGoogle}
               disabled={busy !== null}
-              className="btn btn-ghost hover:text-bad px-2 text-xs"
+              className="hover:text-bad"
             >
               {busy === "google-remove" ? "Disconnecting…" : "Disconnect"}
-            </button>
+            </Button>
           )}
         </div>
-      </section>
+      </Card>
 
-      {error && (
-        <p role="alert" className="text-bad animate-fade text-ui">
-          {error}
-        </p>
-      )}
-      {notice && !error && (
-        <p role="status" className="text-ok animate-fade text-ui">
-          {notice}
-        </p>
-      )}
+      {error && <Notice tone="bad" title={error} />}
+      {notice && !error && <Notice tone="ok" title={notice} />}
     </div>
   );
 }
 
 /**
  * Per-scope, because Google's consent screen lets a user untick one. A connection
- * holding only Sheets is a real state, and the only place it can be seen before a run
- * fails is here.
+ * holding only Sheets is a real state, and the only place it can be seen before a
+ * run fails is here.
  */
 function Capability({ granted, label }: { granted: boolean; label: string }) {
   return (
-    <li className={granted ? "text-muted" : "text-warn"}>
+    <li className={granted ? "text-muted" : "text-warn font-semibold"}>
       <span aria-hidden="true" className="mr-2">
         {granted ? "✓" : "✗"}
       </span>

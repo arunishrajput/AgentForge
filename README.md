@@ -41,8 +41,11 @@ free to run.
 **The redesign has landed.** Phase 14 replaced the dark Chapter 1 interface with **Toybox** — bright,
 playful and light-first, with saturated colour, thick ink outlines and hard offset shadows. It is
 documented in [`DESIGN.md`](./DESIGN.md) and shown live at
-[`/design`](https://agentforge-733000675212.asia-southeast1.run.app/design). Phases 15 and 16 rebuild
-the shell and the canvas on top of it.
+[`/design`](https://agentforge-733000675212.asia-southeast1.run.app/design).
+
+**Phase 15 rebuilt the shell on top of it**: a real landing page with a demonstration on it, a
+workflow list with search, filters and sort, settings split into model, integrations and account, a
+command palette on ⌘K, and error screens in the same language. Phase 16 does the canvas.
 
 > This README is deliberately still a working document. **Phase 24 rewrites it** as a real front
 > page, once there is a finished product to describe.

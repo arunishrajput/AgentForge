@@ -214,6 +214,12 @@ twice is noise.
 **Every empty state gets an action.** `EmptyState` takes `action` before `children` so that omitting
 it is a visible choice. An empty state without one is a dead end with a picture on it.
 
+**`EmptyState` takes a heading `level`, and the default is wrong for a full-page one.** It renders an
+`h3`, because the usual caller is a region inside a page that already has an `h1`. On a screen that
+*is* the empty state — the 404 and the error boundary — pass `level={1}`, or the document ships with
+no `h1` at all. That is exactly what Phase 15 shipped for one deploy, and it was found by asking the
+deployed page for its headings rather than by looking at it.
+
 ### The static copies
 
 `public/illustrations/*.svg` are **generated** by `npm run design:export` from
@@ -282,10 +288,32 @@ appended last — there is no Tailwind-aware merge, and none is needed.
 | `badge.tsx` | `Badge` (`quiet` / `pop`) |
 | `dialog.tsx` | `Dialog` — native `<dialog>`, modal |
 | `toast.tsx` | `ToastProvider`, `useToast` |
+| `notice.tsx` | `Notice` — the anchored message |
+| `tone.ts` | `TONE`, `liveRole` — the shared message table |
 | `tooltip.tsx` | `Tooltip` |
 | `tabs.tsx` | `Tabs` — roving tabindex, arrows, Home/End |
 | `menu.tsx` | `Menu` — arrows, Home/End, Escape, click-outside |
 | `illustration.tsx` | `Mascot`, `Thinking`, `EmptyState`, and the four scenes |
+
+### Notice or toast
+
+Both say the same kind of thing, and they take their fill, their glyph and their **word** from one
+table (`ui/tone.ts`) so the same failure never announces itself two different ways.
+
+| | Toast | Notice |
+|---|---|---|
+| What it reports | the result of something the user just did | the state of a region of the page |
+| Where | the bottom of the viewport, over everything | in the flow, beside the thing it is about |
+| How it leaves | on a timer, or a close button | when the state it describes changes |
+| Reach for it when | the action could have been started from anywhere | the message belongs to one form, one card, one list |
+
+A failure is `role="alert"` in both, shakes once in both, and in a toast uses `duration: null` so it
+does not time out (WCAG 2.2.1). **Neither may be the only place the information lives** if the user
+has to act on it.
+
+The Chapter 1 shape this replaced was a translucent tint plus a hairline ring
+(`bg-bad/10 ring-bad/25 ring-1`). A tint only separates from its background when the background is
+dark; on cream it is a smudge. Five call sites carried a copy of it, and Phase 15 replaced all five.
 
 **Use `Toggle`, not a hand-written `<label>` around `<Checkbox>`.** Both are correct at runtime, but
 only `Toggle` puts the `<input>` literally inside the `<label>` where a linter and a reviewer can see
@@ -293,6 +321,23 @@ it — otherwise every call site needs a suppression, and one of them will event
 
 **A loading button is `aria-busy`, not `disabled`.** A `disabled` button can lose its accessible name
 mid-announcement and drops out of the tab order under the user's cursor.
+
+### The shell — `src/components/shell/`
+
+The header on every signed-in page that is not the canvas: the mark, two nav links, the search
+button and the account menu. The current page is marked three ways — `aria-current`, a different
+fill, and the *pressed* position — because a tab that has already been clicked should sit where a
+pressed object sits.
+
+**The command palette is ⌘K, and the button beside it is not decoration.** A palette with no visible
+trigger is a feature only its author knows about; the button carries the shortcut as a `<kbd>` so
+everyone else finds it.
+
+Its ARIA shape is a combobox that owns a listbox: **focus stays in the input** and the arrow keys
+move a virtual cursor through `aria-activedescendant`. Moving real focus onto the options would stop
+the user typing to narrow the list, which is the entire interaction. Closing it returns focus to the
+button, not to the body — `<dialog>` restores focus to whatever had it before `showModal()`, and for
+a keyboard shortcut that is nothing.
 
 ### The utilities are equally first-class
 
@@ -332,6 +377,7 @@ wrong within a phase.
 | **A soft glow is a dark-UI idiom** | Depth from a light source does not survive the move to cream. Toybox gets depth from outlines and hard shadows. There are no gradients in artwork |
 | **A stale local server serves stale CSS** | Port 3100 was held by a detached process from an earlier launch, so `EADDRINUSE` killed the new server silently and three rounds of screenshots showed the old stylesheet. `lsof -nP -iTCP:<port> -sTCP:LISTEN` before believing a local check — the same trap `PROGRESS.md` already records for port 3000 |
 | **`.tsx` files never appear in the coverage report** | Node's coverage only counts modules a test loads, and no test loads a component. The Chapter 1 note predicting that a design-system phase would break the function-coverage threshold was wrong: coverage went **up**, because the new `.ts` modules are all tested |
+| **A closed `<dialog>` still holds its heading** | A confirm dialog kept mounted so it can close itself renders its `<h2>` into the document whether it is open or not, and a template literal in that title prints `Delete "undefined"?` the moment the row it was about is cleared. Guard the title, or unmount the dialog |
 | **A lint rule can be wrong about a native element** | `role="switch"` on `input[type=checkbox]` is explicitly allowed by ARIA in HTML and its `checked` maps to `aria-checked`; adding `aria-checked` would create a second source of truth. Suppressed inline, with the reason, per the project convention |
 
 ---

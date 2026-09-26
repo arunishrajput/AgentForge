@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 
+import { ToastProvider } from "@/components/ui/toast";
+
 import "./globals.css";
 
 /**
@@ -28,11 +30,34 @@ const mono = Geist_Mono({
   variable: "--font-geist-mono",
 });
 
+const DESCRIPTION =
+  "Describe what you want in plain language. AgentForge builds a real, executable, " +
+  "visually editable workflow whose agent nodes reason and decide at runtime.";
+
+/**
+ * `metadataBase` resolves the relative URLs in the cards below. It falls back to the
+ * canonical deployment rather than reading `required("APP_BASE_URL")`, because
+ * `next build` runs in CI with no environment at all and a throw here would fail the
+ * build for a link preview.
+ */
 export const metadata: Metadata = {
-  title: "AgentForge",
-  description:
-    "Describe what you want in plain language. AgentForge builds a real, executable, visually editable workflow whose agent nodes reason at runtime.",
+  metadataBase: new URL(
+    process.env.APP_BASE_URL ?? "https://agentforge-733000675212.asia-southeast1.run.app",
+  ),
+  title: {
+    default: "AgentForge — agentic workflow automation",
+    template: "%s · AgentForge",
+  },
+  description: DESCRIPTION,
   applicationName: "AgentForge",
+  openGraph: {
+    type: "website",
+    siteName: "AgentForge",
+    title: "AgentForge — agentic workflow automation",
+    description: DESCRIPTION,
+    url: "/",
+  },
+  twitter: { card: "summary", title: "AgentForge", description: DESCRIPTION },
 };
 
 /**
@@ -44,7 +69,9 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  themeColor: "#15131c",
+  // The cream page, so a phone's browser chrome continues the page rather than
+  // ending it in a dark bar. It was still Chapter 1's near-black until Phase 15.
+  themeColor: "#fdf4dd",
 };
 
 export default function RootLayout({
@@ -66,7 +93,11 @@ export default function RootLayout({
         >
           Skip to content
         </a>
-        {children}
+        {/* Mounted at the root so any page can raise a toast, and so the live region
+            exists in the document before the first message rather than arriving with
+            it — a region a screen reader was not already observing announces nothing
+            (`DESIGN.md` → *The live region exists before the first message*). */}
+        <ToastProvider>{children}</ToastProvider>
       </body>
     </html>
   );

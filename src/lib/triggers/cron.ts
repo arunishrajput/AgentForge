@@ -259,14 +259,11 @@ export function nextTimeFor(expression: string, after: Date = new Date()): Date 
 }
 
 /**
- * A fixed-locale UTC rendering, for the canvas. A client component must never call
- * `toLocaleString()` with the browser's defaults — server and browser disagree on
- * locale and zone and React reports a hydration error (PROGRESS.md, Phase 6).
+ * A fixed-locale UTC rendering, re-exported from `@/lib/format/date` so the two
+ * schedule call sites here keep their import. The implementation moved in Phase 15,
+ * when the settings forms turned out to hold two more copies of the same formatter:
+ * a client component must never call `toLocaleString()` with the browser's defaults,
+ * because server and browser disagree on locale and zone and React reports hydration
+ * error #418 (PROGRESS.md, Phase 6).
  */
-export function formatUtc(date: Date | string): string {
-  return `${new Intl.DateTimeFormat("en-GB", {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone: "UTC",
-  }).format(new Date(date))} UTC`;
-}
+export { formatUtc } from "@/lib/format/date";

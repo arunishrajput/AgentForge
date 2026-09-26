@@ -319,12 +319,24 @@ src/app/globals.css        @theme    colour, type, radius, elevation, easings, a
                            .react-flow  React Flow's variables, pointed at those tokens
                            @media    prefers-reduced-motion — one blanket rule
 src/components/ui/         the React primitives: button, field, card, badge,
-                           dialog, toast, tooltip, tabs, menu, illustration
+                           dialog, toast, notice, tooltip, tabs, menu,
+                           illustration; tone.ts is the shared message table
+src/components/shell/      the signed-in shell (Phase 15): app-header,
+                           account-menu, command-palette, logo
+src/components/landing/    the landing page's demonstration and node catalogue
 src/lib/design/            contrast.ts   the oklch → WCAG maths
                            palette.ts    the token catalogue, with roles
                            illustrations-static.ts  the generated public/ SVGs
+src/lib/ui/command.ts      the command palette's ranking, with tests
 src/app/design/            the living gallery, prerendered and public
 ```
+
+**Phase 15 added the shell, and two rules came with it.** The header is a *server* component that
+takes the current page as a prop rather than subscribing to `usePathname()`, and the sign-out server
+action is defined there and passed into the client account menu — clearing an httpOnly cookie is not
+something a client fetch can do. The command palette is mounted by the header, so it exists on the
+two shell pages and not on the public landing page or the gallery, where it would have nothing to
+search and no session to search it with.
 
 **Chapter 1 had deliberately no `components/ui`, and Phase 14 reversed that.** The old reasoning —
 "a button is a class, not a component; a wrapper per control buys indirection and costs a file each"

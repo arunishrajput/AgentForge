@@ -329,14 +329,24 @@ export function EmptyState({
   title,
   description,
   action,
+  level = 3,
   className,
 }: {
   art: ReactNode;
   title: ReactNode;
   description: ReactNode;
   action?: ReactNode;
+  /**
+   * The heading level. It defaults to 3 because the usual caller is a region
+   * inside a page that already has an `h1` — but on a screen that IS the empty
+   * state, the 404 and the error boundary, the title is the page's only heading
+   * and has to be the `h1`, or the document has none at all.
+   */
+  level?: 1 | 2 | 3;
   className?: string;
 }) {
+  const Heading = `h${level}` as const;
+
   return (
     <div
       className={cn(
@@ -346,7 +356,9 @@ export function EmptyState({
     >
       <div className="w-full max-w-56">{art}</div>
       <div className="max-w-sm space-y-1.5">
-        <h3 className="text-base font-bold">{title}</h3>
+        <Heading className={level === 1 ? "text-2xl font-bold tracking-tight" : "text-base font-bold"}>
+          {title}
+        </Heading>
         <p className="text-muted text-sm text-pretty">{description}</p>
       </div>
       {action}
