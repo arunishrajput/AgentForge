@@ -48,8 +48,11 @@ Read `DESIGN.md`'s brief there before starting — Phase 14 is the phase that cr
 **What Phase 13 leaves you, and what it means for Phase 14:**
 
 - **CI exists and must stay green.** `.github/workflows/ci.yml` — lint, typecheck, test with
-  coverage thresholds, build. It ran in **53 s** on PR #1. **A red pipeline is a stop-work
-  condition.** `npm run check` is the same four gates locally
+  coverage thresholds, build, in ~60 s. **A red pipeline is a stop-work condition.**
+  `npm run check` is the same four gates locally
+- **`main` is protected**, but `enforce_admins` is off, so working directly on `main` still works
+  exactly as `CLAUDE.md` describes. Verified with a real direct push. Do not turn `enforce_admins`
+  on without also changing `CLAUDE.md` → *Git workflow*, or every phase will need a PR
 - **Coverage thresholds fail the build**: 85% lines, 88% branches, 76% functions. Currently
   87.19 / 90.46 / 78.10. **A UI rewrite will move these** — if Phase 14 adds many untested
   `.tsx` files the function threshold is the one that will bite first. Lower it deliberately
@@ -354,7 +357,8 @@ hours).
 | Resource | Provider | Identifier | Status |
 |---|---|---|---|
 | `AgentForge` git repository | GitHub | `arunishrajput/AgentForge` | **EXISTS** |
-| **GitHub Actions CI** | GitHub | `.github/workflows/ci.yml`, job `check` | **CREATED Phase 13** — lint · typecheck · test+coverage · build, on every push and PR to `main`. Green in **53 s** on PR #1. Free for a public repository |
+| **GitHub Actions CI** | GitHub | `.github/workflows/ci.yml`, job `check` | **CREATED Phase 13** — lint · typecheck · test+coverage · build, on every push and PR to `main`. Green in **53–60 s** on PR #1 and on `main`. Free for a public repository |
+| **Branch protection on `main`** | GitHub | required check `lint · typecheck · test · build` | **CREATED Phase 13.** Strict (a branch must be current with `main`), no force pushes, no deletions, conversation resolution required. **`enforce_admins` is deliberately `false`** so `CLAUDE.md`'s "work directly on `main`" still works for the solo developer — **verified by an actual direct push, not assumed**. A contributor's PR is gated; the owner's direct push is not |
 | Google Cloud project | Google Cloud | `agentforge-hackathon-2026`, number **`733000675212`** | **EXISTS**, billing active ($300 / 90-day trial) |
 | **`agentforge` Cloud Run service** | Google Cloud | `asia-southeast1`, revision **`agentforge-00023-xf4`** | **LIVE 2026-09-26** (this row was stale at `00018-x7q`; corrected in Phase 13) |
 | **`cloud-run-source-deploy` repo** | Artifact Registry | `asia-southeast1` | **EXISTS** |
