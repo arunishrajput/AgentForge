@@ -1,10 +1,11 @@
 "use client";
 
-import type { GraphProblem, NodeSummary, Run } from "@/lib/canvas/client";
+import type { GraphProblem, NodeSummary, Run, Workflow } from "@/lib/canvas/client";
 import type { CanvasNode } from "@/lib/canvas/bridge";
 
 import { ConfigForm } from "./config-form";
 import { STATUS_STYLE } from "./context";
+import { TriggerPanel } from "./trigger-panel";
 
 /**
  * The right-hand panel. It shows the selected node's configuration, or — when
@@ -17,6 +18,8 @@ import { STATUS_STYLE } from "./context";
 export function Inspector({
   node,
   definition,
+  workflow,
+  dirty,
   problems,
   run,
   live,
@@ -28,6 +31,9 @@ export function Inspector({
 }: {
   node: CanvasNode | null;
   definition: NodeSummary | undefined;
+  /** The workflow as last SAVED — a webhook URL or a due time only exists once stored. */
+  workflow: Workflow;
+  dirty: boolean;
   problems: GraphProblem[];
   run: Run | null;
   /** A stream is open on this run — the panel is watching, not showing history. */
@@ -44,6 +50,8 @@ export function Inspector({
         <NodeInspector
           node={node}
           definition={definition}
+          workflow={workflow}
+          dirty={dirty}
           problems={problems.filter((problem) => problem.nodeId === node.id)}
           onChange={onChangeNode}
           onDelete={onDeleteNode}
@@ -65,12 +73,16 @@ export function Inspector({
 function NodeInspector({
   node,
   definition,
+  workflow,
+  dirty,
   problems,
   onChange,
   onDelete,
 }: {
   node: CanvasNode;
   definition: NodeSummary | undefined;
+  workflow: Workflow;
+  dirty: boolean;
   problems: GraphProblem[];
   onChange: (id: string, data: Partial<CanvasNode["data"]>) => void;
   onDelete: (id: string) => void;
@@ -127,6 +139,10 @@ function NodeInspector({
             onChange={(config) => onChange(node.id, { config })}
           />
         )}
+
+        {/* A trigger's URL and its next due time are workflow state, not node config,
+            so they sit below the form rather than inside it. */}
+        <TriggerPanel node={node} workflow={workflow} dirty={dirty} />
       </div>
 
       <footer className="border-t border-white/10 px-4 py-3">

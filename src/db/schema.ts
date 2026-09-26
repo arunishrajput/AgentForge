@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   index,
   integer,
@@ -97,10 +98,35 @@ export const workflows = pgTable(
     name: text("name").notNull(),
     description: text("description"),
     graph: jsonb("graph").$type<WorkflowGraph>().notNull(),
+    /**
+     * The webhook URL's secret, on the row rather than in the graph (Phase 8, D41).
+     * Minted in application code with 192 bits of CSPRNG; the database default
+     * exists only so this column could be added while the previous revision — which
+     * knows nothing about it — was still serving inserts.
+     */
+    webhookToken: text("webhookToken")
+      .notNull()
+      .unique()
+      .default(sql`replace(gen_random_uuid()::text, '-', '')`),
+    /**
+     * When this workflow's schedule trigger is next due, in UTC; null when the graph
+     * has no schedule trigger. Derived from the cron expression on every save, and
+     * advanced by the cron tick, which claims a due schedule by compare-and-set on
+     * exactly this column (D42).
+     */
+    scheduleNextAt: timestamp("scheduleNextAt", { withTimezone: true }),
+    scheduleLastFiredAt: timestamp("scheduleLastFiredAt", { withTimezone: true }),
     createdAt: timestamp("createdAt", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updatedAt", { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [index("workflow_owner_idx").on(table.ownerId, table.updatedAt)],
+  (table) => [
+    index("workflow_owner_idx").on(table.ownerId, table.updatedAt),
+    // The cron tick's only query. Partial, because every workflow without a schedule
+    // trigger is a null here and has no business being in the index.
+    index("workflow_schedule_due_idx")
+      .on(table.scheduleNextAt)
+      .where(sql`${table.scheduleNextAt} is not null`),
+  ],
 );
 
 /**

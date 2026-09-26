@@ -20,7 +20,7 @@ Do not pre-empt them.
 | Agent tool-call schema | **DEFINED** | Phase 6 — `src/lib/ai/` |
 | Credential storage shape | **DEFINED** | Table Phase 3, API Phase 6 |
 | Generation request/response | **DEFINED** | Phase 7 |
-| Trigger shapes | `NOT YET DECIDED` | Phase 8 |
+| Trigger shapes | **DEFINED** | Phase 8 — `src/lib/triggers/` |
 
 ---
 
@@ -322,10 +322,17 @@ loop.
 | `GET /api/runs?workflowId=` | — | Run list |
 | `GET /api/runs/:id` | — | The run with its steps |
 | `GET /api/workflows/:id/stream` | — | **SSE.** The workflow's current run, live. `?runId=` pins one |
+| `POST /api/webhook/:token` | any JSON object | 201, the finished run. **No session** — see *Trigger shapes* |
+| `POST /api/cron/tick` | — | The tick outcome. **No session**, `CRON_SECRET` required |
 
-A workflow is returned as `{ id, name, description, graph, runnable, problems, createdAt,
-updatedAt }`. `runnable` and `problems` come from `validateGraph`, so a client can show what is
-wrong without the save having failed.
+Every route above requires a session and is owner-scoped, **except the last two**, which are
+machine endpoints and are specified under *Trigger shapes*.
+
+A workflow is returned as `{ id, name, description, graph, runnable, problems, webhookUrl,
+scheduleCron, scheduleNextAt, scheduleLastFiredAt, createdAt, updatedAt }`. `runnable` and
+`problems` come from `validateGraph`, so a client can show what is wrong without the save having
+failed. `webhookUrl` is null unless the **stored** graph holds a webhook trigger, and the three
+`schedule*` fields are null unless it holds a schedule trigger (Phase 8).
 
 **`POST /runs` is synchronous.** Execution is in-process, so the request stays open until the run
 finishes, and its response is the authoritative final state. Watching a run live is a *separate*
@@ -601,9 +608,118 @@ not build, and the UI shows it instead of navigating to a workflow that quietly 
 equally the honest answer to a request that is merely *early*: Discord and Sheets have no node until
 Phase 9.
 
-## Trigger shapes — `NOT YET DECIDED`
+## Trigger shapes — **DEFINED** (Phase 8)
 
-Filled by **Phase 8**. Must cover: the webhook receiver's URL form and token, how a request body
-becomes trigger output, the schedule trigger's cron field, and the `/api/cron/tick` contract. Fixed
-now: webhook tokens are cryptographically random, and the tick route rejects any request without
-`CRON_SECRET`.
+Source of truth: `src/lib/triggers/`. Three trigger types are registered, and validation still
+allows **exactly one per workflow**.
+
+| Type | Starts a run when | Output |
+|---|---|---|
+| `core.manual_trigger` | a person presses Run, or `POST /api/workflows/:id/runs` | the JSON the run was started with |
+| `core.webhook_trigger` | something POSTs to the workflow's webhook URL | the posted JSON body |
+| `core.schedule_trigger` | a cron slot comes due and the tick sweeps it | `{ firedAt, cron, scheduledFor }` |
+
+Neither new trigger is `agentCallable` (D19). Starting a run is not a capability to hand a model in
+the middle of one.
+
+### The webhook token lives on the workflow row, not in the graph — **D41**
+
+`workflow.webhookToken`: 24 bytes of CSPRNG as base64url — 192 bits in 32 URL-safe characters,
+minted by `mintWebhookToken()` for **every** workflow at creation, unique-indexed. "Unguessable"
+(`PRD.md` → Triggers) means exactly this: not a sequential id, and not a hash of the workflow id,
+because a hash of a known input is one guess away from being the input.
+
+On the row rather than in the node's config, for three reasons that are each sufficient:
+
+- Validation already permits one trigger per workflow, so a per-node token would buy nothing.
+- A secret inside the graph would be minted either by the **model** that writes the graph — and
+  D40 says the system supplies what a model cannot — or by the browser.
+- The receiver needs one indexed lookup, and a column has nothing to keep in sync with the graph.
+
+The token is minted for every workflow so the URL does not change depending on when the trigger node
+was added. `describeWorkflow` returns `webhookUrl` **only when the stored graph actually holds a
+webhook trigger**, so the UI never prints a URL that would answer 404.
+
+### `POST /api/webhook/:token` — the only route with no session
+
+It cannot have one: the caller is another system. The token is therefore the whole of its access
+control, and the owner comes *out* of the row, so a webhook can never run a workflow on anyone
+else's behalf. This is the one query in the codebase not scoped by `ownerId`.
+
+Order of checks, and it matters — everything before the run is cheap, because this endpoint can spend
+a user's model quota:
+
+1. The token must match `/^[A-Za-z0-9_-]{16,64}$/`, checked **before** the database is touched.
+2. The workflow must exist **and** its stored graph must hold a webhook trigger. Both failures answer
+   the same `404 "No webhook is registered at this URL."` — whoever holds the token learns nothing
+   from the difference.
+3. The body must be ≤ 64 KB (`MAX_WEBHOOK_BODY_BYTES`), counted in **bytes**, not characters.
+4. An absent or whitespace body is `{}`. A webhook that only says "something happened" is legitimate.
+5. It must be a JSON **object** — not an array or a scalar — or `{{trigger.field}}` has nothing to
+   read. `400`.
+6. Every name in the trigger's `requiredFields` must be a present key. `400` with
+   `details.missing`. `null` counts as supplied; a missing key does not (`Object.hasOwn`).
+
+Only then is a run created, with `trigger: "webhook"` and the body as its input. **A rejected call
+writes nothing** — no run row, no history, no model spend. The response is the completed run, the
+same synchronous shape as `POST /runs`; a browser watching does not need it, because it follows the
+workflow rather than a run id it could not have known (D28).
+
+### The cron field is validated where it is written
+
+`core.schedule_trigger.config.cron` is a 5-field expression **evaluated in UTC**
+(`src/lib/triggers/cron.ts`). Supported per field: `*`, a number, a list `a,b`, a range `a-b`, and a
+step on either (`*/n`, `a-b/n`), plus the `@yearly @monthly @weekly @daily @hourly` aliases. Day 7
+is Sunday. When day-of-month and day-of-week are **both** restricted they are OR-ed, which is
+standard cron's one genuine oddity.
+
+**Not supported, and rejected with a message naming the problem:** month and weekday names, `?`,
+`L`, `W`, `#`, seconds, and a sixth year field.
+
+Validation happens in the node's own `configSchema`, so an unsupported expression is an
+`invalid_config` problem on the canvas and a rejected generation. The alternative is this node's
+worst failure: an expression that saves cleanly, shows a schedule in the UI, and never fires. The
+schema also rejects an expression that parses but can never match — `0 0 30 2 *` is legal to write
+and matches no date that will ever exist.
+
+### `workflow.scheduleNextAt` is a derived index, and how it is advanced — **D42**
+
+The graph stays the source of truth (D14). `scheduleNextAt` is re-derived from it on **every graph
+write**, so adding, editing or removing a schedule trigger cannot leave a stale due time behind.
+
+One rule is load-bearing: **when the expression has not changed, the stored due time is kept, never
+recomputed.** A schedule that already fired for 09:00 today holds tomorrow 09:00; recomputing at
+08:59 would move it back to today and fire the same slot twice. Keeping it also means a *missed* due
+time survives a save and is caught up, rather than an edit silently skipping it.
+
+### `POST /api/cron/tick` — the second route with no session
+
+Guarded by `CRON_SECRET` in the `x-cron-secret` header (`Authorization: Bearer` is also accepted),
+compared in **constant time** — this endpoint acts across every owner, so a `===` leaking the
+secret's length and prefix is not acceptable. Anything without the secret is `401`, and a signed-in
+session is **not** a substitute: it is a machine endpoint. POST only.
+
+Each tick selects at most `MAX_FIRES_PER_TICK` (3) workflows whose `scheduleNextAt` is due, ordered
+by due time, then for each one:
+
+1. If the graph no longer holds a schedule trigger, `scheduleNextAt` is set to null and it is
+   reported as `cleared` — otherwise it would be selected on every tick for ever.
+2. Otherwise it is **claimed** by a compare-and-set:
+   `update workflow set scheduleNextAt = <next>, scheduleLastFiredAt = now() where id = ? and
+   scheduleNextAt = <the value just observed>`. `neon-http` has no transactions (D6), so this
+   conditional `UPDATE ... RETURNING` is the atomic primitive available — and it is enough. A second
+   tick reading the same row updates **zero** rows and fires nothing, which is what makes a Scheduler
+   retry, an overlapping manual run of the job, or two containers under `max-instances 3` safe.
+3. The claim happens **before** the run, never after, so a run that kills the container loses its
+   slot instead of re-firing for ever.
+
+Response: `{ checkedAt, due, fired: [{ workflowId, runId, status, scheduledFor }], skipped, cleared }`.
+Runs are attributed `trigger: "schedule"` and receive `{ scheduledFor, firedAt, cron }` as input.
+
+The bound of 3 is not tuning: runs are synchronous and in-process, so the tick holds its request open
+for the sum of its runs. Three at the engine's 120 s ceiling is 360 s, inside the Scheduler job's
+540 s attempt deadline. Anything still due stays due and is taken by the next tick.
+
+**Tick cadence is a cost decision, recorded in `DEPLOYMENT.md`:** every 15 minutes, not every minute.
+The effective resolution of a cron expression is therefore the tick interval — a run starts at or
+shortly after its slot, never on the second.

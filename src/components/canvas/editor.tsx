@@ -407,6 +407,8 @@ function EditorInner({
           <Inspector
             node={selected}
             definition={selected ? registry.get(selected.data.nodeType) : undefined}
+            workflow={saved}
+            dirty={dirty}
             problems={saved.problems}
             run={run}
             live={live}

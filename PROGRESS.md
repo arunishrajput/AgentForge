@@ -7,21 +7,25 @@ concise and operational — prune stale detail rather than appending forever. Th
 
 ## Project Status
 
-**Phase 7 is complete. A sentence becomes a real, runnable, editable workflow — in production.**
+**Phase 8 is complete. A workflow now starts from an external HTTP call and on a schedule — in
+production, fired by Cloud Scheduler.**
 
 **https://agentforge-733000675212.asia-southeast1.run.app**
 
-Type what you want on the workflow list. A model is given the registry — the same projection the
-palette and the agent's tool set read — and answers with nodes and edges. The system lays them out,
-validates them, and only then saves. On the deployed URL the pinned demo prompt produced a valid,
-runnable workflow **5/5 times on the first attempt in 2.5–3.6 s**, every one shaped
-`trigger → LLM summary → agent decides → branch → log`. Verified by the full HTTP suite against the
-deployed URL — 87 checks run, all passed — **and** by generating, running and editing a workflow in a
-real browser, with 0 console errors. No manual actions pending.
+A webhook trigger has an unguessable per-workflow URL that runs the workflow with no session at all,
+and a schedule trigger fires from a real Cloud Scheduler job. Verified by the full HTTP suite against
+the deployed URL — **125 checks run, all passed** (38 of them Phase 8's) — by a real Cloud Scheduler
+invocation returning **HTTP 200**, and in a browser.
+
+**The registry paid off again: generation needed no code change.** `DEMO.md` Beat 2's target prompt
+now builds `webhook_trigger → llm → agent → branch → log` on the first attempt, and a schedule
+request produced `0 9 * * 1-5` with the next run correctly computed as Monday the 28th (the 26th is a
+Saturday). Discord and Sheets are still correctly reported as `unsupported` — that is Phase 9's
+acceptance test.
 
 ## Current Phase
 
-**Phase 8 — triggers: webhook + schedule** (not started) — `READY TO START`
+**Phase 9 — integration nodes: Google Sheets, Gmail, Discord, generic HTTP** (not started) — `READY TO START`
 
 ## Completed Phases
 
@@ -35,6 +39,7 @@ real browser, with 0 console errors. No manual actions pending.
 | **Phase 5** — live execution: per-node status and log streaming | **COMPLETE** — verified on the deployed URL in a browser, 2026-09-26 |
 | **Phase 6** — agent layer: LLM node, agent node, provider config | **COMPLETE** — verified on the deployed URL in a browser, 2026-09-26 |
 | **Phase 7** — natural language → workflow generation | **COMPLETE** — verified on the deployed URL in a browser, 2026-09-26 |
+| **Phase 8** — triggers: webhook + schedule | **COMPLETE** — verified on the deployed URL and by a real Cloud Scheduler invocation, 2026-09-26 |
 
 ---
 
@@ -45,13 +50,13 @@ real browser, with 0 console errors. No manual actions pending.
 | **Canonical URL** | **`https://agentforge-733000675212.asia-southeast1.run.app`** |
 | Legacy URL | `https://agentforge-i5d2u66boa-as.a.run.app` — works, do not publish it |
 | Service | `agentforge` on Cloud Run, `asia-southeast1` |
-| Revision | **`agentforge-00013-zwt`** — ready, 100% of traffic. Previous good revision: `agentforge-00012-cs6` |
+| Revision | **`agentforge-00014-cpb`** — ready, 100% of traffic. Previous good revision: `agentforge-00013-zwt` |
 | Scaling | `min-instances 1`, `max-instances 3`, 1 vCPU / 1 GiB, 3600 s timeout, port 8080 |
-| Env vars set | `NODE_ENV` `AUTH_URL` `APP_BASE_URL` `DATABASE_URL` `AUTH_SECRET` `GOOGLE_CLIENT_ID` `GOOGLE_CLIENT_SECRET` `ENCRYPTION_KEY` `CRON_SECRET` — 9, **unchanged by Phase 7**. No Gemini key on the service: the product path is the user's own key, and leaving the env fallback unset is what proved it |
-| Database | Neon `super-mountain-39872886` — **8 tables**, migrations `0000` + `0001` applied |
-| Routes | `/` `/dashboard`→`/workflows` `/workflows` `/workflows/[id]` `/settings` + 11 API routes (Phase 7 added `POST /api/workflows/generate`) |
-| Warm latency | health ~140 ms India → Singapore. A 7-node run with a 1.5 s delay and an agent node that calls a tool: **3.6 s end to end**. **Generation: 2.5–3.6 s** for a 5-node workflow; generating then running one, in a browser: ~4.2 s for the run |
-| Last verified | **2026-09-26** — `VERIFY_GEMINI_KEY=… node --env-file=.env scripts/verify-api.mjs <url>`, **all checks passed** (92 defined; 87 run, 1 skipped, 4 in a block not entered because a key was already stored), plus generating, running and editing a workflow in a real browser |
+| Env vars set | `NODE_ENV` `AUTH_URL` `APP_BASE_URL` `DATABASE_URL` `AUTH_SECRET` `GOOGLE_CLIENT_ID` `GOOGLE_CLIENT_SECRET` `ENCRYPTION_KEY` `CRON_SECRET` — 9, **unchanged by Phase 8 too**. `CRON_SECRET` and `APP_BASE_URL` were already set in Phase 2 and Phase 8 finally uses both. No Gemini key on the service: the product path is the user's own key |
+| Database | Neon `super-mountain-39872886` — **8 tables**, migrations `0000` + `0001` + **`0002_wooden_morlocks`** applied. Phase 8 added `webhookToken`, `scheduleNextAt`, `scheduleLastFiredAt` to `workflow` |
+| Routes | `/` `/dashboard`→`/workflows` `/workflows` `/workflows/[id]` `/settings` + **13** API routes (Phase 8 added `POST /api/webhook/[token]` and `POST /api/cron/tick`) |
+| Warm latency | health ~190 ms India → Singapore. A 7-node run with a 1.5 s delay and an agent node that calls a tool: **3.6 s end to end**. **Generation: 2.3–3.2 s** for a 5-node workflow, measured again in Phase 8 |
+| Last verified | **2026-09-26** — `VERIFY_GEMINI_KEY=… node --env-file=.env scripts/verify-api.mjs <url>`, **125 checks passed, 0 failed, 1 skipped** (the skip is storing a key, because one is already stored and the API is write-only), plus the trigger UI driven in a real browser |
 | Provider key stored | **Yes, deliberately left in place.** The user's own free-tier key is stored (encrypted) against their account on the deployed app, so Phase 7 is not blocked on re-pasting it |
 
 **A redeploy preserves env vars.** Confirmed again on Phase 6's three deploys: `gcloud run deploy
@@ -60,52 +65,64 @@ to each new revision. The file is only needed when a variable changes.
 
 ---
 
-## Phase 7 — what was verified, not just written
+## Phase 8 — what was verified, not just written
 
-`npm test` — **169 tests**, no database, no network, ~500 ms. Phase 7 added 41: layout (including
-that a cycle terminates and a fan-out cannot overlap), the parse/validate gate, the one-retry rule,
-the canvas round-trip of a generated graph, and that the registry reaches the prompt.
-`scripts/verify-api.mjs` — **92 checks defined**, 10 added by Phase 7. Against the deployed URL: 87
-run, all passed, 1 skipped, 4 in a block not entered because a key was already stored.
+`npm test` — **215 tests**, no database, no network, ~750 ms. Phase 8 added 46: the cron evaluator
+(steps, ranges, lists, the day-of-month/day-of-week OR rule, leap years, an expression that can never
+match, UTC), the payload rules, the schedule derivation, and the secret comparison.
+`scripts/verify-api.mjs` — **126 checks defined, 38 added by Phase 8**. Against the deployed URL:
+125 passed, 0 failed, 1 skipped.
 
-**Generation reliability, measured on the deployed model, not assumed:**
+**Driven against the deployed URL:**
 
-| Prompt | Result |
+| Checked | Result |
 |---|---|
-| The pinned demo prompt, 5 runs | **5/5 valid, 5/5 on the first attempt**, 2.5–3.6 s, every one `trigger → llm → agent → branch → log` |
-| Same prompt, 6 runs before the output-shape fix | 6/6 valid, but 1/6 used two LLM nodes instead of an agent |
-| The loop example, 3 runs | 3/3 valid first try, `trigger → loop → delay → log` |
-| `DEMO.md` Beat 2's own prompt, 2 runs | 2/2 valid, and both named Discord and Sheets as unsupported |
-| "SSH in, delete the database, mine bitcoin", 2 runs | 2/2 named every part unsupported and built only a trigger |
+| `POST /api/cron/tick` with no secret, a wrong secret, or **a valid session cookie** | ✓ 401 in all three cases — a session is not a substitute for the secret |
+| `POST /api/cron/tick` as GET | ✓ 405 |
+| A webhook call with **no session at all** | ✓ 201, the run succeeded |
+| The posted body as the trigger's output, and `{{trigger.field}}` downstream | ✓ `"from Priya: Our production checkout has been down…"` resolved in the log node's config |
+| An unknown token, a malformed token, a token whose workflow has no webhook trigger | ✓ 404 for all three, indistinguishable |
+| A missing required field / malformed JSON / a non-object body | ✓ 400, and the missing field named in `details.missing` |
+| **A rejected call writes nothing** | ✓ 0 run rows after four rejected calls |
+| A due schedule fired by the tick | ✓ run created, `trigger: "schedule"`, succeeded |
+| **A second tick immediately after** | ✓ fired nothing; exactly **1 run for 1 slot** |
+| A due workflow whose schedule trigger was removed | ✓ `cleared`, not run, and its due time nulled |
+| **Cloud Scheduler itself** | ✓ `gcloud scheduler jobs run` → Scheduler's own log records **HTTP 200** |
 
 **Driven in a real browser on the deployed app:**
 
 | Checked | Result |
 |---|---|
-| The prompt box | ✓ labelled, Generate disabled while empty, ⌘/Ctrl+Enter submits |
-| Generating the demo prompt | ✓ 5 nodes on the canvas, named, with True/False handles drawn |
-| The workflow is genuinely saved | ✓ header reads **Saved** with Save disabled — a generated graph is not falsely dirty (D25 holds on generated output) |
-| Running it, unedited | ✓ succeeded in 4.15 s, per-node status live on the canvas |
-| The agent decided, and the branch followed | ✓ agent called `core_log`, answered `DECISION: urgent`, branch took **true**, `Log Warning` **Succeeded** |
-| A request needing Phase 9 nodes | ✓ stayed on the list and showed "Built and saved — but no node can do these parts yet: post urgent ones to Discord / log every one to my Google Sheet" |
-| Console, across generate → run | ✓ **0 errors, 0 warnings** |
-| Database left clean | ✓ 0 workflows, 0 runs, 0 steps; session revoked |
+| The palette | ✓ both new triggers appear with their descriptions — no palette code changed |
+| The webhook node's inspector | ✓ URL in a readonly field, **Copy URL** button, and the "treat it as a secret" note |
+| Copying the URL | ✓ no failure path shown, so `writeText` resolved |
+| The schedule node's inspector | ✓ **Next run 26 Sept 2026, 05:48 UTC**, the expression, and the UTC + 15-minute note |
+| Console | ✓ 0 errors, 0 warnings |
 
-**Three problems found by running it, not by reading it:**
+**Generation, with no generation code changed at all** — the prompt reads the registry, so
+registering two nodes was the entire change:
 
-1. **A valid graph that did the wrong thing.** The model routed on `{{steps.x.output}}` — the whole
-   LLM output object — so the branch compared `"[object Object]"`, took the false path, and skipped
-   the urgent log. Nothing reported it: the graph validated and the run succeeded. The registry now
-   carries `outputShape` per node and the prompt renders it (D38). After the fix, 5/5 referenced
-   `.decision` correctly **and** 5/5 chose the agent node over two LLM nodes.
-2. **A whitespace-only prompt reached the provider.** `z.string().min(1)` counts whitespace, so
-   `"   "` passed and spent a real model call on nothing. `.trim()` must come *before* `.min(1)` —
-   verified both orderings against the installed Zod rather than assumed. Caught by the deployed
-   check, not by review.
-3. **An impossible request produced a valid, inert workflow and said nothing.** Asked to SSH into
-   production and delete a database, the model built `trigger → assert → log`. Safe — the registry
-   is the entire vocabulary, so there was no node that could express either verb — but silently
-   wrong. Hence `unsupported` (D39).
+| Prompt | Trigger chosen | Result |
+|---|---|---|
+| `DEMO.md` Beat 2's **target** prompt | `core.webhook_trigger` | `webhook → llm → agent → branch → log`, first attempt, 3.2 s. `unsupported`: Discord, Sheets |
+| The pinned demo prompt | `core.manual_trigger` | unchanged, `unsupported: []` — **no regression** |
+| "Every weekday at 9am UTC…" | `core.schedule_trigger`, `0 9 * * 1-5` | next run computed as **Mon 28 Sept**, because the 26th is a Saturday |
+
+**Three things worth recording, found while building:**
+
+1. **An every-minute tick would have blown Neon's free tier.** `DEPLOYMENT.md` pre-specified
+   `* * * * *`. Neon's free plan is **100 CU-hours/month** and its 5-minute autosuspend **cannot be
+   disabled**, so a minutely tick pins the database awake 24/7 — 720 h × 0.25 CU ≈ **180 CU-hours**,
+   nearly double the allowance, and it would have suspended mid-month during a live-demo hackathon.
+   Corrected to `*/15` (≈60 CU-hours). The cost is that a cron expression's effective resolution is
+   the tick interval, which `DEMO.md` says costs the demo nothing.
+2. **Recomputing `scheduleNextAt` on save would double-fire a slot.** A schedule that already fired
+   for 09:00 holds *tomorrow* 09:00; recomputing at 08:59 moves it back to today. The rule is to keep
+   the stored time whenever the expression has not changed (D42). A test asserts it.
+3. **A pure guard must not live next to database code.** `cronSecretMatches` first sat in `tick.ts`,
+   which reaches the engine, which reaches `next-auth` — and the test runner cannot load it. Split
+   into `src/lib/triggers/secret.ts`. This is D18's lesson arriving a second time: the guard on the
+   one endpoint reachable by anyone is exactly what must be assertable in a millisecond.
 
 ## Decisions — BINDING
 
@@ -148,6 +165,9 @@ Carried forward from every phase. These are the decisions later sessions must no
 | **D38** | **A node declares the shape of its output; the generator reads it** | Optional `outputShape` on the node definition. A model told only what a node *does* wrote `{{steps.x.output}}` where it meant `{{steps.x.output.text}}`, and the branch compared `"[object Object]"` and took the wrong path — valid graph, successful run, wrong behaviour, nothing reporting it. On the definition rather than in the prompt so a Phase 9 node documents itself, exactly as `description` already does for the agent. Optional, so a pass-through node says nothing |
 | **D39** | **What the model could not build is reported, never swallowed** | `unsupported` on the generated output. The registry is the entire vocabulary, so an impossible request cannot produce a dangerous workflow — but it did produce a valid, inert one with no explanation. It is equally the honest answer to a request that is merely early: Discord has no node until Phase 9. **Deliberately not a hard failure** — judging a request unsatisfiable and refusing it would break a valid request on stage, which is strictly worse than building what is possible and naming the rest |
 | **D40** | **The model emits nodes and edges; the system supplies `version`, positions and edge ids** | A model cannot lay out a graph, and an overlapping one reads as broken on stage, so `layout()` derives positions from the edges. Edge ids must be unique and nothing but the graph reads them, so minting `e1…eN` beats asking and de-duplicating. `GRAPH_VERSION` is ours to set. Layout is bounded relaxation, not a topological sort, because a generated graph is not reliably acyclic and an illegal cycle must survive layout for `validateGraph` to report it |
+| **D41** | **The webhook token lives on the workflow row, not in the graph** | Validation already permits one trigger per workflow, so a per-node token buys nothing. A secret inside the graph would be minted by the *model* that writes it (D40 says the system supplies what a model cannot) or by the browser. And a column is one indexed lookup for the receiver with nothing to keep in sync. 24 bytes of CSPRNG as base64url — 192 bits — minted for every workflow at creation so the URL does not depend on when the node was added. `webhookUrl` is returned only when the stored graph actually holds a webhook trigger, so the UI never prints a URL that would 404 |
+| **D42** | **The cron tick claims a due schedule by compare-and-set, before running it** | `neon-http` has no transactions (D6), so a conditional `UPDATE … WHERE scheduleNextAt = <observed>` is the atomic primitive available — and it is enough: a second tick updates zero rows and fires nothing. That is what makes a Scheduler retry, an overlapping manual run, or two containers under `max-instances 3` safe. Claiming **before** the run means a run that kills the container loses its slot instead of re-firing for ever. The paired rule: on save, an unchanged expression **keeps** its stored due time, because recomputing can move a fired slot back into the future's past and fire it twice |
+| **D43** | **Cron is evaluated in UTC, by ~200 lines of arithmetic rather than a dependency** | A cron expression carries no timezone. Reading the server's zone makes a schedule mean different things on a laptop and on Cloud Run; a per-workflow zone means implementing DST, where "02:30 daily" legitimately happens zero times or twice a year. UTC is stated in the node's own description, so the model writing an expression and the user reading one are told rather than left to assume. Unsupported syntax (names, `?`, `L`, `W`, `#`, seconds, a year field) is **rejected at config-validation time** — the alternative is this node's worst failure, a schedule that saves cleanly, displays, and never fires |
 
 ---
 
@@ -158,7 +178,9 @@ Carried forward from every phase. These are the decisions later sessions must no
 | **Rollback is still untested** | Demo-day risk | Phase 3 created a second revision so it is now *possible*. The attempt was blocked by the session's production-deploy guard. **Run it manually once before demo day:** `gcloud run services update-traffic agentforge --region asia-southeast1 --to-revisions agentforge-00007-xx7=100`, verify, then shift back to `agentforge-00008-l8q` |
 | **Google OAuth changes take ~90 s to propagate** | Cost 90 s in Phase 2 | Wait and retry before suspecting a typo |
 | **A curl check cannot detect `redirect_uri_mismatch`** | Nearly caused a false "verified" | Only a real browser sign-in proves the OAuth redirect |
-| **`min-instances 1` bills continuously** | Cost, after the hackathon | **Set to 0 once judging ends** |
+| **`min-instances 1` bills continuously** | Cost, after the hackathon | **Set to 0 once judging ends** — and **pause `agentforge-cron` at the same time**, or the tick keeps Neon awake ~240 h/month for nothing |
+| **Neon free plan is 100 CU-hours/month and autosuspend cannot be disabled** | Any background polling | The 5-minute autosuspend is fixed on the free plan. Anything that touches the database more often than ~every 6 minutes pins it awake at 0.25 CU — 720 h/month ≈ 180 CU-hours, which is **over the allowance**. This is why the cron tick is `*/15` and not `* * * * *` (D43 sibling; the arithmetic is in `DEPLOYMENT.md`) |
+| **The webhook URL is a bearer secret shown in the UI** | Demo day, screen sharing | Anyone holding it can start a run, and a run can spend model quota. The inspector says so. **There is no rotation yet** — re-minting means recreating the workflow. Do not show the webhook node's inspector on a shared screen; the `curl` in `DEMO.md` uses an exported `$WEBHOOK_URL` for exactly this reason |
 | **OAuth consent screen is in `Testing`** | Demo day | Only listed test users can sign in. Before the demo: publish the app, or add each judge as a test user (cap 100) |
 | **4 moderate `npm audit` findings, one root cause** | None in production | esbuild dev-server issue reachable only through `drizzle-kit`. Dev dependency, absent from the runtime image. **Accepted** |
 | **Discord rejects requests with no `User-Agent`** | Phase 9 Discord node | Send an explicit UA |
@@ -205,20 +227,20 @@ Carried risks, recorded so they are not rediscovered:
 |---|---|---|---|
 | `AgentForge` git repository | GitHub | `arunishrajput/AgentForge` | **EXISTS** |
 | Google Cloud project | Google Cloud | `agentforge-hackathon-2026`, number **`733000675212`** | **EXISTS**, billing active ($300 / 90-day trial) |
-| **`agentforge` Cloud Run service** | Google Cloud | `asia-southeast1`, revision `agentforge-00013-zwt` | **LIVE 2026-09-26** |
+| **`agentforge` Cloud Run service** | Google Cloud | `asia-southeast1`, revision `agentforge-00014-cpb` | **LIVE 2026-09-26** |
 | **`cloud-run-source-deploy` repo** | Artifact Registry | `asia-southeast1` | **EXISTS** |
 | OAuth consent screen | Google Cloud | External, app "AgentForge" | **EXISTS** — status **Testing**, 1 test user |
 | OAuth 2.0 client | Google Cloud | "AgentForge Web", `733000675212-…ntm7` | **VERIFIED** — 4 redirect entries |
 | Neon Postgres project | Neon | `agentforge`, id `super-mountain-39872886` | **EXISTS** — free plan, PostgreSQL 18.6 |
 | Neon branch / database / role | Neon | `production` / `neondb` / `neondb_owner` | **VERIFIED** |
-| Neon tables | Neon | `user` `account` `session` `verificationToken` `workflow` `run` `run_step` `credential` | **APPLIED** — `0000_dark_paladin`, `0001_smiling_leper_queen` |
+| Neon tables | Neon | `user` `account` `session` `verificationToken` `workflow` `run` `run_step` `credential` | **APPLIED** — `0000_dark_paladin`, `0001_smiling_leper_queen`, `0002_wooden_morlocks` |
 | Enabled APIs | Google Cloud | `run`, `cloudbuild`, `artifactregistry`, `cloudscheduler`, `apikeys`, `generativelanguage` | **ENABLED** |
 | Stored provider credential | Neon | `credential` row, kind `llm.google`, for the demo user | **PRESENT** — the free-tier key, encrypted. Left in place so Phase 7 is not blocked |
 | ~~Gemini API key~~ | Google Cloud | "AgentForge Gemini" in `agentforge-hackathon-2026` | **DEAD** — 402, the project has billing so it is off the free tier. Kept, unused |
 | **`agentforge-gemini-free` project** | Google Cloud | **no billing**, `generativelanguage` enabled only | **CREATED Phase 6.** Exists solely to hold a free-tier Gemini key. **Never enable billing on it** |
 | **Gemini API key (free tier)** | Google Cloud | "AgentForge Gemini Free Tier" in `agentforge-gemini-free`, restricted to `generativelanguage.googleapis.com` | **VERIFIED 2026-09-26** — text generation and function calling both work. Read it with `gcloud services api-keys get-key-string` |
 | Discord server / channel / webhook | Discord | "AgentForge" · `#agentforge-demo` | **VERIFIED** |
-| `agentforge-cron` Scheduler job | Google Cloud | — | Not created — Phase 8 |
+| **`agentforge-cron` Scheduler job** | Google Cloud | `asia-southeast1`, `*/15 * * * *` UTC, attempt deadline 540 s | **CREATED Phase 8, `ENABLED`** — a real invocation returned HTTP 200. **Pause it when judging ends** |
 
 **One Neon database serves both local and production.** Migrations applied locally are already
 live. Phase 3's migration is purely additive, so the older revision still runs against it.
@@ -227,17 +249,17 @@ live. Phase 3's migration is purely additive, so the older revision still runs a
 
 All 15 contract variables have values; `.env.example` mirrors `CONTRACT.md`.
 
-### Installed stack — unchanged by Phase 6
+### Installed stack — unchanged since Phase 4
 
 `next` 16.3.6 · `react` / `react-dom` 19.3.0 · `next-auth` **5.0.0-beta.32** ·
 `@auth/drizzle-adapter` 1.11.3 · `drizzle-orm` 0.45.3 · `drizzle-kit` 0.31.11 ·
 `@neondatabase/serverless` 1.1.0 · `zod` 4.6.5 · `@xyflow/react` 12.12.0 ·
 `tailwindcss` 4.3.3 · `typescript` 7.0.2
 
-**Phase 7 added no dependencies either.** Generation is the existing provider adapter plus four pure
-modules; the layout is forty lines of arithmetic, not a graph library. `ai` and `@ai-sdk/google`
-remain **deliberately not installed** (D32). Six phases in, the dependency list is still the Phase 4
-one. Tests run on Node's built-in runner.
+**Phase 8 added no dependencies either.** The cron evaluator is ~200 lines of arithmetic rather than
+a cron package with its own opinion about timezones (D43). `ai` and `@ai-sdk/google` remain
+**deliberately not installed** (D32). Seven phases in, the dependency list is still the Phase 4 one.
+Tests run on Node's built-in runner.
 
 ### Local toolchain
 
@@ -249,10 +271,10 @@ one. Tests run on Node's built-in runner.
 ## How to verify the system, from a cold session
 
 ```bash
-npm run typecheck && npm test           # 169 tests, no database, no network, ~500 ms
+npm run typecheck && npm test           # 215 tests, no database, no network, ~750 ms
 npm run build                           # Turbopack; one expected process.exit warning
 
-# 92 checks end to end over HTTP. Mints a real session row, drives the API, cleans up.
+# 126 checks end to end over HTTP. Mints a real session row, drives the API, cleans up.
 # Takes ~2 min: one check deliberately waits 21 s for an idle stream to close itself, and the
 # agent and generation checks make real model calls.
 #
@@ -281,24 +303,28 @@ decorators anywhere in `src`.
 
 ---
 
-## Notes for Phase 8
+## Notes for Phase 9
 
-- **`core.manual_trigger` is currently the only trigger, and the generator knows it from the
-  registry.** Registering a webhook trigger makes it generatable with no change to any generation
-  code — the prompt lists trigger types from `describeNodes()`. Verify that by regenerating
-  `DEMO.md` Beat 2's own prompt once the node exists
-- **`unsupported` is the measure of Phase 8 and 9 progress.** Beat 2's prompt currently reports
-  "post urgent ones to Discord" and "log every one to my Google Sheet". Those lines disappearing is
-  the acceptance test for Phase 9
-- **Give a new node an `outputShape`** (D38) if its output is anything but a pass-through. A webhook
-  trigger's body shape is exactly what a generated `{{ }}` reference will need
-- **`agentCallable` still defaults to false** (D19). Opt each new node in deliberately
-- **The trigger contract is still `NOT YET DECIDED` in `CONTRACT.md`** — Phase 8 fills it: the
-  webhook URL form and token, how a request body becomes trigger output, the cron field, and
-  `/api/cron/tick`. Fixed already: tokens are cryptographically random and the tick route rejects
-  any request without `CRON_SECRET`
-- **`POST /runs` is synchronous and a webhook receiver cannot be.** A webhook-triggered run is the
-  case D28 built the workflow-scoped stream for — a browser cannot know that run's id
+- **Phase 8 proved the registry claim twice over.** Registering two trigger nodes was the entire
+  change: the palette, the config forms, the validator and the generation prompt all picked them up
+  with **no code changed in any of them**. Expect the same for the four integration nodes — if a
+  Phase 9 node needs UI work, that is a signal something is wrong with the node, not the UI
+- **`unsupported` is the acceptance test.** `DEMO.md` Beat 2's target prompt now builds its webhook
+  spine and reports exactly two unsupported parts: `"post urgent ones to Discord"` and
+  `"log every one to my Google Sheet"`. **Those two lines disappearing is how Phase 9 is done.**
+  Re-run that prompt against the deployed URL at the end of the phase
+- **`agentCallable` still defaults to false** (D19). Opt each integration in deliberately — D36 is
+  the worked example, and an integration that writes to someone's spreadsheet deserves more thought
+  than `core.log` did
+- **Give every non-pass-through node an `outputShape`** (D38). A Sheets node's output shape is
+  exactly what a generated `{{ }}` reference will need
+- **The config form falls back to a raw JSON editor for an array field.** `requiredFields` renders as
+  a JSON box — usable, and the documented fallback (`src/lib/canvas/schema.ts`), but if a Phase 9
+  node has a list-shaped config worth polishing, that is a Phase 10 item, not a Phase 9 one
+- **Discord rejects requests with no `User-Agent`** — already recorded above, and Phase 9's first
+  trap
+- **A credential per integration goes through the Phase 6 envelope.** `credential` is keyed
+  `(ownerId, kind, label)`; nothing in that row may reach a client in plaintext
 
 ## Open, but blocking nothing
 
@@ -308,6 +334,27 @@ the user deliberately** — it governs whether others may commercialise the work
 ---
 
 ## Recent Changes
+
+**2026-09-26 — Phase 8 complete, workflows start from a webhook and on a schedule**
+
+- `core.webhook_trigger` and `core.schedule_trigger`, `POST /api/webhook/[token]`,
+  `POST /api/cron/tick`, a UTC cron evaluator, and the trigger UI — deployed as
+  `agentforge-00014-cpb`, with the `agentforge-cron` Cloud Scheduler job created and verified by a
+  real invocation returning HTTP 200
+- **Corrected a pre-decided number rather than following it.** `DEPLOYMENT.md` specified an
+  every-minute tick; Neon's free plan is 100 CU-hours/month with a 5-minute autosuspend that cannot
+  be disabled, so that would have cost ~180 CU-hours and suspended the database mid-month. Now
+  `*/15`, with the arithmetic written down
+- **The token is on the workflow row, not in the graph** (D41) — otherwise a model or the browser
+  would be minting a secret
+- **A duplicate tick cannot double-fire** (D42): the schedule is claimed by compare-and-set before
+  the run, which is the only atomic primitive `neon-http` offers. Verified on the deployed URL —
+  one due slot, two ticks, exactly one run
+- **Found that recomputing the due time on save would fire a slot twice**, and that a pure guard
+  living beside database code cannot be tested (D18's lesson, a second time)
+- **Generation needed no change at all.** Beat 2's target prompt now builds its webhook spine on the
+  first attempt; the pinned demo prompt still picks the manual trigger
+- Added no dependencies. Seven phases in, the list is still the Phase 4 one
 
 **2026-09-26 — Phase 7 complete, a sentence becomes a workflow in production**
 
@@ -350,6 +397,7 @@ the user deliberately** — it governs whether others may commercialise the work
 
 ## Last Updated
 
-**2026-09-26** — Phase 7 complete. Revision `agentforge-00013-zwt` live; the deployed HTTP suite
-passed (87 checks run of 92 defined), and generating, running and editing a workflow was driven in a
-real browser with 0 console errors. No manual actions pending.
+**2026-09-26** — Phase 8 complete. Revision `agentforge-00014-cpb` live; the deployed HTTP suite
+passed (125 of 126 checks run, 1 skipped, 0 failed), the `agentforge-cron` Cloud Scheduler job fires
+the live URL (HTTP 200 in Scheduler's own log), and the trigger UI was driven in a real browser with
+0 console errors. No manual actions pending.

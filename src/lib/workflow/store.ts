@@ -5,6 +5,9 @@ import { db } from "@/db";
 import { workflows, type Workflow } from "@/db/schema";
 import { ApiError } from "@/lib/api";
 import { validateGraph } from "@/lib/engine/validate";
+import { required } from "@/lib/env";
+import { nextScheduleState, scheduleCron } from "@/lib/triggers/schedule";
+import { mintWebhookToken, webhookTriggerNode, webhookUrl } from "@/lib/triggers/webhook";
 
 import { emptyGraph, workflowGraphSchema } from "./graph";
 
@@ -53,13 +56,20 @@ export async function createWorkflow(
   ownerId: string,
   body: z.infer<typeof createWorkflowSchema>,
 ): Promise<Workflow> {
+  const graph = body.graph ?? emptyGraph();
+
   const [workflow] = await db()
     .insert(workflows)
     .values({
       ownerId,
       name: body.name,
       description: body.description ?? null,
-      graph: body.graph ?? emptyGraph(),
+      graph,
+      // Minted for every workflow, not only for one holding a webhook trigger: the
+      // token is the workflow's identity on that endpoint, and minting it lazily
+      // would mean the URL changes depending on when the node was added.
+      webhookToken: mintWebhookToken(),
+      ...nextScheduleState({ graph, previousCron: null, previousNextAt: null }),
     })
     .returning();
 
@@ -71,14 +81,26 @@ export async function updateWorkflow(
   id: string,
   body: z.infer<typeof updateWorkflowSchema>,
 ): Promise<Workflow> {
-  await getWorkflow(ownerId, id);
+  const previous = await getWorkflow(ownerId, id);
 
   const [workflow] = await db()
     .update(workflows)
     .set({
       ...(body.name === undefined ? {} : { name: body.name }),
       ...(body.description === undefined ? {} : { description: body.description ?? null }),
-      ...(body.graph === undefined ? {} : { graph: body.graph }),
+      ...(body.graph === undefined
+        ? {}
+        : {
+            graph: body.graph,
+            // The graph is the source of truth; this column is its derived index.
+            // Re-derived on every graph write so adding, editing or deleting a
+            // schedule trigger cannot leave a stale due time behind.
+            ...nextScheduleState({
+              graph: body.graph,
+              previousCron: scheduleCron(previous.graph),
+              previousNextAt: previous.scheduleNextAt,
+            }),
+          }),
       updatedAt: new Date(),
     })
     .where(and(eq(workflows.id, id), eq(workflows.ownerId, ownerId)))
@@ -110,6 +132,19 @@ export function describeWorkflow(workflow: Workflow) {
     graph: workflow.graph,
     runnable: validation.valid,
     problems: validation.problems,
+    /**
+     * Only present when the graph actually holds a webhook trigger. The token is not
+     * a secret from its owner — every read here is already owner-scoped — but a URL
+     * shown for a workflow that will not answer on it is a support question, and an
+     * unused live endpoint advertised in the UI is a wider surface than the product
+     * needs.
+     */
+    webhookUrl: webhookTriggerNode(workflow.graph)
+      ? webhookUrl(required("APP_BASE_URL"), workflow.webhookToken)
+      : null,
+    scheduleCron: scheduleCron(workflow.graph),
+    scheduleNextAt: workflow.scheduleNextAt?.toISOString() ?? null,
+    scheduleLastFiredAt: workflow.scheduleLastFiredAt?.toISOString() ?? null,
     createdAt: workflow.createdAt.toISOString(),
     updatedAt: workflow.updatedAt.toISOString(),
   };

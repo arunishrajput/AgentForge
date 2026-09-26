@@ -64,7 +64,7 @@ across `/clear` boundaries this is how duplicate infrastructure gets created.
 | `cloud-run-source-deploy` | Artifact Registry repo | Google Cloud | Images built by `--source .` | **Phase 2 — auto-created** | Yes |
 | "AgentForge Web" (`733000675212-…ntm7`) | OAuth 2.0 Client | Google Cloud | Google sign-in | Phase 0 manual, updated Phase 2 manual | No — console only |
 | `agentforge` / `production` / `neondb` | Postgres project/branch | Neon | All persistence | Phase 0 | Partly — console for creation |
-| `agentforge-cron` | Cloud Scheduler job | Google Cloud | Fires due schedule triggers | Phase 8 | Yes |
+| `agentforge-cron` | Cloud Scheduler job | Google Cloud | Fires due schedule triggers, every 15 min | Phase 8 | Yes |
 | Gemini API key | Credential | Google AI Studio | LLM calls | Phase 0 manual | No |
 | Discord webhook URL | Credential | Discord | Demo output target | Phase 0 manual | No |
 | `AgentForge` | Git repository | GitHub | Source + persistent memory | Bootstrap | Yes |
@@ -441,7 +441,7 @@ Pasting the webhook URL. Treat it as a secret — anyone holding it can post to 
 5. ✅ **Deploy** to Cloud Run — *with* the environment variables, not before them
 6. ✅ Add the production redirect URI (OAuth pass 2), then allow ~90 s to propagate
 7. ✅ Verify behaviour in a browser, against the database
-8. ⬜ Cloud Scheduler job (Phase 8)
+8. ✅ Cloud Scheduler job `agentforge-cron` — created Phase 8, verified by a real invocation (HTTP 200)
 
 Steps 5 and 7 swapped places relative to the original plan, and the old step 8 is gone. Both
 follow from facts found in Phase 2: a revision missing a variable exits 1, so variables cannot come
@@ -545,19 +545,84 @@ migrations race.
 
 ---
 
-## Cloud Scheduler — **AUTOMATED BY CLAUDE CODE** (Phase 8)
+## Cloud Scheduler — **CREATED AND VERIFIED** (Phase 8)
+
+The job `agentforge-cron` exists in `asia-southeast1`, `ENABLED`. Created with:
 
 ```bash
+# Read the secret into a variable rather than pasting it — it must not reach a
+# shell history, a log, or a transcript.
+SECRET="$(node --env-file=.env -e 'process.stdout.write(process.env.CRON_SECRET)')"
+
 gcloud scheduler jobs create http agentforge-cron \
-  --location "$GCP_REGION" \
-  --schedule "* * * * *" \
-  --uri "$APP_BASE_URL/api/cron/tick" \
+  --location asia-southeast1 \
+  --schedule "*/15 * * * *" \
+  --time-zone "Etc/UTC" \
+  --uri "https://agentforge-733000675212.asia-southeast1.run.app/api/cron/tick" \
   --http-method POST \
-  --headers "x-cron-secret=$CRON_SECRET"
+  --headers "x-cron-secret=$SECRET" \
+  --attempt-deadline 540s \
+  --max-retry-attempts 1
 ```
 
-The route must reject any request without the secret. Free tier covers a job at this frequency;
-lengthen the schedule if usage becomes a concern.
+### Why every 15 minutes and not every minute — **corrected in Phase 8**
+
+This file previously specified `* * * * *`. That is wrong on cost, and the numbers are the reason:
+
+| | Every minute | Every 15 minutes |
+|---|---|---|
+| Neon autosuspend (fixed at 5 min idle on the free plan, **cannot be disabled**) | never reached | reached between ticks |
+| Compute awake | 24/7 → 720 h/month | ~5 min per tick → ~240 h/month |
+| At the free plan's 0.25 CU floor | **~180 CU-hours** | **~60 CU-hours** |
+| Against the free plan's **100 CU-hours/month** | **blows it, mid-month** | fits, with room for the app |
+
+An every-minute tick would suspend the database partway through the month — during a hackathon whose
+whole premise is a live demo. 15 minutes leaves ~40 CU-hours for actual use.
+
+**The trade-off, stated honestly:** the effective resolution of a user's cron expression is the tick
+interval. A workflow scheduled for 09:00 runs at 09:00–09:15, never on the second. Schedule triggers
+are not on the demo path (`DEMO.md` — C13 is mentioned verbally), so this costs the demo nothing.
+
+To change it: `gcloud scheduler jobs update http agentforge-cron --location asia-southeast1
+--schedule "*/5 * * * *"`. Shortening it below ~6 minutes re-pins Neon awake, so do it only
+briefly and put it back.
+
+`--max-retry-attempts 1` is safe because the tick claims each schedule by compare-and-set before
+running it (`CONTRACT.md` → D42), so a retry cannot double-fire. `--attempt-deadline 540s` is above
+the worst case of 3 runs × the engine's 120 s ceiling.
+
+### Verifying it
+
+```bash
+# 1. The route rejects anything without the secret.
+curl -s -o /dev/null -w '%{http_code}\n' -X POST "$APP_BASE_URL/api/cron/tick"    # 401
+
+# 2. Cloud Scheduler itself can reach it. This is a real invocation of the job.
+gcloud scheduler jobs run agentforge-cron --location asia-southeast1
+
+# 3. Confirm the ATTEMPT, not just the exit code. Scheduler logs its own HTTP result.
+gcloud logging read \
+  'resource.type="cloud_scheduler_job" AND resource.labels.job_id="agentforge-cron"' \
+  --limit 5 --freshness=1h \
+  --format='value(timestamp,severity,httpRequest.status)'                          # 200
+
+# 4. And the app's own side of it.
+gcloud run services logs read agentforge --region asia-southeast1 --limit 50 | grep cron
+#   [cron] due=0 fired=0 skipped=0 cleared=0
+```
+
+**Cloud Run's request log lags Scheduler's by a minute or more.** In Phase 8 the Scheduler log showed
+the 200 well before the matching Cloud Run entry appeared. Read the Scheduler log for "did it fire",
+the Cloud Run log for "what did it do" — and do not conclude a failure from the Cloud Run log alone.
+
+### After judging ends
+
+`min-instances 0` is not the only thing to turn down. **Pause the job too**, or it keeps Neon awake
+for 240 hours a month for nothing:
+
+```bash
+gcloud scheduler jobs pause agentforge-cron --location asia-southeast1
+```
 
 ---
 

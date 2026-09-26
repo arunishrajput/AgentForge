@@ -204,7 +204,7 @@ try {
   check(
     "registry serves the seeded node types",
     nodes.status === 200 &&
-      ["core.manual_trigger", "core.set", "core.log", "core.branch", "core.loop", "core.assert"].every(
+      ["core.manual_trigger", "core.webhook_trigger", "core.schedule_trigger", "core.set", "core.log", "core.branch", "core.loop", "core.assert"].every(
         (type) => types.includes(type),
       ),
     JSON.stringify(types),
@@ -1187,6 +1187,367 @@ try {
       [user.id, "llm.google"],
     );
     check("deleting the key removes the row", creds === 0, `${creds} credential rows remain`);
+  }
+
+  // --- phase 8: webhook and schedule triggers -------------------------------
+  //
+  // The two routes with no session. Everything here runs WITHOUT the cookie except
+  // where a workflow is being set up, because "unauthenticated by design" is the
+  // property under test.
+
+  // The cron tick's guard comes first: it is the only endpoint that acts across every
+  // owner, so it is the one whose rejection matters most.
+  const tickNoSecret = await api("POST", "/api/cron/tick");
+  check(
+    "cron tick rejects a request with no secret",
+    tickNoSecret.status === 401 && tickNoSecret.json?.error?.code === "unauthenticated",
+    `got ${tickNoSecret.status} ${JSON.stringify(tickNoSecret.json).slice(0, 200)}`,
+  );
+
+  const tickWrongSecret = await fetch(`${base}/api/cron/tick`, {
+    method: "POST",
+    headers: { "x-cron-secret": "not-the-secret-at-all" },
+  });
+  check("cron tick rejects a wrong secret", tickWrongSecret.status === 401);
+
+  // A session cookie must not substitute for the secret: this is a machine endpoint.
+  const tickWithCookie = await api("POST", "/api/cron/tick", undefined, token);
+  check("cron tick is not satisfied by a signed-in session", tickWithCookie.status === 401);
+
+  const tickGet = await fetch(`${base}/api/cron/tick`, { method: "GET" });
+  check("cron tick refuses GET", tickGet.status === 405, `got ${tickGet.status}`);
+
+  const cronSecret = process.env.CRON_SECRET;
+  async function tick() {
+    const response = await fetch(`${base}/api/cron/tick`, {
+      method: "POST",
+      headers: { "x-cron-secret": cronSecret },
+    });
+    return { status: response.status, json: await response.json().catch(() => null) };
+  }
+
+  if (!cronSecret) {
+    skip("cron tick accepts the real secret and fires due schedules", "CRON_SECRET not in env");
+  } else {
+    const accepted = await tick();
+    check(
+      "cron tick accepts the real secret",
+      accepted.status === 200 && typeof accepted.json?.data?.checkedAt === "string",
+      `got ${accepted.status} ${JSON.stringify(accepted.json).slice(0, 200)}`,
+    );
+  }
+
+  // --- the webhook trigger --------------------------------------------------
+  const hookGraph = {
+    version: 1,
+    nodes: [
+      {
+        id: "hook",
+        type: "core.webhook_trigger",
+        position: { x: 0, y: 0 },
+        config: { requiredFields: ["message"] },
+      },
+      {
+        id: "record",
+        type: "core.log",
+        position: { x: 240, y: 0 },
+        config: { message: "from {{trigger.name}}: {{trigger.message}}" },
+      },
+    ],
+    edges: [{ id: "e1", source: "hook", target: "record", sourceHandle: null }],
+  };
+
+  const hookCreated = await api(
+    "POST",
+    "/api/workflows",
+    { name: "Phase 8 webhook verification", graph: hookGraph },
+    token,
+  );
+  const hookId = hookCreated.json?.data?.id;
+  const hookUrl = hookCreated.json?.data?.webhookUrl;
+  check(
+    "a workflow with a webhook trigger exposes its URL",
+    hookCreated.status === 201 && typeof hookUrl === "string" && hookUrl.includes("/api/webhook/"),
+    JSON.stringify(hookCreated.json?.data?.webhookUrl),
+  );
+  check(
+    "the webhook URL is built on the canonical base, not a hashed host",
+    typeof hookUrl === "string" && hookUrl.startsWith(base),
+    `${hookUrl} does not start with ${base}`,
+  );
+  check(
+    "the token is unguessable, not the workflow id",
+    typeof hookUrl === "string" && !hookUrl.includes(hookId) && hookUrl.split("/").pop().length >= 32,
+    hookUrl,
+  );
+  check(
+    "a workflow with no webhook trigger exposes no URL",
+    (await api("GET", `/api/workflows/${workflowId}`, undefined, token)).json?.data?.webhookUrl === null,
+  );
+
+  // Every call below is deliberately made with NO cookie.
+  async function postHook(url, body, raw = false) {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: raw ? body : JSON.stringify(body),
+    });
+    return { status: response.status, json: await response.json().catch(() => null) };
+  }
+
+  const badToken = await postHook(`${base}/api/webhook/${"z".repeat(32)}`, { message: "x" });
+  check("an unknown webhook token is 404", badToken.status === 404, `got ${badToken.status}`);
+
+  const malformedToken = await postHook(`${base}/api/webhook/..%2Fetc`, { message: "x" });
+  check(
+    "a malformed webhook token never reaches a query",
+    malformedToken.status === 404,
+    `got ${malformedToken.status}`,
+  );
+
+  // A real token on a workflow whose graph has no webhook trigger must not run it.
+  const [manualRow] = await sql.query('select "webhookToken" from "workflow" where "id" = $1', [workflowId]);
+  const wrongTrigger = await postHook(`${base}/api/webhook/${manualRow.webhookToken}`, { message: "x" });
+  check(
+    "a token whose workflow has no webhook trigger is 404, not a run",
+    wrongTrigger.status === 404,
+    `got ${wrongTrigger.status} ${JSON.stringify(wrongTrigger.json).slice(0, 200)}`,
+  );
+
+  const missingField = await postHook(hookUrl, { name: "Priya" });
+  check(
+    "a body missing a required field is 400 and names the field",
+    missingField.status === 400 && missingField.json?.error?.details?.missing?.includes("message"),
+    JSON.stringify(missingField.json).slice(0, 250),
+  );
+
+  const notJson = await postHook(hookUrl, "{not json", true);
+  check("a malformed body is 400", notJson.status === 400, `got ${notJson.status}`);
+
+  const notObject = await postHook(hookUrl, "[1,2]", true);
+  check("a non-object body is 400", notObject.status === 400, `got ${notObject.status}`);
+
+  // A rejected call must cost nothing: no run row, so no history and no model spend.
+  const [{ n: runsAfterRejections }] = await sql.query(
+    'select count(*)::int as n from "run" where "workflowId" = $1',
+    [hookId],
+  );
+  check(
+    "a rejected webhook call creates no run",
+    runsAfterRejections === 0,
+    `${runsAfterRejections} runs exist`,
+  );
+
+  const fired = await postHook(hookUrl, {
+    name: "Priya",
+    message: "Our production checkout has been down for 40 minutes.",
+  });
+  check(
+    "a valid webhook call runs the workflow with no session at all",
+    fired.status === 201 && fired.json?.data?.status === "succeeded",
+    `got ${fired.status} ${JSON.stringify(fired.json).slice(0, 300)}`,
+  );
+  check(
+    "the run is attributed to the webhook trigger",
+    fired.json?.data?.trigger === "webhook",
+    JSON.stringify(fired.json?.data?.trigger),
+  );
+  check(
+    "the posted body is the trigger's output",
+    fired.json?.data?.steps?.[0]?.output?.message ===
+      "Our production checkout has been down for 40 minutes.",
+    JSON.stringify(fired.json?.data?.steps?.[0]?.output),
+  );
+  check(
+    "{{trigger.field}} resolves to the posted body downstream",
+    fired.json?.data?.steps?.[1]?.config?.message ===
+      "from Priya: Our production checkout has been down for 40 minutes.",
+    JSON.stringify(fired.json?.data?.steps?.[1]?.config),
+  );
+  check(
+    "the run is owned by the workflow's owner, not by nobody",
+    (await api("GET", `/api/runs/${fired.json?.data?.id}`, undefined, token)).status === 200,
+  );
+
+  // An empty body is legitimate — a webhook that only says "something happened".
+  const noRequirement = await api(
+    "PATCH",
+    `/api/workflows/${hookId}`,
+    { graph: { ...hookGraph, nodes: [{ ...hookGraph.nodes[0], config: { requiredFields: [] } }, hookGraph.nodes[1]] } },
+    token,
+  );
+  check("required fields can be cleared", noRequirement.status === 200);
+  const emptyBody = await fetch(hookUrl, { method: "POST" });
+  check("an empty body is accepted as {}", emptyBody.status === 201, `got ${emptyBody.status}`);
+
+  // --- the schedule trigger -------------------------------------------------
+  const scheduleGraph = {
+    version: 1,
+    nodes: [
+      {
+        id: "every_morning",
+        type: "core.schedule_trigger",
+        position: { x: 0, y: 0 },
+        config: { cron: "0 9 * * *" },
+      },
+      {
+        id: "note",
+        type: "core.log",
+        position: { x: 240, y: 0 },
+        config: { message: "scheduled run for {{trigger.scheduledFor}}" },
+      },
+    ],
+    edges: [{ id: "e1", source: "every_morning", target: "note", sourceHandle: null }],
+  };
+
+  const scheduled = await api(
+    "POST",
+    "/api/workflows",
+    { name: "Phase 8 schedule verification", graph: scheduleGraph },
+    token,
+  );
+  const scheduleId = scheduled.json?.data?.id;
+  check(
+    "saving a schedule trigger sets the next due time",
+    scheduled.status === 201 &&
+      typeof scheduled.json?.data?.scheduleNextAt === "string" &&
+      new Date(scheduled.json.data.scheduleNextAt) > new Date(),
+    JSON.stringify(scheduled.json?.data?.scheduleNextAt),
+  );
+  check(
+    "the cron expression is reported back",
+    scheduled.json?.data?.scheduleCron === "0 9 * * *",
+    JSON.stringify(scheduled.json?.data?.scheduleCron),
+  );
+  check(
+    "the due time is on the minute, in UTC",
+    scheduled.json?.data?.scheduleNextAt?.endsWith("T09:00:00.000Z"),
+    scheduled.json?.data?.scheduleNextAt,
+  );
+
+  const badCron = await api(
+    "PATCH",
+    `/api/workflows/${scheduleId}`,
+    {
+      graph: {
+        ...scheduleGraph,
+        nodes: [{ ...scheduleGraph.nodes[0], config: { cron: "0 9 * * MON" } }, scheduleGraph.nodes[1]],
+      },
+    },
+    token,
+  );
+  check(
+    "an unsupported cron expression is saved but reported as not runnable",
+    badCron.status === 200 &&
+      badCron.json?.data?.runnable === false &&
+      badCron.json.data.problems.some((problem) => problem.code === "invalid_config"),
+    JSON.stringify(badCron.json?.data?.problems).slice(0, 250),
+  );
+  check(
+    "an unsupported expression leaves no schedule behind",
+    badCron.json?.data?.scheduleNextAt === null,
+    JSON.stringify(badCron.json?.data?.scheduleNextAt),
+  );
+
+  // Restore a good expression, then make it due by moving the stored time into the
+  // past — which is exactly the state Cloud Scheduler finds at 09:00.
+  await api("PATCH", `/api/workflows/${scheduleId}`, { graph: scheduleGraph }, token);
+  const dueAt = new Date(Date.now() - 60_000);
+  dueAt.setUTCSeconds(0, 0);
+
+  if (!cronSecret) {
+    skip("a due schedule is fired by the cron tick", "CRON_SECRET not in env");
+  } else {
+    await sql.query('update "workflow" set "scheduleNextAt" = $1 where "id" = $2', [dueAt, scheduleId]);
+
+    const firedTick = await tick();
+    const firedIds = (firedTick.json?.data?.fired ?? []).map((entry) => entry.workflowId);
+    check(
+      "a due schedule is fired by the cron tick",
+      firedTick.status === 200 && firedIds.includes(scheduleId),
+      JSON.stringify(firedTick.json?.data).slice(0, 300),
+    );
+
+    const scheduleRuns = await api("GET", `/api/workflows/${scheduleId}/runs`, undefined, token);
+    const scheduleRun = (scheduleRuns.json?.data ?? [])[0];
+    check(
+      "the run it created is attributed to the schedule trigger and succeeded",
+      scheduleRun?.trigger === "schedule" && scheduleRun?.status === "succeeded",
+      JSON.stringify(scheduleRun).slice(0, 250),
+    );
+
+    const after = await api("GET", `/api/workflows/${scheduleId}`, undefined, token);
+    check(
+      "firing advances the due time into the future",
+      new Date(after.json?.data?.scheduleNextAt) > new Date(),
+      JSON.stringify(after.json?.data?.scheduleNextAt),
+    );
+    check(
+      "firing records when it last fired",
+      typeof after.json?.data?.scheduleLastFiredAt === "string",
+      JSON.stringify(after.json?.data?.scheduleLastFiredAt),
+    );
+
+    // The idempotency property. A Scheduler retry, an overlapping manual run of the
+    // job, or two containers must not produce two runs for one slot.
+    const secondTick = await tick();
+    check(
+      "an immediate second tick fires nothing",
+      (secondTick.json?.data?.fired ?? []).length === 0,
+      JSON.stringify(secondTick.json?.data).slice(0, 250),
+    );
+    const [{ n: scheduleRunCount }] = await sql.query(
+      'select count(*)::int as n from "run" where "workflowId" = $1',
+      [scheduleId],
+    );
+    check(
+      "one due slot produced exactly one run",
+      scheduleRunCount === 1,
+      `${scheduleRunCount} runs for one slot`,
+    );
+
+    // A due schedule whose trigger has been removed must stop being selected rather
+    // than being retried on every tick for ever.
+    await sql.query('update "workflow" set "scheduleNextAt" = $1 where "id" = $2', [dueAt, scheduleId]);
+    await api(
+      "PATCH",
+      `/api/workflows/${scheduleId}`,
+      { graph: { version: 1, nodes: [{ id: "t", type: "core.manual_trigger", position: { x: 0, y: 0 }, config: {} }], edges: [] } },
+      token,
+    );
+    await sql.query('update "workflow" set "scheduleNextAt" = $1 where "id" = $2', [dueAt, scheduleId]);
+    const clearedTick = await tick();
+    check(
+      "a due workflow whose schedule trigger is gone is cleared, not run",
+      (clearedTick.json?.data?.cleared ?? []).includes(scheduleId) &&
+        (clearedTick.json?.data?.fired ?? []).every((entry) => entry.workflowId !== scheduleId),
+      JSON.stringify(clearedTick.json?.data).slice(0, 250),
+    );
+    const [{ scheduleNextAt: clearedAt }] = await sql.query(
+      'select "scheduleNextAt" from "workflow" where "id" = $1',
+      [scheduleId],
+    );
+    check("the cleared workflow has no due time left", clearedAt === null, String(clearedAt));
+  }
+
+  // Deleting a schedule trigger from the graph clears the due time through the API.
+  const rescheduled = await api("PATCH", `/api/workflows/${scheduleId}`, { graph: scheduleGraph }, token);
+  check("a schedule can be set again", typeof rescheduled.json?.data?.scheduleNextAt === "string");
+  const unscheduled = await api(
+    "PATCH",
+    `/api/workflows/${scheduleId}`,
+    { graph: { version: 1, nodes: [{ id: "t", type: "core.manual_trigger", position: { x: 0, y: 0 }, config: {} }], edges: [] } },
+    token,
+  );
+  check(
+    "removing the schedule trigger clears the due time",
+    unscheduled.json?.data?.scheduleNextAt === null,
+    JSON.stringify(unscheduled.json?.data?.scheduleNextAt),
+  );
+
+  // Clean up Phase 8's own workflows.
+  for (const id of [hookId, scheduleId]) {
+    if (id) await api("DELETE", `/api/workflows/${id}`, undefined, token);
   }
 
   // --- delete ---------------------------------------------------------------

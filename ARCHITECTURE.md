@@ -475,11 +475,11 @@ Shapes are `NOT YET DECIDED` until the phase that needs them; the surface is:
 | Workflows | list, create, read, update, delete | **3 — done** |
 | Runs | trigger, list, read with steps | **3 — done** |
 | Registry | `GET /api/nodes`, the palette projection | **3 — done** |
-| Live | SSE stream for a run | 5 |
-| Generation | natural language → workflow | 7 |
-| Webhook | unguessable per-trigger receiver | 8 |
-| Cron | `/api/cron/tick`, `CRON_SECRET`-guarded, Cloud Scheduler only | 8 |
-| Settings | provider/model config, credentials write-only | 6 |
+| Live | SSE stream for a run | **5 — done** |
+| Generation | natural language → workflow | **7 — done** |
+| Webhook | `POST /api/webhook/:token`, unguessable per-workflow receiver | **8 — done** |
+| Cron | `POST /api/cron/tick`, `CRON_SECRET`-guarded, Cloud Scheduler only | **8 — done** |
+| Settings | provider/model config, credentials write-only | **6 — done** |
 
 Every route except the webhook receiver and the cron tick requires a session and scopes its query
 to the owner, enforced server-side.
@@ -524,7 +524,20 @@ dependency, a failure mode, and deploy complexity to buy durability the demo doe
 **Schedule triggers do not use an in-process timer.** Cloud Run scales to zero, so `setInterval`
 simply does not fire. Instead **Cloud Scheduler** — Google-managed cron, free tier covers it —
 calls `POST /api/cron/tick` guarded by a `CRON_SECRET`, and that handler fires whatever schedules
-are due. Same Google project, no extra infrastructure.
+are due. Same Google project, no extra infrastructure. **Built and verified in Phase 8.**
+
+Two consequences of having no queue show up here, and both are handled rather than hoped away:
+
+- The tick runs its due workflows **synchronously, in its own request**, so it is bounded to 3 per
+  tick against the job's 540 s attempt deadline. Anything still due stays due for the next tick.
+- A duplicate tick — a Scheduler retry, or two containers under `max-instances 3` — would otherwise
+  fire a slot twice. The tick **claims** each schedule with a compare-and-set update before running
+  it, which is the only atomic primitive `neon-http` offers (D42 in `PROGRESS.md`).
+
+**The tick interval is a database-cost decision, not a latency one.** Neon's free plan allows 100
+CU-hours a month and its 5-minute autosuspend cannot be disabled, so a tick more frequent than about
+6 minutes pins the compute awake permanently and exceeds the allowance. The job runs every 15
+minutes; the arithmetic is in `DEPLOYMENT.md`.
 
 Revisit only if a genuine need appears, and flag it as a material change.
 

@@ -15,6 +15,13 @@
       "when": 1790361501746,
       "tag": "0001_smiling_leper_queen",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790400444699,
+      "tag": "0002_wooden_morlocks",
+      "breakpoints": true
     }
   ]
 }

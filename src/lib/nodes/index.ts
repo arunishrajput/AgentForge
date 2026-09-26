@@ -8,7 +8,9 @@ import { delayNode } from "./core/delay";
 import { logNode } from "./core/log";
 import { loopNode } from "./core/loop";
 import { manualTrigger } from "./core/manual-trigger";
+import { scheduleTrigger } from "./core/schedule-trigger";
 import { setNode } from "./core/set";
+import { webhookTrigger } from "./core/webhook-trigger";
 import type { RegisteredNode } from "./types";
 
 /**
@@ -25,6 +27,8 @@ import type { RegisteredNode } from "./types";
  */
 const definitions: RegisteredNode[] = [
   manualTrigger,
+  webhookTrigger,
+  scheduleTrigger,
   setNode,
   logNode,
   branchNode,

@@ -7,12 +7,13 @@ this break a beat below?*
 Status: **PROPOSED.** Phase 0 validates and refines it; **Phase 7 has pinned the prompt** (Beat 2);
 Phase 12 rehearses and finalises it.
 
-> **Beat 2's prompt needs Phases 8 and 9.** It names a webhook trigger, Discord and Google Sheets,
-> none of which are in the registry yet. Run against today's registry it builds the agent-decision
-> spine and honestly reports the rest as unsupported — verified on the deployed URL, twice. The
-> generator reads `describeNodes()`, so those parts start generating the moment the nodes are
-> registered, with no change to any generation code. **Until Phase 9 lands, demo the Phase 7 prompt
-> below.** Re-verify Beat 2's own prompt at Phase 9 and delete this note.
+> **Beat 2's prompt now needs only Phase 9.** Phase 8 registered the webhook trigger, and the
+> prediction held exactly: with **no change to any generation code**, Beat 2's own prompt now builds
+> `webhook trigger → LLM → agent → branch → log` on the first attempt, and reports precisely two
+> unsupported parts — "post urgent ones to Discord" and "log every one to my Google Sheet". Verified
+> on the deployed URL. **Until Phase 9 lands, demo the Phase 7 prompt below**, whose trigger is still
+> the manual one (re-verified in Phase 8 — no regression). Re-verify Beat 2's own prompt at Phase 9
+> and delete this note.
 
 ---
 
@@ -91,6 +92,11 @@ curl -X POST "$WEBHOOK_URL" \
   -d '{"name":"Priya","email":"priya@example.com","message":"Our production checkout has been down for 40 minutes and we are losing orders."}'
 ```
 
+**Where `$WEBHOOK_URL` comes from** (Phase 8): select the webhook trigger node on the canvas and use
+**Copy URL** in the inspector. Export it in the terminal **before** the demo starts — anyone holding
+that URL can start a run, so it must not appear on a shared screen. That is also why the beat is a
+pre-staged `curl` rather than a copy-paste performed live.
+
 **Proves:** C12 webhook trigger.
 
 ### Beat 6 — watch it think (2:00 → 2:30)
@@ -139,7 +145,7 @@ Every MVP-Critical feature appears:
 | C10 In-app model selection | 7 (visible in settings if asked) |
 | C11 NL → workflow | 3 |
 | C12 Webhook trigger | 5 |
-| C13 Schedule trigger | *Not on the path* — mention verbally, show in the trigger picker |
+| C13 Schedule trigger | *Not on the path* — mention verbally, show in the trigger picker. It works: a Cloud Scheduler job sweeps due schedules every 15 min (Phase 8) |
 | C14 Four integrations | 8 |
 | C15 Deployed URL | 1 |
 | C16 Responsive UI with motion | Throughout |
@@ -255,7 +261,7 @@ Then, manually:
 - [ ] Backup workflow opens and looks correct
 - [ ] One end-to-end run completes: Discord message posted, Sheet row appended
 - [ ] Discord test post cleared, Sheet test row cleared
-- [ ] Prompt text ready; `curl` staged with `WEBHOOK_URL` exported
+- [ ] Prompt text ready; `curl` staged with `WEBHOOK_URL` **already exported** and the inspector closed
 - [ ] Both background tabs open and scrolled correctly
 - [ ] Log tail running off-screen
 - [ ] Recording fallback file present and playable
