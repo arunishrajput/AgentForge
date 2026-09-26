@@ -40,29 +40,41 @@ budget. **Phase 13 must measure the real headroom before Phases 19 and 22 design
 
 ## Current Phase
 
-## ▶ NEXT: PHASE 14 — Toybox: the design system
+## ▶ NEXT: PHASE 15 — UI rebuild I: the shell
 
-**Phase 13 is COMPLETE (2026-09-26).** Full definition of Phase 14 in `BUILD_PLAN.md`.
-Read `DESIGN.md`'s brief there before starting — Phase 14 is the phase that creates that file.
+**Phase 14 is COMPLETE (2026-09-26).** Full definition of Phase 15 in `BUILD_PLAN.md`.
+**Read `DESIGN.md` before touching anything visual** — it is written, and it is binding.
 
-**What Phase 13 leaves you, and what it means for Phase 14:**
+**What Phase 14 leaves you:**
 
-- **CI exists and must stay green.** `.github/workflows/ci.yml` — lint, typecheck, test with
-  coverage thresholds, build, in ~60 s. **A red pipeline is a stop-work condition.**
-  `npm run check` is the same four gates locally
-- **`main` is protected**, but `enforce_admins` is off, so working directly on `main` still works
-  exactly as `CLAUDE.md` describes. Verified with a real direct push. Do not turn `enforce_admins`
-  on without also changing `CLAUDE.md` → *Git workflow*, or every phase will need a PR
-- **Coverage thresholds fail the build**: 85% lines, 88% branches, 76% functions. Currently
-  87.19 / 90.46 / 78.10. **A UI rewrite will move these** — if Phase 14 adds many untested
-  `.tsx` files the function threshold is the one that will bite first. Lower it deliberately
-  and say so, rather than deleting the gate
-- **`oxlint` is the linter** (A15), configured in `.oxlintrc.json`. Every suppression in the
-  codebase is inline and carries a written reason. **Three of them point at Phases 15 and 16**
-  as the place to retire them — search `oxlint-disable-next-line`
-- **The agent latency issue is closed.** A 6-node run is now **4.2–7.5 s** against 94.5 s
+- **Toybox is live.** Cream page, ink outlines, hard offset shadows, grape accent. The gallery is
+  public at **`/design`** on the deployed URL — that is the reference, and it renders the *real*
+  primitives, not pictures of them
+- **The existing screens already look right.** Phase 14 expected "broken-but-functional until
+  15–16"; that did not happen, because the token *names* were kept and only their values and the
+  register rule changed. Landing, workflow list, settings, canvas, 404 were all checked in a
+  browser and are coherent. **Phase 15 is a rebuild for structure and content, not a rescue**
+- **Ten primitives exist** in `src/components/ui/`, all keyboard-complete: `Button`, the field set
+  (`Labelled` `Input` `Textarea` `Select` `Checkbox` `Switch` `Toggle`), `Card`, `Badge`, `Dialog`,
+  `ToastProvider`/`useToast`, `Tooltip`, `Tabs`, `Menu`, plus `Mascot`/`EmptyState` and four scenes.
+  **Zero new dependencies.** Phase 15's toast system and command palette build on these
+- **Use `Toggle`, not a hand-written `<label>` around `<Checkbox>`** — otherwise every call site
+  needs a lint suppression
+- **The contrast gate got much stricter** and is the thing most likely to stop a Phase 15 commit.
+  It now asserts the two-register rule, the focus-ring rule, the outline rule, sRGB gamut, no-blur
+  shadows, `color-scheme: light`, and that `palette.ts` mirrors `globals.css` both ways. **If a gate
+  fails, the token is wrong, not the gate**
+- **Adding a colour means adding BOTH registers plus a `palette.ts` entry**, or CI fails
+- **If a colour token moves, run `npm run design:export`** and commit the regenerated
+  `public/illustrations/*.svg`, or CI fails on the staleness gate
+- **Coverage went UP, not down**: 87.81 / 90.56 / 79.71 against thresholds of 85 / 88 / 76. The
+  Chapter 1 warning that a design-system phase would break the function threshold was wrong —
+  see *Known Issues*
+- **`/design` is a prerendered static route.** A browser caches it hard, so **append a
+  cache-busting query string when verifying a redeploy of it** — 20 minutes went into a "the fix
+  did not deploy" that was a cached page
 
-**Do not start Phase 15 in the same session.** One phase per session still holds; `/clear` between.
+**Do not start Phase 16 in the same session.** One phase per session still holds; `/clear` between.
 
 ---
 
@@ -89,8 +101,8 @@ Read `DESIGN.md`'s brief there before starting — Phase 14 is the phase that cr
 | Phase | Status |
 |---|---|
 | **13** — reset, verification, professional foundations | **COMPLETE** — verified on the deployed URL, CI green on PR #1 and on `main`, 2026-09-26 |
-| **14** — Toybox design system | **NOT STARTED ← next** |
-| **15** — UI rebuild I: the shell | NOT STARTED |
+| **14** — Toybox design system | **COMPLETE** — deployed and verified in a real browser, 2026-09-26 |
+| **15** — UI rebuild I: the shell | **NOT STARTED ← next** |
 | **16** — UI rebuild II: the canvas | NOT STARTED |
 | **17** — durable execution | NOT STARTED |
 | **18** — workflow versioning and diffing | NOT STARTED |
@@ -112,13 +124,13 @@ Read `DESIGN.md`'s brief there before starting — Phase 14 is the phase that cr
 | **Canonical URL** | **`https://agentforge-733000675212.asia-southeast1.run.app`** |
 | Legacy URL | `https://agentforge-i5d2u66boa-as.a.run.app` — works, do not publish it |
 | Service | `agentforge` on Cloud Run, `asia-southeast1` |
-| Revision | **`agentforge-00023-xf4`** — ready, **`latestRevision: True`**, 100% of traffic (Phase 13). Previous good revisions: `agentforge-00022-zw6`, `agentforge-00021-v4s`. Rollback was tested against `agentforge-00020-rcr` |
+| Revision | **`agentforge-00026-fqj`** — ready, **`latestRevision: True`**, 100% of traffic (Phase 14). Previous good revisions: `agentforge-00025-mc4` and `agentforge-00024-k56` (same phase, earlier in the session), `agentforge-00023-xf4`, `agentforge-00022-zw6`. Rollback was tested against `agentforge-00020-rcr` |
 | Scaling | `min-instances 1`, `max-instances 3`, 1 vCPU / 1 GiB, 3600 s timeout, port 8080 |
-| Env vars set | `NODE_ENV` `AUTH_URL` `APP_BASE_URL` `DATABASE_URL` `AUTH_SECRET` `GOOGLE_CLIENT_ID` `GOOGLE_CLIENT_SECRET` `ENCRYPTION_KEY` `CRON_SECRET` — **still 9. Phases 9, 10 and 11 added none** (`SMOKE_SPREADSHEET_ID` is a local test variable, never on the service): the Google integration flow reuses `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `APP_BASE_URL`, and every third-party credential is a `credential` row rather than an environment variable. No Gemini key on the service: the product path is the user's own key |
-| Database | Neon `super-mountain-39872886` — **8 tables**, migrations `0000` + `0001` + `0002_wooden_morlocks` applied. **Phases 9, 10 and 11 needed no migration**: two new credential kinds are rows in the existing `credential` table, which is what `(ownerId, kind, label)` was for |
-| Routes | `/` `/dashboard`→`/workflows` `/workflows` `/workflows/[id]` `/settings` + **17** API routes, unchanged by Phases 10 and 11. Phase 10 added three file-convention routes only: `app/icon.svg` (the favicon), `app/error.tsx` and `app/not-found.tsx`. **Phase 13 added no route**: model health is an additive field on the existing `GET /api/settings/provider` |
+| Env vars set | `NODE_ENV` `AUTH_URL` `APP_BASE_URL` `DATABASE_URL` `AUTH_SECRET` `GOOGLE_CLIENT_ID` `GOOGLE_CLIENT_SECRET` `ENCRYPTION_KEY` `CRON_SECRET` — **still 9, re-counted on `agentforge-00026-fqj`. Phases 9–14 added none** (`SMOKE_SPREADSHEET_ID` is a local test variable, never on the service): the Google integration flow reuses `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `APP_BASE_URL`, and every third-party credential is a `credential` row rather than an environment variable. No Gemini key on the service: the product path is the user's own key |
+| Database | Neon `super-mountain-39872886` — **8 tables**, migrations `0000` + `0001` + `0002_wooden_morlocks` applied. **Phase 14 needed no migration** — it touches no data. **Phases 9, 10 and 11 needed none either**: two new credential kinds are rows in the existing `credential` table, which is what `(ownerId, kind, label)` was for |
+| Routes | `/` `/dashboard`→`/workflows` `/workflows` `/workflows/[id]` `/settings` **`/design`** + **17** API routes. **Phase 14 added `/design`** — the design-system gallery, **public (no session) and prerendered static**, which is deliberate: it is the page to link a contributor to and it holds nothing belonging to any account. Phase 13 added no route; Phase 10 added three file-convention routes only (`app/icon.svg`, `app/error.tsx`, `app/not-found.tsx`) |
 | Latency | **Warm**: health ~190 ms India → Singapore, database 7–11 ms. A 6-node demo-path run **4.2–7.5 s** end to end across five consecutive walks (Phase 13; it was 3.1–4.8 s in Chapter 1 when the model answered first time, and **94.5 s** when it did not — that second case is what Phase 13 removed). Generation 2.7–3.5 s. **Cold (Neon suspended)**: health **1.14 s, of which 739 ms is the database wake** — re-measured 2026-09-26 at 917 ms for a first query, 103 ms on the next. Cloud Run itself is never cold at `min-instances 1` |
-| Last verified | **2026-09-26, after Phase 13.** On the final revision **`agentforge-00023-xf4`**: `verify-api.mjs` **ALL CHECKS PASSED — 169 passed / 0 failed / 4 skipped**, which includes *an agent node runs on the deployed engine and reaches a decision* and *an LLM node runs on the deployed engine and returns text*; plus **one clean `smoke.mjs` walk at 5,162 ms**. On the immediately preceding revision `agentforge-00022-zw6` (identical but for the `verifyModel` fix): **5 consecutive clean walks** at 4.2 / 4.5 / 6.0 / 7.5 / 4.6 s. Local: `npm test` **346 passing**, coverage **87.19 / 90.46 / 78.10**. **CI green on PR #1 and on `main`.** **Not re-run at the end of the session**: further smoke walks, because the day's Gemini free-tier quota was exhausted by the verification itself — see *Known Issues*. **Re-run `scripts/smoke.mjs` at the start of the next session** to confirm on a fresh quota |
+| Last verified | **2026-09-26, after Phase 14.** On **`agentforge-00026-fqj`**: a **real browser** against the deployed URL — `/design` renders every token, primitive, motion state and illustration; the landing page, workflow list, settings, canvas and 404 all render coherently in Toybox with **0 console errors**; native `<dialog>` is modal with focus trapped and Escape closing; the toast live region exists before its first message and a failure is `role="alert"`; the focus ring is **2.5px ink at 3px offset, `:focus-visible` only**; `prefers-reduced-motion` collapses every duration to 0s; no horizontal page scroll at 375 px. `verify-api.mjs`: **153 passed / 13 failed / 4 skipped** — **every one of the 13 is the Gemini daily free-tier 429**, in the LLM / agent / generation family, and Phase 14 touched no engine, model, generation or API code (the diff is CSS, `components/ui`, `lib/design`, `app/design` and docs). The quota was already exhausted at the *start* of this session, before any change. Local: `npm test` **369 passing**, coverage **87.81 / 90.56 / 79.71**. **Re-run `smoke.mjs` and `verify-api.mjs` on a fresh quota day to close the 13** |
 | Rollback | **TESTED 2026-09-26, finally.** Traffic shifted to `agentforge-00020-rcr` in **~15 s**, health confirmed the older revision was serving, the demo path walked clean on it, then `--to-latest` restored `agentforge-00021-v4s` in ~15 s. The oldest open item in this file is closed |
 | Billing | Trial credit account `Billing - AgentForge` is **open and enabled**. Actual spend is **not queryable from the CLI** (no billing export configured) — **eyeball it in the console once before judging** |
 | Provider key stored | **Yes**, and the model was **rotated in Phase 13** from `gemini-3.5-flash-lite` to **`gemini-3-flash-preview`** — the only model healthy on both the text and tool-calling paths in all three probe passes. Confirmed persisted in Neon. Re-probe with `npm run probe:models` |
@@ -201,6 +213,10 @@ Carried forward from every phase. These are the decisions later sessions must no
 | **D62** | **A model is only trusted after it answers on BOTH the text and the tool-calling path** | The finding that explains the incident, and it was not visible in any log: `gemini-3.5-flash-lite` answered `ai.llm` in 1.4 s and hung `ai.agent` for 91.9 s **in the same run**. The two paths fail independently, and health flips on a timescale of minutes, so `scripts/probe-models.mjs` probes both, sequentially (the free tier rate-limits hard enough that parallel probes measure the limiter, not the models), and `FALLBACK_MODELS` is set from its ranking. A model that answers prose is not thereby an agent model |
 | **D63** | **A throttled model probe is `conflict`, not `invalid_request`** | Choosing a model runs one real call before the choice is stored, and that call cannot fall back — it must prove *that* model. A 429 therefore reaches the user, and reporting it as "this key cannot use gemini-3-flash-preview" sends them to change a setting that was correct. The free-tier allowance on the current default is **20 requests a minute**, so this is routine, not exotic. 400/404 stay `invalid_request`: those really are verdicts on the choice |
 | **D64** | **oxlint, not ESLint** | Next 16 removed `next lint` and its own upgrade guide says to use a linter directly, so this was a real choice rather than a default. Measured: `eslint` + `eslint-config-next` resolves to **305 packages**; `oxlint` is **2**, and lints 139 files in 73 ms. The same reasoning that left this project without the `ai` SDK (D32), without a cron dependency (D43) and without a test framework. Recorded as A15 in `ARCHITECTURE.md`. The cost is honest: no type-aware rules, and a smaller rule set than the full ESLint ecosystem — worth it here, and revisitable |
+| **D65** | **Light-only, cream. Supersedes D48's dark-only** | The Chapter 2 visual direction is binding, and a theme toggle was not built: two themes is two contrast matrices, two sets of tokens to keep in step and two sets of screenshots, for a product whose whole point is to look unlike the dark IDEs it competes with. `color-scheme: light` is required rather than cosmetic — without it the `<select>` in every registry-generated config form renders as a dark OS widget in a cream panel, the exact mirror of the problem D48 solved. A dark theme is a later phase's decision, not an omission |
+| **D66** | **Every chromatic token exists twice — a dark `text` register and a bright `-pop` fill** | The phase's own implementation note said saturated-accent-on-cream is where AA fails, and it is: a grape vivid enough to be a good button fill measures **2.6:1** on cream, and a grape dark enough to read measures 5.2:1 and makes a muddy button. One token cannot do both jobs, so no token is asked to. **The plain name is the safe one** because the safe thing should be the short thing — which is also why the ~90 Chapter 1 call sites (`text-bad`, `text-warn`, `text-accent`…) needed **zero edits**: they were already naming the register that stayed readable. The label on any fill is ink, never white. Six invariants in `tokens.test.ts` make it a property rather than a convention, and each was mutation-tested — brightening `--color-bad` to its pop value fails 4 of them |
+| **D67** | **The ink outline carries object separation, not lightness** | The four surfaces are within a few percent of each other, and some `-pop` fills sit as little as **1.3:1** off the cream page. In a dark UI elevation *is* lightness; here it is the outline and the hard shadow. The consequence is a hard rule — **a pop fill is never drawn without its ink outline** — because taking the outline off does not make an object subtle, it makes it invisible. Asserted from both sides: the test checks that some fill really is flat against cream, *and* that the outline clears 3:1 on every fill and on the page. The same reasoning made the focus ring **ink rather than the accent**: ink is ≥6.2:1 against everything in the system, the accent fill is 2.6:1 on cream and would fail WCAG 2.2 SC 1.4.11 |
+| **D68** | **`src/components/ui/` exists, reversing Chapter 1's "no component library" (A16)** | The old rule — "a button is a class, not a component" — holds exactly as long as controls carry no behaviour, and it stopped holding here. A dialog that traps focus, a tablist with a roving tabindex, a menu that answers arrow keys and a toast region that must exist *before* its first message do not fit in a CSS class, and hand-rolling them per call site is how they ship broken. **The utilities did not go away**: `btn btn-primary` is still first-class and the Chapter 1 call sites were not migrated, because a primitive and its utility are the same language — `<Button>` renders `btn btn-primary`. Still **zero new dependencies**: no Radix, no headless kit, no `tailwind-merge`, because native `<dialog>`, `<select>` and `<input type=checkbox>` carry most of it |
 
 ---
 
@@ -226,7 +242,7 @@ Carried forward from every phase. These are the decisions later sessions must no
 |---|---|---|
 | **A model's health flips on a timescale of MINUTES, and the text and tool-calling paths fail independently** | Every model choice, every fallback chain | The single most useful thing Phase 13 learned. Three probe passes minutes apart: `gemini-3.6-flash` went healthy → healthy → 503; `gemini-3.5-flash-lite` went healthy → timeout → timeout; `gemini-3.1-flash-lite` timed out on tool-calling twice and then worked. **Only `gemini-3-flash-preview` was healthy on both paths in all three.** Never conclude a model is good from one call, and never conclude a model that answers prose can call tools. `npm run probe:models` checks both paths and is the only honest way to pick a chain |
 | **The default model is a `-preview` model** | If Google retires it | Accepted deliberately in Phase 13: it was the only model measurably reliable on the tool-calling path, and the alternative was keeping a default that timed out on 2 of 3 probes. **The mitigations are already in place** — a 404 opens its breaker immediately and the chain falls through to `gemini-3.6-flash`, and `npm run probe:models` re-derives the ranking in about a minute. Re-probe if agent steps start failing |
-| **Coverage thresholds will bite the UI rewrite** | Phases 14–16 | The gate is 85% lines / 88% branches / **76% functions**, against 87.19 / 90.46 / **78.10** today. Functions has the least slack, and a design-system phase adds many small components. **Lower the threshold deliberately and say so in the commit**, or add tests — do not delete the gate. It is in `package.json` → `test:coverage` |
+| ~~Coverage thresholds will bite the UI rewrite~~ | Was: Phases 14–16 | **WRONG, and measured in Phase 14.** Coverage went **UP** — 87.19 → **87.81** lines, 90.46 → **90.56** branches, 78.10 → **79.71** functions — while adding 12 `.tsx` files. Two reasons: **`.tsx` files never appear in the coverage report at all** (Node's coverage counts only modules a test actually loads, and no test loads a React component), and the new `.ts` modules (`cn`, `contrast`, `palette`, `illustrations-static`) are all tested. The thresholds were not touched. **The real gate to watch in Phases 15–16 is the contrast gate, not coverage** |
 | ~~Rollback is still untested~~ | Was the oldest open item in this file | **TESTED 2026-09-26 (Phase 12).** `update-traffic --to-revisions agentforge-00020-rcr=100` shifted in **~15 s**; health confirmed the older revision was serving; the demo path walked clean on it; `--to-latest` restored `agentforge-00021-v4s`. The procedure in `DEPLOYMENT.md` is correct as written. **Know it without looking it up on demo day** |
 | **Google OAuth changes take ~90 s to propagate** | Cost 90 s in Phase 2 | Wait and retry before suspecting a typo |
 | **A curl check cannot detect `redirect_uri_mismatch`** | Nearly caused a false "verified" | Only a real browser sign-in proves the OAuth redirect |
@@ -244,9 +260,11 @@ Carried forward from every phase. These are the decisions later sessions must no
 | **`gemini-2.0-flash` and `gemini-2.5-flash*` are retired** | Phases 6, 7 | List models, never assume a name. Current default: `gemini-3.5-flash-lite` |
 | ~~The pitch deck is not cut for its rubric~~ **(CLOSED — hackathon over, not this project's work)** | Was: Round 1 judging | Criteria name, in order: *identifies and **validates** the real-world problem*, *understands the **affected users***, *innovative and **feasible** solution*, *potential **real-world impact***. The deck is strongest on solution and implementation — the two things Round 1 weights least. It **asserts** the problem with no evidence, **never names a user segment**, and slide 8 fills its impact section with 178 checks / 297 tests, which is product-quality proof, not impact. Feasibility is the one criterion it nails, because the thing is deployed. **Re-cutting slides 2 and 8 plus their narration targets the named top prize directly**; Devpost allows edits, and the video can be re-rendered in minutes |
 | ~~The agent node fell back and cost ~92 s~~ | Was the headline Chapter 1 defect | **CLOSED in Phase 13, with a measured before/after.** Before: **94.6 s and 94.5 s** on two consecutive runs, one step (`decide_urgency`, `ai.agent`) accounting for **91.9 s**. After: **4.2 / 4.5 / 6.0 / 7.5 / 4.6 s** across five consecutive deployed walks — worst case **7.5 s**. **The cause, reproduced rather than guessed** (`npm run probe:models`): `gemini-3.5-flash-lite` answers *text* and **times out on tool-calling**, which is why `ai.llm` took 1.4 s and `ai.agent` took 91.9 s in the same run. The adapter then retried the wedged model in place at a 45 s timeout — two timeouts is the 90 s. **Fixed three ways** (A14): a timed-out attempt is never retried on the same model, every attempt is capped at 12 s inside a 30 s chain ceiling, and a circuit breaker moves a failing model to the back of the chain. Three regression tests, each verified to fail against the old adapter |
+| **The `limit: 500` free-tier cap is a DAILY one, and the API's `Please retry in Ns` hint is boilerplate** | Any session that runs the full battery | **Sharpened in Phase 14.** Two `smoke.mjs` walks 90 seconds apart both 429'd, and the advertised wait went **up**, 38.9 s → 45.0 s — the counter was not draining. A later `verify-api.mjs` failed all three models in the chain (`limit: 20` on `gemini-3-flash` and `gemini-3.6-flash`, `limit: 500` on `gemini-3.5-flash-lite`). **Do not wait out a `retry in Ns` on the 500 cap; it is a day, not a minute.** The fallback chain behaved exactly as designed under it — two attempts per model, fall through, report the provider's own message — so a full-chain 429 is not a regression. **Check the quota before debugging the code** |
 | **Free-tier quota is PER MODEL, and a day of heavy verification exhausts it** | Any session that runs the full battery | **Measured on 2026-09-26, and it ended Phase 13's final re-verification.** The API's own words: `limit: 20, model: gemini-3-flash` and `limit: 500, model: gemini-3.5-flash-lite`. The 20 is per minute; the 500 behaved like a **per-day** cap — it did not recover after 7 minutes of complete idle, and nor did the other two. Google's rate-limit docs no longer publish free-tier numbers and defer to AI Studio (<https://aistudio.google.com/rate-limit>), so **the console is the only authority** and reading it needs a browser. **What burns it:** `probe-models.mjs` over the full catalogue is ~90 calls, each `smoke.mjs` walk is 2, each `verify-api.mjs` run is ~10. Phase 13 did all of that many times over. **The design already absorbs the per-minute case** — three models means three buckets, and the breaker moves off a throttled one — but nothing survives the whole chain being out for the day. **Practical rule: run the full battery ONCE per session, and re-probe models sparingly.** A 429 is not a regression; check the quota before debugging the code |
 | ~~No favicon — `/favicon.ico` 404s~~ | Was cosmetic, visible in the browser tab | **Handled in Phase 10.** `src/app/icon.svg` is Next's app-icon convention; the framework emits the `<link rel="icon">` and serves it at `/icon.svg`, verified 200 on the deployed URL. `/favicon.ico` still 404s and that is fine — nothing requests it once the link tag is present |
-| **A port-3000 `next dev` can outlive its session** | A stale server serves old code and the next session's `npm run dev` silently moves to 3001 | Check `lsof -nP -iTCP:3000 -sTCP:LISTEN` before trusting a local check. **Hit again in Phase 5** — a stale `next-server` was still listening |
+| **A stale local server outlives its session and serves old code — on ANY port** | A local UI check that silently verifies the previous build | **Hit again in Phase 14, on port 3100**, and it cost three rounds of screenshots: a detached standalone server from an earlier launch held the port, the new one died with `EADDRINUSE` into a log nobody read, and the browser kept showing the old stylesheet. A backgrounded start that is not checked for a successful bind is a check that proves nothing. **`lsof -nP -iTCP:<port> -sTCP:LISTEN` before trusting a local check**, and read the server log after starting it. Previously hit in Phase 5 on port 3000 |
+| **A prerendered static route is cached hard by the browser** | Verifying a redeploy of `/design` | **Phase 14.** A fix was deployed, the page was re-navigated, and the browser served the cached prerender — the conclusion "the deploy did not take" was wrong, and the fix had shipped. **Append a cache-busting query string (`?cb=x`) when verifying a redeploy of a static route.** Dynamic routes (`/`, `/workflows`) do not have this problem |
 | **`scripts/verify-api.mjs` leaves rows behind if it is killed** | Stray test workflows in the shared database | Its cleanup runs at the end, so a `ctrl-c` or a timeout skips it. Phase 5 found two orphans that way and deleted them. Check `select count(*) from "workflow"` after an interrupted run |
 | **A `pull`-driven `ReadableStream` does not stream under Next** | Would have shipped a stream that opens and then says nothing | The SSE route drives its own loop. Do not "simplify" it back to `pull` (see `src/app/api/workflows/[id]/stream/route.ts`) |
 | **Pinned Gemini models return 503 under load** | Demo reliability | **Handled.** Reproduced in Phase 6 (`gemini-3.8-flash`, 503 "experiencing high demand"). The adapter retries twice per model with backoff, then falls down `FALLBACK_MODELS`, and logs the fallback so it is never silent |
@@ -557,6 +575,39 @@ still documents a path known to work end to end, which is a useful smoke referen
 
 ## Recent Changes
 
+**2026-09-26 — Phase 14 complete. AgentForge looks like nothing else now**
+
+- **Toybox shipped.** Cream page, near-black ink, saturated colour, 2px ink outlines, hard offset
+  shadows with no blur, fat corners, springy motion. `DESIGN.md` is the written spec; **`/design`**
+  is the living gallery, public and prerendered on the deployed URL
+- **The palette was fitted numerically, not chosen by eye.** Every hue was searched for the
+  lightest value that still clears AA on all four surfaces, then chroma pushed to the sRGB edge at
+  that lightness. Worst text-register pairing is **5.07:1**; worst ink-on-fill is **6.23:1**; every
+  token is inside sRGB, so the measured colour is the rendered one
+- **The gate got much stricter, and every new assertion was mutation-tested.** Brightening a text
+  tone, blurring a shadow, reverting `color-scheme` to dark, pushing a fill out of gamut and
+  collapsing the two registers each fail it; restoring each one passes. A test that cannot fail is
+  not a gate
+- **The gallery cannot lie.** `/design` computes its contrast figures with the same module that
+  fails the build (`src/lib/design/contrast.ts`), and its swatches read a catalogue that CI asserts
+  against the stylesheet **in both directions**. A figure on that page is a figure CI enforces
+- **Ten keyboard-complete primitives, zero new dependencies.** Native `<dialog>` for the modal,
+  native `<select>`, a real checkbox behind `role="switch"`, a roving tabindex in the tablist and
+  a live region that exists before its first toast
+- **The existing app did not break, which the phase did not expect.** Keeping the token *names* and
+  changing only their values and the register rule meant landing, workflow list, settings, canvas
+  and 404 came through coherent — verified in a browser, not assumed. Phase 15 is a rebuild for
+  structure, not a rescue
+- **Two defects found only by looking at it deployed.** Chapter 1's hero glow became a hard
+  rectangle down both sides of the cream page (a radial gradient is clipped by its own box), and
+  the mascot's `concerned` mood read as **angry** — the brows had classic anger geometry, which on
+  an error screen is worse than the flippancy the phase warns against. Both fixed and redeployed
+- **Three process traps recorded**: a stale detached server serving old CSS on port 3100
+  (`EADDRINUSE` into an unread log), a browser-cached prerendered route that made a shipped fix
+  look undeployed, and the daily `limit: 500` quota whose `retry in Ns` hint is boilerplate
+- **Coverage went up**, 87.19 → 87.81 / 90.46 → 90.56 / 78.10 → 79.71, disproving the Chapter 1
+  prediction that this phase would break the function threshold
+
 **2026-09-26 — Phase 13 complete. Chapter 2 has started, and the project has CI for the first time**
 
 - **The 91.9 s agent step is closed, with numbers on both sides.** `scripts/probe-models.mjs`
@@ -657,7 +708,15 @@ Older entries pruned — **4 earlier Chapter 1 entries** are in git history (`gi
 
 ## Last Updated
 
-**2026-09-26** — **Phase 13 complete.** Revision `agentforge-00023-xf4` live and verified:
+**2026-09-26** — **Phase 14 complete.** Revision `agentforge-00026-fqj` live and verified in a
+**real browser**: Toybox is the product's look, the gallery is public at **`/design`**, and the
+landing page, workflow list, settings, canvas and 404 all render coherently with **0 console
+errors**. `npm test` **369 passing**, coverage **87.81 / 90.56 / 79.71**. `verify-api.mjs`
+**153 / 13 / 4** — all 13 failures are the Gemini **daily** free-tier 429, which was already
+exhausted before this session began, and Phase 14 touched no engine, model, generation or API code.
+**Re-run `smoke.mjs` and `verify-api.mjs` on a fresh quota day to close them.**
+
+**2026-09-26** — **Phase 13 complete.** Revision `agentforge-00023-xf4` verified:
 `verify-api.mjs` **ALL CHECKS PASSED (169 / 0 failed / 4 skipped)**, `smoke.mjs --loop 5` **5
 consecutive clean walks**, `npm test` **346 passing**, coverage **87.19 / 90.46 / 78.10**, and
 **CI green on PR #1 and on `main`** — the first CI this project has ever had.

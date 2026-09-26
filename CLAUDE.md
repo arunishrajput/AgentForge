@@ -98,7 +98,7 @@ done is not done, and there is no longer any reason to cut corners to reach one.
 | `ARCHITECTURE.md` | How it is built, and the binding Foundation Decision | Before adding a component or dependency |
 | `CONTRACT.md` | Interfaces that must stay stable across phases | Before touching a shared schema or protocol |
 | `DEPLOYMENT.md` | How to deploy and verify, resource inventory | Before any cloud work |
-| `DESIGN.md` | The Toybox design language. **Created in Phase 14** | Before any UI work |
+| `DESIGN.md` | The Toybox design language. **Written in Phase 14, binding** | Before any UI work. The living reference is `/design` on the deployed URL |
 | `DEMO.md` | **ARCHIVED.** The hackathon demo script. Historical only — no longer a scope contract | Rarely |
 | `SUBMISSION.md` | **ARCHIVED.** Devpost submission copy as submitted | Rarely |
 | `SECURITY.md` | Security posture and disclosure. **Created in Phase 21** | Before touching auth or crypto |

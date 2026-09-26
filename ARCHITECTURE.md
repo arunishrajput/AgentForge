@@ -270,7 +270,7 @@ a handful of requests per page, not thirty per workflow run.
 | Component | Responsibility |
 |---|---|
 | **Web / API layer** | Auth, workflow CRUD, run trigger, SSE stream, webhook receiver, cron tick endpoint |
-| **Design system** | One stylesheet. Tokens, component utilities and the React Flow theme all live in `src/app/globals.css`; components name a token and never a raw value |
+| **Design system** | **Toybox** (Phase 14). Tokens, component utilities and the React Flow theme in `src/app/globals.css`; keyboard-complete React primitives in `src/components/ui/`; the palette catalogue and the contrast maths in `src/lib/design/`; the living gallery at `/design`. Components name a token and never a raw value |
 | **Node registry** | The single source of node types. Each entry declares its type, schema, and execute function. Serves three consumers: the engine's dispatch, the canvas's palette, and the agent's tool set |
 | **Execution engine** | Walks the workflow DAG in-process, calls the registry per node, threads output forward, writes step records, emits events |
 | **Agent layer** | Provider adapter over the LLM, prompt assembly, and the bounded tool-calling loop whose tools are derived from the registry |
@@ -307,42 +307,59 @@ a registry entry with a schema.
 
 ---
 
-## Design system — one stylesheet, no component library
+## Design system — Toybox
 
-Everything visual is declared in **`src/app/globals.css`** and nothing else:
+**Phase 14 replaced the Chapter 1 dark system.** The language is `DESIGN.md`; this is its shape in
+the codebase.
 
 ```
-@theme      colour, type scale, elevation, easings, animations   → Tailwind tokens
-@utility    btn / btn-primary / btn-quiet / btn-ghost / btn-danger
-            field / card / chip / eyebrow / sweep-bar / hero-glow / pad-safe
-.react-flow React Flow's own CSS variables, pointed at those tokens
-@media      prefers-reduced-motion — one blanket rule
+src/app/globals.css        @theme    colour, type, radius, elevation, easings, animations
+                           @utility  btn* / field / card* / chip* / eyebrow / squish
+                                     dotted / sweep-bar / hero-glow / pad-safe
+                           .react-flow  React Flow's variables, pointed at those tokens
+                           @media    prefers-reduced-motion — one blanket rule
+src/components/ui/         the React primitives: button, field, card, badge,
+                           dialog, toast, tooltip, tabs, menu, illustration
+src/lib/design/            contrast.ts   the oklch → WCAG maths
+                           palette.ts    the token catalogue, with roles
+                           illustrations-static.ts  the generated public/ SVGs
+src/app/design/            the living gallery, prerendered and public
 ```
 
-**There is deliberately no `components/ui`.** A button is a class, not a component. For a product
-this size a wrapper component per control buys indirection and costs a file each; the utilities give
-the same single point of change with none of it. A new panel in a later phase names `card`, `field`
-and `btn btn-primary` and looks like the rest of the product for free.
+**Chapter 1 had deliberately no `components/ui`, and Phase 14 reversed that.** The old reasoning —
+"a button is a class, not a component; a wrapper per control buys indirection and costs a file each"
+— holds exactly as long as the controls carry no behaviour. It stopped holding the moment the system
+needed a dialog that traps focus, a tablist with a roving tabindex, a menu that answers arrow keys
+and a toast region that exists before its first message. **None of that fits in a CSS class**, and
+hand-rolling it per call site is how it gets shipped broken.
 
-Three properties this arrangement is protecting, each learned the hard way:
+So the two coexist, and that is the arrangement rather than a migration half-done:
+
+- **The utilities are the language.** `btn btn-primary` is still correct, still first-class, and the
+  ~90 Chapter 1 call sites that use it were not migrated because they are not wrong
+- **The primitives are the language plus behaviour.** New code reaches for `<Button>` because it
+  also gets the accessibility properties. `<Button>` renders `btn btn-primary`
+
+Properties this arrangement protects, each learned the hard way:
 
 - **A component names a token, never a colour** (D49). `CATEGORY_STYLE` and `STATUS_STYLE` in
-  `components/canvas/context.ts` are the *only* mapping from a domain concept to a colour, and they
-  are read by the canvas, the palette and the inspector alike.
-- **React Flow's stylesheet is imported here, not in `editor.tsx`**, so the cascade order — Tailwind
-  preflight, then React Flow's layout CSS, then our overrides — is explicit rather than dependent on
-  how the client bundle was assembled.
+  `components/canvas/context.ts` are still the *only* mapping from a domain concept to a colour.
+- **React Flow's stylesheet is imported in `globals.css`, not in `editor.tsx`**, so the cascade
+  order — Tailwind preflight, React Flow's layout CSS, our overrides — is explicit rather than
+  dependent on how the client bundle was assembled.
 - **Reduced motion is honoured in two places.** The CSS block covers every animation and transition;
   `src/lib/canvas/motion.ts` covers React Flow's `fitView`, which tweens in JavaScript where a media
-  query cannot reach it.
+  query cannot reach.
 
-The theme is dark only, and that is a decision rather than an omission (D48). What it did require is
-`color-scheme: dark` on `:root`: without it the `<select>` in every registry-generated config form
-renders as a light OS widget inside a dark panel.
+The theme is **light only** (D65, superseding D48's dark-only). `color-scheme: light` on `:root` is
+required, not cosmetic: without it the `<select>` in every registry-generated config form renders as
+a dark OS widget inside a cream panel — the exact mirror of the Chapter 1 problem.
 
-Contrast is not a matter of opinion here — `src/app/tokens.test.ts` parses the `oklch()` tokens out
-of this stylesheet, converts them to linear sRGB and asserts WCAG AA for every text-on-surface pair
-the product uses (D52).
+**Contrast is not a matter of opinion here.** `src/lib/design/contrast.ts` converts the `oklch()`
+tokens to linear sRGB; `src/app/tokens.test.ts` asserts WCAG AA for every pairing the product uses
+and fails the build otherwise (D52, extended in Phase 14 to the two-register rule, the focus-ring
+rule, the outline rule, the sRGB-gamut rule and the no-blur shadow rule). The **same module** feeds
+the `/design` gallery, so every figure a reader sees on that page is the figure CI asserts.
 
 ---
 
@@ -711,6 +728,8 @@ in a step log.
 | A13 | Region pair: Cloud Run `asia-southeast1` + Neon Singapore | **BINDING** | Co-locating app and database beats Tier 1 pricing; see *Hosting platform* |
 | A14 | Provider adapter owns a **time budget and a circuit breaker** | **BINDING** from Phase 13 | One wedged model cost a run 91.9 s. The budget belongs in the adapter, not in the agent node, so every caller benefits — see *The provider time budget* |
 | A15 | **oxlint**, not ESLint | Binding at Phase 13 | 2 packages against 305, for the same reason this project has no `ai` SDK and no test framework. Next 16 removed `next lint` and its own docs say to use a linter directly |
+| A16 | **`src/components/ui/` exists, reversing Chapter 1's "no component library"** | Binding at Phase 14 | The old rule held while controls carried no behaviour. A dialog that traps focus, a tablist with a roving tabindex, a menu that answers arrow keys and a toast region that exists before its first message do not fit in a CSS class. Still **zero new dependencies** — no Radix, no `tailwind-merge`, no headless kit — because the native elements carry most of it |
+| A17 | **The palette is mirrored in TypeScript, and CI asserts the mirror** | Binding at Phase 14 | The `/design` gallery needs token values plus a role per token, and a `readFileSync` of `globals.css` in a page is a build-versus-runtime trap that only shows up in the container. `src/lib/design/palette.ts` is the mirror; `tokens.test.ts` asserts it against the stylesheet in both directions, so it cannot become a second source of truth |
 
 ---
 

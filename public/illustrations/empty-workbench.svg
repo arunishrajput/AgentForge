@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 110" width="320" height="220" role="img" aria-label="An empty workbench with two node cards and a waiting slot">
+  <title>Nothing built yet</title>
+  <rect x="6" y="78" width="148" height="16" rx="7" fill="#ffd166" stroke="#131722" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M22 94v10M138 94v10" stroke-linecap="round" fill="none" stroke="#131722" stroke-width="3" stroke-linejoin="round"/>
+  <rect x="21" y="33" width="34" height="22" rx="6" fill="#131722"/>
+  <rect x="18" y="30" width="34" height="22" rx="6" fill="#ffffff" stroke="#131722" stroke-width="3" stroke-linejoin="round"/>
+  <rect x="23" y="35" width="8" height="8" rx="3" fill="#00f199" stroke="#131722" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M35 39h12" stroke="#525768" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M35 45h7" stroke="#63687a" stroke-width="2.5" stroke-linecap="round"/>
+  <rect x="69" y="51" width="34" height="22" rx="6" fill="#131722"/>
+  <rect x="66" y="48" width="34" height="22" rx="6" fill="#ffffff" stroke="#131722" stroke-width="3" stroke-linejoin="round"/>
+  <rect x="71" y="53" width="8" height="8" rx="3" fill="#fc73e3" stroke="#131722" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M83 57h12" stroke="#525768" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M83 63h7" stroke="#63687a" stroke-width="2.5" stroke-linecap="round"/>
+  <rect x="114" y="30" width="34" height="22" rx="6" fill="none" stroke="#131722" stroke-width="3" stroke-dasharray="6 5" stroke-linecap="round"/>
+  <path d="M131 35v12M125 41h12" stroke-linecap="round" fill="none" stroke="#131722" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M52 41q14 0 14 13" fill="none" stroke-linecap="round" stroke="#131722" stroke-width="3"/>
+</svg>

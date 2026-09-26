@@ -21,6 +21,7 @@ Do not pre-empt them.
 | Credential storage shape | **DEFINED** | Table Phase 3, API Phase 6 |
 | Generation request/response | **DEFINED** | Phase 7 |
 | Trigger shapes | **DEFINED** | Phase 8 — `src/lib/triggers/` |
+| Design token names | **DEFINED** | Phase 14 — `src/app/globals.css`, `src/lib/design/palette.ts` |
 
 ---
 
@@ -904,3 +905,65 @@ whole generation. Empty is the honest third answer: the workflow generates, appe
 with a visibly blank field, and each node fails with its own sentence if run before it is filled in
 ("This node has no spreadsheet yet…"). `integration.http.url` is **not** in this category: a URL is
 not something the user can supply from context later, so an absent one is rejected at validation.
+
+---
+
+## Design token names — **DEFINED** (Phase 14)
+
+A contract because **every UI phase from 15 onward names these tokens**, and because a token that
+quietly changes meaning breaks screens nobody touched in that session. The values may be tuned; the
+**names and the register rule** may not drift without updating every consumer in the same session.
+
+The full language is `DESIGN.md`. The live reference is `/design`. This section is the part that
+must not move.
+
+### The register rule
+
+Every chromatic token exists twice:
+
+| Name | Register | May be used as |
+|---|---|---|
+| `--color-x` | text | Text on any surface, and small graphics. **The default** |
+| `--color-x-pop` | fill | A background **only**, with `--color-ink` as its label, inside an ink outline |
+
+`text-accent` is correct; `text-accent-pop` is a bug. This holds for `accent`, the four status tones
+and all five node categories.
+
+### The names
+
+| Group | Tokens |
+|---|---|
+| Surfaces | `canvas` `surface` `elevated` `sunken` |
+| Ink | `ink` `muted` `faint` `line` (+ `line-soft`, alpha) |
+| Accent | `accent` `accent-pop` `accent-ink` `spark` |
+| Status | `ok` `live` `warn` `bad`, each with `-pop` |
+| Categories | `cat-trigger` `cat-agent` `cat-logic` `cat-transform` `cat-integration`, each with `-pop` |
+
+`--color-accent-ink` is the label colour for **any** pop fill, not only the accent's. It is ink; the
+separate name exists so a call site reads as "the label on a fill" rather than "black".
+
+### Invariants the build enforces
+
+`src/app/tokens.test.ts` fails the build on any of these, so they are properties rather than advice:
+
+| Invariant | Why it exists |
+|---|---|
+| Every text-register tone clears **AA on all four surfaces** | The phase's own implementation note: saturated-on-cream is where AA fails |
+| `ink` clears **AA on every `-pop` fill** | A fill's label is always ink, never white |
+| The registers stay **2× apart in luminance** | Stops the two collapsing into one ambiguous token |
+| `ink` clears **3:1 on every surface and every fill** | Makes one ink focus ring legal everywhere (WCAG 2.2 SC 1.4.11) |
+| The ink **outline** clears 3:1 on every fill and on the page | A pop fill can be 1.3:1 off cream; the outline carries the separation |
+| Every token is **inside sRGB** | A clamped channel means the rendered colour is not the measured colour |
+| Every `--shadow-*` is a **hard ink offset, no blur** | A blur turns Toybox into generic material elevation |
+| `color-scheme` is **`light`** | Native widgets otherwise render dark in a cream interface |
+| `palette.ts` and `globals.css` **agree in both directions** | The catalogue is a mirror, never a second source of truth |
+| `public/illustrations/*.svg` match a fresh export | Baked-in hex goes stale silently |
+
+### Consumers
+
+`src/app/globals.css` (declaration), `src/lib/design/palette.ts` (mirror + roles),
+`src/components/ui/*` (primitives), `src/components/canvas/context.ts` (`CATEGORY_STYLE`,
+`STATUS_STYLE` — still the only domain-concept-to-colour mapping, D49), `src/app/design/*` (gallery),
+and every Chapter 1 screen through the `@utility` classes.
+
+**Adding a tone means adding both registers and a catalogue entry**, or CI fails on the drift gate.

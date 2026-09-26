@@ -1,5 +1,7 @@
 # AgentForge
 
+<img src="./public/illustrations/mascot-happy.svg" alt="Sparky, the AgentForge mascot" width="72" height="72" />
+
 **Describe what you want. Get a workflow that builds itself, runs itself, and thinks while it runs.**
 
 AgentForge is an agentic workflow automation platform — *n8n, but the workflows are built and driven
@@ -8,6 +10,9 @@ a real, executable, visually editable workflow whose agent nodes reason, call to
 to do at runtime.
 
 **Live:** <https://agentforge-733000675212.asia-southeast1.run.app>
+
+**Design system:** <https://agentforge-733000675212.asia-southeast1.run.app/design> — every token,
+primitive and motion state on one page, with contrast ratios computed rather than claimed
 
 **Pitch video (4:00):** <https://www.youtube.com/watch?v=Suc4RV9LnLs>
 
@@ -29,9 +34,15 @@ Sheets and Gmail. Originally built across 13 phases for the Zero Origin hackatho
 [submitted](https://devpost.com/software/agentforge-kz832x) on 2026-09-26.
 
 **It is now being built out into a real, professional, open-source product** — phases 13–25 in
-[`BUILD_PLAN.md`](./BUILD_PLAN.md): a full playful redesign, durable execution, workflow versioning,
-multi-user workspaces, a credential vault, observability, a much larger node catalogue, and proper
-documentation. It stays free to run.
+[`BUILD_PLAN.md`](./BUILD_PLAN.md): durable execution, workflow versioning, multi-user workspaces, a
+credential vault, observability, a much larger node catalogue, and proper documentation. It stays
+free to run.
+
+**The redesign has landed.** Phase 14 replaced the dark Chapter 1 interface with **Toybox** — bright,
+playful and light-first, with saturated colour, thick ink outlines and hard offset shadows. It is
+documented in [`DESIGN.md`](./DESIGN.md) and shown live at
+[`/design`](https://agentforge-733000675212.asia-southeast1.run.app/design). Phases 15 and 16 rebuild
+the shell and the canvas on top of it.
 
 > This README is deliberately still a working document. **Phase 24 rewrites it** as a real front
 > page, once there is a finished product to describe.
@@ -77,6 +88,7 @@ Full scope, including what is deliberately excluded, is in [`PRD.md`](./PRD.md).
 | [`BUILD_PLAN.md`](./BUILD_PLAN.md) | The phase roadmap |
 | [`ARCHITECTURE.md`](./ARCHITECTURE.md) | How it is built, and why |
 | [`CONTRACT.md`](./CONTRACT.md) | Interfaces that must stay stable |
+| [`DESIGN.md`](./DESIGN.md) | **Toybox** — the design language, and the rules it is built inside |
 | [`DEPLOYMENT.md`](./DEPLOYMENT.md) | How to deploy and verify |
 | [`DEMO.md`](./DEMO.md) | **Archived.** The hackathon demo script, kept as a smoke reference |
 | [`SUBMISSION.md`](./SUBMISSION.md) | Everything the Devpost form asks for, written once |

@@ -17,6 +17,7 @@
     "test:coverage": "node --import ./scripts/test-register.mjs --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-test-coverage --test-coverage-exclude='**/*.test.ts' --test-coverage-exclude='src/lib/engine/fixtures.ts' --test-coverage-lines=85 --test-coverage-branches=88 --test-coverage-functions=76 --test 'src/**/*.test.ts'",
     "check": "npm run lint && npm run typecheck && npm run test:coverage",
     "probe:models": "node scripts/probe-models.mjs",
+    "design:export": "node --import ./scripts/test-register.mjs --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/export-illustrations.mjs",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio"
