@@ -7,8 +7,16 @@ concise and operational — prune stale detail rather than appending forever. Th
 
 ## Project Status
 
-**Phase 9 is complete. A workflow now reaches real outside services — it posts to Discord, appends
-to a Google Sheet, sends mail, and calls any HTTPS API — and three of the four are agent tools.**
+**Phase 9 is built, deployed and verified — with one completion criterion honestly not yet met.**
+A workflow now reaches real outside services, and three of the four integrations are agent tools.
+
+**Proven against the real service: `integration.http` and `integration.discord`.**
+**Not yet proven against the real service: `integration.sheets` and `integration.gmail`** — their
+code, credential handling, scope checks and failure messages are deployed and verified, and the
+consent flow is verified up to the point where Google itself answers `redirect_uri_mismatch`. They
+cannot append a row or send a message until **M8** is done, which is a console click only the user
+can make. That is one criterion of *"four integrations work from the deployed app against real
+services"* outstanding, recorded rather than rounded up.
 
 **https://agentforge-733000675212.asia-southeast1.run.app**
 
@@ -25,7 +33,11 @@ targets *through the real engine on the deployed container*.
 ## Current Phase
 
 **Phase 10 — UI/UX pass: design system, motion, responsiveness, accessibility** (not started) —
-`READY TO START`
+`READY TO START`. Nothing in Phase 10 depends on M8, so it does not wait.
+
+**Before Phase 12 ships, M8 must be done and Phase 9's last criterion closed**: connect Google, then
+run one workflow that actually appends a row and one that actually sends mail. Until then `DEMO.md`
+Beat 8's second payoff (the Sheet) is unproven on the deployed system.
 
 **One manual action is pending and it blocks only the Sheets and Gmail *runtime*, nothing else:** the
 two `/api/integrations/google/callback` redirect URIs must be added to the OAuth client before
@@ -46,7 +58,7 @@ in place and the flow is proved up to Google's own consent screen.
 | **Phase 6** — agent layer: LLM node, agent node, provider config | **COMPLETE** — verified on the deployed URL in a browser, 2026-09-26 |
 | **Phase 7** — natural language → workflow generation | **COMPLETE** — verified on the deployed URL in a browser, 2026-09-26 |
 | **Phase 8** — triggers: webhook + schedule | **COMPLETE** — verified on the deployed URL and by a real Cloud Scheduler invocation, 2026-09-26 |
-| **Phase 9** — integrations: HTTP, Discord, Sheets, Gmail | **COMPLETE** — verified on the deployed URL; a real Discord message posted. Sheets/Gmail runtime awaits OAuth pass 3 |
+| **Phase 9** — integrations: HTTP, Discord, Sheets, Gmail | **COMPLETE except the Sheets/Gmail runtime, which is BLOCKED ON M8.** Verified on the deployed URL; a real Discord message posted and a real HTTPS API called. Sheets and Gmail are deployed and verified to the edge of Google's consent screen |
 
 ---
 
