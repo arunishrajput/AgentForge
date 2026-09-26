@@ -11,6 +11,10 @@ import { manualTrigger } from "./core/manual-trigger";
 import { scheduleTrigger } from "./core/schedule-trigger";
 import { setNode } from "./core/set";
 import { webhookTrigger } from "./core/webhook-trigger";
+import { discordNode } from "./integration/discord";
+import { gmailNode } from "./integration/gmail";
+import { httpNode } from "./integration/http";
+import { sheetsNode } from "./integration/sheets";
 import type { RegisteredNode } from "./types";
 
 /**
@@ -18,12 +22,23 @@ import type { RegisteredNode } from "./types";
  *
  * One table, three consumers: the engine dispatches through `get`, the canvas
  * builds its palette from `listNodes`, and the agent's tool set comes from
- * `listAgentTools`. Phases 8 and 9 add entries here; they do not build a second
- * registry, and adding an integration therefore widens what the agent can do
- * without any separate tool definition to drift out of sync.
+ * `listAgentTools`. Phases 8 and 9 added entries here and nothing else: neither
+ * phase touched the palette, the config forms, the validator, or the generation
+ * prompt's catalogue, because all four are rendered from this table.
+ *
+ * One caveat worth stating precisely, because the looser claim was almost written
+ * here: Phase 9 *did* edit `generate/prompt.ts`. Not the catalogue — the prose
+ * beneath it, which hardcoded "sending email, posting to a chat service, writing to
+ * a spreadsheet" as its examples of things to report as `unsupported`. Registering
+ * the nodes was not enough to stop the model believing that sentence. **A prompt
+ * that names specifics dates like code, and nothing type-checks prose.**
  *
  * Security boundary: the agent can reach these entries and nothing else. There is
- * no shell, filesystem, or arbitrary-network node.
+ * no shell node and no filesystem node. `integration.http` is the one entry that
+ * reaches an arbitrary host, and it is bounded by `src/lib/integrations/guard.ts`
+ * rather than by trust: https only, public addresses only, redirects reported and
+ * never followed. `integration.gmail` is deliberately **not** agent-callable — see
+ * the note on its definition.
  */
 const definitions: RegisteredNode[] = [
   manualTrigger,
@@ -37,6 +52,10 @@ const definitions: RegisteredNode[] = [
   assertNode,
   llmNode,
   agentNode,
+  httpNode,
+  discordNode,
+  sheetsNode,
+  gmailNode,
 ];
 
 const byType = new Map<string, RegisteredNode>();

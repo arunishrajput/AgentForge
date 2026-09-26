@@ -7,25 +7,31 @@ concise and operational — prune stale detail rather than appending forever. Th
 
 ## Project Status
 
-**Phase 8 is complete. A workflow now starts from an external HTTP call and on a schedule — in
-production, fired by Cloud Scheduler.**
+**Phase 9 is complete. A workflow now reaches real outside services — it posts to Discord, appends
+to a Google Sheet, sends mail, and calls any HTTPS API — and three of the four are agent tools.**
 
 **https://agentforge-733000675212.asia-southeast1.run.app**
 
-A webhook trigger has an unguessable per-workflow URL that runs the workflow with no session at all,
-and a schedule trigger fires from a real Cloud Scheduler job. Verified by the full HTTP suite against
-the deployed URL — **125 checks run, all passed** (38 of them Phase 8's) — by a real Cloud Scheduler
-invocation returning **HTTP 200**, and in a browser.
+**`DEMO.md` Beat 2's target prompt is now the demo prompt.** Phase 8 predicted that registering the
+Discord and Sheets nodes would make its two `unsupported` lines disappear, and they did: **3/3 valid
+on the first attempt, `unsupported: []` every time**, each building the full spine
+`webhook → llm → agent → branch → Discord + Sheets`. That was the phase's acceptance test.
 
-**The registry paid off again: generation needed no code change.** `DEMO.md` Beat 2's target prompt
-now builds `webhook_trigger → llm → agent → branch → log` on the first attempt, and a schedule
-request produced `0 9 * * 1-5` with the next run correctly computed as Monday the 28th (the 26th is a
-Saturday). Discord and Sheets are still correctly reported as `unsupported` — that is Phase 9's
-acceptance test.
+Verified by the full HTTP suite against the deployed URL — **178 checks defined, 177 run and all passed,
+1 skipped** (52 of them Phase 9's) — including **a real
+message posted to `#agentforge-demo`** and the outbound guard refused every one of nine blocked
+targets *through the real engine on the deployed container*.
 
 ## Current Phase
 
-**Phase 9 — integration nodes: Google Sheets, Gmail, Discord, generic HTTP** (not started) — `READY TO START`
+**Phase 10 — UI/UX pass: design system, motion, responsiveness, accessibility** (not started) —
+`READY TO START`
+
+**One manual action is pending and it blocks only the Sheets and Gmail *runtime*, nothing else:** the
+two `/api/integrations/google/callback` redirect URIs must be added to the OAuth client before
+`Connect Google` can work. The block is in `DEPLOYMENT.md` (OAuth pass 3). Everything else in Phase 9
+is deployed and verified; both nodes' code, credential handling, scope checks and failure messages are
+in place and the flow is proved up to Google's own consent screen.
 
 ## Completed Phases
 
@@ -36,10 +42,11 @@ acceptance test.
 | **Phase 2** — first deploy, auth in production | **COMPLETE** — verified in a browser |
 | **Phase 3** — data model, node registry, execution engine | **COMPLETE** — verified on the deployed URL, 2026-09-25 |
 | **Phase 4** — visual canvas: build, edit, save, load | **COMPLETE** — verified on the deployed URL in a browser, 2026-09-26 |
-| **Phase 5** — live execution: per-node status and log streaming | **COMPLETE** — verified on the deployed URL in a browser, 2026-09-26 |
+| **Phase 5** — live execution streaming | **COMPLETE** — verified on the deployed URL in a browser, 2026-09-26 |
 | **Phase 6** — agent layer: LLM node, agent node, provider config | **COMPLETE** — verified on the deployed URL in a browser, 2026-09-26 |
 | **Phase 7** — natural language → workflow generation | **COMPLETE** — verified on the deployed URL in a browser, 2026-09-26 |
 | **Phase 8** — triggers: webhook + schedule | **COMPLETE** — verified on the deployed URL and by a real Cloud Scheduler invocation, 2026-09-26 |
+| **Phase 9** — integrations: HTTP, Discord, Sheets, Gmail | **COMPLETE** — verified on the deployed URL; a real Discord message posted. Sheets/Gmail runtime awaits OAuth pass 3 |
 
 ---
 
@@ -50,14 +57,15 @@ acceptance test.
 | **Canonical URL** | **`https://agentforge-733000675212.asia-southeast1.run.app`** |
 | Legacy URL | `https://agentforge-i5d2u66boa-as.a.run.app` — works, do not publish it |
 | Service | `agentforge` on Cloud Run, `asia-southeast1` |
-| Revision | **`agentforge-00014-cpb`** — ready, 100% of traffic. Previous good revision: `agentforge-00013-zwt` |
+| Revision | **`agentforge-00015-vwg`** — ready, 100% of traffic. Previous good revision: `agentforge-00014-cpb` |
 | Scaling | `min-instances 1`, `max-instances 3`, 1 vCPU / 1 GiB, 3600 s timeout, port 8080 |
-| Env vars set | `NODE_ENV` `AUTH_URL` `APP_BASE_URL` `DATABASE_URL` `AUTH_SECRET` `GOOGLE_CLIENT_ID` `GOOGLE_CLIENT_SECRET` `ENCRYPTION_KEY` `CRON_SECRET` — 9, **unchanged by Phase 8 too**. `CRON_SECRET` and `APP_BASE_URL` were already set in Phase 2 and Phase 8 finally uses both. No Gemini key on the service: the product path is the user's own key |
-| Database | Neon `super-mountain-39872886` — **8 tables**, migrations `0000` + `0001` + **`0002_wooden_morlocks`** applied. Phase 8 added `webhookToken`, `scheduleNextAt`, `scheduleLastFiredAt` to `workflow` |
-| Routes | `/` `/dashboard`→`/workflows` `/workflows` `/workflows/[id]` `/settings` + **13** API routes (Phase 8 added `POST /api/webhook/[token]` and `POST /api/cron/tick`) |
+| Env vars set | `NODE_ENV` `AUTH_URL` `APP_BASE_URL` `DATABASE_URL` `AUTH_SECRET` `GOOGLE_CLIENT_ID` `GOOGLE_CLIENT_SECRET` `ENCRYPTION_KEY` `CRON_SECRET` — **still 9. Phase 9 added none**: the Google integration flow reuses `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `APP_BASE_URL`, and every third-party credential is a `credential` row rather than an environment variable. No Gemini key on the service: the product path is the user's own key |
+| Database | Neon `super-mountain-39872886` — **8 tables**, migrations `0000` + `0001` + `0002_wooden_morlocks` applied. **Phase 9 needed no migration**: two new credential kinds are rows in the existing `credential` table, which is what `(ownerId, kind, label)` was for |
+| Routes | `/` `/dashboard`→`/workflows` `/workflows` `/workflows/[id]` `/settings` + **17** API routes (Phase 9 added `/api/integrations/discord`, `/api/integrations/google`, `/api/integrations/google/connect` and `/api/integrations/google/callback`) |
 | Warm latency | health ~190 ms India → Singapore. A 7-node run with a 1.5 s delay and an agent node that calls a tool: **3.6 s end to end**. **Generation: 2.3–3.2 s** for a 5-node workflow, measured again in Phase 8 |
 | Last verified | **2026-09-26** — `VERIFY_GEMINI_KEY=… node --env-file=.env scripts/verify-api.mjs <url>`, **125 checks passed, 0 failed, 1 skipped** (the skip is storing a key, because one is already stored and the API is write-only), plus the trigger UI driven in a real browser |
-| Provider key stored | **Yes, deliberately left in place.** The user's own free-tier key is stored (encrypted) against their account on the deployed app, so Phase 7 is not blocked on re-pasting it |
+| Provider key stored | **Yes, deliberately left in place.** The user's own free-tier key is stored (encrypted) against their account on the deployed app, so no phase is blocked on re-pasting it |
+| Registry | **15 nodes.** Phase 9 added `integration.http`, `integration.discord`, `integration.sheets`, `integration.gmail` — **and nothing else**: no palette code, no config form, no validator rule, no second tool list |
 
 **A redeploy preserves env vars.** Confirmed again on Phase 6's three deploys: `gcloud run deploy
 agentforge --source . --region asia-southeast1` with no `--env-vars-file` carried all 9 variables
@@ -65,64 +73,81 @@ to each new revision. The file is only needed when a variable changes.
 
 ---
 
-## Phase 8 — what was verified, not just written
+## Phase 9 — what was verified, not just written
 
-`npm test` — **215 tests**, no database, no network, ~750 ms. Phase 8 added 46: the cron evaluator
-(steps, ranges, lists, the day-of-month/day-of-week OR rule, leap years, an expression that can never
-match, UTC), the payload rules, the schedule derivation, and the secret comparison.
-`scripts/verify-api.mjs` — **126 checks defined, 38 added by Phase 8**. Against the deployed URL:
-125 passed, 0 failed, 1 skipped.
+`npm test` — **267 tests**, no database, no network, ~860 ms. Phase 9 added 52: the outbound guard
+(every blocked range, the IPv4-in-IPv6 forms, the split-DNS rule), the Discord URL shapes, Gmail
+header injection and base64url, the OAuth parameters and scope arithmetic, the CSRF state comparison,
+and the registry projection for all four nodes.
+`scripts/verify-api.mjs` — **178 checks defined, 52 added by Phase 9.** Against the
+deployed URL: **177 passed, 0 failed, 1 skipped** (the skip is storing a provider key, because one is already stored and the API is write-only).
 
 **Driven against the deployed URL:**
 
 | Checked | Result |
 |---|---|
-| `POST /api/cron/tick` with no secret, a wrong secret, or **a valid session cookie** | ✓ 401 in all three cases — a session is not a substitute for the secret |
-| `POST /api/cron/tick` as GET | ✓ 405 |
-| A webhook call with **no session at all** | ✓ 201, the run succeeded |
-| The posted body as the trigger's output, and `{{trigger.field}}` downstream | ✓ `"from Priya: Our production checkout has been down…"` resolved in the log node's config |
-| An unknown token, a malformed token, a token whose workflow has no webhook trigger | ✓ 404 for all three, indistinguishable |
-| A missing required field / malformed JSON / a non-object body | ✓ 400, and the missing field named in `details.missing` |
-| **A rejected call writes nothing** | ✓ 0 run rows after four rejected calls |
-| A due schedule fired by the tick | ✓ run created, `trigger: "schedule"`, succeeded |
-| **A second tick immediately after** | ✓ fired nothing; exactly **1 run for 1 slot** |
-| A due workflow whose schedule trigger was removed | ✓ `cleared`, not run, and its due time nulled |
-| **Cloud Scheduler itself** | ✓ `gcloud scheduler jobs run` → Scheduler's own log records **HTTP 200** |
+| All four integrations in the registry, each with an `outputShape` | ✓ 15 nodes, 4 in `integration` |
+| HTTP, Discord and Sheets in the agent tool set; **Gmail not** | ✓ and a tool set narrowed to include Gmail reports it `rejected`, never grants it |
+| Every integration route without a session | ✓ 401 on all five |
+| A Discord channel link, an invite, a non-Discord host, plain http, not-a-URL | ✓ 400 each, with the message naming what to copy instead |
+| A well-formed but non-existent webhook | ✓ 400 from Discord itself, and **nothing stored** |
+| Any status response containing part of a stored secret | ✓ none — no webhook URL, no token, no `refresh` anywhere in either shape |
+| The consent URL | ✓ `access_type=offline`, `prompt=consent`, `include_granted_scopes=true`, exactly the two scopes, this deployment's own callback, and **no client secret in a URL the browser follows** |
+| The CSRF state | ✓ ≥20 chars, `HttpOnly`, and **a callback with no state cookie or a mismatched one is refused** — nothing connected |
+| `connect` and `callback` signed out | ✓ 302 home, not a JSON 401 |
+| **The outbound guard, through the real engine on the deployed container** | ✓ **9/9 refused**: the metadata server over http *and* by name, `localhost`, loopback, RFC 1918, link-local, IPv6 `::1`, a `.internal` name, and credentials in the URL |
+| A real public HTTPS API | ✓ `api.github.com/zen` → 200 with a body, which also proves the `User-Agent` is sent (GitHub answers 403 without one) |
+| A JSON response | ✓ parsed into `output.json`, so a `{{ }}` reference reaches a field |
+| A 404, with `failOnError` at its default | ✓ step **failed**, carrying the API's own message |
+| The same 404 with `failOnError: false` | ✓ step succeeded with `status: 404, ok: false`, so a branch can route on it |
+| **A real message posted to `#agentforge-demo`** | ✓ run succeeded, Discord returned a `messageId`, and the `{{trigger.note}}` in the template arrived resolved |
+| The webhook deleted, then the same workflow re-run | ✓ failed with *"No Discord webhook is connected. Add one in Settings → Integrations."* |
+| A Sheets node with no spreadsheet chosen | ✓ saves, reports **runnable**, and on a run says *"This node has no spreadsheet yet."* |
+| A Sheets node with Google not connected | ✓ *"Google is not connected. Connect it in Settings → Integrations."* — not a stack trace |
 
 **Driven in a real browser on the deployed app:**
 
 | Checked | Result |
 |---|---|
-| The palette | ✓ both new triggers appear with their descriptions — no palette code changed |
-| The webhook node's inspector | ✓ URL in a readonly field, **Copy URL** button, and the "treat it as a secret" note |
-| Copying the URL | ✓ no failure path shown, so `writeText` resolved |
-| The schedule node's inspector | ✓ **Next run 26 Sept 2026, 05:48 UTC**, the expression, and the UTC + 15-minute note |
-| Console | ✓ 0 errors, 0 warnings |
+| The settings page's new **Integrations** section | ✓ Discord and "Google Sheets & Gmail" both render, both "Not connected" |
+| The palette | ✓ an **INTEGRATIONS** group appeared on its own, with all four nodes and their descriptions — **no palette code changed** |
+| All four nodes on the canvas | ✓ labelled, edged, and the workflow saved `runnable: true` with no problems |
+| **The Discord node's inspector** (`DEMO.md` Beat 4) | ✓ Label, **Content** marked `required` as an editable textarea holding `Urgent: {{trigger.message}}`, and Username — **entirely from the registry, no node-specific UI** |
+| Console, on a fresh load with tracking active | ✓ **0 messages, 0 errors** — the new client component does not repeat Phase 6's hydration bug |
+| **Connect Google** | ✓ reaches `accounts.google.com`, which answers `redirect_uri_mismatch` naming exactly `…/api/integrations/google/callback`. **Google itself confirms the flow is correct and only the registration is missing** (M8) |
 
-**Generation, with no generation code changed at all** — the prompt reads the registry, so
-registering two nodes was the entire change:
+**Generation — the acceptance test Phase 8 set:**
 
-| Prompt | Trigger chosen | Result |
-|---|---|---|
-| `DEMO.md` Beat 2's **target** prompt | `core.webhook_trigger` | `webhook → llm → agent → branch → log`, first attempt, 3.2 s. `unsupported`: Discord, Sheets |
-| The pinned demo prompt | `core.manual_trigger` | unchanged, `unsupported: []` — **no regression** |
-| "Every weekday at 9am UTC…" | `core.schedule_trigger`, `0 9 * * 1-5` | next run computed as **Mon 28 Sept**, because the 26th is a Saturday |
+| Prompt | Result |
+|---|---|
+| `DEMO.md` Beat 2's **target** prompt | **3/3 first attempt, `unsupported: []`** — `webhook → llm → agent → branch → Discord + Sheets`. The branch reads `{{steps.classify.output.decision}}` (D38 holding), the Sheets row is a proper cell array of `{{ }}` references, and `spreadsheetId` is left empty as instructed |
+| The same prompt's routing | The model wires the sheet off **both** branch outputs unprompted, because the request said "log *every* one" — which is correct, and not something it was told |
+| A request nothing can satisfy | ✓ still reported as `unsupported`, so Phase 7's honesty did not regress into silence |
 
-**Three things worth recording, found while building:**
+**Four things worth recording, found while building:**
 
-1. **An every-minute tick would have blown Neon's free tier.** `DEPLOYMENT.md` pre-specified
-   `* * * * *`. Neon's free plan is **100 CU-hours/month** and its 5-minute autosuspend **cannot be
-   disabled**, so a minutely tick pins the database awake 24/7 — 720 h × 0.25 CU ≈ **180 CU-hours**,
-   nearly double the allowance, and it would have suspended mid-month during a live-demo hackathon.
-   Corrected to `*/15` (≈60 CU-hours). The cost is that a cron expression's effective resolution is
-   the tick interval, which `DEMO.md` says costs the demo nothing.
-2. **Recomputing `scheduleNextAt` on save would double-fire a slot.** A schedule that already fired
-   for 09:00 holds *tomorrow* 09:00; recomputing at 08:59 moves it back to today. The rule is to keep
-   the stored time whenever the expression has not changed (D42). A test asserts it.
-3. **A pure guard must not live next to database code.** `cronSecretMatches` first sat in `tick.ts`,
-   which reaches the engine, which reaches `next-auth` — and the test runner cannot load it. Split
-   into `src/lib/triggers/secret.ts`. This is D18's lesson arriving a second time: the guard on the
-   one endpoint reachable by anyone is exactly what must be assertable in a millisecond.
+1. **The generation prompt named the now-possible as impossible.** It hardcoded "sending email,
+   posting to a chat service, writing to a spreadsheet" as its examples of what to put in
+   `unsupported`. Phase 8's note predicted generation would need *no change*, and the **catalogue**
+   indeed needed none — but that sentence would have kept telling the model Discord and Sheets were
+   out of reach while the nodes sat in the list above it. Corrected, and the examples replaced with a
+   per-integration design note. **The lesson: a prompt that names specifics dates like code, and
+   nothing type-checks prose.**
+2. **A throwing `preprocess` escapes `safeParse` entirely** (measured on zod 4.6.5) rather than
+   producing an issue. The header-map coercion exists because Gemini cannot express an open-ended
+   object and degrades one to "a JSON object, given as a string" — so the model sends a string. Had
+   the coercion thrown on malformed JSON, a bad agent argument would have become an unhandled 500
+   instead of a tool error the model corrects itself from.
+3. **A registry test caught a UI consequence of a schema choice.** `describeFields` sends any string
+   over 200 characters to a textarea, so `to`, `cc` and `spreadsheetId` would have rendered as
+   multi-line boxes. Tightened to 200; `url` deliberately kept at 2000 and therefore a textarea,
+   because a URL can carry a long query string. Nothing but the test would have noticed before the
+   inspector was opened on stage.
+4. **`min(1)` on `spreadsheetId` would have broken Beat 2.** The prompt names no spreadsheet, so the
+   model must either invent an id — a valid graph pointing at a stranger's document — or fail the
+   whole generation. Empty, with a node that says *"This node has no spreadsheet yet"*, is the honest
+   third answer. Validation skips any config containing `{{`, so an unfilled field would otherwise
+   have slipped through to a cryptic runtime failure anyway.
 
 ## Decisions — BINDING
 
@@ -168,6 +193,10 @@ Carried forward from every phase. These are the decisions later sessions must no
 | **D41** | **The webhook token lives on the workflow row, not in the graph** | Validation already permits one trigger per workflow, so a per-node token buys nothing. A secret inside the graph would be minted by the *model* that writes it (D40 says the system supplies what a model cannot) or by the browser. And a column is one indexed lookup for the receiver with nothing to keep in sync. 24 bytes of CSPRNG as base64url — 192 bits — minted for every workflow at creation so the URL does not depend on when the node was added. `webhookUrl` is returned only when the stored graph actually holds a webhook trigger, so the UI never prints a URL that would 404 |
 | **D42** | **The cron tick claims a due schedule by compare-and-set, before running it** | `neon-http` has no transactions (D6), so a conditional `UPDATE … WHERE scheduleNextAt = <observed>` is the atomic primitive available — and it is enough: a second tick updates zero rows and fires nothing. That is what makes a Scheduler retry, an overlapping manual run, or two containers under `max-instances 3` safe. Claiming **before** the run means a run that kills the container loses its slot instead of re-firing for ever. The paired rule: on save, an unchanged expression **keeps** its stored due time, because recomputing can move a fired slot back into the future's past and fire it twice |
 | **D43** | **Cron is evaluated in UTC, by ~200 lines of arithmetic rather than a dependency** | A cron expression carries no timezone. Reading the server's zone makes a schedule mean different things on a laptop and on Cloud Run; a per-workflow zone means implementing DST, where "02:30 daily" legitimately happens zero times or twice a year. UTC is stated in the node's own description, so the model writing an expression and the user reading one are told rather than left to assume. Unsupported syntax (names, `?`, `L`, `W`, `#`, seconds, a year field) is **rejected at config-validation time** — the alternative is this node's worst failure, a schedule that saves cleanly, displays, and never fires |
+| **D44** | **`integration.gmail` is closed to the agent; HTTP, Discord and Sheets are open** | D19 exercised the way D36 exercised it. The other three act inside something the user owns — Discord's destination is not even in the config, it is the stored credential. A sent email leaves the account, reaches a third party and cannot be recalled, and an agent-callable Gmail means a model chooses **both** recipient and body from text that arrived on an unauthenticated webhook. `DEMO.md` needs nothing from it (Beat 8 is Discord and Sheets), and Phase 9's own notes rank Gmail first to cut. **A deliberate deviation from `BUILD_PLAN.md`'s wording, recorded not hidden**; flipping the boolean is one line |
+| **D45** | **`integration.http` is bounded by a guard, not by trust** | `BUILD_PLAN.md` says it is not an agent escape hatch; `src/lib/integrations/guard.ts` is what makes that true, because `agentCallable: true` means a model picks the URL. Public addresses only — **every** resolved address, not any, or a split-DNS name passes and `fetch` picks the other one — including the IPv4-mapped and NAT64 forms, since `::ffff:a9fe:a9fe` is the metadata server too. **https only** is the rule that matters: rule 1 checks DNS and `fetch` resolves again, so rebinding defeats it, whereas the metadata server has no certificate. Redirects reported, never followed, because following one re-resolves a host already cleared |
+| **D46** | **Google's extra scopes are asked for in their own flow, and the stored secret is the refresh token** | Sign-in asks for identity only: putting "Send email on your behalf" in front of every visitor before they have built anything is what `BUILD_PLAN.md` calls actively harmful. Auth.js does not re-persist account tokens on a later sign-in, so a second flow is also the only reliable way to get a refresh token. `access_type=offline` **with** `prompt=consent` is what returns one — Google omits it for an already-granted user otherwise, leaving a connection that works for exactly one hour. A connection with no refresh token is **refused** rather than stored. Access tokens are fetched per execution and not cached: ~200 ms against a 120 s budget, versus a cache that would need invalidating on disconnect |
+| **D47** | **`state` on the integration callback is a CSRF control, not decoration** | The callback is a `GET` a third party can cause a signed-in browser to make. Without it an attacker delivers *their* authorization code and the victim's account stores a refresh token for the attacker's Google account — after which every appended row and every sent mail goes to the attacker. 24 bytes of CSPRNG in an `HttpOnly`, path-scoped, 10-minute cookie, compared in constant time. `SameSite=Lax` is required rather than chosen: the callback is a cross-site top-level navigation and `Strict` withholds the cookie |
 
 ---
 
@@ -181,9 +210,12 @@ Carried forward from every phase. These are the decisions later sessions must no
 | **`min-instances 1` bills continuously** | Cost, after the hackathon | **Set to 0 once judging ends** — and **pause `agentforge-cron` at the same time**, or the tick keeps Neon awake ~240 h/month for nothing |
 | **Neon free plan is 100 CU-hours/month and autosuspend cannot be disabled** | Any background polling | The 5-minute autosuspend is fixed on the free plan. Anything that touches the database more often than ~every 6 minutes pins it awake at 0.25 CU — 720 h/month ≈ 180 CU-hours, which is **over the allowance**. This is why the cron tick is `*/15` and not `* * * * *` (D43 sibling; the arithmetic is in `DEPLOYMENT.md`) |
 | **The webhook URL is a bearer secret shown in the UI** | Demo day, screen sharing | Anyone holding it can start a run, and a run can spend model quota. The inspector says so. **There is no rotation yet** — re-minting means recreating the workflow. Do not show the webhook node's inspector on a shared screen; the `curl` in `DEMO.md` uses an exported `$WEBHOOK_URL` for exactly this reason |
-| **OAuth consent screen is in `Testing`** | Demo day | Only listed test users can sign in. Before the demo: publish the app, or add each judge as a test user (cap 100) |
+| **OAuth consent screen is in `Testing`, and must stay there** | Demo day | Only listed test users can sign in, so **add each judge as a test user** (cap 100). **"Publish the app" is no longer an option**: Phase 9's Sheets and Gmail scopes are *sensitive*, and going to production with them requires Google verification, which takes days. Corrected here — the earlier note offering either is wrong. The judge never connects Google anyway: sign-in asks for identity only, and the presenter's account is connected beforehand |
+| **Sheets and Gmail cannot run until OAuth pass 3 is done** | Phase 9 runtime, demo Beat 8's second half | The two `/api/integrations/google/callback` redirect URIs are not yet on the OAuth client, so `Connect Google` will answer `redirect_uri_mismatch`. The exact block is in `DEPLOYMENT.md` (OAuth pass 3). Everything up to Google's own consent screen is verified; nothing else in Phase 9 depends on it |
+| **`integration.http` is agent-reachable, which is SSRF by design** | Any agent node, any webhook-triggered run | **Bounded, not unbounded** — D45. The residual risk is a valid certificate for a hostname resolving into a private range, which this service has nothing private to reach. If that ever changes, pin the resolved address into the connection. The guard's nine refusals are asserted against the deployed container, not just in unit tests |
+| **A stored Discord webhook URL can post to that channel for ever** | Any leaked credential | Encrypted at rest and never returned to a client, but there is no rotation: replacing it means pasting a new URL. Same shape as the webhook-trigger issue above |
 | **4 moderate `npm audit` findings, one root cause** | None in production | esbuild dev-server issue reachable only through `drizzle-kit`. Dev dependency, absent from the runtime image. **Accepted** |
-| **Discord rejects requests with no `User-Agent`** | Phase 9 Discord node | Send an explicit UA |
+| ~~Discord rejects requests with no `User-Agent`~~ | Was the Phase 9 trap | **Handled.** `src/lib/integrations/net.ts` sets one on every outbound request, so no node can forget. Also why `api.github.com` answers the HTTP node — it 403s without one, which makes the deployed check prove the header |
 | **The `agentforge-hackathon-2026` Gemini key is dead** | Was a Phase 6 blocker | Every model answers **402 "prepayment credits are depleted"**: the project has billing enabled, which moves it off the Gemini free tier. `GOOGLE_GENERATIVE_AI_API_KEY` in local `.env` is this dead key. **Use the `agentforge-gemini-free` key instead** (no billing → free tier). Do not enable billing on that project |
 | **`models.list` lists models a key cannot call** | Phases 6, 7 | `gemini-2.5-flash` is in the catalogue and answers 404 "no longer available to new users". Never treat the list as the callable set — make a real call (D34) |
 | **`gemini-2.0-flash` and `gemini-2.5-flash*` are retired** | Phases 6, 7 | List models, never assume a name. Current default: `gemini-3.5-flash-lite` |
@@ -215,7 +247,37 @@ Carried risks, recorded so they are not rediscovered:
 
 ## Manual Actions Pending
 
-**None.** M1–M7 are all done and verified with live calls.
+**M8 — add two redirect URIs to the OAuth client.** The block is in `DEPLOYMENT.md` (OAuth pass 3).
+
+```
+http://localhost:3000/api/integrations/google/callback
+https://agentforge-733000675212.asia-southeast1.run.app/api/integrations/google/callback
+```
+
+Console only — there is no `gcloud` command for a Web-application client's redirect URIs, and no API
+(`gcloud alpha iap oauth-clients` manages IAP brands, which is a different thing). Checked, not
+assumed.
+
+**What it blocks:** only `Connect Google`, and therefore the Sheets and Gmail nodes at *runtime*.
+Both nodes, their credential handling, their scope checks and their failure messages are deployed and
+verified; the flow is proved up to Google's own consent screen. Nothing else in Phase 9 depends on it
+and Phase 10 does not.
+
+**Verify it with:** open `/settings` on the deployed URL, press **Connect Google**, expect Google's
+consent screen listing the Sheets and Gmail-send permissions rather than `Error 400:
+redirect_uri_mismatch`. Then confirm the credential row:
+
+```bash
+node --env-file=.env -e 'import("@neondatabase/serverless").then(async({neon})=>{
+  const sql=neon(process.env.DATABASE_URL_UNPOOLED);
+  console.log(await sql.query(`select kind,label,metadata,"updatedAt" from "credential" where kind='"'"'google.oauth'"'"'`));
+})'
+```
+
+Allow ~90 s for Google to propagate the change before believing a `redirect_uri_mismatch`
+(`DEPLOYMENT.md` records this as real, seen on 2026-09-25).
+
+M1–M7 are all done and verified with live calls.
 
 ---
 
@@ -235,7 +297,9 @@ Carried risks, recorded so they are not rediscovered:
 | Neon branch / database / role | Neon | `production` / `neondb` / `neondb_owner` | **VERIFIED** |
 | Neon tables | Neon | `user` `account` `session` `verificationToken` `workflow` `run` `run_step` `credential` | **APPLIED** — `0000_dark_paladin`, `0001_smiling_leper_queen`, `0002_wooden_morlocks` |
 | Enabled APIs | Google Cloud | `run`, `cloudbuild`, `artifactregistry`, `cloudscheduler`, `apikeys`, `generativelanguage` | **ENABLED** |
-| Stored provider credential | Neon | `credential` row, kind `llm.google`, for the demo user | **PRESENT** — the free-tier key, encrypted. Left in place so Phase 7 is not blocked |
+| Stored provider credential | Neon | `credential` row, kind `llm.google`, for the demo user | **PRESENT** — the free-tier key, encrypted. Left in place so no phase is blocked |
+| Stored Discord credential | Neon | `credential` row, kind `integration.discord` | **ABSENT, and that is expected.** The verify script stores it, posts with it, then deletes it, because deletion is one of the paths under test. **Demo day must re-add it** at Settings → Integrations (`DEMO.md` setup state, row 6). `DISCORD_WEBHOOK_URL` in local `.env` is the value |
+| Stored Google credential | Neon | `credential` row, kind `google.oauth` | **ABSENT until M8 is done.** Then: Settings → Integrations → Connect Google, both boxes ticked |
 | ~~Gemini API key~~ | Google Cloud | "AgentForge Gemini" in `agentforge-hackathon-2026` | **DEAD** — 402, the project has billing so it is off the free tier. Kept, unused |
 | **`agentforge-gemini-free` project** | Google Cloud | **no billing**, `generativelanguage` enabled only | **CREATED Phase 6.** Exists solely to hold a free-tier Gemini key. **Never enable billing on it** |
 | **Gemini API key (free tier)** | Google Cloud | "AgentForge Gemini Free Tier" in `agentforge-gemini-free`, restricted to `generativelanguage.googleapis.com` | **VERIFIED 2026-09-26** — text generation and function calling both work. Read it with `gcloud services api-keys get-key-string` |
@@ -271,10 +335,10 @@ Tests run on Node's built-in runner.
 ## How to verify the system, from a cold session
 
 ```bash
-npm run typecheck && npm test           # 215 tests, no database, no network, ~750 ms
+npm run typecheck && npm test           # 267 tests, no database, no network, ~860 ms
 npm run build                           # Turbopack; one expected process.exit warning
 
-# 126 checks end to end over HTTP. Mints a real session row, drives the API, cleans up.
+# 178 checks end to end over HTTP. Mints a real session row, drives the API, cleans up.
 # Takes ~2 min: one check deliberately waits 21 s for an idle stream to close itself, and the
 # agent and generation checks make real model calls.
 #
@@ -283,10 +347,17 @@ npm run build                           # Turbopack; one expected process.exit w
 VERIFY_GEMINI_KEY="$(gcloud services api-keys get-key-string \
   "$(gcloud services api-keys list --project=agentforge-gemini-free --format='value(name)' | head -1)" \
   --format='value(keyString)')" \
+VERIFY_DISCORD_WEBHOOK="$(grep '^DISCORD_WEBHOOK_URL=' .env | cut -d= -f2-)" \
   node --env-file=.env scripts/verify-api.mjs https://agentforge-733000675212.asia-southeast1.run.app
 
-# Without it those checks SKIP rather than pass. It also skips storing a key when one is
+# Without them those checks SKIP rather than pass. It also skips storing a key when one is
 # already stored: the API is write-only, so a stored key cannot be read back and restored.
+#
+# VERIFY_DISCORD_WEBHOOK posts a REAL message to #agentforge-demo and then deletes the stored
+# credential, because deletion is one of the paths under test. Clear the message afterwards,
+# and re-add the webhook in Settings before demo day.
+#
+# The nine outbound-guard checks and everything else in Phase 9 run without either variable.
 
 # To look at the canvas without driving Google OAuth by hand: mint a session row,
 # set it as a cookie in the browser, then revoke it. Same mechanism, no app bypass.
@@ -303,28 +374,27 @@ decorators anywhere in `src`.
 
 ---
 
-## Notes for Phase 9
+## Notes for Phase 10
 
-- **Phase 8 proved the registry claim twice over.** Registering two trigger nodes was the entire
-  change: the palette, the config forms, the validator and the generation prompt all picked them up
-  with **no code changed in any of them**. Expect the same for the four integration nodes — if a
-  Phase 9 node needs UI work, that is a signal something is wrong with the node, not the UI
-- **`unsupported` is the acceptance test.** `DEMO.md` Beat 2's target prompt now builds its webhook
-  spine and reports exactly two unsupported parts: `"post urgent ones to Discord"` and
-  `"log every one to my Google Sheet"`. **Those two lines disappearing is how Phase 9 is done.**
-  Re-run that prompt against the deployed URL at the end of the phase
-- **`agentCallable` still defaults to false** (D19). Opt each integration in deliberately — D36 is
-  the worked example, and an integration that writes to someone's spreadsheet deserves more thought
-  than `core.log` did
-- **Give every non-pass-through node an `outputShape`** (D38). A Sheets node's output shape is
-  exactly what a generated `{{ }}` reference will need
-- **The config form falls back to a raw JSON editor for an array field.** `requiredFields` renders as
-  a JSON box — usable, and the documented fallback (`src/lib/canvas/schema.ts`), but if a Phase 9
-  node has a list-shaped config worth polishing, that is a Phase 10 item, not a Phase 9 one
-- **Discord rejects requests with no `User-Agent`** — already recorded above, and Phase 9's first
-  trap
-- **A credential per integration goes through the Phase 6 envelope.** `credential` is keyed
-  `(ownerId, kind, label)`; nothing in that row may reach a client in plaintext
+- **The registry claim has now held three phases running.** Phases 8 and 9 added six nodes between
+  them and changed **no** palette code, **no** config form, **no** validator rule and **no** second
+  tool list. Phase 10 is the first phase whose job *is* the UI — so it is the phase that must not
+  break that property. A change that makes the palette or the inspector know a node type by name
+  undoes what Phases 3–9 bought
+- **One config field renders as a raw JSON box:** `integration.sheets.values`, because it is an array
+  (`src/lib/canvas/schema.ts`'s documented fallback). This is the list-shaped field the Phase 9 notes
+  deferred here. It is usable as-is and `DEMO.md` does not open it — Beat 4 opens the Discord node,
+  whose fields are a textarea and an input
+- **`integration.http.url` renders as a textarea**, deliberately: it is capped at 2000 characters
+  because a URL can carry a long query string, and `describeFields` sends anything over 200 to a text
+  box. Asserted in `src/lib/nodes/integration/integration.test.ts` so it stays deliberate
+- **No favicon** — `/favicon.ico` still 404s, and it is visible in the browser tab. `public/` exists
+- **Two client components format dates**, and both must keep formatting in UTC with a fixed locale or
+  React throws hydration error #418: `provider-form.tsx` and `integrations-form.tsx`
+- **The settings page now has two sections and will grow a third if a provider is added.** If it
+  wants a tab or an accordion, that is Phase 10's call
+- **Read the console on the deployed page, not just locally.** Phase 6's hydration error and Phase 8's
+  clean run were both found that way, and it is the only check that catches them
 
 ## Open, but blocking nothing
 
@@ -334,6 +404,42 @@ the user deliberately** — it governs whether others may commercialise the work
 ---
 
 ## Recent Changes
+
+**2026-09-26 — Phase 9 complete, workflows reach real outside services**
+
+- `integration.http`, `integration.discord`, `integration.sheets`, `integration.gmail`, an outbound
+  guard, a Google incremental-consent flow, the credential UI and 52 new deployed checks — deployed
+  as `agentforge-00015-vwg`. **177 of 178 checks passed, 0 failed**
+- **Beat 2's acceptance test met.** Phase 8 predicted the two `unsupported` lines would disappear
+  when the nodes existed, and they did: **3/3 first attempt, `unsupported: []`**, building
+  `webhook → llm → agent → branch → Discord + Sheets`. The model wires the sheet off *both* branch
+  outputs unprompted, because the request said "log every one"
+- **The registry claim held a third time** — six nodes across two phases and still no palette code,
+  no config form, no validator rule, no second tool list. Verified visually: an `INTEGRATIONS` group
+  appeared in the palette on its own, and the Discord inspector renders `Content` as a required
+  textarea entirely from the schema
+- **Corrected the generation prompt, which named the now-possible as impossible.** It hardcoded
+  "sending email, posting to a chat service, writing to a spreadsheet" as its examples of
+  `unsupported`. The catalogue needed no change, exactly as predicted — but that *sentence* would
+  have kept steering the model away from nodes sitting in the list above it. **Prose dates like code
+  and nothing type-checks it**
+- **Made `integration.http` safe to hand a model** (D45) rather than assuming it was. Nine blocked
+  targets refused through the real engine on the deployed container, including the GCP metadata
+  server by address, by name, and by scheme — a token for this service's own identity was one plain
+  GET away
+- **Closed Gmail to the agent** (D44), a deliberate, recorded deviation from `BUILD_PLAN.md`'s
+  wording: a model choosing both recipient and body from webhook text is the one effect here that
+  leaves the user's account and cannot be recalled
+- **Found that a throwing `preprocess` escapes `safeParse`** on zod 4.6.5, which would have turned a
+  malformed agent argument into an unhandled 500 instead of a correctable tool error
+- **Found that `min(1)` on `spreadsheetId` would break Beat 2** — the prompt names no spreadsheet, so
+  the model must invent an id or fail the whole generation. Empty, with a node that says what it
+  needs, is the honest third answer
+- **Corrected a Known Issue that had gone wrong:** "publish the app, or add test users" is no longer
+  a choice. Phase 9's scopes are *sensitive*, so publishing now requires Google verification. Test
+  users is the only path
+- Added no dependencies. **Eight phases in, the list is still the Phase 4 one**, and Phase 9 added no
+  environment variable and no migration either
 
 **2026-09-26 — Phase 8 complete, workflows start from a webhook and on a schedule**
 
@@ -376,28 +482,21 @@ the user deliberately** — it governs whether others may commercialise the work
 
 **2026-09-26 — Phase 6 complete, agent nodes reason at runtime in production**
 
-- Provider adapter, credential encryption, settings UI, LLM node and agent node — deployed as
-  revision `agentforge-00011-tfq`, verified by 82 HTTP checks plus the settings page and an agent run
-  driven in a real browser
-- **Unblocked a dead Gemini key.** Every model 402'd on the main project because billing moves it off
-  the free tier. Created `agentforge-gemini-free` (no billing) to hold a free-tier key
-- **Chose `fetch` over the `ai` SDK** (D32) on four measured grounds, and struck the two packages out
-  of `ARCHITECTURE.md`'s adopted-stack table rather than leaving it stale
-- **Found that a normalising adapter breaks on the second tool call** — Gemini 3's `thoughtSignature`
-  (D33). The history is now replayed verbatim
-- **Found that Gemini rejects the JSON Schema Zod emits**, so every agent tool would have failed at
-  first use. Added an allow-list sanitiser (D35)
-- **Found that `models.list` lists models a key cannot call.** A model choice is now proved with a
-  real call (D34) — the bug had already stored `gemini-does-not-exist` and broken every run
-- **Found a hydration error on the deployed settings page** by reading the console: a client
-  component's `toLocaleString()`. Now formatted in UTC with a fixed locale
-- **Closed `core.branch` and `core.assert` to the agent** (D36), Phase 6's deliberate exercise of D19
-- Put the tool projection, the schema sanitiser and the agent loop in pure modules so the cap is
-  asserted against a fake model in a millisecond rather than against a real quota
+Provider adapter, credential encryption, settings UI, LLM node and agent node. The findings that
+still matter are all carried in the decisions table (D32–D36) and Known Issues: `fetch` over the
+`ai` SDK, Gemini 3's `thoughtSignature` breaking a normalising adapter on the second tool call,
+Gemini rejecting the JSON Schema Zod emits, `models.list` listing models a key cannot call, and the
+dead billing-enabled key. Full detail is in git history at `56dce47`.
 
 ## Last Updated
 
-**2026-09-26** — Phase 8 complete. Revision `agentforge-00014-cpb` live; the deployed HTTP suite
-passed (125 of 126 checks run, 1 skipped, 0 failed), the `agentforge-cron` Cloud Scheduler job fires
-the live URL (HTTP 200 in Scheduler's own log), and the trigger UI was driven in a real browser with
-0 console errors. No manual actions pending.
+**2026-09-26** — Phase 9 complete. Revision `agentforge-00015-vwg` live; the deployed HTTP suite
+**passed in full** (177 of 178 checks run, 1 skipped, **0 failed**), a real message was posted to
+`#agentforge-demo` from a deployed run, the outbound guard refused all nine blocked targets through
+the real engine, and the settings page, palette and Discord inspector were driven in a real browser
+with 0 console errors. `DEMO.md` Beat 2's target prompt now generates the full spine with
+`unsupported: []`, 3/3 on the first attempt.
+
+**One manual action pending — M8**, the two integration redirect URIs on the OAuth client. It blocks
+only the Sheets and Gmail *runtime*; Google's own `redirect_uri_mismatch` confirms everything up to
+the registration is correct.

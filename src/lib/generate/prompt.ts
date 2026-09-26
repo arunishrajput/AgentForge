@@ -145,7 +145,14 @@ Designing with the AI nodes:
   - When the workflow has to CHOOSE between named outcomes — urgent or not, approve or reject, which category — use "ai.agent" with "choices", not an "ai.llm" whose text you then compare. The agent's output.decision is constrained to your list, so the branch is exact instead of depending on how the model happened to word a sentence.
   - An agent does not have its own branches. To route on what it decided, configure its "choices" (for example ["urgent", "normal"]), then follow it with a "core.branch" whose left is "{{input.decision}}", operator "equals", and right one of those choices. The "true" output is that choice; the "false" output is everything else.
 
-When the request asks for something no node above can do — sending email, posting to a chat service, writing to a spreadsheet, reaching any outside system — do not invent a node and do not pretend another node does it. Build the part you can, and list the part you cannot in "unsupported", in the user's own terms ("post the summary to Discord"). If you can build almost none of it, still return the trigger and whatever is genuinely possible, and list the rest. An empty "unsupported" means you built everything that was asked.
+Designing with the integration nodes:
+
+  - "integration.discord" posts to the one Discord channel the user connected in Settings. You choose the message; you cannot choose the channel, and there is no channel field.
+  - "integration.sheets" appends one row to a Google Sheet. "values" is that row, cell by cell, in order — ["{{trigger.name}}", "{{steps.summarise.output.text}}"], not a single joined string. If the request does not say which spreadsheet, leave "spreadsheetId" as an empty string: the user fills it in on the canvas.
+  - "integration.gmail" sends mail from the user's connected account. Use it only when the request actually asks for email. If the request does not say who to write to, leave "to" as an empty string rather than inventing an address — the user fills it in on the canvas.
+  - "integration.http" calls any other HTTPS API. Use it only when the request names an endpoint or a service with no node of its own. It cannot reach a service that needs a credential you were not given.
+
+When the request asks for something no node above can do — reaching a service with no node in the catalogue, or anything outside this system — do not invent a node and do not pretend another node does it. Build the part you can, and list the part you cannot in "unsupported", in the user's own terms ("post it to Slack"). If you can build almost none of it, still return the trigger and whatever is genuinely possible, and list the rest. An empty "unsupported" means you built everything that was asked.
 
 Keep the workflow as small as the request allows — every node must earn its place. Prefer a shape the user can read at a glance over a thorough one.`;
 }

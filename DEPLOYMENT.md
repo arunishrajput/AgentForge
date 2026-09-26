@@ -331,6 +331,58 @@ Saying "production redirect URI added".
 
 **✅ DONE 2026-09-25.** Production sign-in completed end to end against the deployed URL.
 
+```text
+MANUAL ACTION REQUIRED   (pass 3 — Phase 9, incremental authorisation)
+
+Reason:
+Sheets and Gmail need OAuth scopes sign-in does not carry. BUILD_PLAN.md Phase 9 requires
+incremental authorisation — ask for them when the node is first used, not at sign-in, because
+asking for Gmail send access at sign-in is alarming and hurts the demo. That means a second
+OAuth flow with its own callback path, and Google rejects any redirect_uri that is not
+registered on the client. Without this, Connect Google returns Error 400:
+redirect_uri_mismatch and neither Sheets nor Gmail can run.
+
+There is no gcloud command for this. `gcloud alpha iap oauth-clients` manages IAP brands, not
+a Web-application client, and Google exposes no API for a client's redirect URIs — checked,
+not assumed.
+
+Location:
+https://console.cloud.google.com/apis/credentials → project agentforge-hackathon-2026
+  → OAuth 2.0 Client IDs → the existing "AgentForge Web" client.
+
+Steps:
+1. Open the "AgentForge Web" client.
+2. Under "Authorised redirect URIs", ADD URI twice with both values below.
+   Keep all four existing entries — replace nothing.
+3. Save, and allow ~90 s to propagate (this is real; see the note above).
+
+Values to enter:
+    http://localhost:3000/api/integrations/google/callback
+    https://agentforge-733000675212.asia-southeast1.run.app/api/integrations/google/callback
+
+Expected result:
+Six authorised redirect URIs in total: two /api/auth/callback/google, two
+/api/integrations/google/callback, plus the two JavaScript origins already present.
+
+Verification:
+Claude Code opens the deployed /settings page, clicks Connect Google, confirms the consent
+screen lists the Sheets and Gmail-send scopes, and confirms a credential row of kind
+google.oauth in Neon after approval.
+
+Resume by:
+Saying "integration redirect URIs added".
+```
+
+**The scopes are `sensitive`, not `restricted`** — `…/auth/spreadsheets` and `…/auth/gmail.send`.
+Two consequences, both for demo day rather than for this phase:
+
+- The consent screen **stays in `Testing`**, and each judge who needs to sign in is added as a test
+  user (cap 100). *Publishing* the app now requires Google verification for the sensitive scopes,
+  which takes days — so "publish the app" is **no longer an available option** and the Known Issue in
+  `PROGRESS.md` saying either is out of date. Adding test users is the path.
+- **The judge never connects Google.** Sign-in (Beat 1) asks for identity only; the presenter's own
+  account is already connected before the demo. The consent friction is paid once, by the presenter.
+
 **Propagation is real and it is not instant.** The first attempt immediately after saving returned
 `Error 400: redirect_uri_mismatch` even though the registered URI was character-identical to the
 one the app sent. It succeeded ~90 seconds later with no further change. Wait and retry before

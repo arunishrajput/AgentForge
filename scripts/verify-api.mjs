@@ -1550,6 +1550,480 @@ try {
     if (id) await api("DELETE", `/api/workflows/${id}`, undefined, token);
   }
 
+
+  // --- Phase 9: integration nodes -------------------------------------------
+  // Four integrations, each a registry entry and therefore each also an agent tool.
+  // The Google-backed ones need a browser to consent, so what is provable over HTTP
+  // is: the registry projection, the credential API's write-only contract, the
+  // consent URL's parameters, the CSRF guard on the callback, and — the part that
+  // matters most — the outbound guard on `integration.http`, driven through the real
+  // engine on the deployed container.
+
+  check(
+    "registry serves all four integration node types",
+    ["integration.http", "integration.discord", "integration.sheets", "integration.gmail"].every(
+      (type) => registryTypes.has(type),
+    ),
+    JSON.stringify(types),
+  );
+
+  const integrationNodes = (nodes.json?.data ?? []).filter(
+    (node) => node.category === "integration",
+  );
+  check(
+    "every integration declares an output shape for the generator to read",
+    integrationNodes.length === 4 &&
+      integrationNodes.every(
+        (node) => typeof node.outputShape === "string" && node.outputShape.length > 20,
+      ),
+    JSON.stringify(integrationNodes.map((node) => [node.type, node.outputShape])).slice(0, 300),
+  );
+
+  const callableTypes = new Set(
+    (nodes.json?.data ?? []).filter((node) => node.agentCallable).map((node) => node.type),
+  );
+  check(
+    "HTTP, Discord and Sheets are reachable by the agent",
+    ["integration.http", "integration.discord", "integration.sheets"].every((type) =>
+      callableTypes.has(type),
+    ),
+    JSON.stringify([...callableTypes]),
+  );
+  check(
+    "Gmail is deliberately NOT reachable by the agent",
+    !callableTypes.has("integration.gmail"),
+    "a model choosing both recipient and body is the one effect here that leaves the user's account",
+  );
+
+  // --- the credential API is write-only -------------------------------------
+  for (const [method, path] of [
+    ["GET", "/api/integrations/discord"],
+    ["PUT", "/api/integrations/discord"],
+    ["DELETE", "/api/integrations/discord"],
+    ["GET", "/api/integrations/google"],
+    ["DELETE", "/api/integrations/google"],
+  ]) {
+    const anon = await api(method, path, method === "PUT" ? { webhookUrl: "x" } : undefined);
+    check(`${method} ${path} requires a session`, anon.status === 401, `got ${anon.status}`);
+  }
+
+  const discordBefore = await api("GET", "/api/integrations/discord", undefined, token);
+  check(
+    "Discord status returns no part of the stored URL",
+    discordBefore.status === 200 &&
+      typeof discordBefore.json?.data?.configured === "boolean" &&
+      !JSON.stringify(discordBefore.json).includes("discord.com/api/webhooks"),
+    JSON.stringify(discordBefore.json).slice(0, 200),
+  );
+
+  const googleBefore = await api("GET", "/api/integrations/google", undefined, token);
+  check(
+    "Google status returns scopes and no token",
+    googleBefore.status === 200 &&
+      Array.isArray(googleBefore.json?.data?.scopes) &&
+      typeof googleBefore.json?.data?.canAppendSheets === "boolean" &&
+      !JSON.stringify(googleBefore.json).toLowerCase().includes("refresh"),
+    JSON.stringify(googleBefore.json).slice(0, 200),
+  );
+
+  // A credential is proved against the service before it is stored, so the things a
+  // user pastes by mistake fail in the form rather than halfway through a run.
+  for (const [label, url] of [
+    ["a Discord channel link", "https://discord.com/channels/123/456"],
+    ["an invite link", "https://discord.gg/abc"],
+    ["a non-Discord host", "https://evil.test/api/webhooks/1/tok"],
+    ["plain http", "http://discord.com/api/webhooks/1/tok"],
+    ["not a URL at all", "webhook please"],
+  ]) {
+    const rejected = await api("PUT", "/api/integrations/discord", { webhookUrl: url }, token);
+    check(
+      `a webhook URL that is ${label} is rejected`,
+      rejected.status === 400 && /webhook|valid url/i.test(rejected.json?.error?.message ?? ""),
+      `${rejected.status} ${JSON.stringify(rejected.json?.error?.message)}`,
+    );
+  }
+
+  const unknownWebhook = await api(
+    "PUT",
+    "/api/integrations/discord",
+    { webhookUrl: "https://discord.com/api/webhooks/1234567890/thisTokenDoesNotExist-abcdef" },
+    token,
+  );
+  check(
+    "a well-formed but non-existent webhook is refused by Discord, not stored",
+    unknownWebhook.status === 400 && /discord/i.test(unknownWebhook.json?.error?.message ?? ""),
+    `${unknownWebhook.status} ${JSON.stringify(unknownWebhook.json?.error?.message)}`,
+  );
+  const stillUnset = await api("GET", "/api/integrations/discord", undefined, token);
+  check(
+    "a rejected webhook stored nothing",
+    stillUnset.json?.data?.configured === discordBefore.json?.data?.configured,
+    `was ${discordBefore.json?.data?.configured}, now ${stillUnset.json?.data?.configured}`,
+  );
+
+  // --- the Google consent URL, without a browser ----------------------------
+  const connect = await fetch(`${base}/api/integrations/google/connect`, {
+    redirect: "manual",
+    headers: { cookie: `${cookieName}=${token}` },
+  });
+  const consent = connect.headers.get("location");
+  check(
+    "connect redirects to Google",
+    connect.status === 302 && typeof consent === "string",
+    `${connect.status} ${consent}`,
+  );
+
+  if (consent) {
+    const consentUrl = new URL(consent);
+    const params = consentUrl.searchParams;
+    check(
+      "the consent URL asks Google for offline access with a forced prompt",
+      consentUrl.origin + consentUrl.pathname === "https://accounts.google.com/o/oauth2/v2/auth" &&
+        params.get("access_type") === "offline" &&
+        params.get("prompt") === "consent" &&
+        params.get("include_granted_scopes") === "true",
+      consent.slice(0, 200),
+    );
+    check(
+      "it asks for exactly the Sheets and Gmail-send scopes",
+      params.get("scope") ===
+        "https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/gmail.send",
+      String(params.get("scope")),
+    );
+    check(
+      "the redirect_uri is this deployment's own callback",
+      params.get("redirect_uri") === `${base}/api/integrations/google/callback`,
+      String(params.get("redirect_uri")),
+    );
+    check(
+      "a CSRF state is minted and set as an http-only cookie",
+      (params.get("state") ?? "").length >= 20 &&
+        (connect.headers.get("set-cookie") ?? "").includes("agentforge-google-oauth=") &&
+        /httponly/i.test(connect.headers.get("set-cookie") ?? ""),
+      connect.headers.get("set-cookie") ?? "none",
+    );
+    const secret = process.env.GOOGLE_CLIENT_SECRET;
+    if (secret) {
+      check("the client secret is not in a URL the browser follows", !consent.includes(secret));
+    } else {
+      skip("the client secret is not in the consent URL", "GOOGLE_CLIENT_SECRET is not in this environment");
+    }
+  }
+
+  const anonConnect = await fetch(`${base}/api/integrations/google/connect`, { redirect: "manual" });
+  check(
+    "connect signed out redirects home rather than answering JSON",
+    anonConnect.status === 302 && (anonConnect.headers.get("location") ?? "").endsWith("/"),
+    `${anonConnect.status} ${anonConnect.headers.get("location")}`,
+  );
+
+  // The callback is a GET a third party can cause a signed-in browser to make. Without
+  // the state check, an attacker's code would store *their* refresh token on this
+  // user's account, and every later Sheets row would go to the attacker's document.
+  const forged = await fetch(`${base}/api/integrations/google/callback?code=stolen&state=whatever`, {
+    redirect: "manual",
+    headers: { cookie: `${cookieName}=${token}` },
+  });
+  check(
+    "a callback with no state cookie is refused",
+    forged.status === 302 && (forged.headers.get("location") ?? "").includes("google=state"),
+    `${forged.status} ${forged.headers.get("location")}`,
+  );
+
+  const mismatched = await fetch(
+    `${base}/api/integrations/google/callback?code=stolen&state=wrong-value-here`,
+    {
+      redirect: "manual",
+      headers: { cookie: `${cookieName}=${token}; agentforge-google-oauth=a-different-value` },
+    },
+  );
+  check(
+    "a callback whose state does not match the cookie is refused",
+    mismatched.status === 302 && (mismatched.headers.get("location") ?? "").includes("google=state"),
+    `${mismatched.status} ${mismatched.headers.get("location")}`,
+  );
+
+  const anonCallback = await fetch(`${base}/api/integrations/google/callback?code=x&state=y`, {
+    redirect: "manual",
+  });
+  check(
+    "a callback with no session redirects home",
+    anonCallback.status === 302 && (anonCallback.headers.get("location") ?? "").endsWith("/"),
+    `${anonCallback.status} ${anonCallback.headers.get("location")}`,
+  );
+
+  const googleAfterForgery = await api("GET", "/api/integrations/google", undefined, token);
+  check(
+    "no forged callback connected anything",
+    googleAfterForgery.json?.data?.connected === googleBefore.json?.data?.connected,
+    `was ${googleBefore.json?.data?.connected}, now ${googleAfterForgery.json?.data?.connected}`,
+  );
+
+  // --- the outbound guard, through the real engine ---------------------------
+  // This is the phase's most important check. `integration.http` is agent-callable, so
+  // its URL can be chosen by a model reading webhook text. These are the requests that
+  // must never leave the container.
+  const httpGraph = (url, extra = {}) => ({
+    version: 1,
+    nodes: [
+      { id: "start", type: "core.manual_trigger", position: { x: 0, y: 0 }, config: {} },
+      {
+        id: "call",
+        type: "integration.http",
+        position: { x: 240, y: 0 },
+        config: { method: "GET", url, timeoutMs: 20000, ...extra },
+      },
+    ],
+    edges: [{ id: "e1", source: "start", target: "call", sourceHandle: null }],
+  });
+
+  const httpWorkflow = await api(
+    "POST",
+    "/api/workflows",
+    { name: "Phase 9 HTTP verification", graph: httpGraph("https://api.github.com/zen") },
+    token,
+  );
+  const httpId = httpWorkflow.json?.data?.id;
+  check(
+    "the HTTP workflow saved and is runnable",
+    httpWorkflow.status === 201 && httpWorkflow.json?.data?.runnable === true,
+    JSON.stringify(httpWorkflow.json?.data?.problems),
+  );
+
+  const callStepOf = (run) => (run.json?.data?.steps ?? []).find((step) => step.nodeId === "call");
+  const retarget = (url, extra) =>
+    api("PATCH", `/api/workflows/${httpId}`, { graph: httpGraph(url, extra) }, token);
+
+  if (httpId) {
+    for (const [label, url, expected] of [
+      [
+        "the GCP metadata server over http",
+        "http://169.254.169.254/computeMetadata/v1/instance/service-accounts/default/token",
+        /only https/i,
+      ],
+      ["the metadata server by name", "https://metadata.google.internal/computeMetadata/v1/", /not a public host/i],
+      ["localhost", "https://localhost:8080/", /not a public host/i],
+      ["a loopback literal", "https://127.0.0.1/", /not a public address/i],
+      ["an RFC 1918 literal", "https://10.0.0.1/", /not a public address/i],
+      ["a link-local literal", "https://169.254.169.254/", /not a public address/i],
+      ["an IPv6 loopback literal", "https://[::1]/", /not a public address/i],
+      ["a private-zone name", "https://db.internal/", /not a public host/i],
+      ["a URL with credentials in it", "https://user:pass@example.com/", /credentials in the url/i],
+    ]) {
+      await retarget(url);
+      const blockedRun = await api("POST", `/api/workflows/${httpId}/runs`, {}, token);
+      const step = callStepOf(blockedRun);
+      check(
+        `the HTTP node refuses ${label}`,
+        blockedRun.json?.data?.status === "failed" &&
+          step?.status === "failed" &&
+          expected.test(step?.error ?? ""),
+        `${blockedRun.json?.data?.status} / ${JSON.stringify(step?.error)}`,
+      );
+    }
+
+    // And the positive case: a real public HTTPS API, which also proves the
+    // User-Agent is sent — api.github.com answers 403 without one.
+    await retarget("https://api.github.com/zen");
+    const zen = await api("POST", `/api/workflows/${httpId}/runs`, {}, token);
+    const zenStep = callStepOf(zen);
+    check(
+      "the HTTP node calls a real public HTTPS API and sends a User-Agent",
+      zen.json?.data?.status === "succeeded" &&
+        zenStep?.output?.status === 200 &&
+        zenStep?.output?.ok === true &&
+        typeof zenStep?.output?.text === "string" &&
+        zenStep.output.text.length > 0,
+      `${zen.json?.data?.status} / ${JSON.stringify(zenStep?.output).slice(0, 200)}`,
+    );
+
+    await retarget("https://api.github.com/rate_limit");
+    const jsonRun = await api("POST", `/api/workflows/${httpId}/runs`, {}, token);
+    const jsonStep = callStepOf(jsonRun);
+    check(
+      "a JSON response is parsed into output.json for a template reference to reach",
+      jsonStep?.output?.json?.resources?.core?.limit !== undefined,
+      JSON.stringify(jsonStep?.output?.json).slice(0, 160),
+    );
+
+    // failOnError is the honest default: an author who wrote an explicit API call
+    // wants a 404 to stop the run, not to succeed carrying an error page as data.
+    const missing = "https://api.github.com/this-endpoint-does-not-exist-agentforge";
+    await retarget(missing);
+    const notFound = await api("POST", `/api/workflows/${httpId}/runs`, {}, token);
+    const notFoundStep = callStepOf(notFound);
+    check(
+      "a 404 fails the step by default, with the API's own message",
+      notFound.json?.data?.status === "failed" && /404/.test(notFoundStep?.error ?? ""),
+      `${notFound.json?.data?.status} / ${JSON.stringify(notFoundStep?.error)}`,
+    );
+
+    await retarget(missing, { failOnError: false });
+    const tolerated = await api("POST", `/api/workflows/${httpId}/runs`, {}, token);
+    const toleratedStep = callStepOf(tolerated);
+    check(
+      "failOnError false reports the status instead of failing, so a branch can route on it",
+      tolerated.json?.data?.status === "succeeded" &&
+        toleratedStep?.output?.status === 404 &&
+        toleratedStep?.output?.ok === false,
+      `${tolerated.json?.data?.status} / ${JSON.stringify(toleratedStep?.output?.status)}`,
+    );
+  }
+
+  // --- a node with no credential fails legibly ------------------------------
+  const sheetGraph = (spreadsheetId) => ({
+    version: 1,
+    nodes: [
+      { id: "start", type: "core.manual_trigger", position: { x: 0, y: 0 }, config: {} },
+      {
+        id: "sheet",
+        type: "integration.sheets",
+        position: { x: 240, y: 0 },
+        config: { spreadsheetId, sheet: "Sheet1", values: ["x"] },
+      },
+    ],
+    edges: [{ id: "e1", source: "start", target: "sheet", sourceHandle: null }],
+  });
+
+  const missingCreds = await api(
+    "POST",
+    "/api/workflows",
+    { name: "Phase 9 credential verification", graph: sheetGraph("") },
+    token,
+  );
+  const credsId = missingCreds.json?.data?.id;
+  check(
+    "a Sheets node with no spreadsheet chosen still saves and is runnable",
+    missingCreds.status === 201 && missingCreds.json?.data?.runnable === true,
+    JSON.stringify(missingCreds.json?.data?.problems),
+  );
+
+  if (credsId) {
+    const sheetStepOf = (run) =>
+      (run.json?.data?.steps ?? []).find((step) => step.nodeId === "sheet");
+
+    const blank = await api("POST", `/api/workflows/${credsId}/runs`, {}, token);
+    check(
+      "running it says the spreadsheet is missing, in words a user can act on",
+      blank.json?.data?.status === "failed" &&
+        /no spreadsheet yet/i.test(sheetStepOf(blank)?.error ?? ""),
+      JSON.stringify(sheetStepOf(blank)?.error),
+    );
+
+    const googleNow = await api("GET", "/api/integrations/google", undefined, token);
+    if (googleNow.json?.data?.connected !== true) {
+      await api(
+        "PATCH",
+        `/api/workflows/${credsId}`,
+        { graph: sheetGraph("1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms") },
+        token,
+      );
+      const unconnected = await api("POST", `/api/workflows/${credsId}/runs`, {}, token);
+      check(
+        "a Sheets node with Google not connected says so, rather than throwing",
+        unconnected.json?.data?.status === "failed" &&
+          /not connected/i.test(sheetStepOf(unconnected)?.error ?? ""),
+        JSON.stringify(sheetStepOf(unconnected)?.error),
+      );
+    } else {
+      skip(
+        "a Sheets node with Google not connected says so",
+        "Google is connected on this account, which is the state the demo needs",
+      );
+    }
+  }
+
+  // --- Discord, for real, when a webhook is supplied ------------------------
+  // Piped in the same way as the Gemini key so it is never printed:
+  //   VERIFY_DISCORD_WEBHOOK="$DISCORD_WEBHOOK_URL" node ... scripts/verify-api.mjs
+  const discordWebhook = process.env.VERIFY_DISCORD_WEBHOOK ?? null;
+  let discordId = null;
+
+  if (!discordWebhook) {
+    skip(
+      "posting to Discord end to end",
+      "VERIFY_DISCORD_WEBHOOK is not set; the node's no-credential path was still checked",
+    );
+  } else {
+    const storedHook = await api(
+      "PUT",
+      "/api/integrations/discord",
+      { webhookUrl: discordWebhook },
+      token,
+    );
+    check(
+      "a real webhook is verified against Discord and stored",
+      storedHook.status === 200 && storedHook.json?.data?.configured === true,
+      JSON.stringify(storedHook.json).slice(0, 250),
+    );
+    check(
+      "storing it returns the channel it is attached to and no part of the URL",
+      typeof storedHook.json?.data?.channelId === "string" &&
+        !JSON.stringify(storedHook.json).includes("/webhooks/"),
+      JSON.stringify(storedHook.json?.data),
+    );
+
+    const marker = `AgentForge Phase 9 verification ${new Date().toISOString()}`;
+    const discordWorkflow = await api(
+      "POST",
+      "/api/workflows",
+      {
+        name: "Phase 9 Discord verification",
+        graph: {
+          version: 1,
+          nodes: [
+            { id: "start", type: "core.manual_trigger", position: { x: 0, y: 0 }, config: {} },
+            {
+              id: "post",
+              type: "integration.discord",
+              position: { x: 240, y: 0 },
+              config: { content: `${marker} - {{trigger.note}}` },
+            },
+          ],
+          edges: [{ id: "e1", source: "start", target: "post", sourceHandle: null }],
+        },
+      },
+      token,
+    );
+    discordId = discordWorkflow.json?.data?.id;
+
+    const posted = await api(
+      "POST",
+      `/api/workflows/${discordId}/runs`,
+      { input: { note: "posted by the verify script" } },
+      token,
+    );
+    const postStep = (posted.json?.data?.steps ?? []).find((step) => step.nodeId === "post");
+    check(
+      "a workflow posts a real message to Discord",
+      posted.json?.data?.status === "succeeded" &&
+        postStep?.status === "succeeded" &&
+        typeof postStep?.output?.messageId === "string",
+      `${posted.json?.data?.status} / ${JSON.stringify(postStep?.error ?? postStep?.output).slice(0, 250)}`,
+    );
+    check(
+      "the message carried a resolved template reference from the trigger",
+      (postStep?.output?.content ?? "").includes("posted by the verify script"),
+      JSON.stringify(postStep?.output?.content),
+    );
+
+    const removed = await api("DELETE", "/api/integrations/discord", undefined, token);
+    check("the webhook can be deleted", removed.json?.data?.configured === false);
+    const afterRemoval = await api("POST", `/api/workflows/${discordId}/runs`, {}, token);
+    const afterStep = (afterRemoval.json?.data?.steps ?? []).find((step) => step.nodeId === "post");
+    check(
+      "with no webhook stored the node says to add one, rather than failing obscurely",
+      afterRemoval.json?.data?.status === "failed" &&
+        /no discord webhook is connected/i.test(afterStep?.error ?? ""),
+      JSON.stringify(afterStep?.error),
+    );
+  }
+
+  // Clean up Phase 9's own workflows.
+  for (const id of [httpId, credsId, discordId]) {
+    if (id) await api("DELETE", `/api/workflows/${id}`, undefined, token);
+  }
+
   // --- delete ---------------------------------------------------------------
   const deleted = await api("DELETE", `/api/workflows/${workflowId}`, undefined, token);
   check("workflow deletes", deleted.status === 200);

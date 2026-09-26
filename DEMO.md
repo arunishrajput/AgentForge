@@ -4,16 +4,15 @@
 is MVP-Supporting or lower by default. When time runs short, the question is always: *does cutting
 this break a beat below?*
 
-Status: **PROPOSED.** Phase 0 validates and refines it; **Phase 7 has pinned the prompt** (Beat 2);
-Phase 12 rehearses and finalises it.
+Status: **PROPOSED.** Phase 0 validates and refines it; **Phase 7 pinned the prompt** and **Phase 9
+promoted Beat 2's target prompt to the real one**; Phase 12 rehearses and finalises it.
 
-> **Beat 2's prompt now needs only Phase 9.** Phase 8 registered the webhook trigger, and the
-> prediction held exactly: with **no change to any generation code**, Beat 2's own prompt now builds
-> `webhook trigger → LLM → agent → branch → log` on the first attempt, and reports precisely two
-> unsupported parts — "post urgent ones to Discord" and "log every one to my Google Sheet". Verified
-> on the deployed URL. **Until Phase 9 lands, demo the Phase 7 prompt below**, whose trigger is still
-> the manual one (re-verified in Phase 8 — no regression). Re-verify Beat 2's own prompt at Phase 9
-> and delete this note.
+> **Beat 2's target prompt is now the demo prompt.** Phase 9 registered the Discord and Sheets nodes
+> and the two `unsupported` lines disappeared, which was the phase's acceptance test. Measured
+> **3/3 valid on the first attempt**, each producing the full spine
+> `webhook trigger → LLM → agent → branch → Discord + Sheets` with `unsupported: []`. The Phase 7
+> prompt is kept below as the fallback, because its trigger is the manual one and it needs no
+> credentials at all.
 
 ---
 
@@ -41,24 +40,27 @@ Land on the workflow list, signed in.
 
 Type into the prompt box (pre-written, pasted, not typed live).
 
-**The target prompt, once Phases 8–9 land:**
+**The prompt — verified against the deployed URL at Phase 9:**
 
 ```text
 When my form webhook fires, summarise the submission, decide whether it's urgent,
 post urgent ones to Discord, and log every one to my Google Sheet.
 ```
 
-**The prompt that works today — pinned by Phase 7, verified on the deployed URL:**
+Measured on `gemini-3.5-flash-lite`: **3/3 valid on the first attempt**, `unsupported: []` every
+time, each producing `webhook trigger → LLM summary → agent decides → branch → Discord + Sheets` —
+which is every one of Beats 3, 6, 7 and 8. The model routes the sheet off **both** branch outputs
+unprompted, because the request said "log *every* one".
+
+**Fallback prompt, if the integrations are not connected** (Phase 7's, still verified 5/5 in Phase 8
+— it needs no credentials and its trigger is the manual one, so Beat 5's `curl` becomes a Run click):
 
 ```text
 When I run this, summarise the support message I give it, decide whether it is urgent,
 and log urgent ones as a warning.
 ```
 
-Measured on the deployed app, `gemini-3.5-flash-lite`: **5/5 valid on the first attempt**, 2.5–3.6 s,
-and every one produced `manual trigger → LLM summary → agent decides → branch → log`. That shape is
-what Beats 3, 6 and 7 need. The second example button on the page is the loop workflow, if a judge
-asks for another.
+The second example button on the page is the loop workflow, if a judge asks for another.
 
 > "No node picking. No wiring. Just what I want."
 
@@ -75,7 +77,8 @@ The workflow appears on the canvas: webhook trigger → agent node → branch �
 
 ### Beat 4 — it is real, not a picture (1:15 → 1:40)
 
-Open the Discord node. Change the message template. Save.
+Open the Discord node. Change its **Message** field — the template with `{{ }}` references in it.
+Save.
 
 > "This isn't a screenshot of a workflow — I can open any node and change it."
 
@@ -146,7 +149,7 @@ Every MVP-Critical feature appears:
 | C11 NL → workflow | 3 |
 | C12 Webhook trigger | 5 |
 | C13 Schedule trigger | *Not on the path* — mention verbally, show in the trigger picker. It works: a Cloud Scheduler job sweeps due schedules every 15 min (Phase 8) |
-| C14 Four integrations | 8 |
+| C14 Four integrations | 8 — Discord and Sheets on the path; Gmail and generic HTTP are in the palette and in the same registry, shown if asked |
 | C15 Deployed URL | 1 |
 | C16 Responsive UI with motion | Throughout |
 
@@ -166,8 +169,8 @@ Before the demo begins, all of this is true:
 | 3 | Both tiers warmed within the last 10 minutes — health endpoint hit (wakes Cloud Run) and one real query made (wakes Neon compute) |
 | 4 | Demo Google account signed **out** in the demo browser profile, so Beat 1 shows a real sign-in |
 | 5 | Gemini key saved in the demo account's settings, with free-tier quota confirmed remaining |
-| 6 | Discord credential saved; `#agentforge-demo` channel open in a background tab, scrolled to the bottom |
-| 7 | Google Sheet credential saved; target sheet open in a background tab |
+| 6 | Discord webhook saved at **Settings → Integrations** (the page shows the channel name back); `#agentforge-demo` open in a background tab, scrolled to the bottom |
+| 7 | **Google connected** at Settings → Integrations, with **both** capabilities showing ✓; the target sheet open in a background tab, and its id pasted into the generated Sheets node |
 | 8 | The prompt text in the clipboard or a visible scratch file |
 | 9 | The `curl` command pre-staged in a terminal beside the browser, `WEBHOOK_URL` already exported |
 | 10 | `gcloud run services logs tail` running in a second terminal, off-screen |
@@ -210,9 +213,13 @@ degradation, not a failure. Same in reverse if Sheets fails.
 Switch the model in settings to another Gemini tier — this is why in-app model selection exists.
 If the whole provider is down, go to Fallback B.
 
-**E — Google credential expired mid-demo (Beat 8).**
-Re-authorise in settings; it is a few clicks. Phase 11 makes this error legible specifically so it
-is recoverable on stage rather than mysterious.
+**E — Google credential expired or revoked mid-demo (Beat 8).**
+The Sheets step fails saying *"The Google connection has been revoked or expired. Reconnect it in
+Settings → Integrations."* Do exactly that: **Settings → Integrations → Reconnect Google**, leave
+both boxes ticked, come back and re-run. Built to read that way in Phase 9 precisely so it is
+recoverable on stage rather than mysterious. A stored refresh token does not expire on a schedule, so
+this is unlikely — but unticking a scope produces the same class of failure, and the settings page
+shows a ✗ against the capability that is missing.
 
 **F — The webhook `curl` fails (Beat 5).**
 Trigger the run manually from the canvas. The only beat lost is the webhook trigger itself.

@@ -4,6 +4,7 @@ import type { ModelInfo } from "@/lib/ai/types";
 import type { ApiErrorCode } from "@/lib/api";
 import type { StreamRun } from "@/lib/engine/stream";
 import type { GraphProblem } from "@/lib/engine/validate";
+import type { DiscordStatus, GoogleStatus } from "@/lib/integrations/store";
 import type { NodeSummary } from "@/lib/nodes";
 import type { WorkflowGraph } from "@/lib/workflow/graph";
 import type { describeWorkflow } from "@/lib/workflow/store";
@@ -21,6 +22,7 @@ import type { describeWorkflow } from "@/lib/workflow/store";
 export type Workflow = ReturnType<typeof describeWorkflow>;
 export type { NodeSummary, GraphProblem };
 export type { ProviderSettings, ModelInfo };
+export type { DiscordStatus, GoogleStatus };
 export type { GenerationIssue, GenerationAttempt };
 
 /** CONTRACT.md → "Generation request/response". */
@@ -152,4 +154,29 @@ export const api = {
     request<{ models: ModelInfo[]; source: "user" | "environment" }>(
       "/api/settings/provider/models",
     ),
+
+  /**
+   * Integration credentials. Write-only on the same terms as the provider key: the
+   * Discord webhook URL is a bearer secret and the Google refresh token never leaves
+   * the server, so neither shape here carries either.
+   *
+   * There is no `connectGoogle` — consent is a navigation the browser has to make
+   * itself, so the settings page links to `/api/integrations/google/connect` rather
+   * than fetching it.
+   */
+  getDiscordIntegration: () => request<DiscordStatus>("/api/integrations/discord"),
+
+  saveDiscordIntegration: (body: { webhookUrl: string }) =>
+    request<DiscordStatus>("/api/integrations/discord", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+
+  deleteDiscordIntegration: () =>
+    request<DiscordStatus>("/api/integrations/discord", { method: "DELETE" }),
+
+  getGoogleIntegration: () => request<GoogleStatus>("/api/integrations/google"),
+
+  disconnectGoogleIntegration: () =>
+    request<GoogleStatus>("/api/integrations/google", { method: "DELETE" }),
 };

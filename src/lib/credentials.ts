@@ -22,9 +22,24 @@ import { decryptSecret, encryptSecret, type SecretEnvelope } from "./crypto";
 export const LLM_CREDENTIAL_KIND = "llm.google";
 export const DEFAULT_CREDENTIAL_LABEL = "default";
 
+/**
+ * The non-secret half of a credential — whatever the UI needs in order to show that
+ * a credential exists and what it points at, without reading any of it.
+ *
+ * One shape across every `kind` rather than a discriminated union per kind: it is
+ * stored as `jsonb`, so a union would be a type-level claim the database does not
+ * enforce, and every consumer already knows which kind it asked for.
+ */
 export interface CredentialMetadata {
-  /** The model chosen in the settings UI. */
+  /** `llm.google` — the model chosen in the settings UI. */
   model?: string;
+  /** `integration.discord` — what the stored webhook is attached to. */
+  webhookName?: string | null;
+  channelId?: string | null;
+  guildId?: string | null;
+  /** `google.oauth` — which account connected, and what it actually granted. */
+  email?: string | null;
+  scopes?: string[];
 }
 
 export interface CredentialSummary {

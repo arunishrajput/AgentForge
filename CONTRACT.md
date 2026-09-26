@@ -199,7 +199,14 @@ render time, not a type error, so this is a property to keep deliberately.
 `core.loop`, `core.assert`. **Phase 5 added `core.delay`** — it waits a bounded number of
 milliseconds and passes its input through, which is both a real workflow need and the only node
 slow enough to make "status and logs arrive *incrementally*" something that can be asserted rather
-than assumed. Phases 8–9 add further entries to this table; they do not build a second registry.
+than assumed.
+
+**Phase 8 added** `core.webhook_trigger` and `core.schedule_trigger`; **Phase 9 added**
+`integration.http`, `integration.discord`, `integration.sheets` and `integration.gmail` — **15
+entries in one table.** Neither phase built a second registry and neither touched the palette, the
+config forms, the validator or the generation prompt's catalogue: all four read this table. Phase 9's
+only prompt change was prose, and it was a correction rather than an addition — see
+*Integration nodes and their credentials*.
 
 **`outputShape` — added in Phase 7, optional.** One line saying what `output` holds, for whoever has
 to write a `{{ }}` reference to it. Optional: a node that passes its input through has nothing to
@@ -210,7 +217,8 @@ thing. It lives on the definition rather than in the prompt so a node added late
 exactly as `description` already does for the agent.
 
 **Security boundary.** The agent reaches registry entries and nothing else. No shell node, no
-filesystem node, no arbitrary-network escape hatch.
+filesystem node. `integration.http` is the one entry that reaches an arbitrary host, and it is
+bounded by `src/lib/integrations/guard.ts` rather than by trust — D45 below.
 
 ## Run and step records — **DEFINED**
 
@@ -530,7 +538,8 @@ four-character hint is still key material. `configured: true` plus `updatedAt` i
 to "is a key stored". `describeCredential` never reads the envelope columns into its result, so a
 future spread cannot leak them.
 
-At MVP there is one kind: `llm.google`, label `default`, `metadata: { model }`.
+Phase 6 added one kind, `llm.google`, label `default`, `metadata: { model }`. Phase 9 added two
+more — see *Integration nodes and their credentials* for `integration.discord` and `google.oauth`.
 
 ### Routes
 
@@ -723,3 +732,151 @@ for the sum of its runs. Three at the engine's 120 s ceiling is 360 s, inside th
 **Tick cadence is a cost decision, recorded in `DEPLOYMENT.md`:** every 15 minutes, not every minute.
 The effective resolution of a cron expression is therefore the tick interval — a run starts at or
 shortly after its slot, never on the second.
+
+## Integration nodes and their credentials — **DEFINED** (Phase 9)
+
+Four integrations, four registry entries. Nothing else was added: no palette code, no config form,
+no validator rule, no second tool list. `src/lib/integrations/` holds the protocol modules (no
+database, no session — so they are asserted with no network) and `store.ts` holds the one module
+that reads credentials.
+
+| Node type | What it does | Agent-callable | Credential |
+|---|---|---|---|
+| `integration.http` | One HTTPS request, response into workflow data | **yes** | none |
+| `integration.discord` | Posts a message to the connected channel | **yes** | `integration.discord` |
+| `integration.sheets` | Appends one row to a Google Sheet | **yes** | `google.oauth` |
+| `integration.gmail` | Sends one email as the connected account | **no** | `google.oauth` |
+
+### Why Gmail is closed to the agent — **D44**
+
+D19's default is `false` and every exception is argued. `core.branch` and `core.assert` were closed
+in Phase 6 (D36) for much less than this.
+
+The other three integrations act inside something the user owns: their channel, whose address is
+fixed by the stored credential and is not in the config at all; their spreadsheet; an API they
+named. A sent email leaves the account, reaches a third party, and **cannot be recalled**. Made
+agent-callable, the recipient *and* the body would both be chosen by a model reading text that
+arrived on an unauthenticated webhook endpoint — which is a "send mail as this user to anyone"
+primitive, obtained by typing a sentence into a form.
+
+`DEMO.md` needs nothing from it: Beat 8 is Discord and Sheets. It is still a first-class node that
+an author places and wires, with its recipient visible in the graph. Flipping the boolean is a
+one-line change; the reasoning lives on the definition so that it is re-made deliberately.
+
+This is a **deliberate deviation** from `BUILD_PLAN.md` Phase 9's wording, which says all four are
+available to the agent. Recorded rather than quietly passed over.
+
+### The outbound guard on `integration.http` — **D45**
+
+`BUILD_PLAN.md` says the HTTP node is not an agent escape hatch. `src/lib/integrations/guard.ts` is
+what makes that true rather than aspirational, because `agentCallable: true` means a model chooses
+the URL.
+
+1. **Public addresses only.** Loopback, `0.0.0.0/8`, RFC 1918, `169.254.0.0/16`, CGNAT
+   (`100.64.0.0/10`), benchmarking, multicast and broadcast are refused, as are `::`, `::1`,
+   `fc00::/7`, `fe80::/10` and `ff00::/8` — **including the IPv4-mapped and NAT64 forms**, because
+   `::ffff:169.254.169.254`, `::ffff:a9fe:a9fe` and `64:ff9b::a9fe:a9fe` are all the metadata
+   server. `localhost`, `metadata.google.internal` and the `.internal` / `.local` / `.localhost`
+   suffixes are refused by name before any lookup, and a trailing dot does not escape that.
+   The rule is **every** resolved address must be public, not *any*: a name answering with one
+   public and one loopback address would otherwise pass and then be connected to whichever `fetch`
+   picked.
+2. **https only.** This is the rule that actually matters on Cloud Run.
+   `http://169.254.169.254/computeMetadata/v1/instance/service-accounts/default/token` is one GET
+   from a Google access token for this service's own identity, and the response would land in a step
+   output. Rule 1 refuses it by address, but rule 1 checks DNS and `fetch` resolves again — a name
+   answering publicly once and privately next time (DNS rebinding) defeats it. Requiring TLS closes
+   the path properly, because the metadata server has no certificate.
+3. **Redirects are reported, never followed.** Following one re-resolves a host the guard already
+   cleared, handing the checked address to whoever controls the redirect. A 3xx returns
+   `output.redirectedTo` and a warning on the step.
+4. **Credentials in the URL are refused.** They belong in a header.
+
+Not claimed: resistance to a valid certificate for a name resolving into a private range. There is
+no VPC connector on this service, so there is nothing private to reach; pinning the resolved address
+into the connection is post-hackathon.
+
+`failOnError` defaults to **true** — a non-2xx fails the step carrying the API's own message. An
+author who wrote an explicit API call wants a 404 to stop the run, not to succeed carrying an error
+page as data. Set it false to route on `output.ok` instead.
+
+### Credential kinds
+
+`credential` gains two kinds alongside Phase 6's `llm.google`. The table, the envelope and the
+write-only rule are unchanged — see *Credential storage shape*. **No new environment variable:**
+the Google flow reuses `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `APP_BASE_URL`.
+
+| `kind` | `label` | Secret | `metadata` |
+|---|---|---|---|
+| `integration.discord` | `default` | the webhook URL | `{ webhookName, channelId, guildId }` |
+| `google.oauth` | `default` | the **refresh** token | `{ email, scopes: string[] }` |
+
+**The Discord webhook URL is the credential**, not a setting: it carries its own bearer token in its
+path, so anyone holding it can post. It is therefore encrypted at rest and never in a graph — D41's
+rule a second time, since the graph is exactly where the generator writes.
+
+**The stored Google secret is the refresh token, not an access token.** Access tokens last an hour,
+which is shorter than the gap between setting a demo up and giving it — `BUILD_PLAN.md` calls an
+expired token mid-demo the likeliest live failure. An access token is fetched per node execution and
+deliberately **not cached**: one round trip is ~200 ms against a 120 s run budget, and a cache would
+need invalidating on disconnect and reconnect, where a cache still serving a removed credential is a
+worse failure than a slower node.
+
+`metadata.scopes` records what Google **granted**, not what was asked for, because the consent screen
+lets a user untick an individual scope. Every Google-backed node checks its own scope before calling,
+so a Sheets-only connection tells the user to reconnect instead of producing a 403 from inside a run.
+
+### Routes
+
+| Route | Body | Returns |
+|---|---|---|
+| `GET /api/integrations/discord` | — | `{ configured, webhookName, channelId, updatedAt }` |
+| `PUT /api/integrations/discord` | `{ webhookUrl }` | the same shape |
+| `DELETE /api/integrations/discord` | — | the same shape, `configured: false` |
+| `GET /api/integrations/google` | — | `{ connected, email, scopes, canAppendSheets, canSendMail, updatedAt }` |
+| `DELETE /api/integrations/google` | — | the same shape, `connected: false` |
+| `GET /api/integrations/google/connect` | — | `302` to Google, sets the state cookie |
+| `GET /api/integrations/google/callback` | — | `302` to `/settings?google=<code>` |
+
+Write-only on the same terms as the provider key: **no response carries the webhook URL, any part of
+it, the refresh token, or an access token.** A webhook is proved against Discord before it is stored
+(the same rule Phase 6 set for a provider key), and the channel name it returns is what lets the UI
+show *which* channel is wired up without the user trusting that they pasted the right URL.
+
+### Incremental authorisation — **D46**
+
+Sign-in asks for identity and nothing else. The Sheets and Gmail scopes are requested the first time
+the user connects, through a flow this app owns end to end:
+
+- `scope` is `…/auth/spreadsheets …/auth/gmail.send`, both in one consent screen.
+- `access_type=offline` **with** `prompt=consent` is what returns a refresh token. Google omits
+  `refresh_token` for a user who has already granted the scopes when `prompt` is absent — leaving a
+  connection that works for exactly one hour and then fails inside a run. `storeGoogleConnection`
+  therefore **refuses** a connection with no refresh token rather than storing a one-hour one.
+- `include_granted_scopes=true` keeps what sign-in already holds instead of replacing it.
+- Not done through Auth.js: it does not re-persist account tokens on a later sign-in, and widening
+  the sign-in provider's scopes would put "Send email on your behalf" in front of every visitor
+  before they had built anything.
+
+**The callback's `state` is a CSRF control, not decoration.** It is a `GET` a third party can cause a
+signed-in browser to make, so without it an attacker could deliver *their* authorization code and
+have the victim's account store a refresh token for the attacker's Google account — after which
+every appended row and every sent mail goes to the attacker. The state is 24 bytes of CSPRNG in a
+`HttpOnly`, `SameSite=Lax`, path-scoped, 10-minute cookie, compared in constant time.
+`SameSite=Lax` is required rather than chosen: the callback is a cross-site top-level navigation, and
+`Strict` would withhold the cookie and break every attempt.
+
+Every outcome is a redirect carrying a **fixed** code — `connected`, `denied`, `state`, `failed` —
+never Google's own words and never anything from the query string, so nothing reflected can reach the
+page. The settings page maps the code to its own text. This is the one authenticated route that
+cannot answer a JSON envelope: the caller is a browser mid-navigation.
+
+### Two fields are deliberately allowed to be empty
+
+`integration.sheets.spreadsheetId` and `integration.gmail.to` have no minimum length. A request like
+"log every one to my Google Sheet" (`DEMO.md` Beat 2) names no spreadsheet, so a `min(1)` would force
+the model either to invent an id — a valid graph pointing at a stranger's document — or to fail the
+whole generation. Empty is the honest third answer: the workflow generates, appears on the canvas
+with a visibly blank field, and each node fails with its own sentence if run before it is filled in
+("This node has no spreadsheet yet…"). `integration.http.url` is **not** in this category: a URL is
+not something the user can supply from context later, so an absent one is rejected at validation.
