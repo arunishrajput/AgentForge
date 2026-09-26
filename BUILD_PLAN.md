@@ -539,6 +539,14 @@ the spine's services work), `PROGRESS.md`.
 
 ---
 
+**Status: COMPLETE, 2026-09-26.** The Sheets and Gmail runtime, left open when the phase shipped,
+was closed after Phase 10 once M8 landed: a real appended row (`Sheet1!A2:D2`, with `{{ }}` resolved
+into cells) and a real sent mail (id `1a0dcf7f7df25cc8`), both through the deployed engine. Two
+defects only reachable past Google's consent screen were found and fixed in the process — see D53 and
+the `gcloud services enable gmail.googleapis.com sheets.googleapis.com` note in `DEPLOYMENT.md`.
+
+---
+
 ## Phase 10 — UI/UX pass: design system, motion, responsiveness, accessibility
 
 **Objective.** The product looks and feels built on purpose — modern, playful, animated, not an

@@ -221,6 +221,20 @@ gcloud services enable run.googleapis.com cloudbuild.googleapis.com \
   artifactregistry.googleapis.com cloudscheduler.googleapis.com
 ```
 
+**The Phase 9 integrations need two more APIs, and this was missed until the first real run.**
+A user granting Sheets and Gmail scopes through OAuth is *not* sufficient — the **project** that owns
+the OAuth client must also have the APIs turned on, or every call comes back
+`Gmail API has not been used in project <number> before or it is disabled`. The node surfaces that
+message verbatim, which is how it was diagnosed, but nothing before a live call can detect it:
+consent succeeds, the credential stores, both capabilities show ✓, and only the run fails.
+
+```bash
+# AUTOMATED BY CLAUDE CODE — required before integration.gmail or integration.sheets can run
+gcloud services enable gmail.googleapis.com sheets.googleapis.com
+```
+
+Allow a minute or two to propagate; Google's own error says so and it was ready on the first retry.
+
 ### 3. Neon Postgres — **MANUAL HUMAN ACTION** (creation), then **AUTOMATED**
 
 ```text

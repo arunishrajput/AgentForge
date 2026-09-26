@@ -19,16 +19,18 @@ deployed URL — the same suite and the same result as Phase 9, re-run after the
 is **276 tests**, 9 of them new: the contrast of every text token, computed from `globals.css`
 itself.
 
-**M8 is done and all three credentials are connected** (2026-09-26, after Phase 10). Google is
-connected as `arunishrajput7@gmail.com` with both scopes; Discord and the Gemini key are stored.
-Completing the consent flow for the first time immediately exposed a Phase 9 bug that had been
-unreachable behind `redirect_uri_mismatch`: every redirect was resolved against `request.url`, which
-inside the container is the **bind address**, so a successful connection landed the browser on
-`http://0.0.0.0:8080/settings`. Fixed in `agentforge-00018-x7q` (D53), with four tests.
+**Phase 9's last criterion is closed (2026-09-26). All four integrations are now proven against the
+real service from the deployed app** — `integration.http` and `integration.discord` in Phase 9, and
+`integration.sheets` and `integration.gmail` today: a real row appended at `Sheet1!A2:D2` with
+`{{trigger.ref}}` and `{{trigger.note}}` resolved into cells, and a real message sent with Gmail id
+`1a0dcf7f7df25cc8`. **There is no longer an outstanding completion criterion anywhere in Phases 0–10.**
 
-**Phase 9's last criterion is now unblocked but not yet proved.** `integration.sheets` and
-`integration.gmail` have never appended a real row or sent a real mail through the deployed engine.
-That needs a target spreadsheet id and one run of each.
+Getting there took M8 (the user's console click) and surfaced **two defects that were unreachable
+while the flow died at `redirect_uri_mismatch`**, both now fixed in `agentforge-00018-x7q`:
+every OAuth redirect was resolved against `request.url`, which inside the container is the **bind
+address**, so a *successful* connection landed the browser on `http://0.0.0.0:8080/settings` and the
+CSRF state cookie shipped without `Secure` (D53); and the **`gmail` and `sheets` APIs were never
+enabled on the GCP project**, which no amount of correct OAuth can substitute for.
 
 **`DEMO.md` Beat 2's target prompt is the demo prompt**, pinned in Phase 9: measured 3/3 valid on the
 first attempt with `unsupported: []`, building `webhook → llm → agent → branch → Discord + Sheets`.
@@ -38,9 +40,8 @@ first attempt with `unsupported: []`, building `webhook → llm → agent → br
 **Phase 11 — Hardening: demo-path reliability, critical-path tests, error surfaces** (not started) —
 `READY TO START`. Nothing in Phase 11 depends on M8 either.
 
-**Before Phase 12 ships, M8 must be done and Phase 9's last criterion closed**: connect Google, then
-run one workflow that actually appends a row and one that actually sends mail. Until then `DEMO.md`
-Beat 8's second payoff (the Sheet) is unproven on the deployed system.
+**Nothing is blocking Phase 11 or Phase 12.** M8 is done, all three credentials are connected, and
+`DEMO.md` Beat 8's payoffs are both proven on the deployed system.
 
 **All three credentials are connected** as of 2026-09-26: Gemini key, Discord webhook ("AgentForge",
 channel `1553084744504316034`) and Google (`arunishrajput7@gmail.com`, both scopes). Note the Discord
@@ -48,8 +49,8 @@ row **goes absent whenever `scripts/verify-api.mjs` runs with `VERIFY_DISCORD_WE
 stores, posts, then deletes, because deletion is a path under test. Re-add it with a
 `PUT /api/integrations/discord` from `DISCORD_WEBHOOK_URL` in local `.env`.
 
-**Still to prove before Phase 12:** one real appended Sheets row and one real sent mail, through the
-deployed engine. Everything they depend on is now in place; only the run has not happened.
+**One tidy-up left for demo day:** the verification row sits at **row 2 of the demo sheet**, marked
+`DELETE ME` in column D. `DEMO.md`'s setup checklist already says to clear prior demo rows.
 
 ## Completed Phases
 
@@ -64,7 +65,7 @@ deployed engine. Everything they depend on is now in place; only the run has not
 | **Phase 6** — agent layer: LLM node, agent node, provider config | **COMPLETE** — verified on the deployed URL in a browser, 2026-09-26 |
 | **Phase 7** — natural language → workflow generation | **COMPLETE** — verified on the deployed URL in a browser, 2026-09-26 |
 | **Phase 8** — triggers: webhook + schedule | **COMPLETE** — verified on the deployed URL and by a real Cloud Scheduler invocation, 2026-09-26 |
-| **Phase 9** — integrations: HTTP, Discord, Sheets, Gmail | **COMPLETE except the Sheets/Gmail runtime, which is BLOCKED ON M8.** Verified on the deployed URL; a real Discord message posted and a real HTTPS API called. Sheets and Gmail are deployed and verified to the edge of Google's consent screen |
+| **Phase 9** — integrations: HTTP, Discord, Sheets, Gmail | **COMPLETE** — all four proven against the real service from the deployed app. HTTP and Discord in Phase 9; **Sheets and Gmail closed out on 2026-09-26** with a real appended row (`Sheet1!A2:D2`) and a real sent mail (id `1a0dcf7f7df25cc8`) |
 | **Phase 10** — design system, motion, responsiveness, accessibility | **COMPLETE** — verified on the deployed URL in a browser at 1440 px and 375 px, 2026-09-26 |
 
 ---
@@ -303,7 +304,7 @@ hours).
 | Neon Postgres project | Neon | `agentforge`, id `super-mountain-39872886` | **EXISTS** — free plan, PostgreSQL 18.6 |
 | Neon branch / database / role | Neon | `production` / `neondb` / `neondb_owner` | **VERIFIED** |
 | Neon tables | Neon | `user` `account` `session` `verificationToken` `workflow` `run` `run_step` `credential` | **APPLIED** — `0000_dark_paladin`, `0001_smiling_leper_queen`, `0002_wooden_morlocks` |
-| Enabled APIs | Google Cloud | `run`, `cloudbuild`, `artifactregistry`, `cloudscheduler`, `apikeys`, `generativelanguage` | **ENABLED** |
+| Enabled APIs | Google Cloud | `run`, `cloudbuild`, `artifactregistry`, `cloudscheduler`, `apikeys`, `generativelanguage`, **`gmail`, `sheets`** | **ENABLED** — the last two added 2026-09-26, without which `integration.gmail` and `integration.sheets` fail at runtime however the OAuth consent went |
 | Stored provider credential | Neon | `credential` row, kind `llm.google`, for the demo user | **PRESENT** — the free-tier key, encrypted. Left in place so no phase is blocked |
 | Stored Discord credential | Neon | `credential` row, kind `integration.discord` | **PRESENT 2026-09-26** — webhook "AgentForge", channel `1553084744504316034`, verified against Discord before storage. **Note it goes absent whenever `scripts/verify-api.mjs` is run with `VERIFY_DISCORD_WEBHOOK`**: the script stores it, posts with it, then deletes it, because deletion is one of the paths under test. Re-add it from `DISCORD_WEBHOOK_URL` in local `.env` — a `PUT /api/integrations/discord` is enough |
 | Stored Google credential | Neon | `credential` row, kind `google.oauth` | **PRESENT 2026-09-26** — `arunishrajput7@gmail.com`, scopes include `spreadsheets` and `gmail.send`, so `canAppendSheets` and `canSendMail` are both true. Consent was completed by the user in a browser; that step authenticates as them and cannot be scripted |
@@ -540,9 +541,8 @@ dead billing-enabled key. Full detail is in git history at `56dce47`.
 
 ## Last Updated
 
-**2026-09-26** — Phase 10 complete. Revision `agentforge-00017-5k2` live; the deployed HTTP suite
-**passed in full and unchanged** (177 of 178 checks run, 1 skipped, **0 failed**), `npm test` is 276
-including 9 new computed-contrast assertions, and the canvas was driven in a real browser at 1440 px
-and 375 px — a real run with its path lit on the graph, both drawers, Escape, the skip link, the 404
-page and `prefers-reduced-motion`, with **0 console errors**. Phase 9's Sheets/Gmail runtime remains
-**BLOCKED ON M8**, untouched by this phase. Next: **Phase 11 — hardening**.
+**2026-09-26** — Phase 10 complete **and Phase 9 fully closed out**. Revision `agentforge-00018-x7q`
+live. All four integrations are now proven against the real service from the deployed app: HTTP,
+Discord, **Sheets** (`Sheet1!A2:D2`) and **Gmail** (id `1a0dcf7f7df25cc8`). M8 is done and all three
+credentials are connected. `npm test` is 280 passing. **No phase from 0 to 10 has an outstanding
+completion criterion.** Next: **Phase 11 — hardening**.
