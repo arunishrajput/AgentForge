@@ -191,9 +191,10 @@ user. Do not proceed to Phase 3.
 possibly `Dockerfile` if the build fails on Cloud Build.
 
 **Implementation notes.**
-- The redirect URI is the classic failure here: it cannot be registered before the URL exists.
-  Whether the deterministic `<service>-<project-number>.<region>.run.app` form allows
-  pre-registration is `UNKNOWN — VERIFY` — check it, and record the answer
+- The redirect URI is the classic failure here: it cannot be registered before the URL exists —
+  **except that it can.** `UNKNOWN — VERIFY` **resolved at Phase 2**: the deterministic
+  `<service>-<project-number>.<region>.run.app` form *does* allow pre-registration, and the
+  predicted URL matched the deployed one exactly
 - `AUTH_URL` must match the deployed origin exactly, or the OAuth callback fails in a way that
   looks like a client-ID problem
 - Secrets go in via `--set-env-vars` or Secret Manager; never baked into the image

@@ -62,9 +62,17 @@ Decided in Phase 0 Part A on 2026-09-25, against licences and repository sizes v
 source. **This is binding.** Do not revisit without flagging a material change to the user.
 
 **What harvest means here:** build fresh in a single Next.js App Router app; take React Flow for
-the canvas, the Vercel AI SDK for provider-agnostic tool-calling, and Auth.js for Google OAuth;
-write the execution engine, the node registry, and the generation layer ourselves. No borrowed
-codebase, no fork to strip.
+the canvas and Auth.js for Google OAuth; write the execution engine, the node registry, the
+generation layer and the provider adapter ourselves. No borrowed codebase, no fork to strip.
+
+> **Corrected in Phase 12.** This sentence named the **Vercel AI SDK** for provider-agnostic
+> tool-calling. It was adopted at Phase 0 on licence grounds and then **`SUPERSEDED` at Phase 6
+> (D32)** — `ai` and `@ai-sdk/google` are deliberately **not installed**, and the provider adapter is
+> a `fetch` client we own. `PROGRESS.md` D32 said this table had been corrected; it had not, and
+> Phase 12's doc reconciliation is what caught the drift. The reasons are in D32 and the decisive
+> one is D33: Gemini signs every `functionCall` with a `thoughtSignature` and answers **400** to a
+> history that has lost one, so a normalising adapter passes its first tool call and fails on the
+> second.
 
 ### Why, in the order that decided it
 
@@ -105,7 +113,7 @@ to `NOASSERTION` under GitHub's licence detection, so the label is not usable ev
 | **Flowise** | Apache-2.0 core; `packages/server/src/enterprise` and files with an explicit copyright notice are Commercial | Yes, licence-wise |
 | **Langflow** | MIT | Yes, licence-wise |
 | **React Flow** (`@xyflow/react`) | MIT | **Yes — adopted** |
-| **Vercel AI SDK** (`ai`) | Apache-2.0 | **Yes — adopted** |
+| **Vercel AI SDK** (`ai`) | Apache-2.0 | Licence-wise yes; **`SUPERSEDED` at Phase 6 (D32) and never installed** — the provider adapter is a `fetch` client we own |
 | **Auth.js** (`next-auth`) | ISC | **Yes — adopted** |
 
 #### Correction: the n8n claim in the original brief was imprecise
@@ -596,9 +604,13 @@ which does not exist until the first deploy. Therefore:
 - **Phase 2** — deploy, capture the real Cloud Run URL, then a second short manual action adds the
   production redirect URI
 
-Whether the newer deterministic `<service>-<project-number>.<region>.run.app` URL form allows
-pre-registering the production URI before the first deploy is `UNKNOWN — VERIFY` at Phase 2. The
-two-step is the safe default regardless. Exact values live in `DEPLOYMENT.md`.
+~~Whether the newer deterministic `<service>-<project-number>.<region>.run.app` URL form allows
+pre-registering the production URI before the first deploy is `UNKNOWN — VERIFY` at Phase 2.~~
+**RESOLVED at Phase 2: it can.** Both parts are knowable in advance — the service name is chosen and
+the project number comes from `gcloud projects describe <project> --format='value(projectNumber)'` —
+and the predicted URL matched the deployed one exactly. A future rebuild can register OAuth before
+deploying and collapse the two-step into one. The two-step is still the safe default when the URL
+form is not known in advance. Exact values live in `DEPLOYMENT.md`.
 
 Integration credentials (Google API scopes for Sheets and Gmail, Discord webhook URLs) are stored
 encrypted per user, separate from the sign-in session.

@@ -30,6 +30,8 @@
  */
 import { neon } from "@neondatabase/serverless";
 
+import { adaptPayload, DEMO_PROMPT, URGENT_PAYLOAD } from "./demo-payload.mjs";
+
 /* ------------------------------------------------------------------ *
  * Arguments
  * ------------------------------------------------------------------ */
@@ -48,20 +50,6 @@ function flag(name) {
 const secure = base.startsWith("https://");
 const cookieName = secure ? "__Secure-authjs.session-token" : "authjs.session-token";
 const sql = neon(process.env.DATABASE_URL_UNPOOLED ?? process.env.DATABASE_URL);
-
-/**
- * `DEMO.md` Beat 2's prompt, verbatim. If this string and `DEMO.md` ever disagree,
- * the smoke test is measuring something the demo does not do.
- */
-const DEMO_PROMPT = `When my form webhook fires, summarise the submission, decide whether it's urgent,
-post urgent ones to Discord, and log every one to my Google Sheet.`;
-
-/** `DEMO.md` Beat 5's payload, verbatim. */
-const URGENT_PAYLOAD = {
-  name: "Priya",
-  email: "priya@example.com",
-  message: "Our production checkout has been down for 40 minutes and we are losing orders.",
-};
 
 /* ------------------------------------------------------------------ *
  * Reporting
@@ -320,24 +308,31 @@ async function walk(cookie, iteration) {
 
     /* Beat 5 + 6 — fire it, and watch it think --------------------- */
     beat = 5;
-    const triggerNode = workflow.graph.nodes.find((n) => n.type === "core.webhook_trigger");
-    const requiredFields = triggerNode?.config?.requiredFields ?? [];
-    const unmet = requiredFields.filter((field) => !(field in URGENT_PAYLOAD));
+    /**
+     * Beat 5 no longer fires a fixed JSON literal — `demo-fire.mjs` fits the payload
+     * to the graph the model just wrote, because the trigger's `requiredFields` are
+     * the model's choice and a mismatch is a **400** two beats before the payoff
+     * (8 of 20 measured walks declared such a field; see `demo-payload.mjs`). So this
+     * walks what the demo actually does, and reports when the fitting was needed
+     * rather than hiding it.
+     */
+    const { payload: firePayload, added: fitted } = adaptPayload(workflow.graph, URGENT_PAYLOAD);
     check(
-      "the demo payload satisfies the generated trigger",
-      unmet.length === 0,
-      `the trigger requires ${JSON.stringify(unmet)}, which DEMO.md Beat 5's curl does not send`,
+      "the payload can be fitted to the generated trigger",
+      Object.keys(firePayload).length > 0,
+      "nothing to send",
     );
+    if (fitted.length > 0) note(`trigger wanted ${fitted.join(", ")} — payload fitted to it`);
 
     // The stream opens *before* the webhook fires, exactly as the browser is already
-    // sitting on the canvas when the presenter runs the curl.
+    // sitting on the canvas when the presenter runs `demo-fire.mjs`.
     const stream = watch(`/api/workflows/${workflowId}/stream`, cookie);
     await sleep(400);
 
     const firedAt = Date.now();
     const fired = await api(`/api/webhook/${workflow.webhookUrl.split("/").pop()}`, {
       method: "POST",
-      body: URGENT_PAYLOAD,
+      body: firePayload,
     });
     check(
       "the webhook starts a run with no session at all",

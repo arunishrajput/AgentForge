@@ -77,6 +77,7 @@ failure inside 72 hours.
 | `CONTRACT.md` | Interfaces that must stay stable across phases | Before touching a shared schema or protocol |
 | `DEPLOYMENT.md` | How to deploy and verify, resource inventory | Before any cloud work |
 | `DEMO.md` | The 3-minute demo script, used as a scope contract | Before cutting scope, and before demo day |
+| `SUBMISSION.md` | Devpost submission copy, and the blanks only the user can fill | Before submitting |
 | `README.md` | Practical entry point | When orienting from scratch |
 
 ### Framework docs — read them, do not recall them

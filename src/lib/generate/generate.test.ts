@@ -336,6 +336,57 @@ test("a model that omits config entirely still produces a graph with an object c
   assert.deepEqual(graph.nodes[0].config, {});
 });
 
+/**
+ * Phase 12. Five of twelve generations of the pinned demo prompt wrote
+ * `maxIterations: 1` on the agent — schema-valid, graph-valid, and a guaranteed
+ * runtime failure the moment the agent reaches for a tool. These assert the guarantee
+ * rather than the prompt rule, because a rule a model follows most of the time is not
+ * a property.
+ */
+test("a generated agent budget too small to ever succeed is dropped to the default", () => {
+  const parsed = generatedWorkflowSchema.parse({
+    name: "Triage",
+    nodes: [
+      { id: "trigger", type: "core.manual_trigger" },
+      { id: "classify", type: "ai.agent", config: { objective: "decide", maxIterations: 1 } },
+    ],
+    edges: [{ source: "trigger", target: "classify" }],
+  });
+
+  const graph = assembleGraph(parsed);
+  // Removed, not clamped: absent means the registry default applies, and the default
+  // is the one number that stays right when it changes.
+  assert.equal("maxIterations" in graph.nodes[1].config, false);
+  assert.equal(graph.nodes[1].config.objective, "decide");
+});
+
+test("an agent budget the model chose deliberately is left exactly alone", () => {
+  const parsed = generatedWorkflowSchema.parse({
+    name: "Triage",
+    nodes: [
+      { id: "trigger", type: "core.manual_trigger" },
+      { id: "deep", type: "ai.agent", config: { objective: "research", maxIterations: 7 } },
+    ],
+    edges: [{ source: "trigger", target: "deep" }],
+  });
+
+  assert.equal(assembleGraph(parsed).nodes[1].config.maxIterations, 7);
+});
+
+test("the budget guard touches agent nodes only", () => {
+  const parsed = generatedWorkflowSchema.parse({
+    name: "Loop",
+    nodes: [
+      { id: "trigger", type: "core.manual_trigger" },
+      // A loop's own bound of 1 is a legitimate thing to ask for and is not an agent.
+      { id: "each", type: "core.loop", config: { maxIterations: 1 } },
+    ],
+    edges: [{ source: "trigger", target: "each" }],
+  });
+
+  assert.equal(assembleGraph(parsed).nodes[1].config.maxIterations, 1);
+});
+
 test("what the model could not build is reported, not swallowed", async () => {
   const answer = JSON.stringify({
     name: "Summarise and post",

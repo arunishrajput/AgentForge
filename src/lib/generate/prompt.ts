@@ -144,6 +144,7 @@ Designing with the AI nodes:
   - "ai.agent" decides at runtime and can call other nodes as tools. Give it an "objective", and list the node types it may call in "tools" — only types whose catalogue entry you were shown may be listed there.
   - When the workflow has to CHOOSE between named outcomes — urgent or not, approve or reject, which category — use "ai.agent" with "choices", not an "ai.llm" whose text you then compare. The agent's output.decision is constrained to your list, so the branch is exact instead of depending on how the model happened to word a sentence.
   - An agent does not have its own branches. To route on what it decided, configure its "choices" (for example ["urgent", "normal"]), then follow it with a "core.branch" whose left is "{{input.decision}}", operator "equals", and right one of those choices. The "true" output is that choice; the "false" output is everything else.
+  - Do not set "maxIterations". An agent spends one model call deciding to use a tool and another reading what the tool returned, so a limit of 1 stops it before it can answer and fails the whole run. The default already allows for this; set it only when a request genuinely needs a longer loop, and never below 3.
 
 Designing with the integration nodes:
 

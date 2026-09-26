@@ -17,7 +17,8 @@ Built for the Zero Origin hackathon (Devpost) as a 72-hour solo build.
 
 ## Status
 
-**Phase 11 complete — the demo path is hardened and walks clean, ten times in a row.**
+**Phase 12 complete — the project is submittable.** The demo is rehearsed against the deployed URL,
+the deployment is verified, rollback is tested, and the repository stands on its own.
 
 The whole product is live: Google sign-in, a sentence turned into a real workflow on a canvas,
 registry-driven config forms, a webhook or a schedule to start it, an execution engine whose agent
@@ -25,10 +26,20 @@ nodes call other nodes as tools and choose a branch at runtime, per-node status 
 over SSE while it runs, and four integrations that reach real services — HTTP, Discord, Google
 Sheets and Gmail.
 
-What Phase 11 added is not a feature. Every outbound call on the demo path now retries once on the
-statuses that mean *nothing happened*, and never on the ones where a repeat could double-post. A run
-that fails says so in words naming the node that failed. And `scripts/smoke.mjs` walks the eight
-beats of [`DEMO.md`](./DEMO.md) end to end against the deployed URL in about ten seconds.
+**Phase 12 was supposed to be paperwork and it was not.** Rehearsing [`DEMO.md`](./DEMO.md) in a
+browser, rather than trusting a script that had only ever been walked by a test harness, found three
+beats that could not have worked as written — and one of them was a product bug that the 178-check
+suite and the ten-walk smoke test both passed straight over:
+
+- **A webhook-triggered run was invisible on the canvas.** The page only opened a stream if it
+  happened to *load* mid-run. Beat 5 fires from a terminal while the browser sits idle, so the graph
+  never moved. The smoke script opens its own stream over HTTP and fires 400 ms later — it proves the
+  server streams, not that the canvas is still listening 25 seconds after it loaded.
+- **42% of generated workflows carried an agent budget that guaranteed their own failure.**
+  `maxIterations: 1`, which is schema-valid and graph-valid, and stops the agent the moment it
+  reaches for a tool. Measured 5 in 12; now 0 in 12.
+- **Beat 5 could not have fired the right workflow**, because the webhook token is minted per
+  workflow at creation and the one being demonstrated is generated live, seconds earlier.
 
 Current state is always in [`PROGRESS.md`](./PROGRESS.md).
 
@@ -73,6 +84,7 @@ Full scope, including what is deliberately excluded, is in [`PRD.md`](./PRD.md).
 | [`CONTRACT.md`](./CONTRACT.md) | Interfaces that must stay stable |
 | [`DEPLOYMENT.md`](./DEPLOYMENT.md) | How to deploy and verify |
 | [`DEMO.md`](./DEMO.md) | The 3-minute demo, used as a scope contract |
+| [`SUBMISSION.md`](./SUBMISSION.md) | Everything the Devpost form asks for, written once |
 
 ---
 
@@ -128,9 +140,22 @@ node --env-file=.env scripts/verify-api.mjs http://localhost:3000
 
 # The demo path only, beat by beat, in ~10 seconds — the pre-demo check rather than
 # the regression suite. It fires a real webhook, watches the SSE stream, and asserts
-# the agent's branch, the Discord post and the Sheet row. --loop 10 is Phase 11's bar.
+# the agent's branch, the Discord post and the Sheet row. --loop 10 is the bar.
 SMOKE_SPREADSHEET_ID=<the demo sheet> \
   node --env-file=.env scripts/smoke.mjs https://<the deployed url>
+
+# Put the demo account into the state DEMO.md assumes, and prove it: credentials
+# connected, the backup workflow generated AND run end to end, the sheet cleared to
+# its header row. Idempotent — run it before every demo. --check reports only.
+SEED_SPREADSHEET_ID=<the demo sheet> \
+  node --env-file=.env scripts/seed-demo.mjs https://<the deployed url>
+
+# DEMO.md Beat 5: fire the demo webhook without putting its URL on a shared screen.
+# It resolves the newest workflow at fire time — the webhook token is minted per
+# workflow at creation, so the one being demonstrated does not exist until Beat 3 —
+# and fits the payload to the trigger the model just wrote.
+node --env-file=.env scripts/demo-fire.mjs https://<the deployed url>
+node --env-file=.env scripts/demo-fire.mjs https://<the deployed url> --payload calm
 
 curl -fsS localhost:3000/api/health
 # {"status":"ok","database":"reachable","databaseLatencyMs":129,...}
@@ -215,11 +240,11 @@ Details, and the full list of what is intentionally simplified and what that cos
 | Cron | Cloud Scheduler |
 | Queue | None. The executor runs in-process |
 | Auth | Google OAuth |
-| LLM | Google Gemini, behind a provider-agnostic adapter |
+| LLM | Google Gemini, behind a provider-agnostic adapter, with a model fallback chain |
 | Framework | Next.js 16 App Router (React 19) — one container serving UI and API |
 | ORM | Drizzle + `@neondatabase/serverless` |
 | Canvas | React Flow (`@xyflow/react`) |
-| Agent / tool-calling | Vercel AI SDK |
+| Agent / tool-calling | Written here — a `fetch` adapter over the Gemini REST API, no SDK ([D32](./PROGRESS.md)) |
 | Auth library | Auth.js v5 (`next-auth`, pinned beta) |
 | Engine | Written here. In-process DAG walker, not borrowed |
 
@@ -233,7 +258,8 @@ verified licences, and the rejected forks are in
 
 **Unconstrained, and still the owner's call.** The reason this was deferred is resolved: Phase 0
 chose harvest, so nothing copyleft or source-available is inherited. Every adopted dependency is
-permissive — React Flow MIT, Vercel AI SDK Apache-2.0, Auth.js ISC, Drizzle Apache-2.0.
+permissive — Next.js MIT, React MIT, React Flow MIT, Auth.js ISC, Drizzle Apache-2.0, Zod MIT,
+`@neondatabase/serverless` MIT, Tailwind MIT.
 
 MIT is the obvious default for a hackathon submission. Left open deliberately rather than chosen on
 the owner's behalf, since it governs whether others may commercialise the work.

@@ -152,13 +152,21 @@ function EditorInner({
     return states;
   }, [run]);
 
-  // A page loaded mid-run reattaches to that run, so a reload during execution
-  // keeps showing it live instead of going blank until it finishes.
+  /**
+   * The canvas watches from the moment it opens, not only when it happened to load
+   * mid-run. A run started anywhere else — a webhook, a schedule — is a run this page
+   * is supposed to show, and `DEMO.md` Beat 5 starts one from a terminal while the
+   * browser just sits here. Watching only `liveRun` meant the page had to already be
+   * loaded *during* a run to ever see one, so Beat 6 showed a graph that never moved.
+   *
+   * `runId` is still pinned when the page did load mid-run, so a reload during
+   * execution reattaches to that exact run rather than adopting it by guesswork (D29).
+   */
   const attached = useRef(false);
   useEffect(() => {
-    if (attached.current || !liveRun) return;
+    if (attached.current) return;
     attached.current = true;
-    watch({ runId: liveRun.id });
+    watch(liveRun ? { runId: liveRun.id } : undefined);
   }, [liveRun, watch]);
 
   /**
@@ -266,7 +274,7 @@ function EditorInner({
       // `tweenMs` is 0 when the user asks for reduced motion: this tween is driven
       // in JavaScript, so the CSS media query in `globals.css` cannot reach it.
       requestAnimationFrame(() =>
-        fitView({ padding: 0.25, maxZoom: 1, duration: tweenMs(250) }),
+        fitView({ padding: 0.18, maxZoom: 1, duration: tweenMs(250) }),
       );
     },
     [fitView, screenToFlowPosition, setNodes],
@@ -552,7 +560,15 @@ function EditorInner({
               // Low enough that a seven-node graph still fits a 375px screen; the
               // default floor of 0.5 cropped it and the demo's spine ran off-canvas.
               minZoom={0.15}
-              fitViewOptions={{ padding: 0.3, maxZoom: 1 }}
+              // 0.18, not 0.3. The demo's six-node chain is ~1730px wide in flow
+              // space and the pane between the two side panels is 880px at 1440px
+              // wide, so fitView lands at 0.39 zoom — a 224px node card drawn at
+              // 88px, which is legible on a laptop and not on a projector. Padding
+              // is the only term in that fraction worth spending: measured 0.39 →
+              // 0.46 at 1440 and 0.61 → 0.70 at 1920. The larger share of the fix
+              // is not code at all — presenting at 1920 rather than 1440 is worth
+              // 55% on its own, and DEMO.md's setup now says so.
+              fitViewOptions={{ padding: 0.18, maxZoom: 1 }}
               proOptions={{ hideAttribution: false }}
             >
               <Background gap={20} />

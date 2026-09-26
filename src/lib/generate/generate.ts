@@ -81,6 +81,43 @@ export interface GenerateWorkflowOptions {
 }
 
 /**
+ * The fewest model calls an agent that uses a tool can possibly finish in: one to
+ * decide to call the tool, one to read what came back and answer. Anything below this
+ * is a budget that cannot succeed.
+ */
+const MIN_VIABLE_AGENT_ITERATIONS = 3;
+
+/**
+ * An agent budget the model set low enough to guarantee its own failure is dropped,
+ * so the node falls back to the registry default.
+ *
+ * Measured over 12 generations of the pinned demo prompt, **five wrote
+ * `maxIterations: 1`**. It passes config validation — the schema allows 1..8 — and the
+ * graph is valid, so nothing reports it. Then at runtime the agent spends its single
+ * call reaching for a tool, gets stopped, and fails the run at the exact beat the
+ * demo exists for. `Keep the workflow as small as the request allows` is elsewhere in
+ * the prompt, and the model appears to read it as applying to this number too.
+ *
+ * The prompt now says not to set it, which is the real fix; this is the guarantee,
+ * because a rule a model follows most of the time is not a property. It is the same
+ * division D40 draws — the model emits nodes, the system supplies what a model cannot
+ * be relied on to get right.
+ *
+ * Deliberately narrow: it only ever *raises* a floor on a **generated** agent node,
+ * and only by removing the key. A user who types 1 into the config form on the canvas
+ * still gets 1 — that is their choice to make, and D16's bounds are untouched.
+ */
+function viableAgentConfig(node: GeneratedWorkflow["nodes"][number]): Record<string, unknown> {
+  if (node.type !== "ai.agent") return node.config;
+
+  const requested = node.config.maxIterations;
+  if (typeof requested !== "number" || requested >= MIN_VIABLE_AGENT_ITERATIONS) return node.config;
+
+  const { maxIterations: _dropped, ...rest } = node.config;
+  return rest;
+}
+
+/**
  * Model output → a real graph. The system supplies everything the model was not asked
  * for: `version`, layout positions, and edge ids.
  */
@@ -97,7 +134,7 @@ export function assembleGraph(generated: GeneratedWorkflow): WorkflowGraph {
       // through jsonb would not reproduce it.
       ...(node.label === undefined ? {} : { label: node.label }),
       position: positions.get(node.id) ?? { x: 0, y: 0 },
-      config: node.config,
+      config: viableAgentConfig(node),
     })),
     edges: generated.edges.map((edge, index) => ({
       id: `e${index + 1}`,

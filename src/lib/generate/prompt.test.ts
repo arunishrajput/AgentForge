@@ -108,3 +108,16 @@ test("the nodes whose output feeds a branch all document their shape", () => {
 test("the prompt steers a named choice to the agent's constrained decision", () => {
   assert.match(systemPrompt(), /output\.decision/);
 });
+
+/**
+ * Phase 12. The primary half of the `maxIterations` fix — the guarantee is asserted in
+ * `generate.test.ts`. Both exist because the prompt rule is what keeps the *model* from
+ * writing a self-defeating budget, and the guard is what makes it not matter when it does.
+ */
+test("the prompt tells the model not to starve an agent of model calls", () => {
+  const prompt = systemPrompt();
+  assert.match(prompt, /Do not set "maxIterations"/);
+  // The reason, not just the instruction: a rule a model is given a reason for survives
+  // a request that seems to argue for the opposite.
+  assert.match(prompt, /one model call deciding to use a tool and another reading/);
+});

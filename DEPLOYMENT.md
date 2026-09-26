@@ -735,7 +735,8 @@ phase ends with this.
 node --env-file=.env scripts/verify-api.mjs "$APP_BASE_URL"
 ```
 
-33 checks: auth gating, owner scoping, graph round-trip, a sequential run, both sides of a branch,
+**178 checks** (33 when this line was written at Phase 3, and never updated until Phase 12):
+auth gating, owner scoping, graph round-trip, a sequential run, both sides of a branch,
 a bounded loop, the failure path, invalid-graph rejection, stale-run reaping, and delete cascade.
 It exits non-zero if any check fails, so "it deployed" and "it works" stay different claims.
 
@@ -807,18 +808,24 @@ To return to the newest revision afterwards:
 gcloud run services update-traffic agentforge --region "$GCP_REGION" --to-latest
 ```
 
-**As of 2026-09-25 there is exactly one revision (`agentforge-00001-h4k`), so there is nothing to
-roll back to.** The procedure is understood and the commands are correct, but it is untested and
-cannot be tested until a second revision exists. First opportunity: the Phase 3 deploy.
+**TESTED 2026-09-26 (Phase 12), and it works exactly as written above.** Traffic was shifted from
+`agentforge-00021-v4s` to `agentforge-00020-rcr`, confirmed by `/api/health` reporting the older
+revision, **the whole demo path was walked clean on it**, and `--to-latest` restored the newest
+revision. **Each shift took ~15 seconds** and neither required a rebuild.
 
 **Caveat:** a rollback does **not** revert migrations. Prefer additive migrations so an older
 revision still runs against the newer schema. Before demo day, avoid destructive schema changes
 entirely. Phase 3's migration is purely additive, so `agentforge-00001-h4k` still runs correctly
 against the current schema — which is what makes it a valid rollback target.
 
-**⚠️ This procedure is still UNTESTED.** Two revisions exist as of Phase 3, so it is now possible to
-test. Do it once, by hand, before demo day — shift to `agentforge-00001-h4k`, confirm
-`/api/health`, then shift back to the newest revision. An untested rollback is not a rollback plan.
+**Two things worth knowing before you need this in a hurry:**
+
+- `--to-latest` restores the `latestRevision: True` setting, not a pin to a named revision. Verify
+  with `--format='value(status.traffic)'` and expect `latestRevision` back in the output — a pinned
+  service silently ignores the next deploy's traffic.
+- The demo path was re-walked **on the rolled-back revision**, not just `/api/health`. A health check
+  proves the container starts; it does not prove the product works. Roll back, then run
+  `scripts/smoke.mjs`.
 
 ---
 

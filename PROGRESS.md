@@ -7,46 +7,49 @@ concise and operational — prune stale detail rather than appending forever. Th
 
 ## Project Status
 
-**Phase 11 is built, deployed and verified.** The demo path is hardened rather than merely working:
-**ten consecutive clean walks of the whole `DEMO.md` path on the deployed URL**, generation
-included, each one a fresh workflow from the demo prompt, a real webhook call, a watched SSE stream,
-a real Discord message and a real row in the demo spreadsheet.
+**Phase 12 is complete. The project is submittable.** The demo is rehearsed against the deployed
+URL *in a browser*, the deployment is verified, **rollback is tested for the first time**, every doc
+is reconciled against reality, and the repository has no secret in any tracked file or anywhere in
+its history.
 
-**https://agentforge-733000675212.asia-southeast1.run.app** — revision `agentforge-00019-4xw`.
+**https://agentforge-733000675212.asia-southeast1.run.app** — revision `agentforge-00021-v4s`.
 
-**`scripts/smoke.mjs` is the new artefact** and the one a cold session should reach for first. It
-walks the eight beats of `DEMO.md` in order in ~10 seconds and names the beat that broke.
-`--loop 10` is the bar this phase signed off against. It is deliberately *not* `verify-api.mjs`
-(D56).
+**Phase 12 was supposed to be paperwork. It was not.** `BUILD_PLAN.md` says it "is not a feature
+phase", and no feature was added — but rehearsing `DEMO.md` in a real browser, rather than trusting
+a script that had only ever been walked by a test harness, **found three beats that could not have
+worked as written**, one of them a genuine product bug that both suites passed straight over:
 
-**What actually changed in the product is small and narrow, which is the point of a hardening
-phase**: every outbound call on the demo path now retries once on the statuses that mean *nothing
-happened*, and provably does not retry the ones where a repeat could double-post (D54); and a run
-that **fails** now says so at the top of the canvas, naming the node, instead of resolving quietly
-and leaving a red card as the only signal.
+1. **A webhook-triggered run was invisible on the canvas.** The page opened a stream only if it
+   happened to *load* mid-run, or when Run was pressed. Beat 5 fires from a terminal while the
+   browser sits idle, so the graph never moved. Measured: no status change across 9 s while a run
+   completed behind it. **Fixed** — the canvas watches from the moment it opens and re-attaches when
+   the server closes a quiet connection, while the tab is visible.
+2. **42% of generated workflows carried an agent budget that guaranteed their own failure.**
+   `maxIterations: 1` — schema-valid, graph-valid, and fatal the moment the agent reaches for a
+   tool. **Measured 5 in 12; now 0 in 12** (D57).
+3. **Beat 5 could not have fired the right workflow.** The webhook token is minted per workflow at
+   creation (D41) and the demonstrated workflow is generated live, so the pre-exported `$WEBHOOK_URL`
+   the script told the presenter to use did not exist yet (D58).
 
-**No functional regression: 178 checks, 176 passed, 0 failed, 2 skipped** against the deployed URL.
-The second skip is **not** a regression — that check only runs when Google is *dis*connected, and
-Google is connected, which is the state the demo needs. `npm test` is **293 tests**, 13 of them new
-and all on the retry policy, most of them asserting what must *not* be repeated.
+**Three new scripts, and they are the artefacts of this phase** — `scripts/seed-demo.mjs` (puts the
+demo account into the state `DEMO.md` assumes and *proves* it), `scripts/demo-fire.mjs` (Beat 5), and
+`scripts/demo-payload.mjs` (the demo constants, in one place, plus the payload fitting).
 
-**`DEMO.md` Beat 2's target prompt is the demo prompt**, pinned in Phase 9 and now measured **10/10
-first attempt, `unsupported: []`**, building `webhook → llm → agent → branch → Discord + Sheets`
-every time. The agent judged the urgent payload urgent 10 times out of 10.
+**No regression: 178 checks, 176 passed, 0 failed, 2 skipped** on `agentforge-00021-v4s` — identical
+to Phase 11's tally. `npm test` is **297 tests**, 4 of them new and all on the agent-budget guard.
+**`smoke.mjs --loop 10`: 10 consecutive clean walks, 0 failures, 123 s**, at the original 3 s gap.
 
-**The demo spreadsheet now exists and its id is written down** —
-`1iz8vjkGNvPQ1q1vpDvaWnQZ6648BNYHYauVXHHY2IBo`, in `DEMO.md`'s seed table. It had to be created:
-the old one's id was recorded nowhere, and the `spreadsheets` scope grants no way to search Drive,
-so a cold session genuinely could not find it. That is exactly the failure this repository exists
-to prevent.
+**The Fallback B recording is the one thing Phase 12 could not produce** — nothing here can record a
+screen. It is a `MANUAL ACTION REQUIRED` block in `DEMO.md`, with the exact script to perform.
 
 ## Current Phase
 
-**Phase 12 — Demo readiness and final ship** (not started) — `READY TO START`.
+**Phase 12 — COMPLETE.** Phases 0–12 are all done and verified.
 
-**Nothing is blocking Phase 12.** All three credentials are connected, the demo sheet exists and is
-recorded, the smoke script exists and passes, and there is no outstanding completion criterion
-anywhere in Phases 0–11.
+**Nothing is blocking a submission** except the two entries only the user can supply, both recorded
+in `SUBMISSION.md`: the **hackathon category** (`UNKNOWN — VERIFY` since Phase 0) and the **demo
+video**. Stretch phases 13–14 are now unblocked but **`DEMO.md` is the scope contract and nothing on
+it needs them.**
 
 ## Completed Phases
 
@@ -64,6 +67,7 @@ anywhere in Phases 0–11.
 | **Phase 9** — integrations: HTTP, Discord, Sheets, Gmail | **COMPLETE** — all four proven against the real service from the deployed app. HTTP and Discord in Phase 9; **Sheets and Gmail closed out on 2026-09-26** with a real appended row (`Sheet1!A2:D2`) and a real sent mail (id `1a0dcf7f7df25cc8`) |
 | **Phase 10** — design system, motion, responsiveness, accessibility | **COMPLETE** — verified on the deployed URL in a browser at 1440 px and 375 px, 2026-09-26 |
 | **Phase 11** — hardening: demo-path reliability, critical-path tests, error surfaces | **COMPLETE** — **10 consecutive clean walks** of the full demo path on the deployed URL, 2026-09-26 |
+| **Phase 12** — demo readiness and final ship | **COMPLETE** — rehearsed in a browser, three broken beats found and fixed, rollback tested, docs reconciled, secret scan clean, 2026-09-26 |
 
 ---
 
@@ -74,15 +78,17 @@ anywhere in Phases 0–11.
 | **Canonical URL** | **`https://agentforge-733000675212.asia-southeast1.run.app`** |
 | Legacy URL | `https://agentforge-i5d2u66boa-as.a.run.app` — works, do not publish it |
 | Service | `agentforge` on Cloud Run, `asia-southeast1` |
-| Revision | **`agentforge-00019-4xw`** — ready, 100% of traffic. Previous good revision: `agentforge-00018-x7q` |
+| Revision | **`agentforge-00021-v4s`** — ready, **`latestRevision: True`**, 100% of traffic. Previous good revision: `agentforge-00020-rcr`, which is also the one **rollback was tested against** |
 | Scaling | `min-instances 1`, `max-instances 3`, 1 vCPU / 1 GiB, 3600 s timeout, port 8080 |
 | Env vars set | `NODE_ENV` `AUTH_URL` `APP_BASE_URL` `DATABASE_URL` `AUTH_SECRET` `GOOGLE_CLIENT_ID` `GOOGLE_CLIENT_SECRET` `ENCRYPTION_KEY` `CRON_SECRET` — **still 9. Phases 9, 10 and 11 added none** (`SMOKE_SPREADSHEET_ID` is a local test variable, never on the service): the Google integration flow reuses `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `APP_BASE_URL`, and every third-party credential is a `credential` row rather than an environment variable. No Gemini key on the service: the product path is the user's own key |
 | Database | Neon `super-mountain-39872886` — **8 tables**, migrations `0000` + `0001` + `0002_wooden_morlocks` applied. **Phases 9, 10 and 11 needed no migration**: two new credential kinds are rows in the existing `credential` table, which is what `(ownerId, kind, label)` was for |
 | Routes | `/` `/dashboard`→`/workflows` `/workflows` `/workflows/[id]` `/settings` + **17** API routes, unchanged by Phases 10 and 11. Phase 10 added three file-convention routes only: `app/icon.svg` (the favicon), `app/error.tsx` and `app/not-found.tsx` |
 | Latency | **Warm**: health ~190 ms India → Singapore, database 7–11 ms. A 6-node demo-path run **3.1–4.8 s** end to end; generation **2.7–3.5 s**. **Cold (Neon suspended, measured 2026-09-26 at 13½ min idle)**: health **1.14 s, of which 739 ms is the database wake** — then 184 ms on the very next request. Cloud Run itself is never cold at `min-instances 1` |
-| Last verified | **2026-09-26, after Phase 11** — `scripts/smoke.mjs --loop 10` against the deployed URL: **10 consecutive clean walks of the whole demo path**, 0 failures, 118 s. Plus `scripts/verify-api.mjs`: **176 passed, 0 failed, 2 skipped** of 178 |
+| Last verified | **2026-09-26, after Phase 12** — `scripts/smoke.mjs --loop 10`: **10 consecutive clean walks**, 0 failures, 123 s. `scripts/verify-api.mjs`: **176 passed, 0 failed, 2 skipped** of 178. Plus a **browser** rehearsal of all eight beats at 1920×1080 and 375 px, 0 console errors, and a **tested rollback** |
+| Rollback | **TESTED 2026-09-26, finally.** Traffic shifted to `agentforge-00020-rcr` in **~15 s**, health confirmed the older revision was serving, the demo path walked clean on it, then `--to-latest` restored `agentforge-00021-v4s` in ~15 s. The oldest open item in this file is closed |
+| Billing | Trial credit account `Billing - AgentForge` is **open and enabled**. Actual spend is **not queryable from the CLI** (no billing export configured) — **eyeball it in the console once before judging** |
 | Provider key stored | **Yes, deliberately left in place.** The user's own free-tier key is stored (encrypted) against their account on the deployed app, so no phase is blocked on re-pasting it |
-| Registry | **15 nodes**, unchanged by Phases 10 and 11 |
+| Registry | **15 nodes**, unchanged by Phases 10, 11 and 12. **The registry claim has now held six times** |
 | Fonts | **Geist + Geist Mono, self-hosted by `next/font`**, `latin` subset, variable axis. Two woff2 files in the image; no request leaves the browser for a font and there is no layout shift |
 
 **A redeploy preserves env vars.** Confirmed again on Phase 6's three deploys: `gcloud run deploy
@@ -91,66 +97,86 @@ to each new revision. The file is only needed when a variable changes.
 
 ---
 
-## Phase 11 — what was verified, not just written
+## Phase 12 — what was verified, not just written
 
-`npm test` — **293 tests**, no database, no network, ~1.0 s. Phase 11 added 13, all in
-`src/lib/integrations/net.test.ts`. **Eight of the thirteen assert that something is *not* retried**,
-which is the half that matters: a retry that double-posts is a worse stage failure than the blip it
-was absorbing.
+**The method is the finding.** Every previous phase verified over HTTP: a script minted a session,
+drove the API and asserted the JSON. Phase 12 drove a **real browser** against the deployed URL for
+the first time since Phase 10, and three of the eight beats did not survive it. Two of the three
+were wrong in `DEMO.md` alone; one was wrong in the product.
 
-**`scripts/smoke.mjs --loop 10` against the deployed URL — 10 consecutive clean walks, 0 failures,
-118 s.** Each walk is the whole of `DEMO.md`, not a subset:
-
-| Beat | Checked, every walk |
+| Beat | What the browser found |
 |---|---|
-| 1 | health + a real database round trip, the signed-out landing page offering **Continue with Google**, `/workflows` still answering **307** to a signed-out request (D51), and a session reaching the list |
-| 3 | the demo prompt → a persisted workflow: runnable, `unsupported: []`, and the full spine `core.webhook_trigger → ai.llm → ai.agent → core.branch → integration.discord + integration.sheets`. **10/10 on the first attempt** |
-| 4 | the Discord node's Message edited, PATCHed, reloaded, and the edit still there — Beat 4's whole claim |
-| 5 | the SSE stream opened **before** the webhook fires, then a real unauthenticated `POST` with Beat 5's exact payload |
-| 6 | a `snapshot` frame, **≥ 2 incremental `step` frames**, a terminal frame, and the first status arriving *before* the run ended — a buffered response would pass a row-reading check and fail on stage |
-| 7 | the agent step succeeded **with log lines**, the branch chose a path at runtime, and the urgent payload took the urgent path. **10/10 judged the 40-minute outage urgent** |
-| 8 | a real Discord message, and a real row in the demo sheet — rows `Sheet1!A4:C4` through `A14:C14` |
+| 1 | Sound. Signed-out landing page offers **Continue with Google** by that exact name |
+| 3 | Sound, but **small** — the six-node spine rendered at **0.39 zoom / 88 px per card** at 1440×900. Fixed two ways, below |
+| 4 | **Wrong.** Edited the Discord message; the beat that actually *has* to happen is pasting the spreadsheet id, because the generated Sheets node is born empty by design |
+| 5 | **Impossible.** Fired a `$WEBHOOK_URL` exported before a workflow that does not exist until Beat 3 |
+| 6 | **Broken in the product.** A webhook-triggered run was invisible on an idle canvas |
+| 7 | Sound once 6 was fixed — the branch decision is visible on the canvas and in the log |
+| 8 | Sound once 4 was fixed |
 
-Timings across the ten: generation **2.7–5.8 s**, run **3.1–12.2 s**. The outlier is walk 5, and it
-is the most useful data point in the phase: **two generation attempts and a 12.2 s run where the
-other nine took ~3.4 s** — the free-tier rate limit being hit and the retry/fallback chain absorbing
-it, live, without a failure. That is the behaviour Phase 6 built and Phase 11 extended to the
-integrations.
+**1 — The canvas was not listening.** `watch()` ran on mount only when the page had loaded *mid-run*,
+or when Run was pressed. Beat 5 fires from a terminal while the browser sits on the canvas, so
+nothing ever opened a stream. Measured before: **no status change across 9 s** while a run completed
+behind it. Measured after, with the canvas deliberately left idle for **25 s** first:
 
-**Four things worth recording, found while building:**
+```
+19s  Form Webhook Succeeded · Summarise Running
+20s  Summarise Succeeded · Decide Urgency Running
+22s  Decide Urgency Succeeded · Is Urgent? Succeeded → true · Post to Discord Running
+22s  Post to Discord Succeeded · Log to Sheet Succeeded
+```
 
-1. **The integrations had no retry at all.** The provider adapter has had one since Phase 6, so it
-   read as though the whole product was covered. It was not: the Discord post, the Sheets append and
-   the Google token refresh were each one-shot, and any one 429 or 503 ended Beat 8 with an empty
-   channel and an empty spreadsheet. Fixed as D54.
-2. **A failed run resolved `api.runWorkflow` perfectly happily** — the *request* succeeded, the run
-   did not — so the canvas header said nothing. The only signal was a red node card and a line in the
-   inspector, which on a shared screen is a demo that looks like it worked. The header now names the
-   failing node: *"Append to Google Sheet failed: …"*, which is the sentence `DEMO.md` Fallback E is
-   recovered from.
-3. **The demo spreadsheet's id was recorded nowhere, and could not be recovered.** The Phase 9 proof
-   run was cleaned up and the `spreadsheets` scope grants no way to search Drive, so a cold session
-   could not find the sheet the demo depends on. A new one was created through the app's own stored
-   credential and **its id is now in `DEMO.md`'s seed table**. A spreadsheet id is not a bearer
-   secret — it grants nothing without a permission grant — so the repository is the right place.
-4. **`DEMO.md` Beat 1 told the presenter to click a button that does not exist.** It said *"Sign in
-   with Google"*; the button reads **"Continue with Google"**. Caught because the smoke script
-   asserts the button by name, which is now the reason it asserts it by name.
+**Why no suite caught it**, which is the part worth keeping: `smoke.mjs` opens the SSE stream itself
+over HTTP and fires 400 ms later. It proves the **server** streams. It cannot prove the **canvas** is
+still listening 25 seconds after it loaded — and 25 seconds is exactly how long Beat 4 takes. A whole
+class of bug lives in the gap between "the API works" and "the page works".
 
-**Cold start and the first interaction (task 6) — measured, not assumed.** With `min-instances 1`
-Cloud Run is never cold, so the only cold tier is Neon, whose 5-minute autosuspend cannot be
-disabled on the free plan. Measured at **13½ minutes idle**: the first request answered **200 in
-1.14 s, 739 ms of it the database waking**; the very next request was **184 ms / 11 ms**. Nothing
-breaks, and the smoke script now asserts the first interaction is under 5 s so a genuinely bad cold
-start fails a check instead of surprising a presenter. **Cloud Run's own cold start was deliberately
-not tested**, because reaching it means setting `min-instances 0` — changing the demo's own
-configuration to measure something the demo has configured away.
+**2 — Generated agents were being starved.** Twelve fresh generations of the pinned demo prompt:
+**five wrote `maxIterations: 1`**. It passes config validation (the schema allows 1–8) and the graph
+is valid, so nothing reported it — then the agent spent its single call reaching for a tool, got
+stopped, and failed the run at Beats 7 and 8. The prompt already said `default 5`; the model appears
+to read *"keep the workflow as small as the request allows"* as applying to this number too. Fixed
+both ways (D57) and re-measured on the deployed revision: **0 of 12**.
 
-**Phase 10's record, compressed:** a design system in `globals.css` (tokens, type scale, eleven
-`@utility` classes), Geist self-hosted, motion on the beats that are watched, 375 px drawers, a
-focus ring, and contrast computed from the tokens in a test rather than eyeballed. The findings that
-still matter are all in the decisions table (D48–D52) and *Known Issues*; full detail is in git
-history at `25d571a`.
+**3 — Beat 5 could not have worked** (D58). Now `scripts/demo-fire.mjs`, which resolves the workflow
+at fire time and never prints the URL. It also **fits the payload to the graph**: across two
+ten-walk runs, **5 of 10 and 3 of 10** generations declared a trigger field (`submission`, once
+`content`, once `id`) that Beat 5's fixed JSON literal did not send — a **400**, two beats before the
+payoff. The very first post-fix smoke walk hit it and absorbed it live.
+
+**4 — Beat 3 was legible on a laptop and not on a projector.** Two fixes, both measured on the real
+generated graph:
+
+| | zoom | node card |
+|---|---|---|
+| 1440×900, `padding: 0.3` (before) | 0.393 | **88 px** |
+| 1920×1080, `padding: 0.3` | 0.608 | 136 px |
+| 1920×1080, `padding: 0.18` (now) | **0.669** | **150 px** |
+
+**The larger share is not code.** Presenting at 1920 rather than 1440 is worth 55% on its own,
+because the two side panels take a fixed 560 px and everything left over is the graph's. It is now
+setup state 12 in `DEMO.md`. The padding change is the remaining 10% and helps at every size. 375 px
+still fits all six nodes with **0 px** horizontal overflow at 0.185 zoom, above the 0.15 floor.
+
+**Rollback, tested at last.** The oldest open item in this file. Traffic to `agentforge-00020-rcr` in
+**~15 s**, health confirmed the older revision was serving, **the demo path walked clean on it**, then
+`--to-latest` restored `agentforge-00021-v4s`. The procedure in `DEPLOYMENT.md` is correct as written.
+
+**Secret scan, working tree and full history.** Every value in `.env` long enough to be a secret,
+checked with `git grep -F` across tracked files and `git log --all -S` across every commit:
+**no hit**. A shape-based scan (`AIza…`, `postgres://…:…@`, Discord webhook URLs, PEM headers,
+`GOCSPX-…`) returns only three deliberately fake test fixtures. `.env` has never been added in any
+commit.
+
+**Doc reconciliation found real drift**, not just typos:
+
+- **`ARCHITECTURE.md` still listed the Vercel AI SDK as adopted**, in two places, and `README.md`'s
+  stack table and licence list both named it. D32 dropped it at Phase 6 and *claimed the table had
+  been corrected*. It had not. Now marked `SUPERSEDED` with the reason kept
+- **`DEPLOYMENT.md` said the deployed suite was "33 checks"** — true at Phase 3, and 178 since
+- **The Phase 2 `UNKNOWN — VERIFY` on pre-registering the deterministic OAuth redirect URI was
+  resolved in `DEPLOYMENT.md` and nowhere else.** `ARCHITECTURE.md` and `BUILD_PLAN.md` both still
+  carried it open. Propagated
 
 ## Decisions — BINDING
 
@@ -214,12 +240,16 @@ Carried forward from every phase. These are the decisions later sessions must no
 | **D54** | **Retrying an outbound call is opt-in per call site, and never on a status that could mean "already done"** | The integrations had no retry at all (the provider adapter has had one since Phase 6), so one Discord 429 or one Google 503 ended `DEMO.md` Beat 8. But a blanket retry is worse than none: a POST that *creates* may have taken effect before the answer was lost, and two copies of Beat 8's message on a shared screen is not a recoverable demo. So the caller declares what it knows. `on` defaults to **429, 502, 503, 504** — statuses that mean the server did not act. **500 is deliberately absent**: ambiguous for a create. `onTransportError` is only for a genuinely idempotent call — the OAuth token refresh and the webhook-verify GET — because a dead connection is evidence of nothing. A **spent timeout and a cancelled run are never retried**: one means the deadline is already gone, the other means the run is over. Eight of the thirteen new tests assert the negative half |
 | **D55** | **A `Retry-After` longer than 5 s is honoured by *not* retrying** | Discord can ask for 30 s. Sleeping that long inside a node is worse on stage than a failed step naming the rate limit, and the engine's 120 s deadline is not a budget to spend asleep. The caller still gets the real 429 to report, so nothing is hidden |
 | **D56** | **The smoke script and the verification suite are two different tools and stay separate** | `verify-api.mjs` is 178 checks over the whole API surface in ~2 minutes — the regression test for a code change. `smoke.mjs` is the eight beats of `DEMO.md` in order in ~10 seconds, and it reports *which beat* broke. Merging them would give the pre-demo check a two-minute runtime and the regression suite a demo-shaped bias. `DEMO.md`'s pre-demo checklist runs the smoke script; a phase ending runs both |
+| **D57** | **The generator is never allowed to starve an agent of model calls** | A tool-calling agent needs at least two model calls — one to make the call, one to read the result — and the generator wrote `maxIterations: 1` in **5 of 12** generations of the pinned demo prompt. Valid against the schema (1–8), valid as a graph, and fatal at runtime, so nothing reported it. Fixed in two places on purpose: the prompt now says not to set the field **and gives the reason**, and `assembleGraph` **drops** a generated agent budget below 3 so the registry default applies. The prompt rule is the real fix; the guard is what makes it a property rather than a tendency, which is the same division D40 draws. Deliberately narrow: it only ever touches a **generated** `ai.agent` node, and only by removing the key. A user who types 1 into the config form still gets 1 — D16's bounds are untouched. Re-measured on the deployed revision: **0 of 12** |
+| **D58** | **Beat 5 resolves the webhook at fire time and fits the payload to the graph** | `createWorkflow` mints a fresh token per workflow at creation (D41) and Beat 3 generates the demonstrated workflow **live**, so a `$WEBHOOK_URL` exported before the demo cannot be the right one. Copying it live puts a bearer secret on a shared screen; firing a stale one is worse still — **201, a real run on the wrong workflow, and a canvas that never moves**, because the stream is workflow-scoped (D28). `scripts/demo-fire.mjs` asks the API which workflow is newest and never prints the URL. It also fits the payload: the trigger's `requiredFields` are the model's choice and in **8 of 20** measured walks it wanted a field the fixed JSON did not send. Fields are only ever **added**, never overwritten, and the graph's own `{{trigger.x}}` references are read too — a field that passes validation but is referenced and missing produces a successful run with an empty cell, which is Beat 8's payoff quietly becoming a blank |
+| **D59** | **The canvas watches while it is visible, not only while a run it started is going** | It watched only if the page loaded mid-run or the user pressed Run, so a **webhook- or schedule-triggered run was invisible** — the run executed, finished, and the graph never moved. That is `DEMO.md` Beat 6, whose claim is literally "nothing is being refreshed", broken in exactly the case Beat 5 sets up. Now every stream close re-arms, because none of the server's three reasons (`finished · idle · timeout`) means the *canvas* is finished — only that the connection is. Gated on `document.visibilityState`, so a hidden tab costs nothing and re-attaches when it returns, and an explicit `stop()` still wins. **The cost is bounded by human attention rather than uptime**: 2 statements / 300 ms while someone is looking, which is 0.25 CU on Neon ≈ 400 hours of continuously-watched canvas inside the free month. The Known Issue about pinning Neon awake is about a *background* poller at 720 h/month; a visible tab is not that |
+| **D60** | **The demo account's state is produced by a script, not by hand** | Phase 11's sharpest lesson was a demo spreadsheet set up by hand whose id was recorded nowhere and, because the `spreadsheets` scope cannot search Drive, could not be recovered. `scripts/seed-demo.mjs` is the answer: it connects nothing it cannot verify, generates the backup workflow **and actually runs it end to end**, clears the sheet to its header row, and sweeps strays. Idempotent, so it is the pre-demo checklist's step rather than a one-off. It also states plainly what it **cannot** do — a Discord webhook post can only be deleted by its own message id, which the app has no reason to keep — so that gap is a printed instruction rather than a surprise |
 
 ## Known Issues
 
 | Issue | Impact | Action |
 |---|---|---|
-| **Rollback is still untested** | Demo-day risk | Phase 3 created a second revision so it is now *possible*. The attempt was blocked by the session's production-deploy guard. **Run it manually once before demo day:** `gcloud run services update-traffic agentforge --region asia-southeast1 --to-revisions agentforge-00007-xx7=100`, verify, then shift back to `agentforge-00008-l8q` |
+| ~~Rollback is still untested~~ | Was the oldest open item in this file | **TESTED 2026-09-26 (Phase 12).** `update-traffic --to-revisions agentforge-00020-rcr=100` shifted in **~15 s**; health confirmed the older revision was serving; the demo path walked clean on it; `--to-latest` restored `agentforge-00021-v4s`. The procedure in `DEPLOYMENT.md` is correct as written. **Know it without looking it up on demo day** |
 | **Google OAuth changes take ~90 s to propagate** | Cost 90 s in Phase 2 | Wait and retry before suspecting a typo |
 | **A curl check cannot detect `redirect_uri_mismatch`** | Nearly caused a false "verified" | Only a real browser sign-in proves the OAuth redirect |
 | **`min-instances 1` bills continuously** | Cost, after the hackathon | **Set to 0 once judging ends** — and **pause `agentforge-cron` at the same time**, or the tick keeps Neon awake ~240 h/month for nothing |
@@ -247,6 +277,10 @@ Carried forward from every phase. These are the decisions later sessions must no
 | ~~A redirect built from `request.url` points at `0.0.0.0:8080`~~ | Was: every successful Google connection landed on ERR_CONNECTION_REFUSED | **Fixed 2026-09-26** in `agentforge-00018-x7q` (D53). **The general lesson is live for every future route**: in this container `request.url` is the bind address, so anything that needs the public origin must read `APP_BASE_URL`. Four tests guard it |
 | **`next start` cannot serve a `standalone` build** | Local verification only | It warns and then 404s every CSS chunk, which looks exactly like a broken stylesheet. Assemble the container's own layout instead — the commands are in *Notes for Phase 11* |
 | **`next dev` and `next build` share `.next` and poison each other** | Local verification only | A dev server started after a production build serves the build's manifest and 404s every asset. `rm -rf .next` between the two |
+| **A generated trigger's `requiredFields` are the model's choice, and vary run to run** | Any fixed payload posted to a generated webhook | Measured across 20 walks: **8 declared a field a fixed literal would not send** (`submission` mostly, once `content`, once `id`) — a **400** before the run starts. `scripts/demo-payload.mjs` fits the payload to the graph (D58). **Anything else that POSTs to a generated webhook must do the same**, or it is relying on a coin flip |
+| **The API suites cannot see the browser** | Any UI regression, and one shipped | 178 deployed checks and ten clean smoke walks all passed while a webhook-triggered run was **invisible on the canvas** (D59). `smoke.mjs` opens its own SSE stream and fires 400 ms later — it proves the server streams, never that the page is still listening. **Drive a real browser before believing a UI claim**; Phases 6, 8, 10 and 12 each found something that way |
+| **A generated config value can be valid and self-defeating** | Generation, every phase that adds a config field | `maxIterations: 1` on an agent (D57) is the sharpest case: schema-valid, graph-valid, fatal. Sibling of the `{{ }}` reference bug. **When adding a config field with a numeric bound, ask what the model does with the minimum** |
+| **Beat 3 is small on a 1440 px screen** | Demo legibility, the headline beat | The two side panels take a fixed 560 px, so the pane is 880 px for a ~1730 px graph → 0.39 zoom, an 88 px node card. **Present at 1920×1080**: 0.67 zoom, 150 px. `fitView` padding went 0.3 → 0.18 for the rest. Not a bug, a geometry constraint — the fix is the setup, not the code |
 | **A one-off React #418 on first page load** | Cosmetic; not reproduced | Seen once on revision `agentforge-00012-cs6` alongside an `ERR_NETWORK_CHANGED` from a fetch interrupted mid-hydration. **Not reproducible on `00013-zwt`**: signed-out landing, workflow list, canvas, and the whole generate → run path each read 0 errors, 0 warnings. Re-check with a clean profile before the demo |
 | **Two attempts means two timeouts** | A wedged external host, worst case | A retried call gets a fresh timeout, so a Sheets append is at worst `20 s × 2 + 0.5 s backoff ≈ 40.5 s` and a Discord post ≈ 30.5 s. Both sit inside the engine's 120 s deadline **with an agent node's own budget alongside them**, which is the number to re-check if either timeout is ever raised. Bounded, measured, accepted (D54) |
 | **`scripts/smoke.mjs` writes to real services** | The demo channel and the demo sheet | One Discord message and one Sheet row **per walk** — `--loop 10` leaves ten of each. That is the point (it proves Beat 8) but they must be cleared before demoing. The script says so when it finishes. Phase 11's ten walks filled `Sheet1!A4:C4` through `A14:C14` |
@@ -356,7 +390,7 @@ Tests run on Node's built-in runner.
 ## How to verify the system, from a cold session
 
 ```bash
-npm run typecheck && npm test           # 293 tests, no database, no network, ~1.0 s
+npm run typecheck && npm test           # 297 tests, no database, no network, ~1.5 s
 npm run build                           # Turbopack; one expected process.exit warning
 
 # 178 checks end to end over HTTP. Mints a real session row, drives the API, cleans up.
@@ -389,6 +423,23 @@ SMOKE_SPREADSHEET_ID=1iz8vjkGNvPQ1q1vpDvaWnQZ6648BNYHYauVXHHY2IBo \
 # --loop 10 is Phase 11's bar: ten consecutive clean walks, ~2 min. It stops at the
 # first failing walk, because "ten in a row" is the claim, not "ten attempts".
 
+# Put the demo account into the state DEMO.md assumes, and PROVE it: credentials
+# connected, the backup workflow generated and RUN end to end, the sheet cleared to
+# its header row, strays swept. Idempotent — run it before every demo.
+SEED_SPREADSHEET_ID=1iz8vjkGNvPQ1q1vpDvaWnQZ6648BNYHYauVXHHY2IBo \
+  node --env-file=.env scripts/seed-demo.mjs https://agentforge-733000675212.asia-southeast1.run.app
+#
+# --check reports without changing anything, which is the fastest "is the demo still
+# set up?" there is. It cannot clear Discord — a webhook post is deletable only by its
+# own message id — and says so when it finishes.
+
+# DEMO.md Beat 5. Resolves the newest workflow at fire time (the webhook token is
+# minted per workflow at creation, so the demonstrated one does not exist until
+# Beat 3) and fits the payload to the trigger the model just wrote. Never prints
+# the URL. --payload calm sends the reserve message and takes the FALSE branch.
+node --env-file=.env scripts/demo-fire.mjs https://agentforge-733000675212.asia-southeast1.run.app
+node --env-file=.env scripts/demo-fire.mjs <url> --list        # what it would pick, and why
+
 # To look at the canvas without driving Google OAuth by hand: mint a session row,
 # set it as a cookie in the browser, then revoke it. Same mechanism, no app bypass.
 node --env-file=.env scripts/mint-session.mjs
@@ -404,43 +455,42 @@ decorators anywhere in `src`.
 
 ---
 
-## Notes for Phase 12
+## Notes for whoever comes next
 
-**Phase 12 is not a feature phase.** It seeds, rehearses, reconciles and ships. Resist adding
-anything (`BUILD_PLAN.md` says so explicitly).
+**Phases 0–12 are complete. There is no next phase that has to happen.** 13 and 14 are stretch, and
+`DEMO.md` — the scope contract — needs nothing from either. The highest-value work left is not code:
+record the Fallback B video and fill in the two blanks in `SUBMISSION.md`.
 
-- **Run `scripts/smoke.mjs` first, every session.** It answers "does the product still work end to
-  end?" in ten seconds and names the beat that broke. `verify-api.mjs` is the regression suite for a
-  code change (D56)
-- **The demo sheet exists and its id is in `DEMO.md`'s seed table.** Phase 11's ten walks left rows
-  `Sheet1!A4:C4` through `A14:C14` and ten messages in `#agentforge-demo` — **Phase 12 task 1 should
-  clear both** as part of seeding
-- **The backup workflow (`DEMO.md` Fallback A) does not exist yet.** It is Phase 12 task 1 and it is
-  the single highest-value item in the phase: it is what makes a bad generation survivable on stage
-- **`min-instances 1` keeps Cloud Run warm, so a Cloud Run cold start is not reachable without
-  changing the demo's own configuration** — which is why Phase 11 measured Neon's wake instead and
-  left the setting alone. Do not set it to 0 to "test cold start"; that is the demo config
-- **Rollback is still untested** and is the oldest open item in this file. Phase 12's deployment
-  verification is the last chance to do it
-- **The registry claim held a fifth time.** Phase 11 added no node, no palette entry and no config
-  form. The only product changes were a retry policy inside `net.ts` and one branch in the canvas's
-  run handler
+**If you do touch the code:**
+
+- **Run `scripts/smoke.mjs` first, every session.** Ten seconds, names the beat that broke.
+  `verify-api.mjs` is the regression suite for a code change (D56). `seed-demo.mjs --check` says
+  whether the demo account is still in its demo state
+- **Drive a real browser before believing a UI claim.** Phase 12's worst find passed 178 API checks
+  and ten smoke walks (D59). The suites cannot see the page
+- **Do not deploy on demo day.** A redeploy kills in-flight runs and replaces a verified build.
+  If you must, **rollback is now tested**: `update-traffic --to-revisions <rev>=100`, ~15 s, then
+  `--to-latest`
+- **`min-instances 1` keeps Cloud Run warm, so a Cloud Run cold start is not reachable** without
+  changing the demo's own configuration. Neon's wake is the only cold tier: 1.14 s at 13½ min idle
+- **The registry claim has held six times.** Phase 12 added no node, no palette entry, no config
+  form, no dependency, no environment variable and no migration
 - **The design system is `src/app/globals.css` and nothing else.** Tokens in `@theme`, component
-  classes as `@utility`. There is no component library and no `components/ui` — deliberately
-- **`prefers-reduced-motion` is handled in two places and both must stay**: the blanket CSS block in
+  classes as `@utility`. No component library, deliberately
+- **`prefers-reduced-motion` is handled in two places and both must stay**: the CSS block in
   `globals.css`, and `src/lib/canvas/motion.ts` for React Flow's JavaScript `fitView`
 - **Two client components format dates**, and both must keep formatting in UTC with a fixed locale
   or React throws hydration error #418: `provider-form.tsx` and `integrations-form.tsx`
-- **Read the console on the deployed page, not just locally.** Phase 6's hydration error, Phase 8's
-  clean run and Phase 10's clean canvas were all found that way
-- **Verify the production build the way the container runs it**, not with `next start`. `next start`
-  warns and then 404s CSS chunks because `output: standalone` moves them:
+- **Verify the production build the way the container runs it**, not with `next start`:
   ```bash
   npm run build && cp -r .next/static .next/standalone/.next/static && cp -r public .next/standalone/
   (cd .next/standalone && PORT=3100 HOSTNAME=127.0.0.1 node --env-file=../../.env server.js)
   ```
-  Never run `next dev` against a `.next` a production build wrote — they share the directory and the
-  dev server serves the build's manifest, which 404s every asset
+  Never run `next dev` against a `.next` a production build wrote — they share the directory
+
+**After judging ends, two things cost money for nothing:** set Cloud Run `min-instances 0`, and
+**pause the `agentforge-cron` Scheduler job at the same time**, or the tick keeps Neon awake ~240
+h/month. Both are in `DEPLOYMENT.md` → *After judging ends*.
 
 ## Open, but blocking nothing
 
@@ -450,6 +500,41 @@ the user deliberately** — it governs whether others may commercialise the work
 ---
 
 ## Recent Changes
+
+**2026-09-26 — Phase 12 complete, the project is submittable**
+
+- **Rehearsed `DEMO.md` in a real browser for the first time, and three of the eight beats did not
+  survive it.** Deployed as `agentforge-00021-v4s`
+- **Beat 6 was broken in the product**: a webhook-triggered run was **invisible** on an idle canvas,
+  because the page only opened a stream if it happened to load mid-run or the user pressed Run.
+  Measured: no status change across 9 s while a run completed behind it. **178 API checks and ten
+  clean smoke walks all passed over it** — `smoke.mjs` opens its own stream and fires 400 ms later,
+  so it proves the server streams, never that the canvas is still listening 25 s after it loaded (D59)
+- **Beat 5 was impossible as written**: it fired a `$WEBHOOK_URL` exported before the demo, for a
+  workflow that is generated *during* the demo and mints its token at creation (D41). The failure
+  mode is the nastiest available — **201, a real run on the wrong workflow, and a dead canvas**.
+  Now `scripts/demo-fire.mjs` (D58)
+- **Beat 4 edited the wrong node**: the generated Sheets node is born empty by design, so pasting the
+  spreadsheet id is the beat that *has* to happen. Rehearsing it produced the predicted failure
+  verbatim — *"This node has no spreadsheet yet."*
+- **42% of generated workflows carried an agent budget that guaranteed their own failure.**
+  `maxIterations: 1` — schema-valid, graph-valid, fatal the moment the agent calls a tool. **5 of 12
+  before, 0 of 12 after** (D57). Fixed in the prompt *and* guaranteed in `assembleGraph`
+- **Generated trigger fields vary run to run**: 8 of 20 walks declared a field a fixed payload would
+  not send, which is a 400 before the run starts. The payload is now fitted to the graph (D58)
+- **Rollback tested at last** — the oldest open item in this file. ~15 s each way, demo path clean on
+  the rolled-back revision
+- **Beat 3's legibility is a geometry problem, not a code one**: 0.39 zoom / 88 px node at 1440,
+  0.67 / 150 px at 1920. **Presenting at 1920 is worth 55% on its own**; `fitView` padding 0.3 → 0.18
+  is the other 10%
+- **Doc reconciliation found real drift**: `ARCHITECTURE.md` and `README.md` still claimed the Vercel
+  AI SDK was adopted (dropped at Phase 6, D32 wrongly said the table was fixed); `DEPLOYMENT.md` said
+  "33 checks" when it has been 178 since Phase 3; a resolved `UNKNOWN — VERIFY` had been recorded in
+  one doc and left open in two others
+- **Secret scan clean** across the working tree *and* every commit in history
+- New: `scripts/seed-demo.mjs`, `scripts/demo-fire.mjs`, `scripts/demo-payload.mjs`, `SUBMISSION.md`.
+  **No node, no dependency, no environment variable, no migration** — the registry claim holds a
+  sixth time
 
 **2026-09-26 — Phase 11 complete, the demo path is hardened and walks clean ten times**
 
@@ -562,9 +647,18 @@ Full detail is in git history at `56dce47`, `59f7adb` and `26ed481`.
 
 ## Last Updated
 
-**2026-09-26** — **Phase 11 complete.** Revision `agentforge-00019-4xw` live. **Ten consecutive
-clean walks of the full `DEMO.md` path** on the deployed URL via the new `scripts/smoke.mjs`, plus
-`verify-api.mjs` at 176 passed / 0 failed / 2 skipped of 178, and `npm test` at **293 passing**.
-Every outbound call on the demo path retries once where that is safe and provably does not where it
-is not (D54–D55). The demo spreadsheet exists and its id is recorded. **No phase from 0 to 11 has an
-outstanding completion criterion.** Next: **Phase 12 — demo readiness and final ship**.
+**2026-09-26** — **Phase 12 complete. Phases 0–12 all done; the project is submittable.** Revision
+`agentforge-00021-v4s` live. **10 consecutive clean walks** of the full `DEMO.md` path (123 s),
+`verify-api.mjs` at **176 passed / 0 failed / 2 skipped of 178**, `npm test` at **297 passing**, a
+**browser** rehearsal of all eight beats at 1920×1080 and 375 px with 0 console errors, and a
+**tested rollback** — the oldest open item in this file, now closed.
+
+Rehearsing the demo in a browser found **three beats that could not have worked as written**, one of
+them a product bug that both suites passed over: a webhook-triggered run was invisible on an idle
+canvas (D59). Also fixed: generated agents starved at `maxIterations: 1` in 42% of generations
+(D57), and Beat 5 firing a webhook URL that did not exist yet (D58).
+
+**No phase from 0 to 12 has an outstanding completion criterion.** Nothing is blocking submission
+except the two entries only the user can supply — the **hackathon category** and the **demo video**,
+both recorded in `SUBMISSION.md`, plus the **Fallback B recording** (`DEMO.md` → *What Phase 12 could
+not rehearse*). Stretch phases 13–14 are unblocked but `DEMO.md` needs nothing from them.
