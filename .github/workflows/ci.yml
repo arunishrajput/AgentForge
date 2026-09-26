@@ -8,7 +8,7 @@
 #
 #   lint       oxlint, ~50 ms. A single prebuilt binary rather than 305 packages of
 #              ESLint — the same reasoning that kept this project off the `ai` SDK and
-#              on Node's built-in test runner (ARCHITECTURE.md → D60).
+#              on Node's built-in test runner (A15 / D64).
 #   typecheck  tsc --noEmit.
 #   test       Node's built-in runner, with coverage thresholds that fail the build.
 #   build      next build. Catches what typecheck cannot: a bad route export, a server

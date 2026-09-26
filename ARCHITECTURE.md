@@ -640,6 +640,58 @@ Commands and the resource inventory are in `DEPLOYMENT.md`.
 
 ---
 
+## The provider time budget and the circuit breaker — Phase 13
+
+**The failure this exists for.** Phase 12 measured two demo runs at ~95 s, of which one
+`ai.agent` step was **91.9 s**. The model accepted the request and never answered. The
+Chapter 1 adapter allowed two attempts per model at a 45 s request timeout with no
+overall deadline, so one wedged model cost 90 s before a fallback was tried. `ai.llm`
+answered on that same model in 1.4 s in the same run.
+
+**The measurement that explains it.** `scripts/probe-models.mjs` probes every catalogued
+model on **both** paths — a plain call and a tool-calling call — because they fail
+independently. Three passes on 2026-09-26:
+
+| model | text | tool-call | healthy |
+|---|---|---|---|
+| `gemini-3-flash-preview` | 1.6 / 1.8 / 1.9 s | 1.1 / 1.4 / 1.1 s | **3 of 3** |
+| `gemini-3.6-flash` | 2.3 / 6.2 s / 503 | 1.7 / 1.9 / 2.0 s | 2 of 3 |
+| `gemini-3.5-flash-lite` | 4.2 s / **timeout** | 0.9 s / **timeout** | 1 of 3 |
+| `gemini-3.1-flash-lite` | 10.2 / 5.1 / 9.3 s | **timeout** / **timeout** / 7.1 s | 1 of 3 |
+
+A model's health flips on a timescale of **minutes**. That single fact shapes the design:
+health is observed from real traffic, never configured, and the chain is reordered live.
+
+**Three mechanisms, in `src/lib/ai/gemini.ts` and `src/lib/ai/health.ts`:**
+
+1. **A timed-out attempt is never retried on the same model.** A model that accepted the
+   request and went quiet has said what it is going to do. Retrying in place is what
+   turned one bad model into 90 s. Retry in place is reserved for failures that return
+   *fast* — a 503 usually comes back in under a second and a retry often succeeds.
+2. **Every attempt is capped (12 s) and so is the whole chain (30 s).** `GenerateRequest.timeoutMs`
+   raises the per-attempt budget for a large prompt; the total stretches to keep room for
+   a fallback, because capping both at one number would spend everything on one model.
+3. **A circuit breaker per model.** Two consecutive retryable failures open it; a 404 opens
+   it at once, because "no longer available to new users" is permanent and three names in
+   the Chapter 1 chain went that way mid-project. 400/401/403 never count — a rejected key
+   is a fact about the caller, and marking every model unhealthy for it would be backwards.
+
+**The breaker reorders; it never removes.** An open model goes to the *back* of the chain,
+so the worst case of a wrong health reading is a suboptimal order, never a refusal to call
+a model that would have worked. This matters because health is keyed on the model name
+alone and is shared across users on one instance. State is per process, deliberately: it
+costs no storage and nothing against Neon's 100 CU-hours, and a cold instance starts
+optimistic and learns within one request.
+
+**Health is surfaced, not buried.** `GET /api/settings/provider` returns what the instance
+has actually observed. Before Phase 13 the only trace of the incident was one warning line
+in a step log.
+
+**Measured after, on the deployed system:** a 6-node run including the agent node takes
+**4.2–7.5 s** across five consecutive walks, against **94.5 s** before.
+
+---
+
 ## Key architectural decisions
 
 | # | Decision | Status | Rationale |
@@ -657,6 +709,8 @@ Commands and the resource inventory are in `DEPLOYMENT.md`.
 | A11 | ORM: Drizzle, not Prisma | **BINDING** | No generate step or query engine in the container; first-class Neon serverless support; `@auth/drizzle-adapter` is maintained by Auth.js |
 | A12 | Auth.js v5 pinned at `next-auth@5.0.0-beta.32` | **BINDING** | The stable v4 tag does not peer-support Next 16. Pin the exact version, not the `beta` tag |
 | A13 | Region pair: Cloud Run `asia-southeast1` + Neon Singapore | **BINDING** | Co-locating app and database beats Tier 1 pricing; see *Hosting platform* |
+| A14 | Provider adapter owns a **time budget and a circuit breaker** | **BINDING** from Phase 13 | One wedged model cost a run 91.9 s. The budget belongs in the adapter, not in the agent node, so every caller benefits — see *The provider time budget* |
+| A15 | **oxlint**, not ESLint | Binding at Phase 13 | 2 packages against 305, for the same reason this project has no `ai` SDK and no test framework. Next 16 removed `next lint` and its own docs say to use a linter directly |
 
 ---
 

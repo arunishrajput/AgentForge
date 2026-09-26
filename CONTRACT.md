@@ -545,15 +545,39 @@ more — see *Integration nodes and their credentials* for `integration.discord`
 
 | Route | Body | Returns |
 |---|---|---|
-| `GET /api/settings/provider` | — | `{ provider, configured, model, defaultModel, source, updatedAt }` |
+| `GET /api/settings/provider` | — | `{ provider, configured, model, defaultModel, source, updatedAt, health }` |
 | `PUT /api/settings/provider` | `{ apiKey?, model? }` | the same shape |
 | `DELETE /api/settings/provider` | — | the same shape, `configured: false` |
 | `GET /api/settings/provider/models` | — | `{ models, source }`, live from the provider |
+
+**`health` was added in Phase 13** and is additive — every earlier field keeps its meaning. It is
+an array of what *this instance* has observed of each model, healthiest first:
+
+```ts
+{ model, state, failures, openUntil, openings, lastStatus, lastError,
+  lastLatencyMs, lastSuccessAt, lastFailureAt, successes, totalFailures }
+```
+
+`state` is `healthy` \| `degraded` \| `unavailable` \| `unknown`. **It is per process and empty on
+a cold instance**, which is honest rather than a bug: health here is observed from real traffic,
+never configured, and an instance that has made no model call knows nothing yet. A client must
+treat an empty array as "no information", never as "everything is fine".
 
 `source` is `user` \| `environment` \| `none` — whether a run would use the user's own key or the
 server's development fallback. Surfaced deliberately: a demo silently running on
 `GOOGLE_GENERATIVE_AI_API_KEY` would make the whole feature look tested when nobody's key had ever
 been exercised.
+
+**A failed check distinguishes two cases, and the status code is the contract** (Phase 13):
+
+| What happened | Code | Status | Meaning |
+|---|---|---|---|
+| 400/404 from the provider | `invalid_request` | 400 | This key cannot run that model. Change the choice |
+| **429/503** from the provider | `conflict` | 409 | The model is fine and the request was throttled. **Nothing was changed.** Retry |
+
+Reporting the second as the first sends a user to change a setting that was correct — which is
+exactly what happened before Phase 13, because `gemini-3-flash-preview` allows 20 free-tier
+requests a minute.
 
 **Both fields are proved against the provider before they are stored, and proved differently:**
 
