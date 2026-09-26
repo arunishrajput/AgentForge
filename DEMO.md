@@ -29,7 +29,9 @@ Target: **3:00**. Times are cumulative.
 
 ### Beat 1 — the live product (0:00 → 0:20)
 
-Load the deployed URL in a clean browser profile. Click **Sign in with Google**.
+Load the deployed URL in a clean browser profile. Click **Continue with Google** — that is the
+button's exact wording, checked by the smoke script, because a presenter reading this aloud should
+name what is on screen.
 
 > "This is live, on the internet, right now — not a local dev server."
 
@@ -170,7 +172,7 @@ Before the demo begins, all of this is true:
 | 4 | Demo Google account signed **out** in the demo browser profile, so Beat 1 shows a real sign-in |
 | 5 | Gemini key saved in the demo account's settings, with free-tier quota confirmed remaining |
 | 6 | Discord webhook saved at **Settings → Integrations** (the page shows the channel name back); `#agentforge-demo` open in a background tab, scrolled to the bottom |
-| 7 | **Google connected** at Settings → Integrations, with **both** capabilities showing ✓; the target sheet open in a background tab, and its id pasted into the generated Sheets node |
+| 7 | **Google connected** at Settings → Integrations, with **both** capabilities showing ✓; the target sheet (id in *Seed data* below) open in a background tab, and that id pasted into the generated Sheets node — it is born empty on purpose, because the prompt names no spreadsheet |
 | 8 | The prompt text in the clipboard or a visible scratch file |
 | 9 | The `curl` command pre-staged in a terminal beside the browser, `WEBHOOK_URL` already exported |
 | 10 | `gcloud run services logs tail` running in a second terminal, off-screen |
@@ -185,7 +187,7 @@ Before the demo begins, all of this is true:
 |---|---|
 | Demo account | `arunishrajput7@gmail.com` |
 | Discord channel | `#agentforge-demo`, cleared of prior test posts |
-| Google Sheet | "AgentForge Demo Log", headers in row 1, prior demo rows cleared |
+| Google Sheet | "AgentForge Demo Log" — id `1iz8vjkGNvPQ1q1vpDvaWnQZ6648BNYHYauVXHHY2IBo`, owned by the demo account, headers `Received · From · Summary · Urgency` in row 1, prior demo rows cleared. **Created in Phase 11** because the previous sheet's id was recorded nowhere and a cold session could not find it: the `spreadsheets` scope grants no way to search Drive |
 | Urgent payload | The checkout-down message in Beat 5 |
 | Non-urgent payload | A polite feature request, held in reserve to show the other branch if asked |
 | Backup workflow | One already-generated, already-verified copy of the demo workflow saved in the account — see Fallback B |
@@ -195,6 +197,11 @@ Before the demo begins, all of this is true:
 ## Fallbacks
 
 Ordered by what fails. Rehearse A and B in Phase 12; knowing them is the point.
+
+**Phase 11 added one retry to every outbound call on this path** — the Discord post, the Sheets
+append and the Google token refresh — on the statuses that mean *nothing happened* (429, 502, 503,
+504). A single blip no longer reaches these fallbacks. So if a step below fails in front of an
+audience, it has already failed twice and the fallback is the right move rather than "try again".
 
 **A — Generation produces something wrong or slow (Beat 3).**
 Say *"let me show you the one I made earlier"*, open the saved backup workflow, and continue from
@@ -258,8 +265,15 @@ gcloud run services describe agentforge --region "$GCP_REGION" \
 # 4. No errors in recent logs
 gcloud run services logs read agentforge --region "$GCP_REGION" --limit 30
 
-# 5. Smoke script (Phase 11) against production
+# 5. The demo path itself, walked end to end. ~10 s. Every beat, in order.
+#    It posts one real Discord message and appends one real Sheet row — clear both after.
+SMOKE_SPREADSHEET_ID=1iz8vjkGNvPQ1q1vpDvaWnQZ6648BNYHYauVXHHY2IBo \
+  node --env-file=.env scripts/smoke.mjs "$APP_BASE_URL"
 ```
+
+`scripts/smoke.mjs` is the pre-demo check, not `verify-api.mjs`. It walks the eight beats below in
+order and names the beat that broke; the 178-check suite is the regression test for a code change
+and takes ~2 minutes. `--loop 10` is what Phase 11 signed off against.
 
 Then, manually:
 

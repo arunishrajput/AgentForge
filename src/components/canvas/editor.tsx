@@ -372,7 +372,28 @@ function EditorInner({
 
     try {
       // Authoritative, and it also covers the case where the stream never connected.
-      setRun(await api.runWorkflow(workflow.id, input));
+      const finished = await api.runWorkflow(workflow.id, input);
+      setRun(finished);
+
+      /**
+       * A run that *fails* resolves this promise perfectly happily — the request
+       * succeeded, the run did not. Without this the header says nothing at all and
+       * the only sign is a red node card and a line in the inspector, which on a
+       * shared screen is a demo that looks like it worked (Phase 11, task 4).
+       *
+       * The failing step is named because "the run failed" sends the presenter
+       * hunting; "Append to Google Sheet failed: …" is the sentence `DEMO.md`
+       * Fallback E is recovered from.
+       */
+      if (finished.status === "failed") {
+        const failed = finished.steps?.find((step) => step.status === "failed");
+        const label = failed ? (registry.get(failed.nodeType)?.label ?? failed.nodeType) : null;
+        const reason = failed?.error ?? finished.error ?? "No reason was recorded.";
+        setMessage({
+          tone: "error",
+          text: label ? `${label} failed: ${reason}` : `The run failed: ${reason}`,
+        });
+      }
     } catch (error) {
       setMessage({
         tone: "error",
@@ -384,7 +405,7 @@ function EditorInner({
       stop();
       setBusy(null);
     }
-  }, [dirty, save, saved, setNodes, setRun, stop, triggerInput, watch, workflow.id]);
+  }, [dirty, registry, save, saved, setNodes, setRun, stop, triggerInput, watch, workflow.id]);
 
   const canvasValue = useMemo(
     () => ({ registry, runStates, entryOrder }),

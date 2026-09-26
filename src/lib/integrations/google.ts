@@ -137,6 +137,17 @@ async function tokenRequest(
     body: new URLSearchParams(form).toString(),
     timeoutMs: 15_000,
     signal,
+    /**
+     * The one POST here that is genuinely idempotent — it mints a token and creates
+     * nothing — so a transport failure is retried too. It also gates *both* Google
+     * nodes: every Sheets append and every sent mail refreshes first (D46), so a
+     * blip here fails a step that had nothing wrong with it.
+     *
+     * An `invalid_grant` comes back as 400, which is not in the retry set: a revoked
+     * connection is not a transient condition and the caller turns it into the
+     * "reconnect Google" message `DEMO.md` Fallback E depends on.
+     */
+    retry: { attempts: 2, onTransportError: true },
   });
 
   const body = await readBody(response);

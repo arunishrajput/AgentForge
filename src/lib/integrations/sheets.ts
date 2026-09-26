@@ -77,6 +77,14 @@ export async function appendRow(options: AppendRowOptions): Promise<AppendRowRes
     body: JSON.stringify({ values: [options.values] }),
     timeoutMs: 20_000,
     signal: options.signal,
+    /**
+     * Google answers 503 under load and 429 over quota, and an append that never
+     * happened is `DEMO.md` Beat 8 with an empty spreadsheet. Retried on those
+     * statuses only — they mean the row was not written. A transport failure is not
+     * retried: an append is not idempotent, and a duplicate row in the user's own
+     * document is not ours to risk on a guess.
+     */
+    retry: { attempts: 2 },
   });
 
   const body = await readBody(response);

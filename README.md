@@ -17,15 +17,20 @@ Built for the Zero Origin hackathon (Devpost) as a 72-hour solo build.
 
 ## Status
 
-**Phase 6 complete — agent nodes reason at runtime, in production.**
-Google sign-in works; a workflow is built on a canvas from a registry-driven palette, configured
-through forms generated from each node's schema, saved and reloaded without loss, and run from the
-canvas. While it runs, each node's status and each log line stream to the browser over SSE as they
-happen, and reloading mid-run picks the run back up. A Gemini key pasted in Settings is verified,
-encrypted at rest and never shown again; an agent node then calls registry nodes as tools, reaches a
-decision a branch node routes on, and streams its reasoning onto the canvas while it is still
-thinking. Natural-language generation (Phase 7) is still ahead. Current state is always in
-[`PROGRESS.md`](./PROGRESS.md).
+**Phase 11 complete — the demo path is hardened and walks clean, ten times in a row.**
+
+The whole product is live: Google sign-in, a sentence turned into a real workflow on a canvas,
+registry-driven config forms, a webhook or a schedule to start it, an execution engine whose agent
+nodes call other nodes as tools and choose a branch at runtime, per-node status and logs streamed
+over SSE while it runs, and four integrations that reach real services — HTTP, Discord, Google
+Sheets and Gmail.
+
+What Phase 11 added is not a feature. Every outbound call on the demo path now retries once on the
+statuses that mean *nothing happened*, and never on the ones where a repeat could double-post. A run
+that fails says so in words naming the node that failed. And `scripts/smoke.mjs` walks the eight
+beats of [`DEMO.md`](./DEMO.md) end to end against the deployed URL in about ten seconds.
+
+Current state is always in [`PROGRESS.md`](./PROGRESS.md).
 
 ---
 
@@ -120,6 +125,12 @@ node --env-file=.env scripts/verify-api.mjs http://localhost:3000
 # Setting VERIFY_GEMINI_KEY additionally exercises key storage, model validation,
 # the LLM node, the agent node and its iteration cap. Without it those checks SKIP.
 # See PROGRESS.md for the pipe-it-in recipe that never prints the key.
+
+# The demo path only, beat by beat, in ~10 seconds — the pre-demo check rather than
+# the regression suite. It fires a real webhook, watches the SSE stream, and asserts
+# the agent's branch, the Discord post and the Sheet row. --loop 10 is Phase 11's bar.
+SMOKE_SPREADSHEET_ID=<the demo sheet> \
+  node --env-file=.env scripts/smoke.mjs https://<the deployed url>
 
 curl -fsS localhost:3000/api/health
 # {"status":"ok","database":"reachable","databaseLatencyMs":129,...}

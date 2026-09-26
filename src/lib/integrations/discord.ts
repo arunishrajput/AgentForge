@@ -69,7 +69,13 @@ export async function verifyWebhook(
   url: string,
   signal?: AbortSignal,
 ): Promise<DiscordWebhookInfo> {
-  const response = await request(url, { timeoutMs: 10_000, signal });
+  // A GET that creates nothing, made while the user waits on the settings form — so
+  // it is safe to repeat, transport failure included.
+  const response = await request(url, {
+    timeoutMs: 10_000,
+    signal,
+    retry: { attempts: 2, onTransportError: true },
+  });
   const body = await readBody(response);
 
   if (!response.ok) {
@@ -128,6 +134,14 @@ export async function postMessage(
     }),
     timeoutMs: 15_000,
     signal,
+    /**
+     * Discord rate-limits a webhook to roughly five posts per two seconds and
+     * answers 429 with a `Retry-After`, which is precisely the case one short pause
+     * fixes. `onTransportError` stays **off**: a POST that creates a message may
+     * have succeeded before the connection died, and two copies of Beat 8's message
+     * on a shared screen is a worse outcome than one failed step that says why.
+     */
+    retry: { attempts: 2 },
   });
 
   const body = await readBody(response);
