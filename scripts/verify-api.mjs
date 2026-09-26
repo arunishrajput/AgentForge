@@ -805,11 +805,22 @@ try {
 
     const good = afterBad.json?.data?.model;
     const reselect = await api("PUT", "/api/settings/provider", { model: good }, token);
-    check(
-      "a model that works is accepted, proved by a real call",
-      reselect.status === 200 && reselect.json?.data?.model === good,
-      JSON.stringify({ status: reselect.status, model: reselect.json?.data?.model, error: reselect.json?.error }),
-    );
+    // A 409 here is the free tier throttling the probe, not a broken model — the
+    // allowance on the current default is 20 requests a minute and this suite makes
+    // plenty. Treat it as inconclusive rather than red, but never treat a 400 that way:
+    // that one really does mean the key cannot run the model (Phase 13).
+    if (reselect.status === 409) {
+      skip(
+        "a model that works is accepted, proved by a real call",
+        `free-tier rate limit hit while probing "${good}" — re-run in a minute`,
+      );
+    } else {
+      check(
+        "a model that works is accepted, proved by a real call",
+        reselect.status === 200 && reselect.json?.data?.model === good,
+        JSON.stringify({ status: reselect.status, model: reselect.json?.data?.model, error: reselect.json?.error }),
+      );
+    }
   } else {
     skip("listing models", "no key available to this user or to the server");
   }

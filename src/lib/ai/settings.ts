@@ -12,7 +12,7 @@ import {
 
 import { DEFAULT_MODEL, geminiModel } from "./gemini";
 import { modelHealthSnapshot, type ModelHealth } from "./health";
-import { ProviderError, type ModelInfo } from "./types";
+import { describeModelCheckFailure, ProviderError, type ModelInfo } from "./types";
 
 /**
  * Provider settings — CONTRACT.md → "Credential storage shape". **Write-only.**
@@ -191,14 +191,16 @@ async function verifyModel(apiKey: string, model: string): Promise<void> {
       maxOutputTokens: 1000,
     });
   } catch (error) {
-    if (error instanceof ProviderError) {
-      throw new ApiError(
-        "invalid_request",
-        `This key cannot use "${model}": ${error.message}`,
-      );
-    }
-    throw asApiError(error);
+    throw modelCheckError(model, error);
   }
+}
+
+/** The verdict from `describeModelCheckFailure`, in HTTP terms. */
+function modelCheckError(model: string, error: unknown): ApiError {
+  const verdict = describeModelCheckFailure(model, error);
+  if (verdict.kind === "temporary") return new ApiError("conflict", verdict.message);
+  if (verdict.kind === "rejected") return new ApiError("invalid_request", verdict.message);
+  return asApiError(error);
 }
 
 /**
