@@ -121,6 +121,9 @@ export async function GET(request: Request, { params }: Context) {
     };
 
     try {
+      // `closed` is set by `finish()`, a closure called from inside this loop, which
+      // the rule cannot follow.
+      // oxlint-disable-next-line no-unmodified-loop-condition
       while (!closed) {
         const now = Date.now();
         if (now - openedAt > STREAM_MAX_MS) {

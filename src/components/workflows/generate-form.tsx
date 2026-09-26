@@ -55,6 +55,9 @@ export function GenerateWorkflowForm() {
   useEffect(() => {
     if (!busy) return;
     startedAt.current = Date.now();
+    // Synchronising with a timer, which is the case effects are for. Worth revisiting
+    // when Phase 15 rebuilds this form.
+    // oxlint-disable-next-line react/set-state-in-effect
     setElapsedMs(0);
     const timer = setInterval(() => setElapsedMs(Date.now() - startedAt.current), 100);
     return () => clearInterval(timer);

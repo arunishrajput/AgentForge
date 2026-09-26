@@ -36,20 +36,26 @@ export default async function WorkflowPage({
 
   const { id } = await params;
 
+  // The try guards the loads and nothing else. JSX built inside a try/catch looks
+  // guarded and is not — React renders it after this function has returned, so a
+  // render error would sail straight past the catch and only an error boundary would
+  // see it. Keeping the return outside makes the guard mean what it says.
+  let workflow: Awaited<ReturnType<typeof getWorkflow>>;
+  let inFlight: Awaited<ReturnType<typeof liveRun>>;
   try {
-    const workflow = await getWorkflow(session.user.id, id);
-    const inFlight = await liveRun(session.user.id, workflow.id);
-
-    return (
-      <Editor
-        workflow={describeWorkflow(workflow)}
-        registry={describeNodes()}
-        liveRun={inFlight ? describeRun(inFlight.run, inFlight.steps) : null}
-      />
-    );
+    workflow = await getWorkflow(session.user.id, id);
+    inFlight = await liveRun(session.user.id, workflow.id);
   } catch (error) {
     // Another owner's workflow is indistinguishable from one that does not exist.
     if (error instanceof ApiError && error.code === "not_found") notFound();
     throw error;
   }
+
+  return (
+    <Editor
+      workflow={describeWorkflow(workflow)}
+      registry={describeNodes()}
+      liveRun={inFlight ? describeRun(inFlight.run, inFlight.steps) : null}
+    />
+  );
 }

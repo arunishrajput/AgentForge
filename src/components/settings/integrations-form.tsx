@@ -229,6 +229,8 @@ export function IntegrationsForm({
 
         <div className="mt-4 flex flex-wrap items-center gap-3">
           {/* A link, not a fetch: consent is a top-level navigation Google must control. */}
+          {/* oxlint-disable-next-line nextjs/no-html-link-for-pages -- an API route, not a page:
+              Link would client-navigate and never reach Google's consent screen. */}
           <a
             href="/api/integrations/google/connect"
             className="btn btn-primary"

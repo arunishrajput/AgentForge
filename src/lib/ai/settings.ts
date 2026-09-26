@@ -11,6 +11,7 @@ import {
 } from "@/lib/credentials";
 
 import { DEFAULT_MODEL, geminiModel } from "./gemini";
+import { modelHealthSnapshot, type ModelHealth } from "./health";
 import { ProviderError, type ModelInfo } from "./types";
 
 /**
@@ -47,6 +48,15 @@ export interface ProviderSettings {
    */
   source: "user" | "environment" | "none";
   updatedAt: string | null;
+  /**
+   * What this instance has actually observed of each model, newest state first.
+   *
+   * Phase 13 added it because the Phase 12 incident was invisible: a model had stopped
+   * answering tool calls and the only trace was one warning line buried in a step log.
+   * Empty on a cold instance, which is honest — health here is observed, never
+   * configured, and an instance that has made no calls knows nothing yet.
+   */
+  health: ModelHealth[];
 }
 
 export async function readSettings(ownerId: string): Promise<ProviderSettings> {
@@ -68,6 +78,7 @@ export async function readSettings(ownerId: string): Promise<ProviderSettings> {
         ? "environment"
         : "none",
     updatedAt: credential?.updatedAt ?? null,
+    health: modelHealthSnapshot(),
   };
 }
 
@@ -167,11 +178,13 @@ async function verifyKey(apiKey: string): Promise<ModelInfo[]> {
 /**
  * One real call, on that model and no other. `fallbacks: []` matters: with the normal
  * chain a broken choice would be answered by a working model and then stored as if it
- * worked.
+ * worked. `ignoreHealth` matters for the same reason from the other direction — the
+ * circuit breaker would otherwise reorder the chain away from the very model under
+ * test, and a deliberate probe of a known-bad model would then count against it twice.
  */
 async function verifyModel(apiKey: string, model: string): Promise<void> {
   try {
-    await geminiModel({ apiKey, fallbacks: [] }).generate({
+    await geminiModel({ apiKey, fallbacks: [], ignoreHealth: true }).generate({
       model,
       turns: [{ role: "user", text: "Reply with OK." }],
       temperature: 0,

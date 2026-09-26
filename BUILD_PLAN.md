@@ -721,9 +721,24 @@ to set the cron tick to `*/15` because anything touching the database more often
 minutes pins it awake at 0.25 CU ≈ 180 CU-hours/month — over the allowance. Teams and analytics
 both add query load to that same budget.
 
-> **Every one of these free-tier figures is `UNKNOWN — VERIFY` until Phase 13 confirms it against
-> the live consoles.** Do not design on top of a remembered number. If Phase 13 finds the headroom
-> is not there, it escalates to the user rather than quietly buying something.
+> **RESOLVED in Phase 13, 2026-09-26.** Every figure above was checked against the vendors' own
+> pricing pages and this project's live consumption. The measured table, with the re-check commands,
+> is in `DEPLOYMENT.md` → *Free-tier headroom*. In short:
+>
+> | Service | Free | Measured use | Verdict |
+> |---|---|---|---|
+> | Neon compute | 100 CU-hours/month, per project | ~61 committed to the `*/15` cron tick | **the binding one — ~39 spare** |
+> | Cloud Tasks | 1,000,000 ops/month, per billing account | 0 | fine: ≈330k runs/month |
+> | Cloud Logging | 50 GiB/month, per project | **6.34 MB / 30 days = 0.0118%** | fine: ~8,000× headroom |
+> | Secret Manager | 6 versions · 10,000 access ops · **3 rotation notifications**/month | 0 | fits, but rotation is tight |
+>
+> **Two things changed the plan.** Phase 17 must enqueue a run *id*, not a payload — Cloud Tasks
+> bills per 32 KB chunk. Phase 21 must not subscribe to Secret Manager rotation notifications —
+> only 3/month are free, then $0.05 each, which would be this project's first non-zero line.
+>
+> **One `UNKNOWN — VERIFY` remains:** Neon CU-hours actually *consumed* this period. Neon exposes it
+> only through its API or console, and `neonctl` here is unauthenticated — `PROGRESS.md` M9. The
+> budget is known; the balance is not. **Phases 19 and 22 must read it before designing.**
 
 ---
 

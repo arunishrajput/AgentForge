@@ -413,6 +413,9 @@ function EditorInner({
       stop();
       setBusy(null);
     }
+    // An over-broad dependency list: it re-creates the callback more often than needed,
+    // which costs renders, not correctness. Phase 16 rebuilds this component.
+    // oxlint-disable-next-line react/memo-dependencies
   }, [dirty, registry, save, saved, setNodes, setRun, stop, triggerInput, watch, workflow.id]);
 
   const canvasValue = useMemo(
@@ -422,6 +425,9 @@ function EditorInner({
 
   return (
     <CanvasContext value={canvasValue}>
+      {/* Not an interactive element — a keyboard-shortcut scope wrapping the page, so
+          there is no role that would describe it honestly. */}
+      {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions */}
       <div
         className="flex h-dvh flex-col"
         // Escape closes whichever drawer is open. It is the expected key for a

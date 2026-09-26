@@ -61,6 +61,15 @@ export interface GenerateRequest {
   maxOutputTokens?: number;
   /** Ask for a JSON body back. Not combinable with `tools` on Gemini. */
   json?: boolean;
+  /**
+   * Budget for **one attempt**, overriding the adapter's default. Raise it for a
+   * genuinely large prompt; the default is tuned for an agent step and is what keeps a
+   * wedged model from costing a run 90 s (Phase 13).
+   *
+   * It is not a cap on the whole call: the adapter keeps room for a fallback after a
+   * full-length attempt. Use `signal` for a hard ceiling on total elapsed time.
+   */
+  timeoutMs?: number;
   signal?: AbortSignal;
 }
 

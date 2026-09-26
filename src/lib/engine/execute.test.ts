@@ -11,6 +11,7 @@ import {
   loopGraph,
   sequentialGraph,
 } from "./fixtures";
+
 import type { RunRecorder, StepRecord } from "./types";
 import { validateGraph } from "./validate";
 
@@ -233,4 +234,149 @@ test("a delay is cut short by the run deadline rather than outliving it", async 
   const hold = outcome.steps.find((step) => step.nodeId === "hold")!;
   assert.equal(hold.status, "failed");
   assert.equal(hold.error, "The run stopped before this delay finished.");
+});
+
+/**
+ * Phase 13 — the engine's guard rails.
+ *
+ * Each of these is a bound that stops a malformed or hostile graph, and each was
+ * uncovered before Phase 13 measured coverage. A guard with no test is a guard that
+ * quietly stops working.
+ *
+ * Note where each one fires. `executeWorkflow` validates the whole graph *before* it
+ * runs a single node, so a statically-broken graph never starts — which is why the
+ * runtime config check below has to reach it through a template. That split is the
+ * design: validation sees the graph, the engine sees the resolved values.
+ */
+
+test("a template that resolves to the wrong type fails its step at run time", async () => {
+  // Validation cannot catch this: `{{input.ms}}` is a string when the graph is checked
+  // and a number only once a run supplies one. So `core.delay`'s schema is re-parsed
+  // after resolution, and this is the path that does it — the one place a run can fail
+  // on a config problem that no amount of up-front validation would have found.
+  const templated = graph(
+    [
+      { id: "trigger", type: "core.manual_trigger" },
+      { id: "wait", type: "core.delay", config: { ms: "{{input.ms}}" } },
+    ],
+    [{ source: "trigger", target: "wait" }],
+  );
+
+  // The graph itself is valid — proving the failure really is a run-time one.
+  assert.equal(validateGraph(templated).valid, true);
+
+  const bad = await run(templated, { ms: "not a number" });
+  assert.equal(bad.status, "failed");
+  assert.match(bad.error!, /Invalid config/);
+  assert.match(bad.error!, /ms/);
+
+  // The same graph with a usable value succeeds, so the guard is not just rejecting
+  // everything templated.
+  const good = await run(templated, { ms: 0 });
+  assert.equal(good.status, "succeeded");
+});
+
+test("a graph the validator rejects never runs a single node", async () => {
+  // Three shapes that must be stopped before execution, not during it. Reaching the
+  // engine with any of them means a step has already been recorded against a run.
+  const cases: Array<{ name: string; code: string; graph: ReturnType<typeof graph> }> = [
+    {
+      name: "an edge pointing at a node that is not there",
+      code: "dangling_edge",
+      graph: graph(
+        [
+          { id: "trigger", type: "core.manual_trigger" },
+          { id: "real", type: "core.log", config: { message: "hi" } },
+        ],
+        [
+          { source: "trigger", target: "real" },
+          { source: "real", target: "ghost" },
+        ],
+      ),
+    },
+    {
+      name: "a cycle that no loop node closes",
+      code: "illegal_cycle",
+      graph: graph(
+        [
+          { id: "trigger", type: "core.manual_trigger" },
+          { id: "spin", type: "core.set", config: { fields: { n: 1 } } },
+        ],
+        [
+          { source: "trigger", target: "spin" },
+          { source: "spin", target: "spin" },
+        ],
+      ),
+    },
+    {
+      name: "a config that is wrong with no template to excuse it",
+      code: "invalid_config",
+      graph: graph(
+        [
+          { id: "trigger", type: "core.manual_trigger" },
+          { id: "wait", type: "core.delay", config: { ms: "not a number" } },
+        ],
+        [{ source: "trigger", target: "wait" }],
+      ),
+    },
+  ];
+
+  for (const testCase of cases) {
+    const { recorder, started } = recording();
+    await assert.rejects(
+      () => run(testCase.graph, undefined, recorder),
+      (error: unknown) => {
+        assert.ok(error instanceof GraphInvalidError, testCase.name);
+        assert.ok(
+          error.problems.some((problem) => problem.code === testCase.code),
+          `${testCase.name}: expected ${testCase.code}, got ${error.problems.map((p) => p.code).join(", ")}`,
+        );
+        return true;
+      },
+    );
+    assert.deepEqual(started, [], `${testCase.name}: no step should have started`);
+  }
+});
+
+test("a loop node may close a cycle — the exception the validator carves out", () => {
+  // The mirror of the illegal_cycle case above. Without this, "cycles are rejected"
+  // and "loops exist" would be a contradiction nobody had written down.
+  assert.equal(validateGraph(loopGraph()).valid, true);
+});
+
+test("a failing assert carries its own message through, wrapped with the node that raised it", async () => {
+  const outcome = await run(
+    graph(
+      [
+        { id: "trigger", type: "core.manual_trigger" },
+        {
+          id: "guard",
+          type: "core.assert",
+          config: {
+            left: "{{input.missing}}",
+            operator: "is_not_empty",
+            message: "The webhook body had no id.",
+          },
+        },
+        { id: "after", type: "core.log", config: { message: "never" } },
+      ],
+      [
+        { source: "trigger", target: "guard" },
+        { source: "guard", target: "after" },
+      ],
+    ),
+    {},
+  );
+
+  assert.equal(outcome.status, "failed");
+  // The author's own words survive, and the node is named so a long graph is
+  // diagnosable from the run summary alone.
+  assert.match(outcome.error!, /The webhook body had no id\./);
+  assert.match(outcome.error!, /"guard" \(core\.assert\)/);
+  // The run stopped at the guard. Downstream is not absent from the history — it is
+  // recorded as `skipped`, deliberately, so a run tells you what did NOT happen as
+  // well as what did.
+  const after = outcome.steps.find((step) => step.nodeId === "after");
+  assert.equal(after?.status, "skipped");
+  assert.equal(outcome.steps.find((step) => step.nodeId === "guard")?.status, "failed");
 });

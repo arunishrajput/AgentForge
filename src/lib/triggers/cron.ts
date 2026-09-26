@@ -13,7 +13,7 @@
  * writing an expression and the user reading one are told, not left to assume.
  *
  * Supported per field: `*`, a number, a list `a,b`, a range `a-b`, and a step on
- * either (`*​/n`, `a-b/n`). Plus the five `@` aliases, because a model reaches for
+ * either (step syntax, `a-b/n`). Plus the five `@` aliases, because a model reaches for
  * `@daily` and rejecting it would cost a generation retry for nothing.
  *
  * Deliberately NOT supported: month and weekday names, `?`, `L`, `W`, `#`, seconds,
@@ -105,7 +105,7 @@ function parseField(raw: string, spec: FieldSpec): Set<number> {
     } else if (/^\d+$/.test(rangePart)) {
       from = Number(rangePart);
       // A bare number with a step means "from here to the end of the field", which
-      // is how `0/15` and `*​/15` come to mean the same thing in the minute field.
+      // is how `0/15` and a bare star with the same step mean the same thing here.
       to = stepPart === undefined ? from : spec.max;
     } else {
       const match = /^(\d+)-(\d+)$/.exec(rangePart);

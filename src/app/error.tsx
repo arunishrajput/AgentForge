@@ -40,6 +40,9 @@ export default function AppError({
         <button type="button" onClick={reset} className="btn btn-primary">
           Try again
         </button>
+        {/* oxlint-disable-next-line nextjs/no-html-link-for-pages -- deliberate hard navigation:
+            this is the escape hatch when `reset()` did not work, and a full document load
+            is what discards the broken client state. */}
         <a href="/workflows" className="btn btn-quiet">
           Back to workflows
         </a>
