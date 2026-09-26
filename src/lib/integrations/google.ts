@@ -43,6 +43,32 @@ export function callbackUrl(baseUrl: string): string {
 }
 
 /**
+ * Where the consent flow sends the browser back to, and whether the cookies it sets
+ * may carry `Secure`. Both derived from `APP_BASE_URL`, never from the request.
+ *
+ * **Inside the Cloud Run container `request.url` is built from the bind address.**
+ * `HOSTNAME=0.0.0.0` and `PORT=8080` (see the Dockerfile), so a `Response.redirect`
+ * resolved against it sends the user to `http://0.0.0.0:8080/settings`, which is
+ * `ERR_CONNECTION_REFUSED` in their browser — and `protocol === "https:"` is false,
+ * which silently drops `Secure` from the CSRF state cookie that is the whole defence
+ * in D47. Neither is visible locally, where the bind address *is* the origin.
+ *
+ * `APP_BASE_URL` is the same value `callbackUrl` builds the `redirect_uri` from, so
+ * the flow starts, returns and sets its cookie on one origin by construction — the
+ * origin Google validated.
+ */
+export function appReturn(
+  baseUrl: string,
+  path: string,
+): { location: string; secure: boolean } {
+  const base = new URL(baseUrl);
+  return {
+    location: new URL(path, base).toString(),
+    secure: base.protocol === "https:",
+  };
+}
+
+/**
  * The consent URL.
  *
  * `access_type=offline` with `prompt=consent` is what actually returns a refresh

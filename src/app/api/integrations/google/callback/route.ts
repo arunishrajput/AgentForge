@@ -1,5 +1,6 @@
 import { auth } from "@/auth";
-import { exchangeCode, fetchEmail } from "@/lib/integrations/google";
+import { required } from "@/lib/env";
+import { appReturn, exchangeCode, fetchEmail } from "@/lib/integrations/google";
 import {
   clearedStateCookie,
   readCookie,
@@ -22,14 +23,26 @@ export const dynamic = "force-dynamic";
  * Unlike every other authenticated route this one cannot answer a JSON error: the
  * caller is a browser mid-navigation, and a 400 with an envelope would leave the user
  * looking at raw JSON. `handle()` is therefore deliberately not used here.
+ *
+ * Where it returns the browser to comes from `APP_BASE_URL` and never from the
+ * request: inside the container `request.url` is the bind address, so resolving
+ * against it sent every successful connection to `http://0.0.0.0:8080/settings`.
+ * See `appReturn`. The *query string* is still read from the request, which is
+ * correct — Google's `code`, `state` and `error` are on the incoming URL.
  */
 export async function GET(request: Request) {
   const url = new URL(request.url);
-  const secure = url.protocol === "https:";
-  const back = (status: string) => redirect(new URL(`/settings?google=${status}`, url), secure);
+  const appBase = required("APP_BASE_URL");
+  const back = (status: string) => {
+    const app = appReturn(appBase, `/settings?google=${status}`);
+    return redirect(app.location, app.secure);
+  };
 
   const session = await auth();
-  if (!session?.user?.id) return redirect(new URL("/", url), secure);
+  if (!session?.user?.id) {
+    const app = appReturn(appBase, "/");
+    return redirect(app.location, app.secure);
+  }
 
   // The user pressed Cancel, or unticked everything and Google refused.
   const denied = url.searchParams.get("error");
@@ -63,11 +76,11 @@ export async function GET(request: Request) {
   }
 }
 
-function redirect(location: URL, secure: boolean): Response {
+function redirect(location: string, secure: boolean): Response {
   return new Response(null, {
     status: 302,
     headers: {
-      location: location.toString(),
+      location,
       "set-cookie": clearedStateCookie(secure),
       "cache-control": "no-store",
     },

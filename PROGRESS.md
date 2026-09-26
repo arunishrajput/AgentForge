@@ -12,17 +12,23 @@ legibility-only styling: one dark theme in tokens, Geist and Geist Mono self-hos
 scale, motion on the two beats that matter, drawers instead of broken columns at 375 px, a keyboard
 focus ring, and error and 404 surfaces that read like sentences.
 
-**https://agentforge-733000675212.asia-southeast1.run.app** — revision `agentforge-00017-5k2`.
+**https://agentforge-733000675212.asia-southeast1.run.app** — revision `agentforge-00018-x7q`.
 
 **No functional regression: 178 checks defined, 177 passed, 0 failed, 1 skipped** against the
 deployed URL — the same suite and the same result as Phase 9, re-run after the UI pass. `npm test`
 is **276 tests**, 9 of them new: the contrast of every text token, computed from `globals.css`
 itself.
 
-**Phase 9's last criterion is still outstanding and Phase 10 did not touch it.** `integration.sheets`
-and `integration.gmail` cannot reach the real service until **M8** — two redirect URIs added to the
-OAuth client, a console click only the user can make. Everything else in Phase 9 is deployed and
-verified, including a real Discord message and a real HTTPS API call.
+**M8 is done and all three credentials are connected** (2026-09-26, after Phase 10). Google is
+connected as `arunishrajput7@gmail.com` with both scopes; Discord and the Gemini key are stored.
+Completing the consent flow for the first time immediately exposed a Phase 9 bug that had been
+unreachable behind `redirect_uri_mismatch`: every redirect was resolved against `request.url`, which
+inside the container is the **bind address**, so a successful connection landed the browser on
+`http://0.0.0.0:8080/settings`. Fixed in `agentforge-00018-x7q` (D53), with four tests.
+
+**Phase 9's last criterion is now unblocked but not yet proved.** `integration.sheets` and
+`integration.gmail` have never appended a real row or sent a real mail through the deployed engine.
+That needs a target spreadsheet id and one run of each.
 
 **`DEMO.md` Beat 2's target prompt is the demo prompt**, pinned in Phase 9: measured 3/3 valid on the
 first attempt with `unsupported: []`, building `webhook → llm → agent → branch → Discord + Sheets`.
@@ -36,10 +42,14 @@ first attempt with `unsupported: []`, building `webhook → llm → agent → br
 run one workflow that actually appends a row and one that actually sends mail. Until then `DEMO.md`
 Beat 8's second payoff (the Sheet) is unproven on the deployed system.
 
-**Two credentials are not connected on the demo account right now**, and both are already on
-`DEMO.md`'s setup checklist: the **Discord webhook** (deleted during Phase 9's revocation check) and
-**Google** (M8). The Gemini key *is* stored. Nothing is broken by this — it is demo-day setup, not a
-blocker — but a Phase 11 smoke test that assumes Discord is connected will fail until it is.
+**All three credentials are connected** as of 2026-09-26: Gemini key, Discord webhook ("AgentForge",
+channel `1553084744504316034`) and Google (`arunishrajput7@gmail.com`, both scopes). Note the Discord
+row **goes absent whenever `scripts/verify-api.mjs` runs with `VERIFY_DISCORD_WEBHOOK`** — the script
+stores, posts, then deletes, because deletion is a path under test. Re-add it with a
+`PUT /api/integrations/discord` from `DISCORD_WEBHOOK_URL` in local `.env`.
+
+**Still to prove before Phase 12:** one real appended Sheets row and one real sent mail, through the
+deployed engine. Everything they depend on is now in place; only the run has not happened.
 
 ## Completed Phases
 
@@ -66,7 +76,7 @@ blocker — but a Phase 11 smoke test that assumes Discord is connected will fai
 | **Canonical URL** | **`https://agentforge-733000675212.asia-southeast1.run.app`** |
 | Legacy URL | `https://agentforge-i5d2u66boa-as.a.run.app` — works, do not publish it |
 | Service | `agentforge` on Cloud Run, `asia-southeast1` |
-| Revision | **`agentforge-00017-5k2`** — ready, 100% of traffic. Previous good revision: `agentforge-00016-wbr` |
+| Revision | **`agentforge-00018-x7q`** — ready, 100% of traffic. Previous good revision: `agentforge-00017-5k2` |
 | Scaling | `min-instances 1`, `max-instances 3`, 1 vCPU / 1 GiB, 3600 s timeout, port 8080 |
 | Env vars set | `NODE_ENV` `AUTH_URL` `APP_BASE_URL` `DATABASE_URL` `AUTH_SECRET` `GOOGLE_CLIENT_ID` `GOOGLE_CLIENT_SECRET` `ENCRYPTION_KEY` `CRON_SECRET` — **still 9. Phases 9 and 10 added none**: the Google integration flow reuses `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `APP_BASE_URL`, and every third-party credential is a `credential` row rather than an environment variable. No Gemini key on the service: the product path is the user's own key |
 | Database | Neon `super-mountain-39872886` — **8 tables**, migrations `0000` + `0001` + `0002_wooden_morlocks` applied. **Phases 9 and 10 needed no migration**: two new credential kinds are rows in the existing `credential` table, which is what `(ownerId, kind, label)` was for |
@@ -195,6 +205,8 @@ Carried forward from every phase. These are the decisions later sessions must no
 | **D51** | **No `loading.tsx` on a page whose first act is an auth redirect** | It converts the redirect from a 307 into a 200 carrying a `NEXT_REDIRECT` in the stream, because the shell flushes before the page body runs. Nothing leaks and a browser still redirects, but the status code at an auth boundary is not a thing to trade for a navigation skeleton. If a later phase wants the skeleton back, the guard has to move into a segment `layout.tsx`, which costs a second session lookup per request |
 | **D52** | **Contrast is computed from the tokens, not eyeballed** | `src/app/tokens.test.ts` parses `globals.css`, converts `oklch()` to linear sRGB and asserts WCAG ratios. Every other Phase 10 criterion is checked by looking; this one cannot be, because a token drifting 0.05 in lightness is invisible and still fails AA. It is also what rejected the tinted status chip |
 
+| **D53** | **A redirect's origin comes from `APP_BASE_URL`, never from `request.url`** | Inside the Cloud Run container `request.url` is built from the **bind address** — `HOSTNAME=0.0.0.0`, `PORT=8080` (the Dockerfile) — not from the public host. Both Google OAuth routes resolved their redirects against it, so a *successful* connection sent the browser to `http://0.0.0.0:8080/settings` (ERR_CONNECTION_REFUSED), and `protocol === "https:"` evaluated false, silently dropping `Secure` from the CSRF state cookie that is the whole of D47's defence. `appReturn()` in `src/lib/integrations/google.ts` is now the single source for both, and it is the same value `callbackUrl()` builds the `redirect_uri` from — so the flow starts, returns and sets its cookie on one origin by construction. **Neither symptom was reachable before M8**, because the flow died at Google's consent screen |
+
 ## Known Issues
 
 | Issue | Impact | Action |
@@ -206,7 +218,7 @@ Carried forward from every phase. These are the decisions later sessions must no
 | **Neon free plan is 100 CU-hours/month and autosuspend cannot be disabled** | Any background polling | The 5-minute autosuspend is fixed on the free plan. Anything that touches the database more often than ~every 6 minutes pins it awake at 0.25 CU — 720 h/month ≈ 180 CU-hours, which is **over the allowance**. This is why the cron tick is `*/15` and not `* * * * *` (D43 sibling; the arithmetic is in `DEPLOYMENT.md`) |
 | **The webhook URL is a bearer secret shown in the UI** | Demo day, screen sharing | Anyone holding it can start a run, and a run can spend model quota. The inspector says so. **There is no rotation yet** — re-minting means recreating the workflow. Do not show the webhook node's inspector on a shared screen; the `curl` in `DEMO.md` uses an exported `$WEBHOOK_URL` for exactly this reason |
 | **OAuth consent screen is in `Testing`, and must stay there** | Demo day | Only listed test users can sign in, so **add each judge as a test user** (cap 100). **"Publish the app" is no longer an option**: Phase 9's Sheets and Gmail scopes are *sensitive*, and going to production with them requires Google verification, which takes days. Corrected here — the earlier note offering either is wrong. The judge never connects Google anyway: sign-in asks for identity only, and the presenter's account is connected beforehand |
-| **Sheets and Gmail cannot run until OAuth pass 3 is done** | Phase 9 runtime, demo Beat 8's second half | The two `/api/integrations/google/callback` redirect URIs are not yet on the OAuth client, so `Connect Google` will answer `redirect_uri_mismatch`. The exact block is in `DEPLOYMENT.md` (OAuth pass 3). Everything up to Google's own consent screen is verified; nothing else in Phase 9 depends on it |
+| ~~Sheets and Gmail cannot run until OAuth pass 3 is done~~ | Was Phase 9's open runtime | **Unblocked 2026-09-26.** M8 done, Google connected as `arunishrajput7@gmail.com` with both scopes granted (`canAppendSheets` and `canSendMail` both true). What remains is the *proof*: one real appended row and one real sent mail through the deployed engine |
 | **`integration.http` is agent-reachable, which is SSRF by design** | Any agent node, any webhook-triggered run | **Bounded, not unbounded** — D45. The residual risk is a valid certificate for a hostname resolving into a private range, which this service has nothing private to reach. If that ever changes, pin the resolved address into the connection. The guard's nine refusals are asserted against the deployed container, not just in unit tests |
 | **A stored Discord webhook URL can post to that channel for ever** | Any leaked credential | Encrypted at rest and never returned to a client, but there is no rotation: replacing it means pasting a new URL. Same shape as the webhook-trigger issue above |
 | **4 moderate `npm audit` findings, one root cause** | None in production | esbuild dev-server issue reachable only through `drizzle-kit`. Dev dependency, absent from the runtime image. **Accepted** |
@@ -224,6 +236,7 @@ Carried forward from every phase. These are the decisions later sessions must no
 | **A client component's `toLocaleString()` is a hydration error** | Any date rendered in a `"use client"` file | Server and browser disagree on locale and timezone → React #418. Format with `Intl.DateTimeFormat` pinned to a locale and `timeZone: "UTC"`. A **server** component is fine — the workflow list does it safely |
 | **`z.string().min(1)` accepts `"   "`** | Any user-supplied string that costs money downstream | Whitespace counts toward the length. `.trim()` must come **before** `.min(1)`; the other order silently accepts it. A whitespace prompt reached the provider and spent a model call before this was fixed |
 | **A generated graph can be valid and still do the wrong thing** | Generation, every phase that adds a node | Validation proves a graph *can* run, never that it does what was asked. The `{{ }}` reference bug passed validation and succeeded at runtime. **Give every non-pass-through node an `outputShape`** (D38), and eyeball a generated branch's `left` when adding nodes |
+| ~~A redirect built from `request.url` points at `0.0.0.0:8080`~~ | Was: every successful Google connection landed on ERR_CONNECTION_REFUSED | **Fixed 2026-09-26** in `agentforge-00018-x7q` (D53). **The general lesson is live for every future route**: in this container `request.url` is the bind address, so anything that needs the public origin must read `APP_BASE_URL`. Four tests guard it |
 | **`next start` cannot serve a `standalone` build** | Local verification only | It warns and then 404s every CSS chunk, which looks exactly like a broken stylesheet. Assemble the container's own layout instead — the commands are in *Notes for Phase 11* |
 | **`next dev` and `next build` share `.next` and poison each other** | Local verification only | A dev server started after a production build serves the build's manifest and 404s every asset. `rm -rf .next` between the two |
 | **A one-off React #418 on first page load** | Cosmetic; not reproduced | Seen once on revision `agentforge-00012-cs6` alongside an `ERR_NETWORK_CHANGED` from a fetch interrupted mid-hydration. **Not reproducible on `00013-zwt`**: signed-out landing, workflow list, canvas, and the whole generate → run path each read 0 errors, 0 warnings. Re-check with a clean profile before the demo |
@@ -244,37 +257,34 @@ Carried risks, recorded so they are not rediscovered:
 
 ## Manual Actions Pending
 
-**M8 — add two redirect URIs to the OAuth client.** The block is in `DEPLOYMENT.md` (OAuth pass 3).
+**None outstanding. M1–M8 are all done and verified with live calls.**
+
+**M8 — add two redirect URIs to the OAuth client — COMPLETE, 2026-09-26.** Done in the console by the
+user; there is no API for a Web-application client's redirect URIs, re-checked at the time rather
+than assumed (`gcloud iam oauth-clients` manages Workforce Identity apps, which is a different
+resource). Verified straight afterwards: `/api/integrations/google/connect` now reaches Google's real
+consent page instead of `Error 400: redirect_uri_mismatch`, requesting exactly
+`auth/spreadsheets` + `auth/gmail.send` with `access_type=offline`, `prompt=consent` and
+`include_granted_scopes=true`.
 
 ```
 http://localhost:3000/api/integrations/google/callback
 https://agentforge-733000675212.asia-southeast1.run.app/api/integrations/google/callback
 ```
 
-Console only — there is no `gcloud` command for a Web-application client's redirect URIs, and no API
-(`gcloud alpha iap oauth-clients` manages IAP brands, which is a different thing). Checked, not
-assumed.
-
-**What it blocks:** only `Connect Google`, and therefore the Sheets and Gmail nodes at *runtime*.
-Both nodes, their credential handling, their scope checks and their failure messages are deployed and
-verified; the flow is proved up to Google's own consent screen. Nothing else in Phase 9 depends on it
-and Phase 10 does not.
-
-**Verify it with:** open `/settings` on the deployed URL, press **Connect Google**, expect Google's
-consent screen listing the Sheets and Gmail-send permissions rather than `Error 400:
-redirect_uri_mismatch`. Then confirm the credential row:
+**Re-verify it with** (expects the consent page, not a mismatch):
 
 ```bash
-node --env-file=.env -e 'import("@neondatabase/serverless").then(async({neon})=>{
-  const sql=neon(process.env.DATABASE_URL_UNPOOLED);
-  console.log(await sql.query(`select kind,label,metadata,"updatedAt" from "credential" where kind='"'"'google.oauth'"'"'`));
-})'
+TOKEN=$(node --env-file=.env scripts/mint-session.mjs | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')
+CONSENT=$(curl -s -o /dev/null -w "%{redirect_url}" \
+  "$APP_URL/api/integrations/google/connect" \
+  -H "cookie: __Secure-authjs.session-token=$TOKEN")
+curl -s -L "$CONSENT" | grep -c redirect_uri_mismatch   # 0 is good
 ```
 
-Allow ~90 s for Google to propagate the change before believing a `redirect_uri_mismatch`
-(`DEPLOYMENT.md` records this as real, seen on 2026-09-25).
-
-M1–M7 are all done and verified with live calls.
+Allow ~90 s for Google to propagate a change before believing a `redirect_uri_mismatch`
+(`DEPLOYMENT.md` records this as real, seen on 2026-09-25; Google's own docs say 5 minutes to a few
+hours).
 
 ---
 
@@ -286,7 +296,7 @@ M1–M7 are all done and verified with live calls.
 |---|---|---|---|
 | `AgentForge` git repository | GitHub | `arunishrajput/AgentForge` | **EXISTS** |
 | Google Cloud project | Google Cloud | `agentforge-hackathon-2026`, number **`733000675212`** | **EXISTS**, billing active ($300 / 90-day trial) |
-| **`agentforge` Cloud Run service** | Google Cloud | `asia-southeast1`, revision `agentforge-00017-5k2` | **LIVE 2026-09-26** |
+| **`agentforge` Cloud Run service** | Google Cloud | `asia-southeast1`, revision `agentforge-00018-x7q` | **LIVE 2026-09-26** |
 | **`cloud-run-source-deploy` repo** | Artifact Registry | `asia-southeast1` | **EXISTS** |
 | OAuth consent screen | Google Cloud | External, app "AgentForge" | **EXISTS** — status **Testing**, 1 test user |
 | OAuth 2.0 client | Google Cloud | "AgentForge Web", `733000675212-…ntm7` | **VERIFIED** — 4 redirect entries |
@@ -295,8 +305,8 @@ M1–M7 are all done and verified with live calls.
 | Neon tables | Neon | `user` `account` `session` `verificationToken` `workflow` `run` `run_step` `credential` | **APPLIED** — `0000_dark_paladin`, `0001_smiling_leper_queen`, `0002_wooden_morlocks` |
 | Enabled APIs | Google Cloud | `run`, `cloudbuild`, `artifactregistry`, `cloudscheduler`, `apikeys`, `generativelanguage` | **ENABLED** |
 | Stored provider credential | Neon | `credential` row, kind `llm.google`, for the demo user | **PRESENT** — the free-tier key, encrypted. Left in place so no phase is blocked |
-| Stored Discord credential | Neon | `credential` row, kind `integration.discord` | **ABSENT, and that is expected.** The verify script stores it, posts with it, then deletes it, because deletion is one of the paths under test. **Demo day must re-add it** at Settings → Integrations (`DEMO.md` setup state, row 6). `DISCORD_WEBHOOK_URL` in local `.env` is the value |
-| Stored Google credential | Neon | `credential` row, kind `google.oauth` | **ABSENT until M8 is done.** Then: Settings → Integrations → Connect Google, both boxes ticked |
+| Stored Discord credential | Neon | `credential` row, kind `integration.discord` | **PRESENT 2026-09-26** — webhook "AgentForge", channel `1553084744504316034`, verified against Discord before storage. **Note it goes absent whenever `scripts/verify-api.mjs` is run with `VERIFY_DISCORD_WEBHOOK`**: the script stores it, posts with it, then deletes it, because deletion is one of the paths under test. Re-add it from `DISCORD_WEBHOOK_URL` in local `.env` — a `PUT /api/integrations/discord` is enough |
+| Stored Google credential | Neon | `credential` row, kind `google.oauth` | **PRESENT 2026-09-26** — `arunishrajput7@gmail.com`, scopes include `spreadsheets` and `gmail.send`, so `canAppendSheets` and `canSendMail` are both true. Consent was completed by the user in a browser; that step authenticates as them and cannot be scripted |
 | ~~Gemini API key~~ | Google Cloud | "AgentForge Gemini" in `agentforge-hackathon-2026` | **DEAD** — 402, the project has billing so it is off the free tier. Kept, unused |
 | **`agentforge-gemini-free` project** | Google Cloud | **no billing**, `generativelanguage` enabled only | **CREATED Phase 6.** Exists solely to hold a free-tier Gemini key. **Never enable billing on it** |
 | **Gemini API key (free tier)** | Google Cloud | "AgentForge Gemini Free Tier" in `agentforge-gemini-free`, restricted to `generativelanguage.googleapis.com` | **VERIFIED 2026-09-26** — text generation and function calling both work. Read it with `gcloud services api-keys get-key-string` |

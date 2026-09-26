@@ -4,7 +4,9 @@ import { test } from "node:test";
 import { DISCORD_CONTENT_LIMIT, normaliseWebhookUrl } from "./discord";
 import { base64url, buildMessage, sanitiseHeader } from "./gmail";
 import {
+  appReturn,
   authorizeUrl,
+  callbackUrl,
   GMAIL_SEND_SCOPE,
   INTEGRATION_SCOPES,
   missingScopes,
@@ -200,4 +202,47 @@ test("one cookie is read out of a header holding several", () => {
   assert.equal(readCookie(null, "agentforge-google-oauth"), null);
   // A name that is only a suffix of another must not match it.
   assert.equal(readCookie("xagentforge-google-oauth=no", "agentforge-google-oauth"), null);
+});
+
+/**
+ * The Cloud Run bind-address bug, kept caught.
+ *
+ * `HOSTNAME=0.0.0.0` and `PORT=8080` in the Dockerfile mean `request.url` inside the
+ * container is `http://0.0.0.0:8080/...`. Both Google routes used to resolve their
+ * redirects against it, which sent every *successful* connection to
+ * `http://0.0.0.0:8080/settings` — ERR_CONNECTION_REFUSED — and computed
+ * `protocol === "https:"` as false, dropping `Secure` from the CSRF state cookie.
+ *
+ * Neither symptom is reachable locally, where the bind address happens to be the
+ * origin, and neither was reachable at all until M8 let the flow past Google's
+ * consent screen. That is the entire reason these assertions exist.
+ */
+test("the consent flow returns the browser to APP_BASE_URL, not to the container's bind address", () => {
+  const app = appReturn("https://agentforge-733000675212.asia-southeast1.run.app", "/settings?google=connected");
+  assert.equal(
+    app.location,
+    "https://agentforge-733000675212.asia-southeast1.run.app/settings?google=connected",
+  );
+  assert.ok(app.secure);
+});
+
+test("an https base makes the state cookie Secure and an http one does not", () => {
+  assert.equal(appReturn("https://example.run.app", "/").secure, true);
+  // Local development is plain http, where `Secure` would stop the cookie being set
+  // at all and break the flow on localhost.
+  assert.equal(appReturn("http://localhost:3000", "/").secure, false);
+});
+
+test("the return origin is the same origin the redirect_uri Google validated is built from", () => {
+  // If these two ever disagree the flow starts on one origin and ends on another,
+  // which is both a broken redirect and a state cookie the callback cannot read.
+  const base = "https://agentforge-733000675212.asia-southeast1.run.app";
+  assert.equal(new URL(callbackUrl(base)).origin, new URL(appReturn(base, "/").location).origin);
+});
+
+test("a base URL with a trailing slash does not produce a doubled path", () => {
+  assert.equal(
+    appReturn("https://example.run.app/", "/settings?google=denied").location,
+    "https://example.run.app/settings?google=denied",
+  );
 });
