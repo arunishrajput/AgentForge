@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 
 import { auth } from "@/auth";
@@ -8,6 +9,36 @@ import { describeNodes } from "@/lib/nodes";
 import { describeWorkflow, getWorkflow } from "@/lib/workflow/store";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * The tab's title is the workflow's name.
+ *
+ * Until Phase 16 the canvas exported no `metadata` at all, so every workflow open in
+ * every tab said "AgentForge" — which is exactly the case a title is for. Someone
+ * building a workflow has the docs, the service they are integrating and two other
+ * workflows open, and the tab is how they find their way back.
+ *
+ * A failed load falls back to a plain title rather than throwing: `generateMetadata`
+ * runs alongside the page, and the page's own `notFound()` and error boundary are the
+ * right places for that to surface. Throwing here as well would replace a useful 404
+ * with whichever of the two lost the race.
+ */
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}): Promise<Metadata> {
+  const session = await auth();
+  if (!session?.user?.id) return { title: "Workflow" };
+
+  try {
+    const { id } = await params;
+    const workflow = await getWorkflow(session.user.id, id);
+    return { title: workflow.name };
+  } catch {
+    return { title: "Workflow" };
+  }
+}
 
 /**
  * The canvas. The workflow and the node registry are both read on the server and

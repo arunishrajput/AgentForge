@@ -40,43 +40,47 @@ budget. **Phase 13 must measure the real headroom before Phases 19 and 22 design
 
 ## Current Phase
 
-## ▶ NEXT: PHASE 16 — UI rebuild II: the canvas
+## ▶ NEXT: PHASE 17 — Durable execution
 
-**Phase 15 is COMPLETE (2026-09-26).** Full definition of Phase 16 in `BUILD_PLAN.md`.
-**Read `DESIGN.md` before touching anything visual**, and look at `/design` in a browser.
+**Phase 16 is COMPLETE (2026-09-27).** Full definition of Phase 17 in `BUILD_PLAN.md`.
+Read `ARCHITECTURE.md` and `DEPLOYMENT.md` before touching the queue, and `CONTRACT.md` before
+the run/step shapes.
 
-**What Phase 15 leaves you:**
+**What Phase 16 leaves you:**
 
-- **The shell is rebuilt and the canvas is the only screen left in Chapter 1's shape.** Landing,
-  workflow list, settings, 404 and the error boundary are all Toybox, structurally as well as
-  visually. The canvas page itself was deliberately not touched — it is Phase 16's whole subject
-- **`AppHeader` is the shell, and the canvas does not use it.** A second sticky bar above a
-  viewport-height graph would cost the canvas the space it is shortest of (the 880 px problem in
-  Phase 16's notes). If Phase 16 wants the palette or the account menu on the canvas, mount the
-  pieces from `src/components/shell/` into the canvas's own header rather than stacking two bars
-- **The command palette is ⌘K**, mounted by the header, and its ranking is a tested pure module at
-  `src/lib/ui/command.ts`. Adding a command is one object in `command-palette.tsx`
-- **Two new primitives**: `Notice` (the anchored message) and `ui/tone.ts` (the fill, glyph and
-  **word** shared by a notice and a toast). The Chapter 1 idiom they replace — a translucent tint
-  plus a hairline ring — is gone from all five call sites and must not come back: it is a dark-UI
-  shape and on cream it reads as a smudge
-- **`ToastProvider` is mounted in the root layout**, so any page can raise a toast. The canvas can
-  use `useToast()` immediately
-- **`EmptyState` now takes a heading `level`, and the default (3) is wrong for a full-page one.**
-  The 404 shipped for one deploy with no `h1` at all because of it — pass `level={1}` on a screen
-  that *is* the empty state, `level={2}` inside a page that has an `h1`
-- **Dates are `@/lib/format/date`, everywhere.** Three copies of the same fixed-locale UTC
-  formatter had grown up (two settings forms and `triggers/cron.ts`); there is now one, and
-  `cron.ts` re-exports it so the canvas's import is unchanged
-- **The workflow list's search, filter and sort are a tested pure module** (`lib/workflow/list.ts`)
-  and run in the browser over the whole list (D69). Search matches node **types** as well as
-  labels, so "gmail" finds a workflow whose node is labelled "Send email"
-- **The landing page reads the node registry as it renders** (D70). Do not write a node count or a
-  feature list into that page by hand — a number typed there is a number that will be wrong
-- **The canvas page has no `metadata` export**, so its tab still says the default title. Phase 16
-  should give it the workflow's name
+- **The canvas is rebuilt and the layout problem is solved by rails, not by smaller cards.**
+  Each side panel collapses to a **40px rail** that still names itself and still reports
+  `aria-expanded`. Measured on the deployed revision at 1440px: canvas **880 → 1360px**, fitView
+  **0.52 → 0.81**, node card drawn **117 → 182px**. Chapter 1's baseline was 0.39 and **88px**, so
+  a node is now **just over twice** the size it was. At 1920px with both panels *open* you get the
+  same 182px. The preference is per-panel and persisted
+- **`Panel` (`components/canvas/panel.tsx`) is the shell both side panels wear.** Two breakpoints,
+  two behaviours, no viewport measurement anywhere — CSS decides. Below `lg` a panel is a drawer
+  driven by `open`; at `lg` and up it is a column driven by `collapsed`. Do not add a JS width
+  check; there is nothing to mismatch on the server render today
+- **`useCollapsed` uses `useSyncExternalStore`, deliberately.** `localStorage` read in a
+  `useState` initialiser is a hydration mismatch and read in an effect is a cascading render that
+  `react/set-state-in-effect` rejects. Every access is guarded and there is an in-memory fallback,
+  so a blocked store leaves a working button rather than a dead one
+- **Status is a tested table, not class strings in a component.** `lib/canvas/status.ts` carries
+  five looks on **five channels** — word, shape, outline, surface, motion — and `status.test.ts`
+  asserts they stay distinct. `nodeStatusLook(status, agent)` renames a running **agent** to
+  "Thinking". Run status is a separate five-entry table because a run can be `queued` or
+  `cancelled` and a step cannot
+- **Node icons are type-first with a category fallback** (`components/canvas/node-icon.tsx`). A
+  node type added later with no entry draws its category's icon and nothing breaks — the registry
+  stays the spine. `palette-search.test.ts` asserts every registry category has a look of its own
+- **The palette searches with the command palette's ranking**, reused from `lib/ui/command.ts`. No
+  second search algorithm, and no node type named in the palette
+- **The three surviving Chapter 1 "smudges" are gone.** `bg-warn/10 ring-warn/30 ring-1` was still
+  in the inspector in three places; all three are `Notice` now. That idiom is dead product-wide
+- **The canvas now has exactly one `h1`** (visually hidden, the workflow's name) and a real
+  `generateMetadata`, so the tab says the workflow rather than "AgentForge"
+- **The repo carries no canvas screenshot**, so the phase's "screenshots refreshed" was a no-op.
+  The README's only image is the mascot SVG. **Phase 24 owns the repo's front door** — if a canvas
+  hero image is wanted, decide it there rather than bolting one on now
 
-**Do not start Phase 17 in the same session.** One phase per session still holds; `/clear` between.
+**Do not start Phase 18 in the same session.** One phase per session still holds; `/clear` between.
 
 ---
 
@@ -105,8 +109,8 @@ budget. **Phase 13 must measure the real headroom before Phases 19 and 22 design
 | **13** — reset, verification, professional foundations | **COMPLETE** — verified on the deployed URL, CI green on PR #1 and on `main`, 2026-09-26 |
 | **14** — Toybox design system | **COMPLETE** — deployed and verified in a real browser, 2026-09-26 |
 | **15** — UI rebuild I: the shell | **COMPLETE** — deployed and verified in a real browser at 1920 / 1440 / 1024 / 375 px, 2026-09-26 |
-| **16** — UI rebuild II: the canvas | **NOT STARTED ← next** |
-| **17** — durable execution | NOT STARTED |
+| **16** — UI rebuild II: the canvas | **COMPLETE** — deployed and verified in a real browser at 1920 / 1440 / 375 px, 2026-09-27 |
+| **17** — durable execution | **NOT STARTED ← next** |
 | **18** — workflow versioning and diffing | NOT STARTED |
 | **19** — workspaces and membership | NOT STARTED |
 | **20** — roles, permissions and sharing | NOT STARTED |
@@ -126,13 +130,13 @@ budget. **Phase 13 must measure the real headroom before Phases 19 and 22 design
 | **Canonical URL** | **`https://agentforge-733000675212.asia-southeast1.run.app`** |
 | Legacy URL | `https://agentforge-i5d2u66boa-as.a.run.app` — works, do not publish it |
 | Service | `agentforge` on Cloud Run, `asia-southeast1` |
-| Revision | **`agentforge-00029-8t7`** — ready, **`latestRevision: True`**, 100% of traffic (Phase 15). Previous good revisions: `agentforge-00028-4ms` and `agentforge-00027-cwv` (same phase, earlier in the session), `agentforge-00026-fqj` (Phase 14), `agentforge-00023-xf4`. Rollback was tested against `agentforge-00020-rcr` |
+| Revision | **`agentforge-00030-gv2`** — ready, **`latestRevision: True`**, 100% of traffic (Phase 16). Previous good revisions: `agentforge-00029-8t7` (Phase 15), `agentforge-00026-fqj` (Phase 14), `agentforge-00023-xf4`. Rollback was tested against `agentforge-00020-rcr` |
 | Scaling | `min-instances 1`, `max-instances 3`, 1 vCPU / 1 GiB, 3600 s timeout, port 8080 |
-| Env vars set | `NODE_ENV` `AUTH_URL` `APP_BASE_URL` `DATABASE_URL` `AUTH_SECRET` `GOOGLE_CLIENT_ID` `GOOGLE_CLIENT_SECRET` `ENCRYPTION_KEY` `CRON_SECRET` — **still 9, re-counted on `agentforge-00029-8t7`. Phases 9–15 added none** (`SMOKE_SPREADSHEET_ID` is a local test variable, never on the service): the Google integration flow reuses `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `APP_BASE_URL`, and every third-party credential is a `credential` row rather than an environment variable. No Gemini key on the service: the product path is the user's own key |
-| Database | Neon `super-mountain-39872886` — **8 tables**, migrations `0000` + `0001` + `0002_wooden_morlocks` applied. **Phases 14 and 15 needed no migration** — neither touches data. **Phases 9, 10 and 11 needed none either**: two new credential kinds are rows in the existing `credential` table, which is what `(ownerId, kind, label)` was for |
-| Routes | `/` `/dashboard`→`/workflows` `/workflows` `/workflows/[id]` `/settings` **`/design`** + **17** API routes. **Phase 15 added no route and no API** — it rebuilt what `/`, `/workflows`, `/settings`, `error.tsx` and `not-found.tsx` render. **Phase 14 added `/design`** — the design-system gallery, **public (no session) and prerendered static**, which is deliberate: it is the page to link a contributor to and it holds nothing belonging to any account. Phase 13 added no route; Phase 10 added three file-convention routes only (`app/icon.svg`, `app/error.tsx`, `app/not-found.tsx`) |
+| Env vars set | `NODE_ENV` `AUTH_URL` `APP_BASE_URL` `DATABASE_URL` `AUTH_SECRET` `GOOGLE_CLIENT_ID` `GOOGLE_CLIENT_SECRET` `ENCRYPTION_KEY` `CRON_SECRET` — **still 9, re-counted on `agentforge-00030-gv2`. Phases 9–16 added none** (`SMOKE_SPREADSHEET_ID` is a local test variable, never on the service): the Google integration flow reuses `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `APP_BASE_URL`, and every third-party credential is a `credential` row rather than an environment variable. No Gemini key on the service: the product path is the user's own key |
+| Database | Neon `super-mountain-39872886` — **8 tables**, migrations `0000` + `0001` + `0002_wooden_morlocks` applied. **Phases 14, 15 and 16 needed no migration** — none of them touches data. **Phases 9, 10 and 11 needed none either**: two new credential kinds are rows in the existing `credential` table, which is what `(ownerId, kind, label)` was for |
+| Routes | `/` `/dashboard`→`/workflows` `/workflows` `/workflows/[id]` `/settings` **`/design`** + **17** API routes. **Phase 16 added no route and no API** — it rebuilt what `/workflows/[id]` renders, and added a `generateMetadata` to that page so the tab carries the workflow's name. Phase 15 added none either. **Phase 14 added `/design`** — the design-system gallery, **public (no session) and prerendered static**, which is deliberate: it is the page to link a contributor to and it holds nothing belonging to any account |
 | Latency | **Warm**: health ~190 ms India → Singapore, database 7–11 ms. A 6-node demo-path run **4.2–7.5 s** end to end across five consecutive walks (Phase 13; it was 3.1–4.8 s in Chapter 1 when the model answered first time, and **94.5 s** when it did not — that second case is what Phase 13 removed). Generation 2.7–3.5 s. **Cold (Neon suspended)**: health **1.14 s, of which 739 ms is the database wake** — re-measured 2026-09-26 at 917 ms for a first query, 103 ms on the next. Cloud Run itself is never cold at `min-instances 1` |
-| Last verified | **2026-09-26, after Phase 15.** On **`agentforge-00029-8t7`**: a **real browser** against the deployed URL. Landing (signed out), workflow list, settings and the 404 render correctly at **1920 / 1440 / 1024 / 375 px** with **0 console errors or warnings** and **no horizontal overflow at any width**; every page has exactly one `h1`; the command palette was opened with **Ctrl+K**, narrowed by typing, and committed with Enter to navigate — entirely by keyboard; the settings tablist answers arrow keys; the **canvas still renders its 6 nodes and 6 edges with 0 console errors** under the new root layout. `verify-api.mjs`: **153 passed / 13 failed / 4 skipped** — **identical to Phase 14, and every one of the 13 is the Gemini daily free-tier 429** (`generate_content_free_tier_requests` exhausted on all three models in the chain). Phase 15 touched no engine, model, generation or API code. The non-model engine checks all pass, including a real run end to end and an HTTP node calling a real public API. Local: `npm run check` **406 passing**, coverage **88.33 / 91.21 / 81.30**. **Re-run `smoke.mjs` and `verify-api.mjs` on a fresh quota day to close the 13** |
+| Last verified | **2026-09-27, after Phase 16.** On **`agentforge-00030-gv2`**: a **real browser** against the deployed URL. The canvas renders its **6 nodes and 6 edges** with **0 console errors or warnings**, exactly one `h1`, and **no horizontal overflow** at 1920 / 1440 / 375 px. React Flow reports `react-flow light` (the Chapter 1 `colorMode="dark"` is gone) and edges draw at **2px with an arrowhead marker**. Collapsing both panels took the canvas **880 → 1360px** and fitView **0.524 → 0.810**, drawing a node card at **182px** against Chapter 1's 88px; the refit fires automatically. Palette search returned exactly **one** node each for `gmail`, `discord`, `core.set` and `branch`. A run was started from the browser with a JSON trigger payload, streamed per-node status live, and rendered all five status treatments; at 375px the drawers open over the canvas at 304px with the minimap correctly hidden. `verify-api.mjs` against the deployed URL: **153 passed / 13 failed / 4 skipped** — **identical to Phase 15 and Phase 14**, and every one of the 13 is the Gemini daily free-tier 429 on all three models in the chain. **The non-model engine checks all pass on deployed, including `the streamed run succeeded` and an HTTP node calling a real public API** — that is the full-workflow-end-to-end requirement, met independently of model quota. Local: `npm run check` **448 passing** (was 406), coverage **88.99 / 91.46 / 82.03** (was 88.33 / 91.21 / 81.30). **Re-run `smoke.mjs` and `verify-api.mjs` on a fresh quota day to close the 13** |
 | Rollback | **TESTED 2026-09-26, finally.** Traffic shifted to `agentforge-00020-rcr` in **~15 s**, health confirmed the older revision was serving, the demo path walked clean on it, then `--to-latest` restored `agentforge-00021-v4s` in ~15 s. The oldest open item in this file is closed |
 | Billing | Trial credit account `Billing - AgentForge` is **open and enabled**. Actual spend is **not queryable from the CLI** (no billing export configured) — **eyeball it in the console once before judging** |
 | Provider key stored | **Yes**, and the model was **rotated in Phase 13** from `gemini-3.5-flash-lite` to **`gemini-3-flash-preview`** — the only model healthy on both the text and tool-calling paths in all three probe passes. Confirmed persisted in Neon. Re-probe with `npm run probe:models` |
@@ -223,6 +227,10 @@ Carried forward from every phase. These are the decisions later sessions must no
 | **D70** | **The landing page reads the node registry as it renders** | A hand-written feature list is a promise that rots — Chapter 1 shipped four integration nodes in Phase 9, and a static list would have said three for a fortnight. The catalogue, the node count and "callable by an agent" all come from `describeNodes()`, the same projection the canvas palette and the agent's tool set are built from. It is a server component, so the registry never reaches the browser bundle. **Do not type a number into that page** |
 | **D71** | **A notice and a toast are the same statement, and share one table** | `ui/tone.ts` holds the fill, the glyph and — the part that matters — the **word** for each of the four tones, so the same failure never announces itself two different ways to a screen reader. The split is by *subject*, not by severity: a toast reports the result of something the user just did anywhere on the page, a notice describes the state of one region and stays until that state changes. This replaced five hand-written copies of a translucent tint plus a hairline ring, which is a dark-UI idiom that reads as a smudge on cream |
 | **D72** | **The command palette is mounted by the shell header, and its ranking is a tested pure module** | Mounting it in the header rather than the root layout keeps it off the public landing page and the gallery, where there is no session to search and nothing to find. The ARIA shape is a combobox owning a listbox — focus stays in the input and `aria-activedescendant` moves a virtual cursor — because moving real focus onto the options would stop the user typing to narrow the list, which is the whole interaction. The ranking lives in `lib/ui/command.ts` with 14 tests: the dialog either opens or it does not, but "why is the thing I typed not first?" is fifteen lines of arithmetic that deserve tests |
+| **D73** | **The canvas layout is solved by collapsible rails, not by smaller node cards** | `BUILD_PLAN.md` Phase 16 states the constraint in measured terms — two 280px panels leave an 880px canvas at 1440px, forcing 0.39 zoom and an 88px card — and warns that chunkier cards make it *worse*. Shrinking the cards would have traded the phase's own goal away to pay for it. A panel collapses to a **40px rail** instead: 880 → **1360px**, 0.524 → **0.810** zoom, **182px** card, measured on the deployed revision. The rail is the load-bearing half of the idea — a panel that collapses to *nothing* is a panel the user cannot find again, so it stays a real button that names itself and reports `aria-expanded`. Per-panel and persisted, because the two are not one choice |
+| **D74** | **A panel's two breakpoint behaviours are decided by CSS, never by a measured viewport** | Below `lg` a panel is a drawer driven by `open`; at `lg` and up it is a column driven by `collapsed`. Neither reads a width in JavaScript, so there is nothing to mismatch between the server render and the browser, and the closed drawer stays out of the tab order via `visibility` rather than `display` so it can still slide. The preference itself reaches React through `useSyncExternalStore`: reading `localStorage` in a `useState` initialiser is a hydration mismatch, and reading it in an effect is the cascading render `react/set-state-in-effect` rejects. Guarded on every access with an in-memory fallback, so a blocked store leaves a working button rather than a dead one |
+| **D75** | **Node status is a tested table carrying five channels, only one of which is hue** | `BUILD_PLAN.md` Phase 16 asks for five states "visually distinct at a glance and without relying on colour alone", which is exactly the requirement that decays silently as five hand-written class strings drift together. `lib/canvas/status.ts` carries word, shape, outline, surface and motion, and `status.test.ts` asserts the distinctness rather than the specific glyphs — a later phase may change a character, not make two states look alike. A running **agent** says "Thinking" where every other node says "Running", because the phase asks for status as character and the distinction costs one word. Run status is a **separate** five-entry table: a run can be `queued` or `cancelled`, and mapping `cancelled` onto the step vocabulary would have rendered it "Skipped", which is a different statement about what happened |
+| **D76** | **The fuzzy tier of the shared ranking applies to a title alone** | The node palette reuses the command palette's ranking (`lib/ui/command.ts`) rather than growing a second search, because two search boxes in one product that disagree is worse than either being imperfect. Offering each node's *description* as a subtitle then exposed a real flaw: a subsequence match means something against a short name and nothing against a sentence, and searching `gmail` matched **7 of 15** nodes — "Schedule trigger", "Loop", "LLM" — because every one of those descriptions contains g…m…a…i…l in order. Substring and word-start matching on a subtitle stay; only the fuzzy tier is withdrawn from it. `gmail` now returns **1**. The fix is in the shared module, so the ⌘K palette gets it too |
 
 ---
 
@@ -286,12 +294,15 @@ Carried forward from every phase. These are the decisions later sessions must no
 | **A generated trigger's `requiredFields` are the model's choice, and vary run to run** | Any fixed payload posted to a generated webhook | Measured across 20 walks: **8 declared a field a fixed literal would not send** (`submission` mostly, once `content`, once `id`) — a **400** before the run starts. `scripts/demo-payload.mjs` fits the payload to the graph (D58). **Anything else that POSTs to a generated webhook must do the same**, or it is relying on a coin flip |
 | **The API suites cannot see the browser** | Any UI regression, and one shipped | 178 deployed checks and ten clean smoke walks all passed while a webhook-triggered run was **invisible on the canvas** (D59). `smoke.mjs` opens its own SSE stream and fires 400 ms later — it proves the server streams, never that the page is still listening. **Drive a real browser before believing a UI claim**; Phases 6, 8, 10 and 12 each found something that way |
 | **A generated config value can be valid and self-defeating** | Generation, every phase that adds a config field | `maxIterations: 1` on an agent (D57) is the sharpest case: schema-valid, graph-valid, fatal. Sibling of the `{{ }}` reference bug. **When adding a config field with a numeric bound, ask what the model does with the minimum** |
-| **Beat 3 is small on a 1440 px screen** | Demo legibility, the headline beat | The two side panels take a fixed 560 px, so the pane is 880 px for a ~1730 px graph → 0.39 zoom, an 88 px node card. **Present at 1920×1080**: 0.67 zoom, 150 px. `fitView` padding went 0.3 → 0.18 for the rest. Not a bug, a geometry constraint — the fix is the setup, not the code |
+| ~~Beat 3 is small on a 1440 px screen~~ | Was: the headline beat was an 88px node card on a projector | **Fixed 2026-09-27 in Phase 16** (D73). The two side panels no longer take a fixed 560px — each collapses to a 40px rail, so the canvas at 1440px goes 880 → **1360px** and the card is drawn at **182px** rather than 88px. The old advice to present at 1920 still helps and is no longer load-bearing: 1920 with both panels *open* now gives the same 182px. `fitView` padding stays at 0.18 |
 | **A one-off React #418 on first page load** | Cosmetic; not reproduced | Seen once on revision `agentforge-00012-cs6` alongside an `ERR_NETWORK_CHANGED` from a fetch interrupted mid-hydration. **Not reproducible on `00013-zwt`**: signed-out landing, workflow list, canvas, and the whole generate → run path each read 0 errors, 0 warnings. Re-check with a clean profile before the demo |
 | **Two attempts means two timeouts** | A wedged external host, worst case | A retried call gets a fresh timeout, so a Sheets append is at worst `20 s × 2 + 0.5 s backoff ≈ 40.5 s` and a Discord post ≈ 30.5 s. Both sit inside the engine's 120 s deadline **with an agent node's own budget alongside them**, which is the number to re-check if either timeout is ever raised. Bounded, measured, accepted (D54) |
 | **`scripts/smoke.mjs` writes to real services** | The demo channel and the demo sheet | One Discord message and one Sheet row **per walk** — `--loop 10` leaves ten of each. That is the point (it proves Beat 8) but they must be cleared before demoing. The script says so when it finishes. Phase 11's ten walks filled `Sheet1!A4:C4` through `A14:C14` |
 | **`verify-api.mjs` now reports 2 skips, not 1** | Reading the tally | **Not a regression.** The second check only runs when Google is *dis*connected, and Google is connected — which is the state the demo needs. 178 checks, 176 passed, 0 failed, 2 skipped. A tally that moves without a failure is a state difference; check *which* skip before suspecting code |
 | ~~The demo spreadsheet's id is recorded nowhere~~ | Was: a cold session could not find the sheet Beat 8 depends on | **Fixed 2026-09-26.** The `spreadsheets` scope cannot search Drive, so the old sheet was genuinely unrecoverable. A new "AgentForge Demo Log" was created through the app's own stored credential and **its id is in `DEMO.md`'s seed table** |
+| **A filled CSS animation silently overrides a utility on the same element** | Any element carrying `animate-rise` / `animate-pop` / `animate-boing` and an `opacity-*` class | **Found in Phase 16, in a browser, by `getComputedStyle` — not by any test.** `animate-rise` uses `animation-fill-mode: both`, so once it ends its keyframe *keeps* `opacity: 1` applied, and a filled animation outranks an ordinary declaration in the cascade. `opacity-65` on the skipped node card was present in the DOM and did **nothing**. The fix is structural: the entry animation now lives on a wrapper and the card carries its own state classes. **A class being in the DOM is not evidence it applies.** Note the near-miss: `-translate-x-px` was *not* affected, because Tailwind 4 compiles it to the `translate` property while the keyframe animates `transform` — so do not assume the two behave alike |
+| **Two lint rules disagree about one dependency in `editor.tsx`** | Anyone touching the `start` callback's dependency array | `react-hooks/exhaustive-deps` reports `stopStream` as **missing** if it is left out; `react/memo-dependencies` reports it as **extra** if it is put in. Both cannot be satisfied. It stays in with the newer rule suppressed on that line, because `useRunStream` defines it as `useCallback(..., [])` — stable for the component's lifetime, so listing it cannot cost a render, while omitting it would capture a stale closure the day that hook closes over anything. Every *other* entry in that array was verified as required by removing it and watching `exhaustive-deps` ask for it back. This replaces Chapter 1's blanket suppression on the same array |
+| **React Flow does not refit on a window resize** | Judging the canvas by resizing a browser window | Only mount, adding a node, and a panel collapse call `fitView`. Resizing a window leaves the graph at the previous fit, which at 375px looks like a broken layout and is not one — **reload after resizing before believing a screenshot.** Deliberate: a viewport that jumps while the user drags a window edge is worse than a stale fit, and every node editor behaves this way |
 
 Carried risks, recorded so they are not rediscovered:
 
@@ -586,6 +597,45 @@ still documents a path known to work end to end, which is a useful smoke referen
 
 ## Recent Changes
 
+**2026-09-27 — Phase 16 complete. The canvas is rebuilt, and the layout problem is measured shut**
+
+- **The 880px canvas is gone.** Each side panel collapses to a **40px rail**, taking the canvas at
+  1440px from **880 → 1360px**, fitView from **0.524 → 0.810**, and the node card from **117 →
+  182px** — against Chapter 1's 88px, just over **twice** the drawn size (D73). The rail still
+  names itself and still reports `aria-expanded`, because a panel that collapses to nothing is a
+  panel the user cannot find again. Per-panel, persisted, and the canvas refits itself
+- **Node cards are objects**: a `-pop` category strip with an icon and the category in words, the
+  node's own name as the largest thing on the card, the type in mono beneath it, and the status
+- **Status is a tested table on five channels** — word, shape, outline, surface, motion (D75). A
+  skipped node is **dashed and recessed**, not faded; a failed one reddens its outline and wiggles
+  once; a running one bobs three dots. A greyscale screenshot of a run still reads. A running
+  **agent** says "Thinking"
+- **Twenty node icons, drawn here rather than installed**, keyed by type with a **category
+  fallback** — a node added later with no entry still draws correctly, so the registry stays the
+  spine
+- **The palette is browsable *and* searchable**, reusing the ⌘K ranking rather than growing a
+  second one. That reuse exposed a real flaw and fixed it product-wide: the fuzzy tier now applies
+  to a title alone, so `gmail` returns **1** node instead of **7** (D76)
+- **The run panel reads like a narrative.** Steps are named by their **label** rather than their
+  raw id, each log line carries its **offset from the step's start** (`+3.4s`), a warning says
+  "Warning:" in words as well as in amber, and the reasoning sits outside the click target so it
+  can be selected and copied
+- **Edges carry weight and direction**: 2px, an arrowhead marker, `smoothstep` routing, the live
+  edge animating in the same blue as the running card's ring and chip
+- **`colorMode="dark"` is gone.** It was inert for our custom node — React Flow's node colours only
+  reach its built-in types — but it left every variable Phase 14 did not override falling back to a
+  dark default, which is a trap for the next person to add one
+- **The last three Chapter 1 "smudges" are gone.** `bg-warn/10 ring-warn/30 ring-1` survived in the
+  inspector; all three are `Notice` now. The idiom is dead product-wide
+- **The canvas has an `h1` for the first time**, and a `generateMetadata`, so the tab says the
+  workflow's name rather than "AgentForge". The missing `h1` was found by asking the page for its
+  headings — the same way Phase 15 found the 404's
+- **Coverage up again**: 88.33 → **88.99** lines, 91.21 → **91.46** branches, 81.30 → **82.03**
+  functions, on **448** tests (was 406). All 42 new ones are on the new pure modules
+- **Two traps recorded in *Known Issues***: a filled CSS animation silently overriding an
+  `opacity-*` utility on the same element (the class was in the DOM doing nothing), and two lint
+  rules that genuinely contradict each other on one dependency
+
 **2026-09-26 — Phase 15 complete. Everything except the canvas is rebuilt**
 
 - **The landing page is a product page.** A hero, a **demonstration** — the sentence a user types,
@@ -750,16 +800,17 @@ Older entries pruned — **4 earlier Chapter 1 entries** are in git history (`gi
 
 ## Last Updated
 
-**2026-09-26** — **Phase 15 complete.** Revision `agentforge-00029-8t7` live and verified in a
-**real browser** at **1920 / 1440 / 1024 / 375 px**: the landing page, workflow list, settings, 404
-and error screen are all Toybox in structure as well as in colour, with **0 console errors or
-warnings** and no horizontal overflow at any width. The command palette was driven **entirely by
-keyboard** on the deployed URL — Ctrl+K, type to narrow, Enter to navigate — and the canvas still
-renders its 6 nodes and 6 edges under the new root layout. `npm run check` **406 passing**, coverage
-**88.33 / 91.21 / 81.30**. `verify-api.mjs` **153 / 13 / 4**, **identical to Phase 14**, and all 13
-failures are the Gemini **daily** free-tier 429 on every model in the chain — Phase 15 touched no
-engine, model, generation or API code. **Re-run `smoke.mjs` and `verify-api.mjs` on a fresh quota
-day to close them.**
+**2026-09-27** — **Phase 16 complete.** Revision `agentforge-00030-gv2` live and verified in a
+**real browser** on the deployed URL at **1920 / 1440 / 375 px**: the canvas renders its 6 nodes
+and 6 edges with **0 console errors or warnings**, exactly one `h1`, and no horizontal overflow at
+any width. Collapsing both panels took the canvas **880 → 1360px** and the node card **117 →
+182px**; palette search returned exactly one node for each of four queries; a run was started from
+the browser with a JSON payload and streamed per-node status live through all five status
+treatments. `npm run check` **448 passing**, coverage **88.99 / 91.46 / 82.03**. `verify-api.mjs`
+**153 / 13 / 4**, **identical to Phases 14 and 15**, and all 13 failures are the Gemini **daily**
+free-tier 429 on every model in the chain — the non-model engine checks all pass on deployed,
+including `the streamed run succeeded` and an HTTP node calling a real public API. **Re-run
+`smoke.mjs` and `verify-api.mjs` on a fresh quota day to close them.**
 
 **The canvas is now the only screen still in its Chapter 1 shape**, which is exactly what Phase 16
 is for.

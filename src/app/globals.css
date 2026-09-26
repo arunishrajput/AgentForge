@@ -604,6 +604,13 @@
   --xy-connectionline-stroke: var(--color-accent);
   --xy-attribution-background-color: transparent;
 
+  /* Edges carry real weight. React Flow's default is a 1px hairline, which beside a
+     node drawn with a 2px ink outline reads as a scratch on the page rather than a
+     connection between two objects — and at the 0.4-ish zoom a six-node graph needs,
+     a 1px line is under half a device pixel and visibly drops out. 2px is the same
+     weight as everything else in the language, which is the point: one stroke. */
+  --xy-edge-stroke-width: 2;
+
   --xy-controls-button-background-color: var(--color-surface);
   --xy-controls-button-background-color-hover: var(--color-canvas);
   --xy-controls-button-color: var(--color-ink);
@@ -652,15 +659,22 @@
   border-radius: var(--radius-xl);
 }
 
-/* The path a run actually took, left on the canvas after it finishes. */
+/* The path a run actually took, left on the canvas after it finishes. On a branch the
+   untaken edge never lights, so a finished run is still showing the route it chose. */
 .react-flow__edge.edge-traversed .react-flow__edge-path {
   stroke: var(--color-accent);
-  stroke-width: 2.5;
+  stroke-width: 3;
 }
 
+/* The edge into the node working right now. `animated` is React Flow's own dashed
+   flow; this is its weight and its colour.
+
+   `live` rather than the cyan `cat-transform` it used to be, so the moving edge, the
+   breathing ring on the running card and the "Running" chip are all one blue. Three
+   different colours for one fact is three chances to read it as three facts. */
 .react-flow__edge.edge-live .react-flow__edge-path {
-  stroke: var(--color-cat-transform);
-  stroke-width: 3;
+  stroke: var(--color-live);
+  stroke-width: 3.5;
 }
 
 /* ---------------------------------------------------------------------------

@@ -248,8 +248,10 @@ if a later phase adds one it needs a cream ring there.
 ### Never colour alone
 
 Every status pairs its tone with a **word, an icon or a position**. A selected tab is a different
-colour *and* pressed in. A failure toast is red *and* announces "Error:" *and* shakes. A node's
-status will be a distinct shape at a glance in Phase 16, not just a distinct hue.
+colour *and* pressed in. A failure toast is red *and* announces "Error:" *and* shakes.
+
+**Phase 16 delivered the canvas half of this promise**, and it is the strictest application of the
+rule in the product: a node's status is carried on **five** channels — see *The canvas* below.
 
 ### Native elements where they are better
 
@@ -272,6 +274,85 @@ who most need it.
 
 Every toast has a close button. A failure worth acting on uses `duration: null` and stays up until
 dismissed (WCAG 2.2.1).
+
+---
+
+## The canvas
+
+The screen the product exists for, and the one place where decoration that costs scanability is a
+net loss. Rebuilt in Phase 16.
+
+### The layout is the design decision
+
+Chapter 1 measured the constraint precisely: two 280px side panels leave an **880px canvas at
+1440px**, which forces `fitView` to 0.39 and draws a 224px node card at **88px**. Bigger, chunkier
+cards make that *worse*, so the phase could not be a restyle.
+
+**A panel collapses to a 40px rail.** Measured on the deployed revision: canvas **880 → 1360px**,
+zoom **0.524 → 0.810**, card **117 → 182px**. The rail is the load-bearing half — a panel that
+collapses to *nothing* is a panel the user cannot find again, so it stays a real button that names
+itself and reports `aria-expanded`. The canvas refits itself when the layout changes.
+
+Two breakpoints, two behaviours, and **no viewport measurement in JavaScript**: below `lg` a panel
+is a drawer driven by `open`, at `lg` and up a column driven by `collapsed`. CSS decides, so there
+is nothing to mismatch on the server render.
+
+### A node card
+
+An object, built the way every other object in this language is built: a 2px ink outline, a hard
+offset shadow, a fat radius, on `elevated`.
+
+| Part | What it is |
+|---|---|
+| Category strip | A `-pop` fill, an ink icon and the category in **words**, inside the card's outline |
+| Name | The node's own label, and the largest type on the card — at 0.4 zoom it is the only thing still readable, so it is what the card is *for* |
+| Type | `ai.agent`, in mono, muted |
+| Status | The chip, when the node has run |
+| Outputs | One labelled row per declared output, each with its handle centred on it |
+
+**Selection and status are different channels.** Status owns the outline and the surface; selection
+owns the lift. A selected *failed* node therefore still shows that it failed.
+
+### Status is five channels, one of which is hue
+
+`src/lib/canvas/status.ts`, asserted by `status.test.ts` — a later phase may change a glyph, it may
+not make two statuses look alike.
+
+| Status | Word | Shape | Outline | Surface | Motion |
+|---|---|---|---|---|---|
+| idle | "Idle" | `○` | ink | raised | — |
+| running | "Running" / **"Thinking"** on an agent | three bobbing dots | ink | raised | — |
+| succeeded | "Succeeded" | `✓` | ink | raised | `boing` |
+| failed | "Failed" | `!` | **red** | raised | `wiggle` |
+| skipped | "Skipped" | `–` | **dashed** | **sunken, flatter shadow** | — |
+
+A greyscale screenshot of a run still reads: dashed and recessed was skipped, bobbing is working,
+ticked finished.
+
+**A skipped node is recessed, not faded.** That is the design answer — elevation here is the
+outline and the shadow, never the lightness — and it is also the only one that *works*; see the
+trap below.
+
+### Edges
+
+2px, ink, an **arrowhead**, `smoothstep` routing. A workflow graph is directed and the whole
+meaning is which way data moves; Chapter 1 drew it as an undecorated 1px line, so direction was
+carried by node position alone.
+
+The edge into the node working right now animates its flow in `live`, **the same blue** as that
+card's breathing ring and its "Running" chip. Three colours for one fact is three chances to read
+it as three facts. Every edge the run crossed stays lit in accent, and on a branch the untaken edge
+never lights — so a finished run is still showing the route it chose.
+
+### The run panel is the quiet register
+
+**No mascot here, and that is a rule rather than an omission.** Sparky is allowed as a small
+thinking indicator and forbidden in the quiet register, and a log *is* the quiet register. A running
+step gets the bobbing dots in its chip — the same `waiting` motion, without putting a face in a log.
+
+Three things make an agent's reasoning readable: a step is **named** by its label rather than its
+raw id, every log line carries its **offset from the step's start** (`+3.4s`), and the log block
+sits **outside** the click target so it can be selected and copied.
 
 ---
 
@@ -378,6 +459,9 @@ wrong within a phase.
 | **A stale local server serves stale CSS** | Port 3100 was held by a detached process from an earlier launch, so `EADDRINUSE` killed the new server silently and three rounds of screenshots showed the old stylesheet. `lsof -nP -iTCP:<port> -sTCP:LISTEN` before believing a local check — the same trap `PROGRESS.md` already records for port 3000 |
 | **`.tsx` files never appear in the coverage report** | Node's coverage only counts modules a test loads, and no test loads a component. The Chapter 1 note predicting that a design-system phase would break the function-coverage threshold was wrong: coverage went **up**, because the new `.ts` modules are all tested |
 | **A closed `<dialog>` still holds its heading** | A confirm dialog kept mounted so it can close itself renders its `<h2>` into the document whether it is open or not, and a template literal in that title prints `Delete "undefined"?` the moment the row it was about is cleared. Guard the title, or unmount the dialog |
+| **A filled animation silently kills a utility on the same element** | `animate-rise` uses `animation-fill-mode: both`, so after it ends the keyframe *keeps* `opacity: 1` applied — and a filled animation outranks an ordinary declaration. `opacity-65` on the skipped node card was in the DOM and did **nothing**. Found by `getComputedStyle` in a browser; no test in the repo could see it. The entry animation now lives on a wrapper. **A class being in the DOM is not evidence that it applies.** The near-miss worth knowing: `-translate-x-px` was *unaffected*, because Tailwind 4 compiles it to the `translate` property while the keyframe animates `transform` |
+| **A fuzzy search tier is noise against a sentence** | A subsequence match means something against a short *name* and nothing against a description: any long sentence contains almost any five-letter subsequence. Feeding node descriptions to the shared ranking made `gmail` match **7 of 15** nodes. The fuzzy tier now applies to a title alone; substring and word-start matching on a subtitle are untouched |
+| **React Flow's `colorMode` is a trap even when it looks inert** | The canvas shipped `colorMode="dark"` through Phase 15 on a light-first product. It changed almost nothing visible — React Flow's node colours only reach its *built-in* node types, and Phase 14 had overridden the variables that mattered — but every variable **not** overridden was falling back to a dark default, waiting for the next person to add one |
 | **A lint rule can be wrong about a native element** | `role="switch"` on `input[type=checkbox]` is explicitly allowed by ARIA in HTML and its `checked` maps to `aria-checked`; adding `aria-checked` would create a second source of truth. Suppressed inline, with the reason, per the project convention |
 
 ---

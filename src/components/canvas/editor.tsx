@@ -3,6 +3,7 @@
 import {
   Background,
   Controls,
+  MarkerType,
   MiniMap,
   ReactFlow,
   ReactFlowProvider,
@@ -16,8 +17,9 @@ import {
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import "@xyflow/react/dist/style.css";
-
+import { CommandPalette } from "@/components/shell/command-palette";
+import { cn } from "@/components/ui/cn";
+import { useToast } from "@/components/ui/toast";
 import {
   CANVAS_NODE_TYPE,
   fromFlow,
@@ -38,22 +40,24 @@ import {
 import { tweenMs } from "@/lib/canvas/motion";
 import { useRunStream } from "@/lib/canvas/run-stream";
 import { defaultConfig } from "@/lib/canvas/schema";
+import { formatDuration } from "@/lib/format/duration";
 
 import { CanvasContext, type NodeRunState } from "./context";
 import { Inspector } from "./inspector";
 import { Palette } from "./palette";
+import { useCollapsed } from "./panel";
 import { WorkflowNodeView } from "./workflow-node";
 
 /**
  * The workflow editor.
  *
- * The server component hands it the workflow as already read from the database, so
- * a reload renders the saved graph directly — which is what makes "build it, hard
+ * The server component hands it the workflow as already read from the database, so a
+ * reload renders the saved graph directly — which is what makes "build it, hard
  * reload, it comes back identical" a real check rather than a cache artefact.
  * Everything after that goes through the Phase 3 API.
  *
  * `ReactFlowProvider` wraps the inner component because the canvas needs the flow
- * instance to place a new node at the centre of the current viewport.
+ * instance to place a new node and to refit when the layout changes.
  */
 export function Editor({
   workflow,
@@ -72,9 +76,39 @@ export function Editor({
   );
 }
 
-// Defined once at module scope: React Flow warns when `nodeTypes` is a new object
-// on every render, and re-creates every node when it changes.
+// Defined once at module scope: React Flow warns when `nodeTypes` is a new object on
+// every render, and re-creates every node when it changes.
 const nodeTypes = { [CANVAS_NODE_TYPE]: WorkflowNodeView };
+
+/**
+ * 0.18, not React Flow's 0.3. Padding is the one term in the fitView fraction worth
+ * spending: Chapter 1 measured 0.39 → 0.46 zoom at 1440px from this change alone.
+ * The larger share of that problem is now solved by the collapsible panels — see
+ * `panel.tsx` — but the padding still earns its keep.
+ */
+const FIT = { padding: 0.18, maxZoom: 1 } as const;
+
+/**
+ * Edges as *drawn*, never as stored.
+ *
+ * `smoothstep` rather than the default bezier: a right-angled path with a fat corner
+ * radius is the shape this language draws everywhere else, and on a dense graph an
+ * orthogonal route is easier to follow with the eye than two crossing curves.
+ *
+ * The arrowhead matters more than it looks. A workflow graph is *directed* — the
+ * whole meaning is which way data moves — and Chapter 1 drew it with an undecorated
+ * 1px line, so direction was carried by nothing but node position. On a graph with a
+ * loop edge running right to left that is genuinely ambiguous.
+ *
+ * `--color-ink` resolves here because it is declared on `:root`, and React Flow only
+ * ever puts this string in a `fill` attribute inside its shared `<defs>`.
+ */
+const EDGE_MARKER = {
+  type: MarkerType.ArrowClosed,
+  width: 18,
+  height: 18,
+  color: "var(--color-ink)",
+} as const;
 
 function EditorInner({
   workflow,
@@ -86,6 +120,7 @@ function EditorInner({
   liveRun: Run | null;
 }) {
   const initial = useMemo(() => toFlow(workflow.graph), [workflow.graph]);
+  const toast = useToast();
 
   const [nodes, setNodes, onNodesChange] = useNodesState<CanvasNode>(initial.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<CanvasEdge>(initial.edges);
@@ -94,40 +129,45 @@ function EditorInner({
   const [saved, setSaved] = useState<Workflow>(workflow);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  // Below `lg` the palette and the inspector are overlay drawers rather than
-  // columns — three fixed columns do not fit a 375px screen and the canvas is the
-  // part that must survive. Both are always rendered; CSS decides whether they are
-  // in the layout or over it, so there is no viewport measurement to get wrong on
-  // the server render.
+  /**
+   * Two breakpoints, two behaviours, and no viewport measurement anywhere — CSS
+   * decides which is in play (see `panel.tsx`).
+   *
+   *   `open`       below `lg`, where a panel is a drawer over the canvas
+   *   `collapsed`  at `lg` and up, where it is a column that can rail itself
+   *
+   * The collapsed pair is what answers Phase 16's layout problem: two open columns
+   * leave an 880px canvas at 1440px; two rails leave about 1360px.
+   */
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [paletteCollapsed, setPaletteCollapsed] = useCollapsed("palette-collapsed");
+  const [inspectorCollapsed, setInspectorCollapsed] = useCollapsed("inspector-collapsed");
+
   const closePanels = useCallback(() => {
     setPaletteOpen(false);
     setInspectorOpen(false);
   }, []);
 
-  const { run, live, watch, stop, setRun } = useRunStream(workflow.id, liveRun);
+  const { run, live, watch, stop: stopStream, setRun } = useRunStream(workflow.id, liveRun);
   const [triggerInput, setTriggerInput] = useState("");
   const [busy, setBusy] = useState<null | "saving" | "running">(null);
-  const [message, setMessage] = useState<{ tone: "error" | "info"; text: string } | null>(
-    null,
-  );
 
   const { fitView, screenToFlowPosition } = useReactFlow();
   const wrapper = useRef<HTMLDivElement>(null);
 
-  // The palette is the registry, delivered with the first render so every node
-  // draws its real output handles immediately (see the page component).
+  // The palette is the registry, delivered with the first render so every node draws
+  // its real output handles immediately (see the page component).
   const registry = useMemo(
     () => new Map(palette.map((node) => [node.type, node])),
     [palette],
   );
 
   /**
-   * Left-to-right order of the graph as it was first loaded, used only to stagger
-   * each node's entry animation. Sorted by position rather than array index so a
-   * generated graph assembles in reading order (`DEMO.md` Beat 3), and derived from
-   * `initial` so a node added later has no entry and therefore no delay.
+   * Left-to-right order of the graph as it was first loaded, used only to stagger each
+   * node's entry animation. Sorted by position rather than array index so a generated
+   * graph assembles in reading order, and derived from `initial` so a node added later
+   * has no entry and therefore no delay.
    */
   const entryOrder = useMemo(() => {
     const order = new Map<string, number>();
@@ -153,11 +193,29 @@ function EditorInner({
   }, [run]);
 
   /**
+   * Node id → the name the canvas shows for it, so the run panel can say
+   * "Decide the topic" where Chapter 1 said `agent_2`. Read from the live canvas
+   * rather than from the run, because a step records the node's *type* and not the
+   * label its owner gave it.
+   */
+  const names = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const node of nodes) {
+      map.set(
+        node.id,
+        node.data.label ||
+          registry.get(node.data.nodeType)?.label ||
+          node.data.nodeType,
+      );
+    }
+    return map;
+  }, [nodes, registry]);
+
+  /**
    * The canvas watches from the moment it opens, not only when it happened to load
    * mid-run. A run started anywhere else — a webhook, a schedule — is a run this page
-   * is supposed to show, and `DEMO.md` Beat 5 starts one from a terminal while the
-   * browser just sits here. Watching only `liveRun` meant the page had to already be
-   * loaded *during* a run to ever see one, so Beat 6 showed a graph that never moved.
+   * is supposed to show. Watching only `liveRun` meant the page had to already be
+   * loaded *during* a run to ever see one.
    *
    * `runId` is still pinned when the page did load mid-run, so a reload during
    * execution reattaches to that exact run rather than adopting it by guesswork (D29).
@@ -170,30 +228,55 @@ function EditorInner({
   }, [liveRun, watch]);
 
   /**
+   * Collapsing a panel hands the canvas a few hundred more pixels, and React Flow does
+   * not refit on its own — so the graph would sit in the corner of the space it was
+   * just given.
+   *
+   * Called from the collapse and expand handlers rather than from an effect watching
+   * the two booleans. An effect keyed on a value it never reads is a lie about what it
+   * depends on, and it would also have needed a ref to suppress the fit on mount that
+   * the `fitView` prop has already done. The event that changed the layout is the
+   * honest place to respond to it.
+   *
+   * One frame of delay, so the column is out of the layout before the viewport is
+   * measured. `tweenMs` is 0 under `prefers-reduced-motion`: this tween is driven in
+   * JavaScript, so the CSS media query in `globals.css` cannot reach it.
+   */
+  const refit = useCallback(() => {
+    requestAnimationFrame(() => fitView({ ...FIT, duration: tweenMs(220) }));
+  }, [fitView]);
+
+  /**
    * The edges as *drawn*. `edges` itself stays exactly what will be saved — the run
-   * highlight is a projection over it, never state — which is what keeps
-   * `fromFlow(nodes, edges)` the clean inverse `bridge.ts` promises. React Flow
+   * highlight and the routing are a projection over it, never state — which is what
+   * keeps `fromFlow(nodes, edges)` the clean inverse `bridge.ts` promises. React Flow
    * reports changes by id, so selection and deletion still apply to the real state.
    *
-   * Two states, and they are the execution animation BUILD_PLAN Phase 10 asks for:
-   * an edge into the node currently working pulses, and every edge the run has
-   * actually crossed stays lit. On a branch the untaken edge never lights, so when
-   * the run ends the canvas is showing the path the agent chose (`DEMO.md` Beat 7).
+   * Two run states, and they are the execution animation the phase asks for: an edge
+   * into the node currently working animates its flow, and every edge the run has
+   * actually crossed stays lit. On a branch the untaken edge never lights, so when the
+   * run ends the canvas is showing the path the agent chose.
    */
   const displayEdges = useMemo(() => {
-    const live = run?.status === "running";
+    const running = run?.status === "running";
     return edges.map((edge) => {
+      const base = {
+        ...edge,
+        type: "smoothstep" as const,
+        markerEnd: EDGE_MARKER,
+      };
+
       const source = runStates.get(edge.source);
-      if (source?.status !== "succeeded") return edge;
+      if (source?.status !== "succeeded") return base;
 
       const target = runStates.get(edge.target);
-      if (live && target?.status === "running") {
-        return { ...edge, animated: true, className: "edge-live" };
+      if (running && target?.status === "running") {
+        return { ...base, animated: true, className: "edge-live" };
       }
       if (target && target.status !== "skipped") {
-        return { ...edge, className: "edge-traversed" };
+        return { ...base, className: "edge-traversed" };
       }
-      return edge;
+      return base;
     });
   }, [edges, run?.status, runStates]);
 
@@ -205,10 +288,14 @@ function EditorInner({
   const onSelectionChange = useCallback((params: OnSelectionChangeParams) => {
     const id = params.nodes.length === 1 ? params.nodes[0].id : null;
     setSelectedId(id);
-    // On a phone the inspector is a drawer, so selecting a node has to bring it in —
-    // otherwise tapping a node appears to do nothing at all (`DEMO.md` Beat 4).
-    if (id !== null) setInspectorOpen(true);
-  }, []);
+    // Selecting a node has to bring the inspector into view, or tapping a node on a
+    // phone appears to do nothing at all — and at `lg` and up, a railed inspector
+    // would swallow the selection just as silently.
+    if (id !== null) {
+      setInspectorOpen(true);
+      setInspectorCollapsed(false);
+    }
+  }, [setInspectorCollapsed]);
 
   const onConnect = useCallback(
     (connection: Connection) => {
@@ -244,8 +331,8 @@ function EditorInner({
           definition.type,
         );
 
-        // New nodes land to the right of the rightmost one, so clicking through
-        // the palette builds a readable left-to-right chain instead of a stack.
+        // New nodes land to the right of the rightmost one, so clicking through the
+        // palette builds a readable left-to-right chain instead of a stack.
         // NODE_WIDTH 224 + a 56px gutter.
         const rightmost = current.reduce<CanvasNode | null>(
           (furthest, node) =>
@@ -263,19 +350,20 @@ function EditorInner({
             type: CANVAS_NODE_TYPE,
             position,
             selected: true,
-            data: { nodeType: definition.type, config: defaultConfig(definition.configSchema) },
+            data: {
+              nodeType: definition.type,
+              config: defaultConfig(definition.configSchema),
+            },
           } satisfies CanvasNode,
         ];
       });
 
-      // The chain grows rightwards, so without this the fourth node a user adds
-      // lands outside the visible canvas and the click looks like it did nothing.
-      // Deferred a frame so React Flow has measured the node it is fitting to.
-      // `tweenMs` is 0 when the user asks for reduced motion: this tween is driven
-      // in JavaScript, so the CSS media query in `globals.css` cannot reach it.
-      requestAnimationFrame(() =>
-        fitView({ padding: 0.18, maxZoom: 1, duration: tweenMs(250) }),
-      );
+      // The chain grows rightwards, so without this the fourth node a user adds lands
+      // outside the visible canvas and the click looks like it did nothing. Deferred a
+      // frame so React Flow has measured the node it is fitting to. `tweenMs` is 0
+      // when the user asks for reduced motion: this tween is driven in JavaScript, so
+      // the CSS media query in `globals.css` cannot reach it.
+      requestAnimationFrame(() => fitView({ ...FIT, duration: tweenMs(250) }));
     },
     [fitView, screenToFlowPosition, setNodes],
   );
@@ -315,7 +403,6 @@ function EditorInner({
   /** One PATCH carrying the whole graph — a single atomic row update (D14). */
   const save = useCallback(async (): Promise<Workflow | null> => {
     setBusy("saving");
-    setMessage(null);
     try {
       const updated = await api.updateWorkflow(workflow.id, {
         name: name.trim() === "" ? saved.name : name.trim(),
@@ -325,16 +412,18 @@ function EditorInner({
       setName(updated.name);
       return updated;
     } catch (error) {
-      setMessage({
-        tone: "error",
-        text:
-          error instanceof ApiRequestError ? error.message : "Could not save the workflow.",
+      toast({
+        tone: "bad",
+        title: "Could not save the workflow",
+        detail: error instanceof ApiRequestError ? error.message : undefined,
+        // A failure worth acting on stays up until it is dismissed (WCAG 2.2.1).
+        duration: null,
       });
       return null;
     } finally {
       setBusy(null);
     }
-  }, [edges, name, nodes, saved.name, workflow.id]);
+  }, [edges, name, nodes, saved.name, toast, workflow.id]);
 
   /**
    * Running always runs what is *stored*, so unsaved edits are saved first. The
@@ -346,10 +435,13 @@ function EditorInner({
     if (!current) return;
 
     if (!current.runnable) {
-      setMessage({
-        tone: "error",
-        text: "Saved, but this workflow cannot run yet. See the problems on the right.",
+      toast({
+        tone: "warn",
+        title: "Saved, but this workflow cannot run yet",
+        detail: `${current.problems.length} problem${current.problems.length === 1 ? "" : "s"} to fix — they are listed in the inspector.`,
       });
+      setInspectorCollapsed(false);
+      setInspectorOpen(true);
       return;
     }
 
@@ -358,24 +450,23 @@ function EditorInner({
       try {
         input = JSON.parse(triggerInput);
       } catch {
-        setMessage({ tone: "error", text: "Trigger input is not valid JSON." });
+        toast({ tone: "bad", title: "Trigger input is not valid JSON" });
         return;
       }
     }
 
     setBusy("running");
-    setMessage(null);
     setSelectedId(null);
     setNodes((all) => all.map((node) => ({ ...node, selected: false })));
     // Clear the previous run first. The stream's first snapshot is a few hundred
-    // milliseconds away, and leaving the old run on screen means pressing Run shows
-    // a canvas full of green "Succeeded" badges for something that has not started.
+    // milliseconds away, and leaving the old run on screen means pressing Run shows a
+    // canvas full of green "Succeeded" badges for something that has not started.
     setRun(null);
 
     // The stream opens *before* the run is triggered. It has to: `POST /runs` is
     // synchronous and does not return until the run is over, so a client that waited
-    // for a run id would have nothing left to watch. The stream works out which run
-    // is the new one by itself (D28).
+    // for a run id would have nothing left to watch. The stream works out which run is
+    // the new one by itself (D28).
     watch();
 
     try {
@@ -385,43 +476,94 @@ function EditorInner({
 
       /**
        * A run that *fails* resolves this promise perfectly happily — the request
-       * succeeded, the run did not. Without this the header says nothing at all and
-       * the only sign is a red node card and a line in the inspector, which on a
-       * shared screen is a demo that looks like it worked (Phase 11, task 4).
+       * succeeded, the run did not. Without this the only sign is a red node card and
+       * a line in the inspector, which on a shared screen is a run that looks like it
+       * worked.
        *
-       * The failing step is named because "the run failed" sends the presenter
-       * hunting; "Append to Google Sheet failed: …" is the sentence `DEMO.md`
-       * Fallback E is recovered from.
+       * The failing step is named because "the run failed" sends the reader hunting;
+       * "Append to Google Sheet failed" is something to act on.
        */
       if (finished.status === "failed") {
         const failed = finished.steps?.find((step) => step.status === "failed");
-        const label = failed ? (registry.get(failed.nodeType)?.label ?? failed.nodeType) : null;
-        const reason = failed?.error ?? finished.error ?? "No reason was recorded.";
-        setMessage({
-          tone: "error",
-          text: label ? `${label} failed: ${reason}` : `The run failed: ${reason}`,
+        const label = failed
+          ? (names.get(failed.nodeId) ??
+            registry.get(failed.nodeType)?.label ??
+            failed.nodeType)
+          : null;
+        toast({
+          tone: "bad",
+          title: label ? `${label} failed` : "The run failed",
+          detail: failed?.error ?? finished.error ?? "No reason was recorded.",
+          duration: null,
+        });
+      } else if (finished.status === "succeeded") {
+        toast({
+          tone: "ok",
+          title: "Run finished",
+          detail:
+            finished.durationMs === null
+              ? undefined
+              : `${finished.steps?.length ?? 0} steps in ${formatDuration(finished.durationMs)}.`,
         });
       }
     } catch (error) {
-      setMessage({
-        tone: "error",
-        text: error instanceof ApiRequestError ? error.message : "The run could not start.",
+      toast({
+        tone: "bad",
+        title: "The run could not start",
+        detail: error instanceof ApiRequestError ? error.message : undefined,
+        duration: null,
       });
     } finally {
-      // The run is over by the time the POST resolves, so the stream has nothing
-      // left to say and Cloud Run should stop billing for it.
-      stop();
+      // The run is over by the time the POST resolves, so the stream has nothing left
+      // to say and Cloud Run should stop billing for it.
+      stopStream();
       setBusy(null);
     }
-    // An over-broad dependency list: it re-creates the callback more often than needed,
-    // which costs renders, not correctness. Phase 16 rebuilds this component.
+    // `stopStream` is the one identifier the two lint rules disagree about, and they
+    // genuinely contradict each other: `react-hooks/exhaustive-deps` reports it as a
+    // MISSING dependency if it is left out, and `react/memo-dependencies` reports it
+    // as an EXTRA one if it is put in. Both cannot be satisfied.
+    //
+    // It stays in, and the newer rule is suppressed, because `useRunStream` defines it
+    // as `useCallback(..., [])` — stable for the component's lifetime, so listing it
+    // cannot cost a render, while omitting it would capture a stale closure the day
+    // that hook is changed to close over anything. The cheap direction is the one that
+    // survives a future edit to another file.
+    //
+    // This replaces Chapter 1's suppression of the same rule on the same array, whose
+    // note read "an over-broad dependency list ... Phase 16 rebuilds this component".
+    // The array is no longer over-broad: every other entry here was verified to be
+    // required by removing it and watching `exhaustive-deps` ask for it back.
+  }, [
+    dirty,
+    names,
+    registry,
+    save,
+    saved,
+    setInspectorCollapsed,
+    setNodes,
+    setRun,
     // oxlint-disable-next-line react/memo-dependencies
-  }, [dirty, registry, save, saved, setNodes, setRun, stop, triggerInput, watch, workflow.id]);
+    stopStream,
+    toast,
+    triggerInput,
+    watch,
+    workflow.id,
+  ]);
 
   const canvasValue = useMemo(
     () => ({ registry, runStates, entryOrder }),
     [entryOrder, registry, runStates],
   );
+
+  const status =
+    busy === "saving"
+      ? "Saving…"
+      : dirty
+        ? "Unsaved changes"
+        : saved.runnable
+          ? "Saved"
+          : `Saved · ${saved.problems.length} problem${saved.problems.length === 1 ? "" : "s"}`;
 
   return (
     <CanvasContext value={canvasValue}>
@@ -430,13 +572,25 @@ function EditorInner({
       {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions */}
       <div
         className="flex h-dvh flex-col"
-        // Escape closes whichever drawer is open. It is the expected key for a
-        // panel over content, and the only way off the backdrop from a keyboard.
+        // Escape closes whichever drawer is open. It is the expected key for a panel
+        // over content, and the only way off the backdrop from a keyboard.
         onKeyDown={(event) => {
           if (event.key === "Escape") closePanels();
         }}
       >
-        <header className="border-line pad-safe flex shrink-0 flex-wrap items-center gap-x-2 gap-y-2 border-b pb-2">
+        <header className="border-line bg-surface pad-safe flex shrink-0 flex-wrap items-center gap-x-2 gap-y-2 border-b-2 pb-2">
+          {/* The canvas had no `h1` at all before Phase 16 — the workflow's name is an
+              editable `<input>`, which is a control and not a heading, so the document
+              outline started at the panels' `h2`s. This is the same defect Phase 15
+              shipped on the 404 for one deploy, and it is invisible until the page is
+              asked for its headings rather than looked at.
+
+              Visually hidden because the name is already on screen as the field
+              beside it; duplicating it would be noise for everyone who can see it and
+              structure for everyone who cannot. It tracks `name`, so renaming the
+              workflow renames the document. */}
+          <h1 className="sr-only">{name}</h1>
+
           <Link href="/workflows" className="btn btn-ghost shrink-0 px-2">
             <span aria-hidden="true">←</span>
             <span className="max-sm:sr-only">Workflows</span>
@@ -447,10 +601,11 @@ function EditorInner({
             value={name}
             maxLength={200}
             onChange={(event) => setName(event.target.value)}
-            className="field hover:border-line min-w-0 flex-1 basis-32 border-transparent bg-transparent font-medium"
+            className="field min-w-0 flex-1 basis-32 border-transparent bg-transparent font-bold shadow-none"
           />
 
-          {/* Drawer toggles. Only below `lg`, where the panels are not columns. */}
+          {/* Drawer toggles. Only below `lg`, where the panels are not columns — at
+              `lg` and up each panel's own rail is the way back. */}
           <div className="flex shrink-0 items-center gap-1.5 lg:hidden">
             <button
               type="button"
@@ -479,25 +634,8 @@ function EditorInner({
           </div>
 
           <div className="flex min-w-0 items-center justify-end gap-2 max-sm:order-last max-sm:basis-full sm:flex-1">
-            {message && (
-              <span
-                role={message.tone === "error" ? "alert" : "status"}
-                className={`min-w-0 truncate text-xs ${
-                  message.tone === "error" ? "text-bad" : "text-muted"
-                }`}
-              >
-                {message.text}
-              </span>
-            )}
-
-            <span className="text-muted shrink-0 text-xs" role="status">
-              {busy === "saving"
-                ? "Saving…"
-                : dirty
-                  ? "Unsaved changes"
-                  : saved.runnable
-                    ? "Saved"
-                    : `Saved · ${saved.problems.length} problem${saved.problems.length === 1 ? "" : "s"}`}
+            <span className="text-muted shrink-0 text-2xs" role="status">
+              {status}
             </span>
 
             <button
@@ -512,33 +650,47 @@ function EditorInner({
             <button
               type="button"
               onClick={start}
-              disabled={busy !== null}
-              className="btn btn-primary shrink-0"
+              // `aria-busy`, never `disabled`: a disabled button can lose its
+              // accessible name mid-announcement and drops out of the tab order
+              // under the user's cursor (`DESIGN.md`).
+              aria-busy={busy === "running"}
+              disabled={busy === "saving"}
+              className={cn("btn btn-primary shrink-0", busy === "running" && "opacity-70")}
             >
               {busy === "running" ? (
                 <>
-                  <span
-                    aria-hidden="true"
-                    className="animate-breathe bg-accent-ink h-1.5 w-1.5 rounded-full"
-                  />
-                  Running…
+                  <span aria-hidden="true" className="flex items-end gap-0.5">
+                    {[0, 1, 2].map((i) => (
+                      <span
+                        key={i}
+                        style={{ animationDelay: `${i * 140}ms` }}
+                        className="animate-think bg-accent-ink size-1 rounded-full"
+                      />
+                    ))}
+                  </span>
+                  Running
                 </>
               ) : (
                 "Run"
               )}
             </button>
+
+            {/* The shell's palette, mounted here rather than stacking a second bar
+                above a viewport-height graph. It is how the canvas reaches the rest
+                of the product without spending vertical space on nav links. */}
+            <CommandPalette className="max-md:hidden" />
           </div>
         </header>
 
         <div className="relative flex min-h-0 flex-1">
           {/* Backdrop for the drawers. Not focusable — Escape and the panel's own
-              close button are the keyboard paths, and a full-screen button in the
-              tab order between the header and the canvas is worse than neither. */}
+              close button are the keyboard paths, and a full-screen button in the tab
+              order between the header and the canvas is worse than neither. */}
           {(paletteOpen || inspectorOpen) && (
             <div
               aria-hidden="true"
               onClick={closePanels}
-              className="bg-sunken/70 animate-fade absolute inset-0 z-20 lg:hidden"
+              className="bg-ink/25 animate-fade absolute inset-0 z-20 lg:hidden"
             />
           )}
 
@@ -548,7 +700,16 @@ function EditorInner({
             onAdd={addNode}
             disabled={busy !== null}
             open={paletteOpen}
+            collapsed={paletteCollapsed}
             onClose={closePanels}
+            onExpand={() => {
+              setPaletteCollapsed(false);
+              refit();
+            }}
+            onCollapse={() => {
+              setPaletteCollapsed(true);
+              refit();
+            }}
           />
 
           <main id="main" ref={wrapper} className="min-w-0 flex-1">
@@ -561,20 +722,17 @@ function EditorInner({
               onConnect={onConnect}
               onSelectionChange={onSelectionChange}
               deleteKeyCode={["Delete", "Backspace"]}
-              colorMode="dark"
+              // Light, because the product is light-first. The `dark` this replaces
+              // was inert for our own custom node — React Flow's node colours only
+              // reach its built-in types — but it left every variable Phase 14 did
+              // not explicitly override falling back to a dark default, which is a
+              // trap for the next person to add one.
+              colorMode="light"
               fitView
               // Low enough that a seven-node graph still fits a 375px screen; the
-              // default floor of 0.5 cropped it and the demo's spine ran off-canvas.
+              // default floor of 0.5 cropped it and the graph's spine ran off-canvas.
               minZoom={0.15}
-              // 0.18, not 0.3. The demo's six-node chain is ~1730px wide in flow
-              // space and the pane between the two side panels is 880px at 1440px
-              // wide, so fitView lands at 0.39 zoom — a 224px node card drawn at
-              // 88px, which is legible on a laptop and not on a projector. Padding
-              // is the only term in that fraction worth spending: measured 0.39 →
-              // 0.46 at 1440 and 0.61 → 0.70 at 1920. The larger share of the fix
-              // is not code at all — presenting at 1920 rather than 1440 is worth
-              // 55% on its own, and DEMO.md's setup now says so.
-              fitViewOptions={{ padding: 0.18, maxZoom: 1 }}
+              fitViewOptions={FIT}
               proOptions={{ hideAttribution: false }}
             >
               <Background gap={20} />
@@ -588,7 +746,16 @@ function EditorInner({
           <Inspector
             id="node-inspector"
             open={inspectorOpen}
+            collapsed={inspectorCollapsed}
             onClose={closePanels}
+            onExpand={() => {
+              setInspectorCollapsed(false);
+              refit();
+            }}
+            onCollapse={() => {
+              setInspectorCollapsed(true);
+              refit();
+            }}
             node={selected}
             definition={selected ? registry.get(selected.data.nodeType) : undefined}
             workflow={saved}
@@ -596,6 +763,7 @@ function EditorInner({
             problems={saved.problems}
             run={run}
             live={live}
+            names={names}
             triggerInput={triggerInput}
             onChangeTriggerInput={setTriggerInput}
             onChangeNode={changeNode}

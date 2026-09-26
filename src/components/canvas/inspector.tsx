@@ -1,29 +1,48 @@
 "use client";
 
-import type { GraphProblem, NodeSummary, Run, Workflow } from "@/lib/canvas/client";
+import { Labelled, Input, Textarea } from "@/components/ui/field";
+import { Notice } from "@/components/ui/notice";
+import { cn } from "@/components/ui/cn";
 import type { CanvasNode } from "@/lib/canvas/bridge";
+import { categoryLook } from "@/lib/canvas/categories";
+import type { GraphProblem, NodeSummary, Run, Workflow } from "@/lib/canvas/client";
 
 import { ConfigForm } from "./config-form";
-import { STATUS_STYLE } from "./context";
+import { NodeIcon } from "./node-icon";
+import { Panel } from "./panel";
+import { RunPanel } from "./run-panel";
 import { TriggerPanel } from "./trigger-panel";
 
 /**
- * The right-hand panel. It shows the selected node's configuration, or — when
- * nothing is selected — why the workflow cannot run and what the last run did.
+ * The right-hand panel: the selected node's configuration, or — when nothing is
+ * selected — why the workflow cannot run and what the last run did.
  *
- * Validation problems are shown rather than blocking the save. A half-built canvas
- * must be saveable (CONTRACT.md → "Graph validation"), so the honest UI is "saved,
- * and here is what is still wrong".
+ * Validation problems are **shown, not enforced**. A half-built canvas must be
+ * saveable (`CONTRACT.md` → "Graph validation"), so the honest UI is "saved, and here
+ * is what is still wrong" rather than a disabled Save button with no explanation.
  *
- * Below `lg` it is a drawer over the canvas instead of a column beside it, opened by
- * the header toggle or by selecting a node. Always rendered, with CSS deciding —
- * `max-lg:invisible` keeps the closed drawer out of the tab order without a viewport
- * measurement that could differ between the server render and the browser.
+ * Two things Phase 16 changed beyond the layout:
+ *
+ *  - **Every message is a `Notice`.** Chapter 1 wrote the same shape by hand three
+ *    times in this file as a translucent tint plus a hairline ring
+ *    (`bg-warn/10 ring-warn/30 ring-1`). That is a dark-UI idiom — a tint only
+ *    separates from its background when the background is dark — and on cream it
+ *    reads as a smudge. `DESIGN.md` records that Phase 15 removed the last five
+ *    copies elsewhere and that it must not come back; these were the three it could
+ *    not reach, because the canvas was Phase 16's subject.
+ *  - **A node's header wears its category**, with the fill, the icon and the word,
+ *    so the panel is recognisably *about* the object that is selected on the canvas.
+ *    That is the "form on a nice object" the phase asks for: the object is stated at
+ *    the top, and everything below it is the quiet register — plain fields on paper,
+ *    no fills, no shadows. Loud where you are, quiet where you work.
  */
 export function Inspector({
   id,
   open,
+  collapsed,
   onClose,
+  onExpand,
+  onCollapse,
   node,
   definition,
   workflow,
@@ -31,6 +50,7 @@ export function Inspector({
   problems,
   run,
   live,
+  names,
   triggerInput,
   onChangeTriggerInput,
   onChangeNode,
@@ -39,7 +59,10 @@ export function Inspector({
 }: {
   id: string;
   open: boolean;
+  collapsed: boolean;
   onClose: () => void;
+  onExpand: () => void;
+  onCollapse: () => void;
   node: CanvasNode | null;
   definition: NodeSummary | undefined;
   /** The workflow as last SAVED — a webhook URL or a due time only exists once stored. */
@@ -49,29 +72,36 @@ export function Inspector({
   run: Run | null;
   /** A stream is open on this run — the panel is watching, not showing history. */
   live: boolean;
+  /** Node id → the label the canvas shows for it, for the run panel's step names. */
+  names: Map<string, string>;
   triggerInput: string;
   onChangeTriggerInput: (value: string) => void;
   onChangeNode: (id: string, data: Partial<CanvasNode["data"]>) => void;
   onDeleteNode: (id: string) => void;
   onSelectNode: (id: string) => void;
 }) {
-  return (
-    <aside
-      id={id}
-      aria-label="Inspector"
-      className={`border-line bg-canvas flex w-80 shrink-0 flex-col border-l transition-[transform,visibility] duration-200 ease-out max-lg:fixed max-lg:inset-y-0 max-lg:right-0 max-lg:z-30 max-lg:w-[min(22rem,90vw)] max-lg:shadow-drawer lg:visible lg:translate-x-0 ${
-        open ? "max-lg:translate-x-0" : "max-lg:invisible max-lg:translate-x-full"
-      }`}
-    >
-      <button
-        type="button"
-        onClick={onClose}
-        className="btn btn-ghost absolute top-2 right-2 z-10 px-2 lg:hidden"
-      >
-        <span aria-hidden="true">✕</span>
-        <span className="sr-only">Close inspector</span>
-      </button>
+  // The panel's own title names what it is showing, so the rail does too — a
+  // collapsed inspector that says "Send email" is worth reopening.
+  const title = node
+    ? (node.data.label || definition?.label || node.data.nodeType)
+    : run
+      ? run.status === "running"
+        ? "Running"
+        : "Last run"
+      : "Workflow";
 
+  return (
+    <Panel
+      id={id}
+      side="right"
+      title={title}
+      width="lg:w-80"
+      open={open}
+      collapsed={collapsed}
+      onClose={onClose}
+      onExpand={onExpand}
+      onCollapse={onCollapse}
+    >
       {node ? (
         <NodeInspector
           node={node}
@@ -87,12 +117,13 @@ export function Inspector({
           problems={problems}
           run={run}
           live={live}
+          names={names}
           triggerInput={triggerInput}
           onChangeTriggerInput={onChangeTriggerInput}
           onSelectNode={onSelectNode}
         />
       )}
-    </aside>
+    </Panel>
   );
 }
 
@@ -113,36 +144,46 @@ function NodeInspector({
   onChange: (id: string, data: Partial<CanvasNode["data"]>) => void;
   onDelete: (id: string) => void;
 }) {
+  const category = categoryLook(definition?.category);
+
   return (
     <>
-      <header className="border-line border-b px-4 py-3 max-lg:pr-12">
-        <h2 className="truncate text-sm font-medium">
-          {definition?.label ?? node.data.nodeType}
-        </h2>
-        <p className="text-muted mt-0.5 font-mono text-2xs">{node.id}</p>
-      </header>
+      {/* The object, stated. The one loud element in the panel. */}
+      <div
+        className={cn(
+          "border-line text-ink flex shrink-0 items-center gap-2 border-b-2 px-3 py-2",
+          category.fill,
+        )}
+      >
+        <NodeIcon type={node.data.nodeType} category={definition?.category} className="size-4" />
+        <span className="text-3xs truncate font-bold tracking-wide uppercase">
+          {category.noun}
+        </span>
+        <span className="ml-auto shrink-0 font-mono text-3xs opacity-70">{node.id}</span>
+      </div>
 
-      <div className="flex-1 space-y-5 overflow-y-auto px-4 py-4">
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-3 py-3.5">
         {definition ? (
           <p className="text-muted text-xs leading-relaxed">{definition.description}</p>
         ) : (
-          <p className="text-xs text-bad">
-            No registry entry for <code>{node.data.nodeType}</code>. This workflow cannot
-            run until the node is removed.
-          </p>
+          <Notice tone="bad" title="This node type is not in the registry">
+            Nothing is registered for <code className="font-mono">{node.data.nodeType}</code>.
+            The workflow cannot run until this node is removed.
+          </Notice>
         )}
 
         {problems.length > 0 && (
-          <ul className="bg-warn/10 text-warn ring-warn/30 animate-fade space-y-1 rounded-lg p-3 text-xs ring-1">
-            {problems.map((problem, index) => (
-              <li key={index}>{problem.message}</li>
-            ))}
-          </ul>
+          <Notice tone="warn" title="This node needs attention">
+            <ul className="space-y-1">
+              {problems.map((problem, index) => (
+                <li key={index}>{problem.message}</li>
+              ))}
+            </ul>
+          </Notice>
         )}
 
-        <label className="block">
-          <span className="mb-1 block text-ui font-medium">Label</span>
-          <input
+        <Labelled label="Label" hint="What this node is called on the canvas.">
+          <Input
             type="text"
             value={node.data.label ?? ""}
             placeholder={definition?.label ?? ""}
@@ -152,9 +193,8 @@ function NodeInspector({
                 label: event.target.value === "" ? undefined : event.target.value,
               })
             }
-            className="field"
           />
-        </label>
+        </Labelled>
 
         {definition && (
           // Remounts on selection change, which reloads the form's local drafts.
@@ -171,7 +211,7 @@ function NodeInspector({
         <TriggerPanel node={node} workflow={workflow} dirty={dirty} />
       </div>
 
-      <footer className="border-t border-line px-4 py-3">
+      <footer className="border-line shrink-0 border-t-2 px-3 py-2.5">
         <button
           type="button"
           onClick={() => onDelete(node.id)}
@@ -188,6 +228,7 @@ function WorkflowInspector({
   problems,
   run,
   live,
+  names,
   triggerInput,
   onChangeTriggerInput,
   onSelectNode,
@@ -195,62 +236,41 @@ function WorkflowInspector({
   problems: GraphProblem[];
   run: Run | null;
   live: boolean;
+  names: Map<string, string>;
   triggerInput: string;
   onChangeTriggerInput: (value: string) => void;
   onSelectNode: (id: string) => void;
 }) {
-  const watching = live && run?.status === "running";
-
   return (
-    <>
-      <header className="border-line flex items-start justify-between gap-2 border-b px-4 py-3 max-lg:pr-12">
-        <div className="min-w-0">
-          <h2 className="text-sm font-medium">
-            {run ? (run.status === "running" ? "Running" : "Last run") : "Workflow"}
-          </h2>
-          <p className="text-muted mt-0.5 text-2xs">
-            {run ? "Select a node to edit it" : "Select a node to edit its configuration"}
+    <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-3 py-3.5">
+      {problems.length > 0 && (
+        <Notice
+          tone="warn"
+          title={`Not runnable yet — ${problems.length} problem${problems.length === 1 ? "" : "s"}`}
+        >
+          <ul className="space-y-1">
+            {problems.map((problem, index) => (
+              <li key={index}>{problem.message}</li>
+            ))}
+          </ul>
+        </Notice>
+      )}
+
+      {/* The manual trigger exists to turn a payload into the first node's output, so
+          the canvas has to be able to supply one. */}
+      <TriggerInput value={triggerInput} onChange={onChangeTriggerInput} />
+
+      {run ? (
+        <RunPanel run={run} live={live} names={names} onSelectNode={onSelectNode} />
+      ) : (
+        problems.length === 0 && (
+          <p className="text-muted text-xs leading-relaxed">
+            Press <strong className="text-ink">Run</strong> to execute this workflow. Each
+            node reports on the canvas as it goes, and every step it took appears here.
           </p>
-        </div>
-
-        {watching && (
-          <span className="chip bg-sunken text-live shrink-0">
-            <span
-              aria-hidden="true"
-              className="animate-breathe bg-live h-1.5 w-1.5 rounded-full"
-            />
-            Live
-          </span>
-        )}
-      </header>
-
-      <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4">
-        {problems.length > 0 && (
-          <section>
-            <h3 className="eyebrow mb-1.5">Not runnable yet</h3>
-            <ul className="space-y-1 rounded-lg bg-warn/10 p-3 text-xs text-warn ring-1 ring-warn/30">
-              {problems.map((problem, index) => (
-                <li key={index}>{problem.message}</li>
-              ))}
-            </ul>
-          </section>
-        )}
-
-        {/* The manual trigger exists to turn a payload into the first node's output,
-            so the canvas has to be able to supply one. It is also the demo's fallback
-            when the webhook does not land (DEMO.md, contingency F). */}
-        <TriggerInput value={triggerInput} onChange={onChangeTriggerInput} />
-
-        {run ? <RunSteps run={run} live={live} onSelectNode={onSelectNode} /> : null}
-
-        {!run && problems.length === 0 && (
-          <p className="text-muted text-xs">
-            Press Run to execute this workflow and see each node&apos;s outcome on the
-            canvas.
-          </p>
-        )}
-      </div>
-    </>
+        )
+      )}
+    </div>
   );
 }
 
@@ -264,26 +284,24 @@ function TriggerInput({
   const invalid = value.trim() !== "" && !parses(value);
 
   return (
-    <label className="block">
-      <span className="eyebrow mb-1.5 block">Trigger input</span>
-      <textarea
+    <Labelled
+      label="Trigger input"
+      hint={
+        <>
+          JSON handed to the trigger. Reach it with <code className="font-mono">{"{{input.x}}"}</code>.
+        </>
+      }
+      error={invalid ? "Not valid JSON — the run will be blocked until this parses." : undefined}
+    >
+      <Textarea
         value={value}
         rows={3}
         spellCheck={false}
         placeholder={'{ "subject": "launch" }'}
         onChange={(event) => onChange(event.target.value)}
-        className="field resize-y font-mono text-xs"
+        className="font-mono text-2xs"
       />
-      {invalid ? (
-        <span className="mt-1 block text-2xs text-warn">
-          Not valid JSON — the run will be blocked until this parses.
-        </span>
-      ) : (
-        <span className="text-muted mt-1 block text-2xs">
-          JSON handed to the trigger. Reach it with <code>{"{{input.x}}"}</code>.
-        </span>
-      )}
-    </label>
+    </Labelled>
   );
 }
 
@@ -294,86 +312,4 @@ function parses(value: string): boolean {
   } catch {
     return false;
   }
-}
-
-function RunSteps({
-  run,
-  live,
-  onSelectNode,
-}: {
-  run: Run;
-  live: boolean;
-  onSelectNode: (id: string) => void;
-}) {
-  const runTone =
-    run.status === "succeeded"
-      ? "text-ok"
-      : run.status === "failed"
-        ? "text-bad"
-        : "text-live";
-
-  return (
-    <section className="space-y-3">
-      <div className="flex items-baseline justify-between">
-        <span className={`text-ui font-medium capitalize ${runTone}`}>{run.status}</span>
-        <span className="text-muted text-2xs">
-          {run.durationMs !== null
-            ? `${run.durationMs} ms`
-            : live
-              ? "streaming"
-              : "in flight"}
-        </span>
-      </div>
-
-      {run.error && (
-        <p className="bg-bad/10 text-bad ring-bad/30 animate-fade rounded-lg p-3 text-xs ring-1">
-          {run.error}
-        </p>
-      )}
-
-      <ol className="space-y-1.5">
-        {(run.steps ?? []).map((step) => (
-          <li key={step.seq}>
-            <button
-              type="button"
-              onClick={() => onSelectNode(step.nodeId)}
-              className="hover:bg-surface animate-fade w-full rounded-lg px-2 py-1.5 text-left transition-colors duration-100"
-            >
-              <span className="flex items-center gap-1.5">
-                <span className="text-muted w-5 shrink-0 font-mono text-2xs">
-                  {step.seq}
-                </span>
-                <span className="truncate font-mono text-xs">{step.nodeId}</span>
-                <span
-                  key={step.status}
-                  className={`chip animate-pop ml-auto shrink-0 ${STATUS_STYLE[step.status].className}`}
-                >
-                  {STATUS_STYLE[step.status].label}
-                </span>
-              </span>
-
-              {step.error && (
-                <span className="mt-1 block text-2xs text-bad">{step.error}</span>
-              )}
-
-              {(step.logs ?? []).map((log, index) => (
-                <span key={index} className="text-muted mt-0.5 block pl-6 text-2xs">
-                  {log.message}
-                </span>
-              ))}
-            </button>
-          </li>
-        ))}
-      </ol>
-
-      {run.output !== null && run.output !== undefined && (
-        <div>
-          <h3 className="eyebrow mb-1.5">Output</h3>
-          <pre className="bg-sunken border-line overflow-x-auto rounded-lg border p-3 font-mono text-2xs">
-            {JSON.stringify(run.output, null, 2)}
-          </pre>
-        </div>
-      )}
-    </section>
-  );
 }

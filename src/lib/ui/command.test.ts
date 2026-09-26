@@ -109,3 +109,33 @@ test("equal scores keep their input order", () => {
   assert.deepEqual(rankCommands([a, b], "run it").map((c) => c.id), ["a", "b"]);
   assert.deepEqual(rankCommands([b, a], "run it").map((c) => c.id), ["b", "a"]);
 });
+
+test("a subsequence matches a title but NOT a subtitle", () => {
+  // The bug this pins: a node's description is a whole sentence, and a sentence
+  // contains almost any short subsequence. Offering descriptions as subtitles made
+  // "gmail" match seven of fifteen nodes, six of them meaninglessly.
+  const sentence: Command = {
+    id: "sentence",
+    title: "Schedule trigger",
+    subtitle: "Starts the workflow on a repeating schedule, given as a 5-field cron expression.",
+  };
+  assert.equal(scoreCommand(sentence, "gmail"), null);
+
+  // The same letters in a *title* still match, because that is what fuzzy is for.
+  assert.notEqual(scoreCommand({ id: "t", title: "G M A I L" }, "gmail"), null);
+});
+
+test("a subsequence does not match a keyword either", () => {
+  const command: Command = { id: "k", title: "Send email", keywords: ["integration.gmail"] };
+  // A real substring of the keyword still matches...
+  assert.notEqual(scoreCommand(command, "gmail"), null);
+  // ...but scattered letters do not.
+  assert.equal(scoreCommand({ id: "k2", title: "Branch", keywords: ["core.branch"] }, "gmail"), null);
+});
+
+test("a subtitle still matches on substring and word start", () => {
+  // Only the fuzzy tier was withdrawn; genuine subtitle matches are untouched.
+  const command: Command = { id: "s", title: "Design system", subtitle: "The Toybox gallery" };
+  assert.notEqual(scoreCommand(command, "toybox"), null);
+  assert.notEqual(scoreCommand(command, "gallery"), null);
+});

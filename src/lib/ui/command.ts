@@ -18,6 +18,16 @@
  * A subtitle or a keyword can match too, at a discount, so "gemini" can reach
  * "Settings" without "Gemini" being in its title.
  *
+ * **The subsequence tier applies to the title alone**, and that is a correction made
+ * in Phase 16 rather than an original nicety. A subsequence is the "type the initials
+ * of a name" affordance, and it only means anything against something short: any long
+ * sentence contains almost any five-letter subsequence. When the node palette began
+ * offering each node's *description* as a subtitle, searching "gmail" matched seven of
+ * fifteen nodes — "Schedule trigger", "Loop" and "LLM" among them — because every one
+ * of their descriptions happens to contain g…m…a…i…l in order. A search that returns
+ * half the catalogue is not a search. Substring and word-start matching on a subtitle
+ * stay, because those are real matches; only the fuzzy tier is withdrawn from it.
+ *
  * Every term in a multi-word query has to match something. Typing a second word
  * narrows; a palette where it widened would answer a longer query with a longer
  * list, which is the opposite of what the typing was for.
@@ -49,7 +59,8 @@ function isSubsequence(haystack: string, needle: string): boolean {
   return true;
 }
 
-function scoreText(text: string, needle: string): number | null {
+/** `fuzzy` enables the subsequence tier. Only a title gets it — see the note above. */
+function scoreText(text: string, needle: string, fuzzy: boolean): number | null {
   const haystack = text.toLowerCase();
   if (haystack === needle) return EXACT;
   if (haystack.startsWith(needle)) return PREFIX;
@@ -57,23 +68,23 @@ function scoreText(text: string, needle: string): number | null {
   const at = haystack.indexOf(needle);
   if (at > 0) return BOUNDARY.test(haystack.charAt(at - 1)) ? WORD_START : ANYWHERE;
 
-  return isSubsequence(haystack, needle) ? SUBSEQUENCE : null;
+  return fuzzy && isSubsequence(haystack, needle) ? SUBSEQUENCE : null;
 }
 
 /** The best score any field of this command can offer for one term. */
 function scoreTerm(command: Command, term: string): number | null {
   const scores: number[] = [];
 
-  const title = scoreText(command.title, term);
+  const title = scoreText(command.title, term, true);
   if (title !== null) scores.push(title);
 
   if (command.subtitle) {
-    const subtitle = scoreText(command.subtitle, term);
+    const subtitle = scoreText(command.subtitle, term, false);
     if (subtitle !== null) scores.push(subtitle * 0.5);
   }
 
   for (const keyword of command.keywords ?? []) {
-    const score = scoreText(keyword, term);
+    const score = scoreText(keyword, term, false);
     if (score !== null) scores.push(score * 0.7);
   }
 
