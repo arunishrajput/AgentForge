@@ -1,9 +1,10 @@
 # CLAUDE.md — How to work on AgentForge
 
-Read this first, then `PROGRESS.md`, then `BUILD_PLAN.md`. **Before implementing anything, read
-all three.** Then read only the further docs the phase actually needs: `CONTRACT.md` before
+Read this first, then `PROGRESS.md`, then `BUILD_PLAN.md` → *Chapter 2*. **Before implementing
+anything, read all three.** The current work is **Chapter 2, phases 13–25** — the hackathon is
+over. Then read only the further docs the phase actually needs: `CONTRACT.md` before
 touching a shared schema or protocol, `DEPLOYMENT.md` before any cloud work, `ARCHITECTURE.md`
-before adding a component or a dependency, `DEMO.md` before cutting scope.
+before adding a component or a dependency, `DESIGN.md` before touching the interface.
 
 This project is built one phase per session with `/clear` between every session. **Chat memory is
 disposable. This repository is the only persistent memory.** Everything a cold session needs to
@@ -35,29 +36,39 @@ nodes, connections, editable configuration — not a mockup. It runs, streams pe
 logs live, and its agent nodes use tool-calling to decide what to do at runtime instead of
 following a fixed script.
 
-**Context:** Hackathon build (Zero Origin, Devpost). **Submitted 2026-09-26:** https://devpost.com/software/agentforge-kz832x
+**Context: the hackathon is over and Chapter 2 has begun.** AgentForge was built in 13 phases
+(0–12) for the Zero Origin hackathon and submitted on 2026-09-26
+(<https://devpost.com/software/agentforge-kz832x>). That chapter is closed and is not reopened.
 
-**The rubric is RESOLVED, and it is not what Phases 0–12 assumed.** Zero Origin has one track, no
-sub-categories. Top prize is **"Impact Champion"**. Judging, verbatim from the hackathon page:
+**The work now is turning a shipped MVP into a real, professional, open-source product.** The
+roadmap is `BUILD_PLAN.md` → *Chapter 2*, phases 13–25. The goal, chosen deliberately, is an
+**open-source showpiece**: a repository that a stranger lands on and immediately takes seriously.
 
-> Round 1 — Ideate & Validate: "Evaluate how clearly the team identifies and **validates the
-> real-world problem**, understands the **affected users**, presents an **innovative and feasible
-> solution**, and demonstrates its **potential real-world impact** — **through the PPT and pitch
-> video**."
+**Four decisions are settled and binding.** Do not re-litigate them without flagging it:
 
-**Round 1 does not score the running software. It scores the deck and the pitch video.** The
-deployed product is evidence of feasibility, not the thing being marked. Weight problem
-validation, named affected users, and real-world impact accordingly.
+| Decision | Value |
+|---|---|
+| **Budget** | **Still strictly zero.** Free tiers only. A phase needing paid infrastructure stops and escalates |
+| **Visual direction** | **Toybox — bright, playful, light-first.** Saturated colour, thick dark outlines, chunky offset shadows, springy motion. Not a dark IDE |
+| **Restored scope** | Teams/roles/sharing, workflow versioning and diffing, observability and metrics, and a credential vault with rotation are all **back in scope** |
+| **Purpose** | Open-source showpiece. Prioritise what a stranger reading the repo notices |
 
 ---
 
-## MVP objective
+## Product objective
 
-**A working, publicly deployed, reliably demonstrable product.** That is the primary success
-metric — not scale, not architectural elegance, not feature count.
+**A genuinely good, genuinely professional product that happens to be free to run.**
 
-The goal is the strongest realistic MVP that can actually be deployed and demonstrated without
-failure inside the hackathon timebox.
+Chapter 1's metric was "a working, publicly deployed, reliably demonstrable product", and it was
+met. Chapter 2's metric is different:
+
+- The product works for a **real user who was never given a script**, not just along a demo path
+- The repository is **legible to a stranger** — documented, tested, CI-checked, licensed
+- The interface is **distinctive and delightful**, not a template
+- It stays **free to operate**
+
+There is no deadline. **Quality is the binding constraint now, not time.** A phase that is half
+done is not done, and there is no longer any reason to cut corners to reach one.
 
 ---
 
@@ -65,14 +76,14 @@ failure inside the hackathon timebox.
 
 | Constraint | Value |
 |---|---|
-| Time | A fixed hackathon timebox — treat it as the binding constraint |
+| Time | **No deadline.** Quality binds, not time. Do not rush a phase |
 | Developer | Operating Claude Code directly. No review process, no parallel agents |
 | Host | Google Cloud Run (single container) — **binding**, see `ARCHITECTURE.md` |
 | Database | Neon Postgres, free tier, pooled connection string |
-| Queue | **None.** Executor runs in-process. Cron via Cloud Scheduler |
-| LLM | Google Gemini at MVP, behind a provider-agnostic adapter |
-| Cost | Must stay free. Cloud Run Always Free + $300/90-day credit + Neon free + Gemini free tier |
-| Deployment | Live and reachable from end of Phase 2 onward, and must stay live |
+| Queue | In-process today. **Phase 17 replaces this with Cloud Tasks** — free tier, durable runs |
+| LLM | Google Gemini, behind a provider-agnostic adapter. A second provider lands in Phase 23 |
+| Cost | **Zero, still binding.** Cloud Run Always Free + Neon free + Gemini free tier. Escalate rather than provision anything paid |
+| Deployment | Live and reachable, and must stay live. Every phase ends with it working |
 
 ---
 
@@ -83,12 +94,16 @@ failure inside the hackathon timebox.
 | `CLAUDE.md` | This file — how to work here | Always, first |
 | `PROGRESS.md` | Current execution state. The status board | Always, second |
 | `BUILD_PLAN.md` | The phase roadmap and every phase definition | Always, third |
-| `PRD.md` | What the MVP must do, and must not | Before adding or cutting a feature |
+| `PRD.md` | What the product must do, and must not | Before adding or cutting a feature |
 | `ARCHITECTURE.md` | How it is built, and the binding Foundation Decision | Before adding a component or dependency |
 | `CONTRACT.md` | Interfaces that must stay stable across phases | Before touching a shared schema or protocol |
 | `DEPLOYMENT.md` | How to deploy and verify, resource inventory | Before any cloud work |
-| `DEMO.md` | The 3-minute demo script, used as a scope contract | Before cutting scope, and before demo day |
-| `SUBMISSION.md` | Devpost submission copy, and the blanks only the user can fill | Before submitting |
+| `DESIGN.md` | The Toybox design language. **Created in Phase 14** | Before any UI work |
+| `DEMO.md` | **ARCHIVED.** The hackathon demo script. Historical only — no longer a scope contract | Rarely |
+| `SUBMISSION.md` | **ARCHIVED.** Devpost submission copy as submitted | Rarely |
+| `SECURITY.md` | Security posture and disclosure. **Created in Phase 21** | Before touching auth or crypto |
+| `OPERATIONS.md` | Running it in production. **Created in Phase 22** | Before an operational change |
+| `docs/`, `adr/` | The docs site and decision records. **Created in Phase 24** | When documenting |
 | `README.md` | Practical entry point | When orienting from scratch |
 
 ### Framework docs — read them, do not recall them
@@ -114,7 +129,7 @@ When sources disagree, higher wins:
 1. **Repository implementation** — what actually exists in code
 2. **Deployed state** — what is actually running on Cloud Run and in Neon
 3. **`CONTRACT.md`** — interfaces that must not drift
-4. **`PRD.md`** — what the MVP must do
+4. **`PRD.md`** — what the product must do
 5. **`ARCHITECTURE.md`** — how it is intentionally built
 6. **`BUILD_PLAN.md`** — how the work is phased
 7. **`PROGRESS.md`** — current execution state
@@ -303,46 +318,57 @@ After the user confirms, the next session **verifies the result** rather than as
 
 ## Testing expectations
 
-Hackathon MVP. No large test suite, no coverage targets, no test infrastructure that costs more
-than the bugs it catches.
+**Chapter 1's "no large test suite" rule is retired.** It was correct for a 13-phase sprint and is
+wrong for a product people are meant to trust and contribute to.
 
-Prioritise, in order:
+From Phase 13 onward:
 
-1. **Critical-path tests** — anything whose failure breaks the demo: workflow save/load, the
-   execution engine, agent tool-calling, NL→workflow generation
-2. **Integration verification** — components actually working together
-3. **Deployment verification** — the live system actually working
-4. **Smoke tests** — fast confirmation the app starts and the core flow runs
+- **CI is mandatory and must stay green.** Typecheck, lint, test and build on every push and PR.
+  A red pipeline is a stop-work condition, not a note for later
+- **Every bug fixed gets a test that fails without the fix.** No exceptions
+- **Critical paths carry real coverage**: the execution engine, the node registry, the generator,
+  the agent loop, authorisation, and encryption
+- **Tests still run on Node's built-in runner.** It works, it is fast, and it costs no dependency.
+  Do not introduce a heavier framework without a concrete reason
+
+Still true, and learned the hard way in Chapter 1:
+
+1. **The API suites cannot see the browser.** 178 deployed checks and ten clean smoke walks all
+   passed while a webhook-triggered run was invisible on the canvas. **Drive a real browser before
+   believing a UI claim**
+2. **Deployment verification is not optional.** A green local suite says nothing about production
+3. **A generated graph can be valid and still do the wrong thing.** Validation proves a workflow
+   *can* run, never that it does what was asked
 
 ---
 
 ## Scope control
 
-Scope is the single largest risk on this project. Two phrases are reinterpreted permanently:
+**The hackathon scope rules are retired.** `DEMO.md` is no longer the scope contract, "unbreakable"
+no longer means *only the demo path*, and the MVP-Critical / Post-Hackathon classification in
+`PRD.md` has been rewritten for Chapter 2.
 
-- **"unbreakable"** → *the demo path never fails.* Not comprehensive error handling everywhere
-- **"feature rich"** → *real depth on a few capabilities.* Not n8n's integration count
-
-Classify every feature as MVP-Critical / MVP-Supporting / Post-Hackathon / Out of Scope before
-implementing it. The lists are in `PRD.md` and they are binding.
+**`BUILD_PLAN.md` Chapter 2 is the scope contract now.** A feature that is not in a phase is not
+in scope; if it should be, add it to a phase deliberately and say so.
 
 Priority ordering, applied to every decision:
 
 ```
-Working deployed software
-  > reliable demo path
-  > architectural cleanliness
+Correct, working software
+  > a product a stranger can actually use
+  > clear architecture and documentation
+  > visual craft and delight
   > feature count
-  > documentation polish
 ```
 
-**The demo defines the scope.** Anything not on `DEMO.md`'s path is MVP-Supporting or lower by
-default.
+Note what moved. Documentation went from last to third, because the purpose is an open-source
+showpiece. Feature count is still last.
 
-Do not add complexity because it is best practice for a long-lived product. Prefer existing
-dependencies, simple architecture, fewer moving parts, managed services, minimal infrastructure,
-fast feedback loops. Avoid microservices, speculative abstractions, premature optimisation, heavy
-test frameworks, extra infrastructure, enterprise process.
+**Still avoid:** speculative abstraction, premature optimisation, infrastructure for imagined scale,
+microservices, and enterprise process. **Now welcome**, where a phase calls for it: real tests, real
+error handling, real observability, a real authorisation layer, and the time to build them properly.
+
+**Build for the stranger reading this repository**, not for a judge watching a three-minute demo.
 
 ---
 
@@ -385,7 +411,8 @@ necessary.
 - Never mark a phase complete when it is not
 - Never report a deployment successful without verifying behaviour
 - Never start a later phase while a required earlier phase is incomplete
-- Never start a stretch phase (13+) before Phase 12 is complete and the deployment is verified
+- Never reopen a Chapter 1 phase (0–12). A defect left behind is an item inside a Chapter 2 phase
+- Never provision paid infrastructure. The zero-cost ceiling binds — escalate instead
 - Never commit secrets
 - Never re-litigate the Foundation Decision or the hosting platform without flagging it to the
   user as a material change
@@ -418,13 +445,14 @@ Do not invent details. Use these markers, in the docs and in conversation:
 - `NOT YET DECIDED` — a decision deliberately deferred to a later phase
 - `SUPERSEDED` — previously considered, now replaced (keep the reason)
 
-Known unknowns carried forward: ~~the hackathon category and rubric~~ (**RESOLVED 2026-09-26** —
-see *Context* above); whether the deterministic
+Known unknowns carried forward, all for Phase 13 to resolve with measured numbers: **how much
+Neon CU-hour headroom actually remains**; **the real Cloud Tasks, Cloud Logging and Secret Manager
+free-tier limits**; and whether the deterministic
 Cloud Run URL form allows pre-registering the OAuth redirect URI; the Foundation Decision until
 Phase 0 resolves it.
 
-When plan and reality diverge: identify the discrepancy, explain the practical impact on the demo
-and the timeline, choose the simplest solution that preserves the MVP goal, update the affected
+When plan and reality diverge: identify the discrepancy, explain the practical impact on the
+product and the roadmap, choose the simplest solution that preserves the product goal, update the affected
 docs and `PROGRESS.md`, and continue if the change is safe. **Stop for the user's input only when
 the change materially affects product scope, security, cost, or core architecture** — including
 any change to the Foundation Decision or the hosting platform.

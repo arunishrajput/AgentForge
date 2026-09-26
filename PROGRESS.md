@@ -7,64 +7,57 @@ concise and operational — prune stale detail rather than appending forever. Th
 
 ## Project Status
 
-**Phase 12 is complete. The project is submittable.** The demo is rehearsed against the deployed
-URL *in a browser*, the deployment is verified, **rollback is tested for the first time**, every doc
-is reconciled against reality, and the repository has no secret in any tracked file or anywhere in
-its history.
+**CHAPTER 1 IS CLOSED. CHAPTER 2 IS THE WORK NOW.**
 
+Phases 0–12 built and shipped a hackathon MVP. It was submitted on 2026-09-26
+(<https://devpost.com/software/agentforge-kz832x>), the pitch video is published
+(<https://www.youtube.com/watch?v=Suc4RV9LnLs>), and that chapter is done and not reopened.
+
+**Chapter 2 turns the MVP into a real, professional, open-source product.** Thirteen phases,
+13 → 25, defined in `BUILD_PLAN.md`. **Nothing in Chapter 2 has been started.**
+
+**The live system still works and must keep working:**
 **https://agentforge-733000675212.asia-southeast1.run.app** — revision `agentforge-00021-v4s`.
 
-**Phase 12 was supposed to be paperwork. It was not.** `BUILD_PLAN.md` says it "is not a feature
-phase", and no feature was added — but rehearsing `DEMO.md` in a real browser, rather than trusting
-a script that had only ever been walked by a test harness, **found three beats that could not have
-worked as written**, one of them a genuine product bug that both suites passed straight over:
+### Four binding decisions, made 2026-09-26
 
-1. **A webhook-triggered run was invisible on the canvas.** The page opened a stream only if it
-   happened to *load* mid-run, or when Run was pressed. Beat 5 fires from a terminal while the
-   browser sits idle, so the graph never moved. Measured: no status change across 9 s while a run
-   completed behind it. **Fixed** — the canvas watches from the moment it opens and re-attaches when
-   the server closes a quiet connection, while the tab is visible.
-2. **42% of generated workflows carried an agent budget that guaranteed their own failure.**
-   `maxIterations: 1` — schema-valid, graph-valid, and fatal the moment the agent reaches for a
-   tool. **Measured 5 in 12; now 0 in 12** (D57).
-3. **Beat 5 could not have fired the right workflow.** The webhook token is minted per workflow at
-   creation (D41) and the demonstrated workflow is generated live, so the pre-exported `$WEBHOOK_URL`
-   the script told the presenter to use did not exist yet (D58).
+| Decision | Value |
+|---|---|
+| **Budget** | **Still strictly zero.** Free tiers only. Escalate, never provision paid |
+| **Visual direction** | **Toybox — bright, playful, light-first.** Saturated colour, thick dark outlines, chunky offset shadows, springy motion. The opposite of a dark IDE |
+| **Restored scope** | Teams/roles/sharing, versioning and diffing, observability, credential vault with rotation — **all back in** |
+| **Purpose** | **Open-source showpiece.** Optimise for the stranger who lands on the repo |
 
-**Three new scripts, and they are the artefacts of this phase** — `scripts/seed-demo.mjs` (puts the
-demo account into the state `DEMO.md` assumes and *proves* it), `scripts/demo-fire.mjs` (Beat 5), and
-`scripts/demo-payload.mjs` (the demo constants, in one place, plus the payload fitting).
+### The tension to hold, stated plainly
 
-**No regression: 178 checks, 176 passed, 0 failed, 2 skipped** on `agentforge-00021-v4s` — identical
-to Phase 11's tally. `npm test` is **297 tests**, 4 of them new and all on the agent-budget guard.
-**`smoke.mjs --loop 10`: 10 consecutive clean walks, 0 failures, 123 s**, at the original 3 s gap.
+Zero budget plus teams plus observability plus a vault **pull against each other**. Neon's free tier
+is 100 CU-hours/month with autosuspend that cannot be disabled, and Chapter 1 already had to set the
+cron tick to `*/15` to stay inside it. Multi-user queries and analytics both spend from that same
+budget. **Phase 13 must measure the real headroom before Phases 19 and 22 design against it.**
+`BUILD_PLAN.md` → *The zero-cost problem* holds the per-area resolution.
 
-**The pitch video is published** — https://www.youtube.com/watch?v=Suc4RV9LnLs (4:00, narrated deck over real
-screenshots of the deployed app, including a run in flight). **The Fallback B recording is still
-outstanding** and is a different artefact: nothing here can record a screen, and a narrated deck
-cannot stand in for a live product when the network dies on stage. It remains a
-`MANUAL ACTION REQUIRED` block in `DEMO.md`, with the exact script to perform.
+---
 
 ## Current Phase
 
-**Phase 12 — COMPLETE.** Phases 0–12 are all done and verified.
+## ▶ NEXT: PHASE 13 — Reset, verification, and professional foundations
 
-**SUBMITTED 2026-09-26.** https://devpost.com/software/agentforge-kz832x — verified on the public page:
-story with all seven Devpost headings, the pitch video embedded in the gallery
-(`youtube.com/embed/Suc4RV9LnLs`), the repo link, and the live-app link (which 307s to the landing
-page and serves **Continue with Google**, so a judge lands correctly).
+**Nothing in Chapter 2 is started. Begin here.** Full definition in `BUILD_PLAN.md` → *Phase 13*.
 
-**The rubric is RESOLVED, and Phases 0–12 assumed the wrong one.** Zero Origin has one track, no
-sub-categories; top prize is **"Impact Champion"**. **Round 1 — Ideate & Validate** marks problem
-validation, affected users, an innovative and feasible solution, and potential real-world impact —
-**through the PPT and pitch video, not the running software**. Full wording in `CLAUDE.md` →
-*Context*. **The deck is the graded artefact now, not the deployment.**
+Phase 13 exists because three things must be true before anything else is built:
 
-**Open against that rubric** (see *Known Issues*): the deck asserts the problem rather than
-validating it, never names the affected users, and slide 8 spends its impact section on engineering
-proof. **The Fallback B screen recording is still outstanding** — a demo-day risk, not a submission
-blocker. Stretch phases 13–14 are unblocked but **`DEMO.md` is the scope contract and nothing on it
-needs them.**
+1. **Fix the agent fallback latency.** Two consecutive runs took ~95 s, of which `decide_urgency`
+   was **91.9 s**, because `gemini-3.5-flash-lite` was unavailable and the adapter retried twice
+   before falling down the chain. See *Known Issues*. Needs a per-model budget and a circuit breaker
+2. **Measure the free-tier headroom for real** — Neon CU-hours, Cloud Tasks, Cloud Logging, Secret
+   Manager. Every one of those is currently `UNKNOWN — VERIFY`, and Phases 17, 19 and 22 are
+   designed on top of them. **Do not design on a remembered number**
+3. **Put a test and CI floor down.** There is no CI at all today. A full UI rewrite starts in
+   Phase 14 and must not begin without it
+
+**Do not start Phase 14 in the same session.** One phase per session still holds; `/clear` between.
+
+---
 
 ## Completed Phases
 
@@ -83,6 +76,25 @@ needs them.**
 | **Phase 10** — design system, motion, responsiveness, accessibility | **COMPLETE** — verified on the deployed URL in a browser at 1440 px and 375 px, 2026-09-26 |
 | **Phase 11** — hardening: demo-path reliability, critical-path tests, error surfaces | **COMPLETE** — **10 consecutive clean walks** of the full demo path on the deployed URL, 2026-09-26 |
 | **Phase 12** — demo readiness and final ship | **COMPLETE** — rehearsed in a browser, three broken beats found and fixed, rollback tested, docs reconciled, secret scan clean, 2026-09-26 |
+
+### Chapter 2 — phases 13–25
+
+| Phase | Status |
+|---|---|
+| **13** — reset, verification, professional foundations | **NOT STARTED ← next** |
+| **14** — Toybox design system | NOT STARTED |
+| **15** — UI rebuild I: the shell | NOT STARTED |
+| **16** — UI rebuild II: the canvas | NOT STARTED |
+| **17** — durable execution | NOT STARTED |
+| **18** — workflow versioning and diffing | NOT STARTED |
+| **19** — workspaces and membership | NOT STARTED |
+| **20** — roles, permissions and sharing | NOT STARTED |
+| **21** — credential vault and rotation | NOT STARTED |
+| **22** — observability and run analytics | NOT STARTED |
+| **23** — node catalogue and templates | NOT STARTED |
+| **24** — documentation and open-source readiness | NOT STARTED |
+| **25** — launch polish | NOT STARTED |
+
 
 ---
 
@@ -279,7 +291,7 @@ Carried forward from every phase. These are the decisions later sessions must no
 | **The `agentforge-hackathon-2026` Gemini key is dead** | Was a Phase 6 blocker | Every model answers **402 "prepayment credits are depleted"**: the project has billing enabled, which moves it off the Gemini free tier. `GOOGLE_GENERATIVE_AI_API_KEY` in local `.env` is this dead key. **Use the `agentforge-gemini-free` key instead** (no billing → free tier). Do not enable billing on that project |
 | **`models.list` lists models a key cannot call** | Phases 6, 7 | `gemini-2.5-flash` is in the catalogue and answers 404 "no longer available to new users". Never treat the list as the callable set — make a real call (D34) |
 | **`gemini-2.0-flash` and `gemini-2.5-flash*` are retired** | Phases 6, 7 | List models, never assume a name. Current default: `gemini-3.5-flash-lite` |
-| **The pitch deck is not cut for the rubric it will actually be judged against** | Round 1, which is the round that is happening | Criteria name, in order: *identifies and **validates** the real-world problem*, *understands the **affected users***, *innovative and **feasible** solution*, *potential **real-world impact***. The deck is strongest on solution and implementation — the two things Round 1 weights least. It **asserts** the problem with no evidence, **never names a user segment**, and slide 8 fills its impact section with 178 checks / 297 tests, which is product-quality proof, not impact. Feasibility is the one criterion it nails, because the thing is deployed. **Re-cutting slides 2 and 8 plus their narration targets the named top prize directly**; Devpost allows edits, and the video can be re-rendered in minutes |
+| ~~The pitch deck is not cut for its rubric~~ **(CLOSED — hackathon over, not this project's work)** | Was: Round 1 judging | Criteria name, in order: *identifies and **validates** the real-world problem*, *understands the **affected users***, *innovative and **feasible** solution*, *potential **real-world impact***. The deck is strongest on solution and implementation — the two things Round 1 weights least. It **asserts** the problem with no evidence, **never names a user segment**, and slide 8 fills its impact section with 178 checks / 297 tests, which is product-quality proof, not impact. Feasibility is the one criterion it nails, because the thing is deployed. **Re-cutting slides 2 and 8 plus their narration targets the named top prize directly**; Devpost allows edits, and the video can be re-rendered in minutes |
 | **The agent node fell back and cost ~92 s — measured 2026-09-26, after Phase 12** | Demo pacing, on the headline beat | Two runs of the demo path took **94.6 s and 94.5 s**, against the **3.1–5.7 s** recorded above. The whole cost is one step: `decide_urgency` (`ai.agent`) at **91.9 s**, whose log reads `Model gemini-3.5-flash-lite was unavailable; answered by gemini-3.1-flash-lite`. The adapter behaved as designed — two retries with backoff per model, then down `FALLBACK_MODELS` — but the retry ladder is the latency. **`ai.llm` answered on the same model in 1.4 s in the same run**, so the model is not down generally; it is the tool-calling path that fails over. **Before demoing live, point the stored provider model at one that is actually answering and re-measure**, or Beats 6–8 will not fit inside 3:00 |
 | **Free-tier rate limits are tight** | Phases 6, 7, demo | Back-to-back probes hit 429/503. The adapter retries twice per model then falls down the chain; do not run the verify script in a tight loop. **Hit again in Phase 7:** a generated run's agent step failed once mid-suite and passed on a re-run 20 s later. The verify check now prints the failing step's error so the next occurrence diagnoses itself |
 | ~~No favicon — `/favicon.ico` 404s~~ | Was cosmetic, visible in the browser tab | **Handled in Phase 10.** `src/app/icon.svg` is Next's app-icon convention; the framework emits the `<link rel="icon">` and serves it at `/icon.svg`, verified 200 on the deployed URL. `/favicon.ico` still 404s and that is fine — nothing requests it once the link tag is present |
@@ -474,13 +486,11 @@ decorators anywhere in `src`.
 
 ## Notes for whoever comes next
 
-**Phases 0–12 are complete. There is no next phase that has to happen.** 13 and 14 are stretch, and
-`DEMO.md` — the scope contract — needs nothing from either. **The project is submitted and every
-blank in `SUBMISSION.md` is filled.** The highest-value work left is not code: **re-cut the deck for
-the rubric it is actually judged against** (problem validation, affected users, real-world impact —
-see *Known Issues*), and record the **Fallback B** screen video.
+**Start Phase 13.** It is defined in `BUILD_PLAN.md` and summarised under *Current Phase* above.
+Chapter 1 is closed; the hackathon items that used to live here (the Fallback B recording, the deck
+re-cut) are **no longer part of this project's work** and have been dropped.
 
-**If you do touch the code:**
+**Carry these forward — they are Chapter 1 lessons that still bite:**
 
 - **Run `scripts/smoke.mjs` first, every session.** Ten seconds, names the beat that broke.
   `verify-api.mjs` is the regression suite for a code change (D56). `seed-demo.mjs --check` says
@@ -513,8 +523,13 @@ h/month. Both are in `DEPLOYMENT.md` → *After judging ends*.
 
 ## Open, but blocking nothing
 
-**Project licence.** Every adopted dependency is permissive. MIT is the obvious default. **Left to
-the user deliberately** — it governs whether others may commercialise the work.
+**Project licence.** Every adopted dependency is permissive. MIT is the obvious default. Still the
+user's call — it governs whether others may commercialise the work. **Now scheduled: Phase 24
+applies it.** An open-source showpiece without a licence is not open source, so this stops being
+optional at that point.
+
+**The old demo artefacts.** `DEMO.md` and `SUBMISSION.md` are archived, not deleted — `DEMO.md`
+still documents a path known to work end to end, which is a useful smoke reference.
 
 ---
 
@@ -721,4 +736,4 @@ canvas (D59). Also fixed: generated agents starved at `maxIterations: 1` in 42% 
 (https://www.youtube.com/watch?v=Suc4RV9LnLs) and embedded on the Devpost page. What is open is no
 longer submission plumbing but **fit to the Round 1 rubric** (see *Known Issues*), plus the
 **Fallback B recording** (`DEMO.md` → *What Phase 12 could not rehearse*) — a demo-day risk.
-Stretch phases 13–14 are unblocked but `DEMO.md` needs nothing from them.
+Chapter 2 (phases 13–25) is now the work — see *Project Status* at the top of this file.

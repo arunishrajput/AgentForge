@@ -9,7 +9,8 @@ work on unless the repository genuinely cannot determine it.
 2. Run `git status` and `git log --oneline -5`. Check for uncommitted or unpushed work. If a previous
    session ended mid-phase, follow `CLAUDE.md` → *Recovering from an incomplete session* before
    starting anything new.
-3. Read `CLAUDE.md`, `PROGRESS.md`, `BUILD_PLAN.md`.
+3. Read `CLAUDE.md`, `PROGRESS.md`, `BUILD_PLAN.md`. **The current work is Chapter 2, phases
+   13–25.** Phases 0–12 are closed history and are never reopened.
 4. Read only the further docs the next phase actually needs.
 5. **Verify the actual state — do not trust the docs.** As applicable:
    - `gcloud run services describe agentforge --region "$GCP_REGION" --format='value(status.url,status.latestReadyRevisionName)'`

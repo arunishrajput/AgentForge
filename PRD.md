@@ -1,4 +1,4 @@
-# PRD.md — AgentForge MVP
+# PRD.md — AgentForge
 
 What the MVP must do, and what it deliberately will not. This is the scope authority. When a
 feature is not on the MVP-Critical list, it is not in the MVP.
@@ -45,12 +45,13 @@ requiring on-premise or compliance guarantees.
 
 ---
 
-## MVP objective
+## Product objective
 
-**A working, publicly deployed, reliably demonstrable product.**
+**Chapter 1 (phases 0–12, shipped):** a working, publicly deployed, reliably demonstrable MVP.
+Met, and closed.
 
-Not a production-scale platform. The strongest realistic MVP that can be deployed and
-demonstrated without failure inside the hackathon timebox.
+**Chapter 2 (phases 13–25, current):** a real product and a serious open-source repository — one a
+stranger can run, understand, trust and contribute to, that still costs nothing to operate.
 
 ---
 
@@ -93,40 +94,47 @@ Required for the core demo or for deployment. If one of these is missing, the MV
 
 ---
 
-## MVP-Supporting features
+## Chapter 2 scope — restored and planned
 
-Build only if genuinely ahead of schedule. Never at the expense of a Critical item.
+**Everything below was deferred or cut under hackathon constraints. It is now in scope**, each
+mapped to the phase that delivers it. `BUILD_PLAN.md` is the contract; this is the index.
 
-| # | Feature | Notes |
-|---|---|---|
-| S1 | A second LLM provider (OpenAI / Anthropic / OpenRouter) | The adapter already supports it; only a key and a config entry are missing. See *Deviations* |
-| S2 | Voice input, single language | Phase 13 |
-| S3 | i18n scaffolding + 2 languages | Phase 13 |
-| S4 | Workflow template gallery | Phase 14 |
-| S5 | Integrations beyond the first four | Phase 14 |
-| S6 | Retry and timeout configuration surfaced in the UI | Engine may support it before the UI does |
+| # | Capability | Phase | Was |
+|---|---|---|---|
+| C1 | Playful light-first design system (Toybox) | 14 | Not conceived — Chapter 1 shipped dark |
+| C2 | Full UI rebuild, shell and canvas | 15–16 | MVP styling only |
+| C3 | Durable execution, resumable runs, a real queue | 17 | Carried risk: "in-flight runs die on redeploy" |
+| C4 | Retry and timeout configuration in the UI | 17 | S6, never built |
+| C5 | Workflow versioning, restore, visual diff | 18 | Post-Hackathon |
+| C6 | Workspaces, membership, invitations | 19 | Post-Hackathon |
+| C7 | Roles, permissions, sharing | 20 | Post-Hackathon |
+| C8 | Credential vault, rotation, audit log | 21 | Post-Hackathon. Rotation was the sharpest known gap |
+| C9 | Observability, metrics, run analytics | 22 | Post-Hackathon |
+| C10 | Node catalogue well beyond 15 nodes | 23 | S5, capped for time |
+| C11 | Template gallery | 23 | S4, never built |
+| C12 | A second LLM provider | 23 | S1, blocked on a key |
+| C13 | Real test suite, coverage, CI | 13 | Explicitly excluded |
+| C14 | Docs site, ADRs, contributing guide, licence | 24 | Did not exist |
+| C15 | Onboarding, full a11y audit, broad error handling | 25 | Explicitly excluded |
+
+**Deferred again, deliberately.** Not because they are bad, but because they need the above first:
+voice input and i18n (old S2/S3 — low value until the UI settles); a plugin marketplace with
+external publishing; real-time multiplayer editing; mobile apps.
 
 ---
 
-## Post-Hackathon
-
-Explicitly deferred. Do not build now.
-
-Multilingual voice output / TTS. Third-party plugin marketplace with external publishing. Teams,
-roles, permissions, sharing. Workflow versioning, branching, diffing. Credential vault with
-managed KMS. Self-hosted installer. Mobile apps. Observability and metrics stack.
-
----
-
-## Out of Scope
+## Out of scope
 
 Will not be built, in any form.
 
-- Arbitrary untrusted code execution — not sandboxed, not "just for the demo"
+- **Arbitrary untrusted code execution** — not sandboxed, not "just for a demo", not ever. This is
+  the one line the registry architecture exists to hold
 - Parity with n8n's integration catalogue
 - Billing, subscriptions, usage metering
 - Enterprise SSO beyond Google
 - Any guarantee framed as uptime, SLA, or "unbreakable"
+- **Anything that costs money to run.** The zero-cost ceiling is a product constraint, not a
+  temporary one
 
 ---
 
@@ -170,23 +178,19 @@ triggers fire on a cron expression.
 |---|---|
 | Deployment | Publicly reachable HTTPS URL, working from any machine, live from Phase 2 onward |
 | Responsiveness | Usable from ~375 px to desktop. The canvas may degrade on very small screens but must not break |
-| Accessibility | Keyboard-operable primary flows, visible focus, labelled controls, sufficient contrast. Not a full WCAG audit |
+| Accessibility | WCAG AA, audited in Phase 25. Keyboard-operable throughout, visible focus, labelled controls, contrast verified on every token pair — which the Toybox palette makes non-trivial |
 | Performance | Page interactive in < 3 s on the deployed URL. Node status updates visible in < 1 s of the transition. A trivial workflow completes in < 5 s excluding model latency |
-| Reliability | The demo path in `DEMO.md` does not fail. Broad error handling elsewhere is explicitly not a goal |
-| Cost | Zero. Cloud Run Always Free + $300/90-day credit, Neon free tier, Gemini free tier |
+| Reliability | Runs survive deploys and crashes (Phase 17). Every user-reachable failure has a clear message and a way forward (Phase 25). **The Chapter 1 carve-out for "demo path only" is withdrawn** |
+| Cost | **Zero, and binding.** Free tiers only. Escalate rather than provision anything paid |
 | Security | See `CLAUDE.md` → Security rules. Credentials encrypted at rest; agent tools restricted to the registry; no arbitrary code execution |
 
 ---
 
-## Demo requirements
+## Demo requirements — RETIRED
 
-The demo is a scope contract. `DEMO.md` holds the script; the requirements on it:
-
-- Runs **end to end on the deployed URL**, not locally
-- Fits in 3 minutes
-- Does not depend on anything fragile being typed live
-- Exercises every MVP-Critical feature
-- Has a documented fallback for each external service it touches
+`DEMO.md` was the scope contract for Chapter 1 and is now **archived and historical**. It is not a
+constraint on Chapter 2 work. The script is kept because it documents a path known to work end to
+end, which is still useful as a smoke test — but nothing is descoped for failing to appear on it.
 
 ---
 
@@ -194,14 +198,16 @@ The demo is a scope contract. `DEMO.md` holds the script; the requirements on it
 
 Ranked. Earlier items are not tradeable for later ones.
 
-1. The deployed URL works from a machine that has never seen the project
-2. Google sign-in works in production
-3. A natural-language request produces a real workflow on the canvas
-4. That workflow runs, and per-node status and logs stream live
-5. An agent node makes a visible runtime decision
-6. A result lands in a real external service
-7. The UI is something a judge would call well-made
-8. The repository is complete enough that a stranger can run it
+1. **A stranger can run it.** Clone, follow the README, and have it working locally
+2. **A new user succeeds unguided** — sign-up to first successful run with no script
+3. **Runs are durable.** A deploy mid-run does not lose the run
+4. **The agent is reliable**, and when a model degrades it fails fast and visibly rather than
+   silently costing 90 seconds
+5. **Multi-user works correctly** — a workspace member sees exactly what they should, enforced
+   server-side
+6. **The interface is memorable.** Someone who sees a screenshot remembers it
+7. **The repository reads as professional** — tests, CI, docs, ADRs, licence
+8. **It still costs nothing to run**
 
 ---
 

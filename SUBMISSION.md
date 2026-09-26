@@ -1,5 +1,9 @@
 # SUBMISSION.md — AgentForge, Zero Origin (Devpost)
 
+> **ARCHIVED — historical.** The Devpost submission, as submitted on 2026-09-26:
+> <https://devpost.com/software/agentforge-kz832x>. Kept as a record. Current work is
+> `BUILD_PLAN.md` → *Chapter 2*.
+
 Everything the submission form asks for, written once so it is not re-improvised at the deadline.
 **SUBMITTED 2026-09-26:** <https://devpost.com/software/agentforge-kz832x> — story, video, repo and
 live link all verified present on the public page.

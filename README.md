@@ -7,8 +7,6 @@ by AI agents rather than hand-wired by you*. Type a request in plain language an
 a real, executable, visually editable workflow whose agent nodes reason, call tools, and decide what
 to do at runtime.
 
-Built for the Zero Origin hackathon (Devpost).
-
 **Live:** <https://agentforge-733000675212.asia-southeast1.run.app>
 
 **Pitch video (4:00):** <https://www.youtube.com/watch?v=Suc4RV9LnLs>
@@ -21,29 +19,22 @@ Built for the Zero Origin hackathon (Devpost).
 
 ## Status
 
-**Phase 12 complete — the project is submittable.** The demo is rehearsed against the deployed URL,
-the deployment is verified, rollback is tested, and the repository stands on its own.
+**Chapter 1 shipped. Chapter 2 is in progress.**
 
-The whole product is live: Google sign-in, a sentence turned into a real workflow on a canvas,
-registry-driven config forms, a webhook or a schedule to start it, an execution engine whose agent
+The product is live and working today: Google sign-in, a sentence turned into a real workflow on a
+canvas, registry-driven config forms, webhook and schedule triggers, an execution engine whose agent
 nodes call other nodes as tools and choose a branch at runtime, per-node status and logs streamed
 over SSE while it runs, and four integrations that reach real services — HTTP, Discord, Google
-Sheets and Gmail.
+Sheets and Gmail. Originally built across 13 phases for the Zero Origin hackathon and
+[submitted](https://devpost.com/software/agentforge-kz832x) on 2026-09-26.
 
-**Phase 12 was supposed to be paperwork and it was not.** Rehearsing [`DEMO.md`](./DEMO.md) in a
-browser, rather than trusting a script that had only ever been walked by a test harness, found three
-beats that could not have worked as written — and one of them was a product bug that the 178-check
-suite and the ten-walk smoke test both passed straight over:
+**It is now being built out into a real, professional, open-source product** — phases 13–25 in
+[`BUILD_PLAN.md`](./BUILD_PLAN.md): a full playful redesign, durable execution, workflow versioning,
+multi-user workspaces, a credential vault, observability, a much larger node catalogue, and proper
+documentation. It stays free to run.
 
-- **A webhook-triggered run was invisible on the canvas.** The page only opened a stream if it
-  happened to *load* mid-run. Beat 5 fires from a terminal while the browser sits idle, so the graph
-  never moved. The smoke script opens its own stream over HTTP and fires 400 ms later — it proves the
-  server streams, not that the canvas is still listening 25 seconds after it loaded.
-- **42% of generated workflows carried an agent budget that guaranteed their own failure.**
-  `maxIterations: 1`, which is schema-valid and graph-valid, and stops the agent the moment it
-  reaches for a tool. Measured 5 in 12; now 0 in 12.
-- **Beat 5 could not have fired the right workflow**, because the webhook token is minted per
-  workflow at creation and the one being demonstrated is generated live, seconds earlier.
+> This README is deliberately still a working document. **Phase 24 rewrites it** as a real front
+> page, once there is a finished product to describe.
 
 Current state is always in [`PROGRESS.md`](./PROGRESS.md).
 
@@ -87,7 +78,7 @@ Full scope, including what is deliberately excluded, is in [`PRD.md`](./PRD.md).
 | [`ARCHITECTURE.md`](./ARCHITECTURE.md) | How it is built, and why |
 | [`CONTRACT.md`](./CONTRACT.md) | Interfaces that must stay stable |
 | [`DEPLOYMENT.md`](./DEPLOYMENT.md) | How to deploy and verify |
-| [`DEMO.md`](./DEMO.md) | The 3-minute demo, used as a scope contract |
+| [`DEMO.md`](./DEMO.md) | **Archived.** The hackathon demo script, kept as a smoke reference |
 | [`SUBMISSION.md`](./SUBMISSION.md) | Everything the Devpost form asks for, written once |
 
 ---

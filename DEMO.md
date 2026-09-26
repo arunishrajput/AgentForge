@@ -1,6 +1,11 @@
-# DEMO.md — the 3-minute demo, used as a scope contract
+# DEMO.md — the 3-minute hackathon demo (ARCHIVED)
 
-**This file is a scope contract, not a script to be written at the end.** Anything not on this path
+> **ARCHIVED — historical.** This was the Chapter 1 hackathon demo script and its scope
+> contract. **It is no longer a constraint on any work.** Kept because it documents a path proven to
+> work end to end, which is still a useful smoke reference. Current scope lives in `BUILD_PLAN.md`
+> → *Chapter 2*.
+
+**This file WAS a scope contract for Chapter 1.** It no longer is. Historically: anything not on this path
 is MVP-Supporting or lower by default. When time runs short, the question is always: *does cutting
 this break a beat below?*
 
