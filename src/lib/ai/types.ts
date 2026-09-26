@@ -61,6 +61,15 @@ export interface GenerateRequest {
   maxOutputTokens?: number;
   /** Ask for a JSON body back. Not combinable with `tools` on Gemini. */
   json?: boolean;
+  /**
+   * Budget for **one attempt**, overriding the adapter's default. Raise it for a
+   * genuinely large prompt; the default is tuned for an agent step and is what keeps a
+   * wedged model from costing a run 90 s (Phase 13).
+   *
+   * It is not a cap on the whole call: the adapter keeps room for a fallback after a
+   * full-length attempt. Use `signal` for a hard ceiling on total elapsed time.
+   */
+  timeoutMs?: number;
   signal?: AbortSignal;
 }
 
@@ -131,4 +140,43 @@ export class ProviderError extends Error {
 /** 429 and 5xx are worth another attempt; 400/401/403/404 never are. */
 export function isRetryableStatus(status: number): boolean {
   return status === 429 || status === 408 || status >= 500;
+}
+
+/**
+ * Why a model probe failed, in the only two categories a user can act on.
+ *
+ * Choosing a model runs one real call before the choice is stored, and what the user is
+ * told when that call fails has to distinguish:
+ *
+ *   • `rejected`  — this key cannot run that model. Change the setting.
+ *   • `temporary` — the provider was busy. Change nothing, try again.
+ *
+ * Phase 13 found the old code reporting the second as the first. Measured against the
+ * live API on 2026-09-26: `gemini-3-flash-preview` allows 20 free-tier requests per
+ * minute, and exceeding it produced `This key cannot use "gemini-3-flash-preview"` —
+ * advice to change a setting that was correct.
+ *
+ * It lives here rather than in `settings.ts` because it is provider knowledge, and
+ * because `settings.ts` cannot be imported outside the bundler: it reaches the database
+ * and, through it, next-auth.
+ */
+export type ModelCheckVerdict =
+  | { kind: "temporary"; message: string }
+  | { kind: "rejected"; message: string }
+  | { kind: "unknown" };
+
+export function describeModelCheckFailure(model: string, error: unknown): ModelCheckVerdict {
+  if (!(error instanceof ProviderError)) return { kind: "unknown" };
+
+  if (error.retryable) {
+    return {
+      kind: "temporary",
+      message:
+        `"${model}" is temporarily unavailable, so it could not be checked right now — ` +
+        // The provider's own words carry the retry delay, which is the actionable part.
+        `your key was not changed. ${error.message}`,
+    };
+  }
+
+  return { kind: "rejected", message: `This key cannot use "${model}": ${error.message}` };
 }

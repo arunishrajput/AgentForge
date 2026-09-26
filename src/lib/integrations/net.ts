@@ -171,7 +171,7 @@ async function attemptOnce(url: string, options: FetchOptions): Promise<Response
   try {
     return await fetch(url, {
       method: options.method ?? "GET",
-      headers: { "user-agent": USER_AGENT, ...(options.headers ?? {}) },
+      headers: { "user-agent": USER_AGENT, ...options.headers },
       ...(options.body === undefined ? {} : { body: options.body }),
       redirect: options.redirect ?? "follow",
       signal,

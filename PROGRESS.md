@@ -40,22 +40,26 @@ budget. **Phase 13 must measure the real headroom before Phases 19 and 22 design
 
 ## Current Phase
 
-## ▶ NEXT: PHASE 13 — Reset, verification, and professional foundations
+## ▶ NEXT: PHASE 14 — Toybox: the design system
 
-**Nothing in Chapter 2 is started. Begin here.** Full definition in `BUILD_PLAN.md` → *Phase 13*.
+**Phase 13 is COMPLETE (2026-09-26).** Full definition of Phase 14 in `BUILD_PLAN.md`.
+Read `DESIGN.md`'s brief there before starting — Phase 14 is the phase that creates that file.
 
-Phase 13 exists because three things must be true before anything else is built:
+**What Phase 13 leaves you, and what it means for Phase 14:**
 
-1. **Fix the agent fallback latency.** Two consecutive runs took ~95 s, of which `decide_urgency`
-   was **91.9 s**, because `gemini-3.5-flash-lite` was unavailable and the adapter retried twice
-   before falling down the chain. See *Known Issues*. Needs a per-model budget and a circuit breaker
-2. **Measure the free-tier headroom for real** — Neon CU-hours, Cloud Tasks, Cloud Logging, Secret
-   Manager. Every one of those is currently `UNKNOWN — VERIFY`, and Phases 17, 19 and 22 are
-   designed on top of them. **Do not design on a remembered number**
-3. **Put a test and CI floor down.** There is no CI at all today. A full UI rewrite starts in
-   Phase 14 and must not begin without it
+- **CI exists and must stay green.** `.github/workflows/ci.yml` — lint, typecheck, test with
+  coverage thresholds, build. It ran in **53 s** on PR #1. **A red pipeline is a stop-work
+  condition.** `npm run check` is the same four gates locally
+- **Coverage thresholds fail the build**: 85% lines, 88% branches, 76% functions. Currently
+  87.19 / 90.46 / 78.10. **A UI rewrite will move these** — if Phase 14 adds many untested
+  `.tsx` files the function threshold is the one that will bite first. Lower it deliberately
+  and say so, rather than deleting the gate
+- **`oxlint` is the linter** (A15), configured in `.oxlintrc.json`. Every suppression in the
+  codebase is inline and carries a written reason. **Three of them point at Phases 15 and 16**
+  as the place to retire them — search `oxlint-disable-next-line`
+- **The agent latency issue is closed.** A 6-node run is now **4.2–7.5 s** against 94.5 s
 
-**Do not start Phase 14 in the same session.** One phase per session still holds; `/clear` between.
+**Do not start Phase 15 in the same session.** One phase per session still holds; `/clear` between.
 
 ---
 
@@ -81,8 +85,8 @@ Phase 13 exists because three things must be true before anything else is built:
 
 | Phase | Status |
 |---|---|
-| **13** — reset, verification, professional foundations | **NOT STARTED ← next** |
-| **14** — Toybox design system | NOT STARTED |
+| **13** — reset, verification, professional foundations | **COMPLETE** — verified on the deployed URL, CI green on PR #1 and on `main`, 2026-09-26 |
+| **14** — Toybox design system | **NOT STARTED ← next** |
 | **15** — UI rebuild I: the shell | NOT STARTED |
 | **16** — UI rebuild II: the canvas | NOT STARTED |
 | **17** — durable execution | NOT STARTED |
@@ -105,17 +109,17 @@ Phase 13 exists because three things must be true before anything else is built:
 | **Canonical URL** | **`https://agentforge-733000675212.asia-southeast1.run.app`** |
 | Legacy URL | `https://agentforge-i5d2u66boa-as.a.run.app` — works, do not publish it |
 | Service | `agentforge` on Cloud Run, `asia-southeast1` |
-| Revision | **`agentforge-00021-v4s`** — ready, **`latestRevision: True`**, 100% of traffic. Previous good revision: `agentforge-00020-rcr`, which is also the one **rollback was tested against** |
+| Revision | **`agentforge-00023-xf4`** — ready, **`latestRevision: True`**, 100% of traffic (Phase 13). Previous good revisions: `agentforge-00022-zw6`, `agentforge-00021-v4s`. Rollback was tested against `agentforge-00020-rcr` |
 | Scaling | `min-instances 1`, `max-instances 3`, 1 vCPU / 1 GiB, 3600 s timeout, port 8080 |
 | Env vars set | `NODE_ENV` `AUTH_URL` `APP_BASE_URL` `DATABASE_URL` `AUTH_SECRET` `GOOGLE_CLIENT_ID` `GOOGLE_CLIENT_SECRET` `ENCRYPTION_KEY` `CRON_SECRET` — **still 9. Phases 9, 10 and 11 added none** (`SMOKE_SPREADSHEET_ID` is a local test variable, never on the service): the Google integration flow reuses `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `APP_BASE_URL`, and every third-party credential is a `credential` row rather than an environment variable. No Gemini key on the service: the product path is the user's own key |
 | Database | Neon `super-mountain-39872886` — **8 tables**, migrations `0000` + `0001` + `0002_wooden_morlocks` applied. **Phases 9, 10 and 11 needed no migration**: two new credential kinds are rows in the existing `credential` table, which is what `(ownerId, kind, label)` was for |
-| Routes | `/` `/dashboard`→`/workflows` `/workflows` `/workflows/[id]` `/settings` + **17** API routes, unchanged by Phases 10 and 11. Phase 10 added three file-convention routes only: `app/icon.svg` (the favicon), `app/error.tsx` and `app/not-found.tsx` |
-| Latency | **Warm**: health ~190 ms India → Singapore, database 7–11 ms. A 6-node demo-path run **3.1–4.8 s** end to end; generation **2.7–3.5 s**. **Cold (Neon suspended, measured 2026-09-26 at 13½ min idle)**: health **1.14 s, of which 739 ms is the database wake** — then 184 ms on the very next request. Cloud Run itself is never cold at `min-instances 1` |
-| Last verified | **2026-09-26, after Phase 12** — `scripts/smoke.mjs --loop 10`: **10 consecutive clean walks**, 0 failures, 123 s. `scripts/verify-api.mjs`: **176 passed, 0 failed, 2 skipped** of 178. Plus a **browser** rehearsal of all eight beats at 1920×1080 and 375 px, 0 console errors, and a **tested rollback** |
+| Routes | `/` `/dashboard`→`/workflows` `/workflows` `/workflows/[id]` `/settings` + **17** API routes, unchanged by Phases 10 and 11. Phase 10 added three file-convention routes only: `app/icon.svg` (the favicon), `app/error.tsx` and `app/not-found.tsx`. **Phase 13 added no route**: model health is an additive field on the existing `GET /api/settings/provider` |
+| Latency | **Warm**: health ~190 ms India → Singapore, database 7–11 ms. A 6-node demo-path run **4.2–7.5 s** end to end across five consecutive walks (Phase 13; it was 3.1–4.8 s in Chapter 1 when the model answered first time, and **94.5 s** when it did not — that second case is what Phase 13 removed). Generation 2.7–3.5 s. **Cold (Neon suspended)**: health **1.14 s, of which 739 ms is the database wake** — re-measured 2026-09-26 at 917 ms for a first query, 103 ms on the next. Cloud Run itself is never cold at `min-instances 1` |
+| Last verified | **2026-09-26, after Phase 13** on revision `agentforge-00023-xf4`. `scripts/verify-api.mjs`: **ALL CHECKS PASSED, 169 passed / 0 failed / 4 skipped**. `scripts/smoke.mjs --loop 5`: **5 consecutive clean walks**, 0 failures, runs of 4.2 / 4.5 / 6.0 / 7.5 / 4.6 s. `npm test`: **346 passing**. Coverage **87.19% lines / 90.46% branches / 78.10% functions**. **CI green on PR #1 (53 s) and on `main`** |
 | Rollback | **TESTED 2026-09-26, finally.** Traffic shifted to `agentforge-00020-rcr` in **~15 s**, health confirmed the older revision was serving, the demo path walked clean on it, then `--to-latest` restored `agentforge-00021-v4s` in ~15 s. The oldest open item in this file is closed |
 | Billing | Trial credit account `Billing - AgentForge` is **open and enabled**. Actual spend is **not queryable from the CLI** (no billing export configured) — **eyeball it in the console once before judging** |
-| Provider key stored | **Yes, deliberately left in place.** The user's own free-tier key is stored (encrypted) against their account on the deployed app, so no phase is blocked on re-pasting it |
-| Registry | **15 nodes**, unchanged by Phases 10, 11 and 12. **The registry claim has now held six times** |
+| Provider key stored | **Yes**, and the model was **rotated in Phase 13** from `gemini-3.5-flash-lite` to **`gemini-3-flash-preview`** — the only model healthy on both the text and tool-calling paths in all three probe passes. Confirmed persisted in Neon. Re-probe with `npm run probe:models` |
+| Registry | **15 nodes**, unchanged by Phases 10–13. **The registry claim has now held seven times** |
 | Fonts | **Geist + Geist Mono, self-hosted by `next/font`**, `latin` subset, variable axis. Two woff2 files in the image; no request leaves the browser for a font and there is no layout shift |
 
 **A redeploy preserves env vars.** Confirmed again on Phase 6's three deploys: `gcloud run deploy
@@ -124,86 +128,22 @@ to each new revision. The file is only needed when a variable changes.
 
 ---
 
-## Phase 12 — what was verified, not just written
+## Phase 12 — the lesson worth keeping
 
-**The method is the finding.** Every previous phase verified over HTTP: a script minted a session,
-drove the API and asserted the JSON. Phase 12 drove a **real browser** against the deployed URL for
-the first time since Phase 10, and three of the eight beats did not survive it. Two of the three
-were wrong in `DEMO.md` alone; one was wrong in the product.
+**The method was the finding, and it still is.** Every phase up to 12 verified over HTTP: a script
+minted a session, drove the API and asserted the JSON. Phase 12 drove a **real browser** against the
+deployed URL and found three broken beats — one of them a product bug that **178 API checks and ten
+clean smoke walks had all passed over**: a webhook-triggered run was invisible on an idle canvas
+(D59). `smoke.mjs` opens its own SSE stream, so it proves the *server* streams; it can never prove
+the *page* is still listening.
 
-| Beat | What the browser found |
-|---|---|
-| 1 | Sound. Signed-out landing page offers **Continue with Google** by that exact name |
-| 3 | Sound, but **small** — the six-node spine rendered at **0.39 zoom / 88 px per card** at 1440×900. Fixed two ways, below |
-| 4 | **Wrong.** Edited the Discord message; the beat that actually *has* to happen is pasting the spreadsheet id, because the generated Sheets node is born empty by design |
-| 5 | **Impossible.** Fired a `$WEBHOOK_URL` exported before a workflow that does not exist until Beat 3 |
-| 6 | **Broken in the product.** A webhook-triggered run was invisible on an idle canvas |
-| 7 | Sound once 6 was fixed — the branch decision is visible on the canvas and in the log |
-| 8 | Sound once 4 was fixed |
+**Drive a real browser before believing a UI claim.** Phases 6, 8, 10 and 12 each found something
+that way. Phase 13 found its own equivalent for the model layer: the suites all passed while a model
+answered prose in 1.4 s and hung on tool calls — see *Known Issues*.
 
-**1 — The canvas was not listening.** `watch()` ran on mount only when the page had loaded *mid-run*,
-or when Run was pressed. Beat 5 fires from a terminal while the browser sits on the canvas, so
-nothing ever opened a stream. Measured before: **no status change across 9 s** while a run completed
-behind it. Measured after, with the canvas deliberately left idle for **25 s** first:
+The full Phase 12 detail is in git history at `a970709`.
 
-```
-19s  Form Webhook Succeeded · Summarise Running
-20s  Summarise Succeeded · Decide Urgency Running
-22s  Decide Urgency Succeeded · Is Urgent? Succeeded → true · Post to Discord Running
-22s  Post to Discord Succeeded · Log to Sheet Succeeded
-```
-
-**Why no suite caught it**, which is the part worth keeping: `smoke.mjs` opens the SSE stream itself
-over HTTP and fires 400 ms later. It proves the **server** streams. It cannot prove the **canvas** is
-still listening 25 seconds after it loaded — and 25 seconds is exactly how long Beat 4 takes. A whole
-class of bug lives in the gap between "the API works" and "the page works".
-
-**2 — Generated agents were being starved.** Twelve fresh generations of the pinned demo prompt:
-**five wrote `maxIterations: 1`**. It passes config validation (the schema allows 1–8) and the graph
-is valid, so nothing reported it — then the agent spent its single call reaching for a tool, got
-stopped, and failed the run at Beats 7 and 8. The prompt already said `default 5`; the model appears
-to read *"keep the workflow as small as the request allows"* as applying to this number too. Fixed
-both ways (D57) and re-measured on the deployed revision: **0 of 12**.
-
-**3 — Beat 5 could not have worked** (D58). Now `scripts/demo-fire.mjs`, which resolves the workflow
-at fire time and never prints the URL. It also **fits the payload to the graph**: across two
-ten-walk runs, **5 of 10 and 3 of 10** generations declared a trigger field (`submission`, once
-`content`, once `id`) that Beat 5's fixed JSON literal did not send — a **400**, two beats before the
-payoff. The very first post-fix smoke walk hit it and absorbed it live.
-
-**4 — Beat 3 was legible on a laptop and not on a projector.** Two fixes, both measured on the real
-generated graph:
-
-| | zoom | node card |
-|---|---|---|
-| 1440×900, `padding: 0.3` (before) | 0.393 | **88 px** |
-| 1920×1080, `padding: 0.3` | 0.608 | 136 px |
-| 1920×1080, `padding: 0.18` (now) | **0.669** | **150 px** |
-
-**The larger share is not code.** Presenting at 1920 rather than 1440 is worth 55% on its own,
-because the two side panels take a fixed 560 px and everything left over is the graph's. It is now
-setup state 12 in `DEMO.md`. The padding change is the remaining 10% and helps at every size. 375 px
-still fits all six nodes with **0 px** horizontal overflow at 0.185 zoom, above the 0.15 floor.
-
-**Rollback, tested at last.** The oldest open item in this file. Traffic to `agentforge-00020-rcr` in
-**~15 s**, health confirmed the older revision was serving, **the demo path walked clean on it**, then
-`--to-latest` restored `agentforge-00021-v4s`. The procedure in `DEPLOYMENT.md` is correct as written.
-
-**Secret scan, working tree and full history.** Every value in `.env` long enough to be a secret,
-checked with `git grep -F` across tracked files and `git log --all -S` across every commit:
-**no hit**. A shape-based scan (`AIza…`, `postgres://…:…@`, Discord webhook URLs, PEM headers,
-`GOCSPX-…`) returns only three deliberately fake test fixtures. `.env` has never been added in any
-commit.
-
-**Doc reconciliation found real drift**, not just typos:
-
-- **`ARCHITECTURE.md` still listed the Vercel AI SDK as adopted**, in two places, and `README.md`'s
-  stack table and licence list both named it. D32 dropped it at Phase 6 and *claimed the table had
-  been corrected*. It had not. Now marked `SUPERSEDED` with the reason kept
-- **`DEPLOYMENT.md` said the deployed suite was "33 checks"** — true at Phase 3, and 178 since
-- **The Phase 2 `UNKNOWN — VERIFY` on pre-registering the deterministic OAuth redirect URI was
-  resolved in `DEPLOYMENT.md` and nowhere else.** `ARCHITECTURE.md` and `BUILD_PLAN.md` both still
-  carried it open. Propagated
+---
 
 ## Decisions — BINDING
 
@@ -253,6 +193,11 @@ Carried forward from every phase. These are the decisions later sessions must no
 | **D45** | **`integration.http` is bounded by a guard, not by trust** | `BUILD_PLAN.md` says it is not an agent escape hatch; `src/lib/integrations/guard.ts` is what makes that true, because `agentCallable: true` means a model picks the URL. Public addresses only — **every** resolved address, not any, or a split-DNS name passes and `fetch` picks the other one — including the IPv4-mapped and NAT64 forms, since `::ffff:a9fe:a9fe` is the metadata server too. **https only** is the rule that matters: rule 1 checks DNS and `fetch` resolves again, so rebinding defeats it, whereas the metadata server has no certificate. Redirects reported, never followed, because following one re-resolves a host already cleared |
 | **D46** | **Google's extra scopes are asked for in their own flow, and the stored secret is the refresh token** | Sign-in asks for identity only: putting "Send email on your behalf" in front of every visitor before they have built anything is what `BUILD_PLAN.md` calls actively harmful. Auth.js does not re-persist account tokens on a later sign-in, so a second flow is also the only reliable way to get a refresh token. `access_type=offline` **with** `prompt=consent` is what returns one — Google omits it for an already-granted user otherwise, leaving a connection that works for exactly one hour. A connection with no refresh token is **refused** rather than stored. Access tokens are fetched per execution and not cached: ~200 ms against a 120 s budget, versus a cache that would need invalidating on disconnect |
 | **D47** | **`state` on the integration callback is a CSRF control, not decoration** | The callback is a `GET` a third party can cause a signed-in browser to make. Without it an attacker delivers *their* authorization code and the victim's account stores a refresh token for the attacker's Google account — after which every appended row and every sent mail goes to the attacker. 24 bytes of CSPRNG in an `HttpOnly`, path-scoped, 10-minute cookie, compared in constant time. `SameSite=Lax` is required rather than chosen: the callback is a cross-site top-level navigation and `Strict` withholds the cookie |
+| **D60** | **A timed-out model attempt is never retried on the same model** | The whole of Phase 12's 91.9 s step. A model that accepted the request and went quiet has already said what it will do; asking it again at the same 45 s budget just buys the same silence twice. Retry-in-place is now reserved for failures that come back **fast** — a 503 usually returns in under a second and a retry there often succeeds. A timeout moves straight down the chain, and a 12 s per-attempt cap sits inside a 30 s ceiling on the whole call, so the worst case is bounded by construction rather than by luck |
+| **D61** | **The circuit breaker reorders the fallback chain; it never removes a model from it** | Health is keyed on the model name alone and is shared by every user on an instance, so a wrong reading is not hypothetical. Reordering makes the worst case a *suboptimal order*; removing would make it a *refusal to call a model that would have worked*. Only retryable failures count, plus 404 — which opens the breaker immediately, because "no longer available to new users" is permanent and three names in the Chapter 1 chain went that way mid-project. **400/401/403 never count**: a rejected key is a fact about the caller, and marking every model unhealthy because one key is bad is exactly backwards. State is per process — no storage, nothing against Neon's CU-hours, and a cold instance learns within one request |
+| **D62** | **A model is only trusted after it answers on BOTH the text and the tool-calling path** | The finding that explains the incident, and it was not visible in any log: `gemini-3.5-flash-lite` answered `ai.llm` in 1.4 s and hung `ai.agent` for 91.9 s **in the same run**. The two paths fail independently, and health flips on a timescale of minutes, so `scripts/probe-models.mjs` probes both, sequentially (the free tier rate-limits hard enough that parallel probes measure the limiter, not the models), and `FALLBACK_MODELS` is set from its ranking. A model that answers prose is not thereby an agent model |
+| **D63** | **A throttled model probe is `conflict`, not `invalid_request`** | Choosing a model runs one real call before the choice is stored, and that call cannot fall back — it must prove *that* model. A 429 therefore reaches the user, and reporting it as "this key cannot use gemini-3-flash-preview" sends them to change a setting that was correct. The free-tier allowance on the current default is **20 requests a minute**, so this is routine, not exotic. 400/404 stay `invalid_request`: those really are verdicts on the choice |
+| **D64** | **oxlint, not ESLint** | Next 16 removed `next lint` and its own upgrade guide says to use a linter directly, so this was a real choice rather than a default. Measured: `eslint` + `eslint-config-next` resolves to **305 packages**; `oxlint` is **2**, and lints 139 files in 73 ms. The same reasoning that left this project without the `ai` SDK (D32), without a cron dependency (D43) and without a test framework. Recorded as A15 in `ARCHITECTURE.md`. The cost is honest: no type-aware rules, and a smaller rule set than the full ESLint ecosystem — worth it here, and revisitable |
 
 ---
 
@@ -276,6 +221,9 @@ Carried forward from every phase. These are the decisions later sessions must no
 
 | Issue | Impact | Action |
 |---|---|---|
+| **A model's health flips on a timescale of MINUTES, and the text and tool-calling paths fail independently** | Every model choice, every fallback chain | The single most useful thing Phase 13 learned. Three probe passes minutes apart: `gemini-3.6-flash` went healthy → healthy → 503; `gemini-3.5-flash-lite` went healthy → timeout → timeout; `gemini-3.1-flash-lite` timed out on tool-calling twice and then worked. **Only `gemini-3-flash-preview` was healthy on both paths in all three.** Never conclude a model is good from one call, and never conclude a model that answers prose can call tools. `npm run probe:models` checks both paths and is the only honest way to pick a chain |
+| **The default model is a `-preview` model** | If Google retires it | Accepted deliberately in Phase 13: it was the only model measurably reliable on the tool-calling path, and the alternative was keeping a default that timed out on 2 of 3 probes. **The mitigations are already in place** — a 404 opens its breaker immediately and the chain falls through to `gemini-3.6-flash`, and `npm run probe:models` re-derives the ranking in about a minute. Re-probe if agent steps start failing |
+| **Coverage thresholds will bite the UI rewrite** | Phases 14–16 | The gate is 85% lines / 88% branches / **76% functions**, against 87.19 / 90.46 / **78.10** today. Functions has the least slack, and a design-system phase adds many small components. **Lower the threshold deliberately and say so in the commit**, or add tests — do not delete the gate. It is in `package.json` → `test:coverage` |
 | ~~Rollback is still untested~~ | Was the oldest open item in this file | **TESTED 2026-09-26 (Phase 12).** `update-traffic --to-revisions agentforge-00020-rcr=100` shifted in **~15 s**; health confirmed the older revision was serving; the demo path walked clean on it; `--to-latest` restored `agentforge-00021-v4s`. The procedure in `DEPLOYMENT.md` is correct as written. **Know it without looking it up on demo day** |
 | **Google OAuth changes take ~90 s to propagate** | Cost 90 s in Phase 2 | Wait and retry before suspecting a typo |
 | **A curl check cannot detect `redirect_uri_mismatch`** | Nearly caused a false "verified" | Only a real browser sign-in proves the OAuth redirect |
@@ -292,8 +240,8 @@ Carried forward from every phase. These are the decisions later sessions must no
 | **`models.list` lists models a key cannot call** | Phases 6, 7 | `gemini-2.5-flash` is in the catalogue and answers 404 "no longer available to new users". Never treat the list as the callable set — make a real call (D34) |
 | **`gemini-2.0-flash` and `gemini-2.5-flash*` are retired** | Phases 6, 7 | List models, never assume a name. Current default: `gemini-3.5-flash-lite` |
 | ~~The pitch deck is not cut for its rubric~~ **(CLOSED — hackathon over, not this project's work)** | Was: Round 1 judging | Criteria name, in order: *identifies and **validates** the real-world problem*, *understands the **affected users***, *innovative and **feasible** solution*, *potential **real-world impact***. The deck is strongest on solution and implementation — the two things Round 1 weights least. It **asserts** the problem with no evidence, **never names a user segment**, and slide 8 fills its impact section with 178 checks / 297 tests, which is product-quality proof, not impact. Feasibility is the one criterion it nails, because the thing is deployed. **Re-cutting slides 2 and 8 plus their narration targets the named top prize directly**; Devpost allows edits, and the video can be re-rendered in minutes |
-| **The agent node fell back and cost ~92 s — measured 2026-09-26, after Phase 12** | Demo pacing, on the headline beat | Two runs of the demo path took **94.6 s and 94.5 s**, against the **3.1–5.7 s** recorded above. The whole cost is one step: `decide_urgency` (`ai.agent`) at **91.9 s**, whose log reads `Model gemini-3.5-flash-lite was unavailable; answered by gemini-3.1-flash-lite`. The adapter behaved as designed — two retries with backoff per model, then down `FALLBACK_MODELS` — but the retry ladder is the latency. **`ai.llm` answered on the same model in 1.4 s in the same run**, so the model is not down generally; it is the tool-calling path that fails over. **Before demoing live, point the stored provider model at one that is actually answering and re-measure**, or Beats 6–8 will not fit inside 3:00 |
-| **Free-tier rate limits are tight** | Phases 6, 7, demo | Back-to-back probes hit 429/503. The adapter retries twice per model then falls down the chain; do not run the verify script in a tight loop. **Hit again in Phase 7:** a generated run's agent step failed once mid-suite and passed on a re-run 20 s later. The verify check now prints the failing step's error so the next occurrence diagnoses itself |
+| ~~The agent node fell back and cost ~92 s~~ | Was the headline Chapter 1 defect | **CLOSED in Phase 13, with a measured before/after.** Before: **94.6 s and 94.5 s** on two consecutive runs, one step (`decide_urgency`, `ai.agent`) accounting for **91.9 s**. After: **4.2 / 4.5 / 6.0 / 7.5 / 4.6 s** across five consecutive deployed walks — worst case **7.5 s**. **The cause, reproduced rather than guessed** (`npm run probe:models`): `gemini-3.5-flash-lite` answers *text* and **times out on tool-calling**, which is why `ai.llm` took 1.4 s and `ai.agent` took 91.9 s in the same run. The adapter then retried the wedged model in place at a 45 s timeout — two timeouts is the 90 s. **Fixed three ways** (A14): a timed-out attempt is never retried on the same model, every attempt is capped at 12 s inside a 30 s chain ceiling, and a circuit breaker moves a failing model to the back of the chain. Three regression tests, each verified to fail against the old adapter |
+| **Free-tier rate limits are tight, and they are PER MODEL** | Phases 6, 7, 13, and any suite that loops | Measured in Phase 13: **`gemini-3-flash-preview` allows 20 requests per minute** on the free tier (`generate_content_free_tier_requests`). Running `verify-api.mjs` three times back to back exhausted it. **This is survivable by design** — the fallback chain spans three different models and therefore three quota buckets, and the breaker moves off a throttled one — but a *deliberate single-model probe* cannot fall back, so choosing a model in Settings can be throttled. That now returns **409 `conflict`, "your key was not changed"**, not a 400 claiming the key cannot use the model. Pro and omni models return 429 immediately on this key: their free-tier quota is effectively zero |
 | ~~No favicon — `/favicon.ico` 404s~~ | Was cosmetic, visible in the browser tab | **Handled in Phase 10.** `src/app/icon.svg` is Next's app-icon convention; the framework emits the `<link rel="icon">` and serves it at `/icon.svg`, verified 200 on the deployed URL. `/favicon.ico` still 404s and that is fine — nothing requests it once the link tag is present |
 | **A port-3000 `next dev` can outlive its session** | A stale server serves old code and the next session's `npm run dev` silently moves to 3001 | Check `lsof -nP -iTCP:3000 -sTCP:LISTEN` before trusting a local check. **Hit again in Phase 5** — a stale `next-server` was still listening |
 | **`scripts/verify-api.mjs` leaves rows behind if it is killed** | Stray test workflows in the shared database | Its cleanup runs at the end, so a `ctrl-c` or a timeout skips it. Phase 5 found two orphans that way and deleted them. Check `select count(*) from "workflow"` after an interrupted run |
@@ -332,8 +280,43 @@ Carried risks, recorded so they are not rediscovered:
 
 ## Manual Actions Pending
 
-**None outstanding. M1–M8 are all done and verified with live calls.** Nothing in Phase 11
-needed one, and Phase 12 needs one only if a judge has to be added as an OAuth test user.
+**One outstanding: M9.** M1–M8 are all done and verified with live calls.
+
+### M9 — read Neon's consumed CU-hours — **OPEN, blocks nothing today**
+
+**Why.** Neon's Free plan is **100 CU-hours per project per month** and the `*/15` cron tick
+commits about **61** of them, leaving ~39 for real use. That ~39 is the budget Phases 19
+(workspaces) and 22 (analytics) must design against — and the *balance* has never been read. The
+*budget* is verified (`DEPLOYMENT.md` → *Free-tier headroom*); the balance is not.
+
+**Why it is not automated.** Neon exposes consumption only through its API or console, never
+through the SQL connection. `neonctl` is installed but unauthenticated on this machine, and
+`neonctl auth` needs a browser — it was attempted in Phase 13 and timed out.
+
+**Location.** <https://console.neon.tech> → project `agentforge` (`super-mountain-39872886`)
+→ **Usage** (or **Billing → Usage**).
+
+**Steps.**
+1. Sign in to <https://console.neon.tech>.
+2. Open the `agentforge` project.
+3. Read **Compute hours** (CU-hours) used in the current billing period, and the period's end date.
+4. Either paste those two numbers back, **or** run `neonctl auth` in this terminal so a future
+   session can read it without you.
+
+**Expected result.** A figure well under 100. If it is above ~70 with a week still to run, say so
+— that is an escalation, not a note, and Phase 19 must be redesigned around it.
+
+**Verification, once `neonctl auth` has been done:**
+
+```bash
+neonctl consumption projects --project-id super-mountain-39872886
+```
+
+**Resume by:** pasting the CU-hours figure, or saying "neonctl is authenticated".
+
+---
+
+**Older manual actions, all complete:**
 
 **M8 — add two redirect URIs to the OAuth client — COMPLETE, 2026-09-26.** Done in the console by the
 user; there is no API for a Web-application client's redirect URIs, re-checked at the time rather
@@ -371,8 +354,9 @@ hours).
 | Resource | Provider | Identifier | Status |
 |---|---|---|---|
 | `AgentForge` git repository | GitHub | `arunishrajput/AgentForge` | **EXISTS** |
+| **GitHub Actions CI** | GitHub | `.github/workflows/ci.yml`, job `check` | **CREATED Phase 13** — lint · typecheck · test+coverage · build, on every push and PR to `main`. Green in **53 s** on PR #1. Free for a public repository |
 | Google Cloud project | Google Cloud | `agentforge-hackathon-2026`, number **`733000675212`** | **EXISTS**, billing active ($300 / 90-day trial) |
-| **`agentforge` Cloud Run service** | Google Cloud | `asia-southeast1`, revision `agentforge-00018-x7q` | **LIVE 2026-09-26** |
+| **`agentforge` Cloud Run service** | Google Cloud | `asia-southeast1`, revision **`agentforge-00023-xf4`** | **LIVE 2026-09-26** (this row was stale at `00018-x7q`; corrected in Phase 13) |
 | **`cloud-run-source-deploy` repo** | Artifact Registry | `asia-southeast1` | **EXISTS** |
 | OAuth consent screen | Google Cloud | External, app "AgentForge" | **EXISTS** — status **Testing**, 1 test user |
 | OAuth 2.0 client | Google Cloud | "AgentForge Web", `733000675212-…ntm7` | **VERIFIED** — 4 redirect entries |
@@ -388,7 +372,9 @@ hours).
 | **Gemini API key (free tier)** | Google Cloud | "AgentForge Gemini Free Tier" in `agentforge-gemini-free`, restricted to `generativelanguage.googleapis.com` | **VERIFIED 2026-09-26** — text generation and function calling both work. Read it with `gcloud services api-keys get-key-string` |
 | Discord server / channel / webhook | Discord | "AgentForge" · `#agentforge-demo` | **VERIFIED** |
 | **"AgentForge Demo Log" spreadsheet** | Google Sheets | id **`1iz8vjkGNvPQ1q1vpDvaWnQZ6648BNYHYauVXHHY2IBo`**, owned by `arunishrajput7@gmail.com`, tab `Sheet1`, headers `Received · From · Summary · Urgency` | **CREATED Phase 11** — through the app's own stored Google credential, because the previous sheet's id was recorded nowhere and the `spreadsheets` scope cannot search Drive. **This is `DEMO.md` Beat 8's second payoff — do not delete it** |
-| **`agentforge-cron` Scheduler job** | Google Cloud | `asia-southeast1`, `*/15 * * * *` UTC, attempt deadline 540 s | **CREATED Phase 8, `ENABLED`** — a real invocation returned HTTP 200. **Pause it when judging ends** |
+| **`agentforge-cron` Scheduler job** | Google Cloud | `asia-southeast1`, `*/15 * * * *` UTC, attempt deadline 540 s | **`ENABLED`, re-confirmed Phase 13.** It commits ~61 of Neon's 100 CU-hours/month — the arithmetic is verified in `DEPLOYMENT.md` → *Free-tier headroom*. Do not shorten the tick |
+| Cloud Tasks API | Google Cloud | `cloudtasks.googleapis.com` | **NOT ENABLED.** Phase 17 enables it. Free tier verified: 1,000,000 ops/month per billing account |
+| Secret Manager API | Google Cloud | `secretmanager.googleapis.com` | **NOT ENABLED.** Phase 21 enables it. Free tier verified: 6 versions, 10,000 access ops, **only 3 rotation notifications**/month |
 
 **One Neon database serves both local and production.** Migrations applied locally are already
 live. Phase 3's migration is purely additive, so the older revision still runs against it.
@@ -404,10 +390,15 @@ All 15 contract variables have values; `.env.example` mirrors `CONTRACT.md`.
 `@neondatabase/serverless` 1.1.0 · `zod` 4.6.5 · `@xyflow/react` 12.12.0 ·
 `tailwindcss` 4.3.3 · `typescript` 7.0.2
 
-**Phase 8 added no dependencies either.** The cron evaluator is ~200 lines of arithmetic rather than
-a cron package with its own opinion about timezones (D43). `ai` and `@ai-sdk/google` remain
-**deliberately not installed** (D32). Seven phases in, the dependency list is still the Phase 4 one.
-Tests run on Node's built-in runner.
+**Phase 13 added exactly one devDependency: `oxlint` 1.85.0** — the first change to this list since
+Phase 4, and a dev dependency only, so the runtime image is untouched. It was measured against the
+alternative: **ESLint + `eslint-config-next` resolves to 305 packages; oxlint is 2** and lints 139
+files in 73 ms. Next 16 removed `next lint` and its own upgrade guide says to use a linter directly
+(A15). The runtime dependency list is **still the Phase 4 one**.
+
+The cron evaluator is ~200 lines of arithmetic rather than a cron package with its own opinion about
+timezones (D43). `ai` and `@ai-sdk/google` remain **deliberately not installed** (D32). Tests run on
+Node's built-in runner, now with coverage thresholds that fail the build.
 
 ### Local toolchain
 
@@ -417,6 +408,19 @@ Tests run on Node's built-in runner.
 ---
 
 ## How to verify the system, from a cold session
+
+**Fastest first, added in Phase 13** — no network, no deployment, ~15 s:
+
+```bash
+npm run check          # lint + typecheck + test with coverage thresholds. Same four gates as CI
+npm run probe:models   # which Gemini models actually answer, on BOTH paths. ~1 min, real calls
+```
+
+`npm run check` is what CI runs, so a green local run means a green pipeline. `probe:models` needs a
+key: `GEMINI_API_KEY=$(gcloud services api-keys get-key-string <key> --format='value(keyString)')` —
+the resource path is in the script's own header.
+
+Then the deployed checks:
 
 ```bash
 npm run typecheck && npm test           # 297 tests, no database, no network, ~1.5 s
@@ -486,9 +490,20 @@ decorators anywhere in `src`.
 
 ## Notes for whoever comes next
 
-**Start Phase 13.** It is defined in `BUILD_PLAN.md` and summarised under *Current Phase* above.
+**Start Phase 14.** It is defined in `BUILD_PLAN.md` and summarised under *Current Phase* above.
 Chapter 1 is closed; the hackathon items that used to live here (the Fallback B recording, the deck
 re-cut) are **no longer part of this project's work** and have been dropped.
+
+**New in Phase 13, and load-bearing from here on:**
+
+- **`npm run check` before you commit** — lint, typecheck, test with coverage. It is the same four
+  gates CI runs, and it takes ~15 s. **CI is mandatory and a red pipeline is a stop-work condition**
+- **`npm run probe:models` before blaming the model layer.** It makes real calls on both the text
+  and the tool-calling path and ranks what actually answers. A model that answers prose may still
+  hang on tool calls — that was the whole of the 91.9 s incident
+- **Free-tier numbers are measured and dated** in `DEPLOYMENT.md` → *Free-tier headroom*. Neon is
+  the binding one at ~39 spare CU-hours/month. **Re-read them before designing against them**;
+  vendors move them
 
 **Carry these forward — they are Chapter 1 lessons that still bite:**
 
@@ -534,6 +549,37 @@ still documents a path known to work end to end, which is a useful smoke referen
 ---
 
 ## Recent Changes
+
+**2026-09-26 — Phase 13 complete. Chapter 2 has started, and the project has CI for the first time**
+
+- **The 91.9 s agent step is closed, with numbers on both sides.** `scripts/probe-models.mjs`
+  reproduced it rather than reasoning about it: `gemini-3.5-flash-lite` answers *text* and **times
+  out on tool-calling**, which is exactly why `ai.llm` took 1.4 s and `ai.agent` took 91.9 s in the
+  same Phase 12 run. Three passes over 15 models found **only `gemini-3-flash-preview` healthy on
+  both paths every time**. Fixed in the adapter (A14): a timed-out attempt is never retried on the
+  same model, a 12 s per-attempt cap sits inside a 30 s chain ceiling, and a per-model circuit
+  breaker reorders the chain. **Before: 94.6 / 94.5 s. After: 4.2 / 4.5 / 6.0 / 7.5 / 4.6 s**
+- **The breaker reorders, it never removes.** The worst case of a wrong health reading is a
+  suboptimal order, never a refusal to call a model that would have worked
+- **Model health is surfaced** on `GET /api/settings/provider` instead of one buried warning line.
+  Verified live: it caught `gemini-3.6-flash` degraded on a real 503 and a 404 opening a breaker
+  immediately
+- **Four free-tier figures replaced with measured ones**, and two of them changed later phases.
+  Cloud Tasks bills per 32 KB chunk, so **Phase 17 must enqueue a run id, not a payload**. Secret
+  Manager allows **only 3 free rotation notifications a month**, so **Phase 21 must not subscribe to
+  them** — that would be this project's first non-zero line. Cloud Logging measured at **6.34 MB /
+  30 days, 0.0118%** of its allowance. Neon remains the binding constraint at ~39 spare CU-hours
+- **CI exists**: lint · typecheck · test+coverage · build, green in 53 s on PR #1 and on `main`
+- **`oxlint` over ESLint** (A15) — **2 packages against 305**, measured, for the same reason this
+  project has no `ai` SDK and no test framework
+- **297 → 346 tests**, with coverage thresholds that fail the build (87.19 / 90.46 / 78.10)
+- **Three real defects the work surfaced**, none of them the one the phase was scoped around:
+  zero-width spaces hidden in `cron.ts` comments; JSX built inside a `try/catch` in the workflow
+  page, which looked guarded and was not; and a rate-limited model probe reported as *"this key
+  cannot use this model"*, which sends a user to change a setting that was correct
+- **Model rotated** in the stored credential: `gemini-3.5-flash-lite` → `gemini-3-flash-preview`
+- **One `UNKNOWN — VERIFY` remains**: Neon CU-hours *consumed*. See *Manual Actions Pending* → M9
+
 
 **2026-09-26 — SUBMITTED, and the rubric turned out to be a different one**
 
@@ -599,116 +645,26 @@ still documents a path known to work end to end, which is a useful smoke referen
   **No node, no dependency, no environment variable, no migration** — the registry claim holds a
   sixth time
 
-**2026-09-26 — Phase 11 complete, the demo path is hardened and walks clean ten times**
 
-- `scripts/smoke.mjs`: the eight beats of `DEMO.md`, in order, against a running instance in ~10 s,
-  naming the beat that broke. **`--loop 10` → 10 consecutive clean walks, 0 failures**, deployed as
-  `agentforge-00019-4xw`
-- **The integrations had no retry at all** — only the provider adapter did, which made it look as
-  though the product was covered. The Discord post, the Sheets append and the Google token refresh
-  were each one-shot, so a single 429 or 503 ended Beat 8 with an empty channel and an empty sheet.
-  Now one retry, **opt-in per call site** (D54)
-- **The hard part was what *not* to retry.** A POST that creates may have taken effect before the
-  answer was lost, so 500 is excluded (ambiguous), transport failures are retried only on genuinely
-  idempotent calls, and a spent timeout or a cancelled run never is. **Eight of the thirteen new
-  tests assert the negative half**
-- **A `Retry-After` over 5 s is honoured by not retrying** (D55): Discord can ask for 30 s, and
-  sleeping through a demo is worse than a failed step that names the rate limit
-- **A failed run said nothing at the top of the canvas.** `api.runWorkflow` resolves happily for a
-  run whose status is `failed` — the request succeeded, the run did not — leaving a red node card as
-  the only signal. On a shared screen that is a demo that looks like it worked. The header now reads
-  *"Append to Google Sheet failed: …"*
-- **The demo spreadsheet's id was unrecoverable.** The Phase 9 proof run was cleaned up and the
-  `spreadsheets` scope cannot search Drive, so a cold session could not find the sheet Beat 8 needs.
-  A new one was created through the app's own credential and **its id is now in `DEMO.md`**
-- **`DEMO.md` Beat 1 named a button that does not exist** — "Sign in with Google" versus the actual
-  "Continue with Google". The smoke script asserts the button by name, which is why it was caught
-- **Cold start measured rather than assumed**: 1.14 s at 13½ min idle, 739 ms of it Neon waking,
-  184 ms on the next request. Cloud Run's own cold start left untested on purpose — reaching it
-  means changing the demo's configuration
-- **Walk 5 of the ten is the most useful data point**: two generation attempts and a 12.2 s run
-  where the other nine took ~3.4 s. The free-tier rate limit, absorbed live by the retry chain,
-  without a failure
-- Added no dependencies. **Ten phases in, the list is still the Phase 4 one**, and Phase 11 added no
-  environment variable, no migration and no node
-
-**2026-09-26 — Phase 10 complete, the product looks built on purpose**
-
-- A design system in `src/app/globals.css`: surfaces, hairlines, text, accent, four status tones and
-  five category accents as `oklch()` tokens; a type scale; elevation; two easings and three
-  durations; eleven `@utility` component classes. **Geist and Geist Mono self-hosted by `next/font`.**
-  Deployed as `agentforge-00017-5k2`
-- **113 arbitrary font sizes and ~60 raw colour classes swept onto tokens at identical values**, so
-  the sweep was provably invisible and the vocabulary is now singular (D49)
-- **Motion where it is watched**: a staggered entry for a generated graph, a breathing ring on the
-  running node, a status chip that replays its pop on every transition, an indeterminate sweep and a
-  live elapsed clock for the generation wait — and **the run's path left lit on the canvas**, with the
-  untaken branch edge deliberately dark (D50). All opacity and transform; `prefers-reduced-motion`
-  collapses every one of them, including React Flow's JavaScript `fitView`
-- **375 px works.** The canvas's two side panels become drawers below `lg`, opened from the header or
-  by tapping a node, closed by Escape or the backdrop, and `visibility: hidden` keeps a closed drawer
-  out of the tab order. 0 px horizontal overflow on every page
-- **Accessibility**: one `:focus-visible` ring for the whole product, a working skip link to `#main`
-  on every page, `color-scheme: dark` so native controls stop rendering as light widgets, and
-  **contrast computed from the tokens in a test** rather than judged by eye (D52)
-- **The deployed suite is the regression test and it is unchanged**: 178 checks, 177 passed, 0 failed
-- **Caught and reverted a real regression of my own**: `loading.tsx` turned the signed-out redirect on
-  `/workflows` and `/workflows/[id]` into a **200** carrying `NEXT_REDIRECT` in the stream. No data
-  leaked, but the status at an auth boundary is not worth a navigation skeleton (D51). The suite
-  caught it; looking at the pages would not have
-
-**2026-09-26 — Phase 9 complete, workflows reach real outside services**
-
-- `integration.http`, `integration.discord`, `integration.sheets`, `integration.gmail`, an outbound
-  guard, a Google incremental-consent flow, the credential UI and 52 new deployed checks — deployed
-  as `agentforge-00015-vwg`. **177 of 178 checks passed, 0 failed**
-- **Beat 2's acceptance test met.** Phase 8 predicted the two `unsupported` lines would disappear
-  when the nodes existed, and they did: **3/3 first attempt, `unsupported: []`**, building
-  `webhook → llm → agent → branch → Discord + Sheets`. The model wires the sheet off *both* branch
-  outputs unprompted, because the request said "log every one"
-- **The registry claim held a third time** — six nodes across two phases and still no palette code,
-  no config form, no validator rule, no second tool list. Verified visually: an `INTEGRATIONS` group
-  appeared in the palette on its own, and the Discord inspector renders `Content` as a required
-  textarea entirely from the schema
-- **Corrected the generation prompt, which named the now-possible as impossible.** It hardcoded
-  "sending email, posting to a chat service, writing to a spreadsheet" as its examples of
-  `unsupported`. The catalogue needed no change, exactly as predicted — but that *sentence* would
-  have kept steering the model away from nodes sitting in the list above it. **Prose dates like code
-  and nothing type-checks it**
-- **Made `integration.http` safe to hand a model** (D45) rather than assuming it was. Nine blocked
-  targets refused through the real engine on the deployed container, including the GCP metadata
-  server by address, by name, and by scheme — a token for this service's own identity was one plain
-  GET away
-- **Closed Gmail to the agent** (D44), a deliberate, recorded deviation from `BUILD_PLAN.md`'s
-  wording: a model choosing both recipient and body from webhook text is the one effect here that
-  leaves the user's account and cannot be recalled
-- **Found that a throwing `preprocess` escapes `safeParse`** on zod 4.6.5, which would have turned a
-  malformed agent argument into an unhandled 500 instead of a correctable tool error
-- **Found that `min(1)` on `spreadsheetId` would break Beat 2** — the prompt names no spreadsheet, so
-  the model must invent an id or fail the whole generation. Empty, with a node that says what it
-  needs, is the honest third answer
-- **Corrected a Known Issue that had gone wrong:** "publish the app, or add test users" is no longer
-  a choice. Phase 9's scopes are *sensitive*, so publishing now requires Google verification. Test
-  users is the only path
-- Added no dependencies. **Eight phases in, the list is still the Phase 4 one**, and Phase 9 added no
-  environment variable and no migration either
-
-**2026-09-26 — Phases 6, 7 and 8, compressed**
-
-Three phases whose findings are all carried forward in the decisions table and *Known Issues*, so
-only the shape is kept here. **Phase 6** built the provider adapter, credential encryption, the
-settings UI and the LLM and agent nodes (D32–D36: `fetch` over the `ai` SDK, Gemini 3's
-`thoughtSignature` breaking a normalising adapter on the second tool call, `models.list` listing
-models a key cannot call, the dead billing-enabled key). **Phase 7** turned a sentence into a
-persisted workflow — generate, validate, *then* insert — and found a graph that was valid and still
-did the wrong thing, fixed by putting `outputShape` on the node definition (D38–D40). **Phase 8**
-added the webhook and schedule triggers, a UTC cron evaluator written rather than depended on, and
-a compare-and-set claim so a duplicate tick cannot double-fire (D41–D43); it also corrected
-`DEPLOYMENT.md`'s every-minute tick to `*/15` after doing the Neon compute-hour arithmetic.
-
-Full detail is in git history at `56dce47`, `59f7adb` and `26ed481`.
+Older entries pruned — **4 earlier Chapter 1 entries** are in git history (`git log --oneline`). This file is a status board, not a diary.
 
 ## Last Updated
+
+**2026-09-26** — **Phase 13 complete.** Revision `agentforge-00023-xf4` live and verified:
+`verify-api.mjs` **ALL CHECKS PASSED (169 / 0 failed / 4 skipped)**, `smoke.mjs --loop 5` **5
+consecutive clean walks**, `npm test` **346 passing**, coverage **87.19 / 90.46 / 78.10**, and
+**CI green on PR #1 and on `main`** — the first CI this project has ever had.
+
+The headline defect carried out of Chapter 1 is **closed with a measured before/after**: a 6-node
+run including the agent node went from **94.5 s to a 7.5 s worst case** over five walks. The cause
+was not what the log said. `ai.agent` and `ai.llm` were using the same model, and that model
+answered text in 1.4 s while its *tool-calling* path timed out — a distinction no amount of reading
+the code would have produced, and one `scripts/probe-models.mjs` now checks on demand.
+
+Every free-tier figure Chapter 2 was designed on is now a measured number with a date, and two of
+them changed later phases' designs. **One is still open** — Neon's *consumed* CU-hours, M9, which
+needs a browser sign-in.
+
 
 **2026-09-26** — **SUBMITTED** (https://devpost.com/software/agentforge-kz832x).
 **The judging rubric is resolved and it is not the one this project was built against**: Round 1

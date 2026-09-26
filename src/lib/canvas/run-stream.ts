@@ -178,6 +178,10 @@ export function useRunStream(workflowId: string, initial: Run | null = null): Ru
     [rearm, stop, workflowId],
   );
 
+  // The "latest ref" pattern, load-bearing here: the visibility listener below must call
+  // the current `watch` without re-subscribing. Phase 16 rebuilds the canvas stream and
+  // should retire it.
+  // oxlint-disable-next-line react/refs
   watchRef.current = watch;
 
   // A tab that was hidden when its stream ended re-attaches when it comes back, so

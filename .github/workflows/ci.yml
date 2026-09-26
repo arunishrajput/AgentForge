@@ -1,0 +1,68 @@
+# AgentForge CI — Phase 13.
+#
+# The first CI this project has ever had. Chapter 1 shipped 297 tests that only ever
+# ran when someone remembered to run them; from Phase 13 on, a red pipeline is a
+# stop-work condition (CLAUDE.md → "Testing expectations").
+#
+# Four gates, in the order that fails fastest and cheapest:
+#
+#   lint       oxlint, ~50 ms. A single prebuilt binary rather than 305 packages of
+#              ESLint — the same reasoning that kept this project off the `ai` SDK and
+#              on Node's built-in test runner (A15 / D64).
+#   typecheck  tsc --noEmit.
+#   test       Node's built-in runner, with coverage thresholds that fail the build.
+#   build      next build. Catches what typecheck cannot: a bad route export, a server
+#              component importing client-only code, a failed static analysis pass.
+#
+# No secrets, no database, no network. `next build` needs no environment here because
+# env validation runs at server startup (src/instrumentation.ts) and the database
+# client is constructed lazily — the same property the Dockerfile relies on.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# A second push to the same branch makes the first run irrelevant. Cancelling it keeps
+# the free Actions minutes for runs whose answer somebody still wants.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: lint · typecheck · test · build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          # Matches the local toolchain. The test runner leans on Node's native
+          # TypeScript type stripping, so this is a floor, not a preference.
+          node-version: 26
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test with coverage
+        run: npm run test:coverage
+
+      - name: Build
+        run: npm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"

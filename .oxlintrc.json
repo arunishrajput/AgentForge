@@ -1,0 +1,55 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": [
+    "typescript",
+    "unicorn",
+    "oxc",
+    "import",
+    "react",
+    "jsx-a11y",
+    "nextjs",
+    "promise"
+  ],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "error",
+    "perf": "warn",
+    "pedantic": "off",
+    "style": "off"
+  },
+  "env": { "browser": true, "node": true, "es2024": true },
+  "ignorePatterns": [
+    ".next/**",
+    "node_modules/**",
+    "next-env.d.ts",
+    "drizzle/**",
+    "presentation/**",
+    "public/**"
+  ],
+  "rules": {
+    "eqeqeq": ["error", "smart"],
+    "typescript/no-explicit-any": "error",
+    "react/jsx-no-target-blank": "error",
+
+    "react/react-in-jsx-scope": "off",
+    "no-await-in-loop": "off",
+    "no-shadow": "off",
+    "no-underscore-dangle": "off",
+    "import/no-unassigned-import": "off",
+    "unicorn/consistent-function-scoping": "off",
+    "unicorn/no-array-sort": "off",
+    "unicorn/prefer-set-has": "off",
+    "unicorn/prefer-string-starts-ends-with": "off",
+    "unicorn/prefer-add-event-listener": "off",
+    "jsx-a11y/prefer-tag-over-role": "off"
+  },
+  "overrides": [
+    {
+      "files": ["scripts/**"],
+      "rules": {
+        "no-unused-expressions": "off",
+        "typescript/no-explicit-any": "off"
+      }
+    }
+  ]
+}

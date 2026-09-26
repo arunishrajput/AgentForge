@@ -692,6 +692,133 @@ gcloud scheduler jobs pause agentforge-cron --location asia-southeast1
 
 ---
 
+## Free-tier headroom — **MEASURED in Phase 13, 2026-09-26**
+
+Chapter 2 restored four things into scope — teams, versioning, observability, a credential vault —
+on a budget that stayed at zero. `BUILD_PLAN.md` carried every one of the figures below as
+`UNKNOWN — VERIFY`, because Phases 17, 19, 21 and 22 are designed on top of them and
+**a remembered free-tier number is worth nothing.** These are fetched from the vendors' own
+pricing pages and measured against this project's live consumption.
+
+### The summary
+
+| Service | Free allowance | Scope | Measured use | Verdict |
+|---|---|---|---|---|
+| **Neon compute** | **100 CU-hours/month** | per project | ~60 CU-hours committed to the cron tick | **BINDING.** ~40 CU-hours/month spare |
+| **Cloud Tasks** | **1,000,000 operations/month** | per **billing account** | 0 — not yet used | Not a constraint. ~330k runs/month |
+| **Cloud Logging** | **50 GiB/project/month** | per **project** | **6.34 MB / 30 days = 0.0118%** | Not a constraint. ~8,000× headroom |
+| **Secret Manager** | **6 active versions, 10,000 access ops/month, 3 rotation notifications** | per **billing account** | 0 — API not yet enabled | Fits, but **rotation notifications are tight** |
+
+**Read the scope column.** Cloud Logging's allowance is per *project*; Cloud Tasks' and Secret
+Manager's are per *billing account* and are shared with every other project on
+`Billing - AgentForge`. Neon's is per *project*. A limit that resets per account is one another
+project can spend on your behalf.
+
+### Neon — the one that actually binds
+
+Confirmed against Neon's own documentation on 2026-09-26: the Free plan is **100 CU-hours per
+project per month**, scale-to-zero is fixed at **5 minutes of inactivity and cannot be disabled**,
+and the compute floor is **0.25 CU**. 100 CU-hours buys roughly **400 hours awake at 0.25 CU**,
+against a ~730-hour month.
+
+The arithmetic that sets the cron tick, now verified rather than assumed:
+
+| Tick | Awake per month | CU-hours at 0.25 CU | Against 100 |
+|---|---|---|---|
+| `* * * * *` | 730 h (never suspends) | **~182** | **blows it mid-month** |
+| `*/15 * * * *` — **current, confirmed `ENABLED`** | ~243 h (4 × 5 min per hour) | **~61** | fits, ~39 spare |
+
+**~39 CU-hours/month is the entire budget for real usage.** That is the number Phases 19 (teams)
+and 22 (analytics) must be designed against, and it is small: it is about 156 hours of additional
+awake time, or roughly 5 hours a day of genuine activity on top of the tick.
+
+Measured live while writing this: a first query after idle took **917 ms** and the next **103 ms**,
+so scale-to-zero is demonstrably active and the wake cost is ~0.9 s. The database is **8,488 kB**
+with 1 user, 1 workflow, 1 run, 6 run steps and 3 credentials — storage is nowhere near a limit;
+**compute time is the only Neon resource in play.**
+
+> **`UNKNOWN — VERIFY` still open: CU-hours actually consumed this billing period.** Neon does not
+> expose consumption through the connection, only through its API or console, and `neonctl` on this
+> machine is unauthenticated. See *Manual Actions Pending* in `PROGRESS.md` (M9). The *budget* is
+> verified; the *balance* is not. Do not let Phase 19 or 22 start without reading it.
+
+### Cloud Tasks — Phase 17's dependency, and it is fine
+
+$0.40 per million operations after the first **1,000,000 per month free**. A billable operation is
+**an API call or a push delivery attempt**, chunked at **32 KB**.
+
+What that means for Phase 17's design:
+
+- One durable run ≈ **2 operations** (one `CreateTask`, one push delivery). A retry adds one more.
+- 1,000,000 ops/month ÷ ~3 ops ≈ **330,000 runs/month** free. Nothing this product will do soon.
+- **Keep task payloads under 32 KB.** A 96 KB payload is billed as 3 operations, not 1. Phase 17
+  should enqueue a run *id*, not a run *payload* — which is the right design anyway, because the
+  graph is already in Postgres.
+- `ListTasks` is charged per task returned, and an empty list still costs one operation. Do not
+  build a polling loop over the queue.
+
+`cloudtasks.googleapis.com` is **not yet enabled** on `agentforge-hackathon-2026`. Phase 17 enables it.
+
+### Cloud Logging — Phase 22's dependency, and it is very fine
+
+$0.50/GiB after the first **50 GiB per project per month**, which includes 30 days of retention,
+querying and analysis at no extra charge. Log Router and Log Analytics add nothing. Retention
+beyond 30 days is $0.01/GiB/month.
+
+**Measured over the 30 days to 2026-09-26: 6,339,545 bytes — 0.0059 GiB, or 0.0118% of the
+allowance.** Phase 22 could increase log volume by three orders of magnitude and still be free.
+Log-based metrics are the right instrument here; the constraint that matters for observability is
+Neon, not Logging, because run analytics are computed from the `run`/`run_step` tables.
+
+### Secret Manager — Phase 21's dependency, with one sharp edge
+
+| Item | Free | Beyond |
+|---|---|---|
+| Active secret versions | **6** | $0.000082192 / version / hour |
+| Access operations | **10,000/month** | $0.03 / 10,000 |
+| Management operations | **unlimited** | — |
+| **Rotation notifications** | **3/month** | **$0.05 each** |
+
+Envelope encryption needs **one** data key, so 6 active versions is ample — but note that a version
+is retained until destroyed, so Phase 21's rotation must **destroy superseded versions**, not merely
+create new ones, or the sixth rotation starts billing. Access operations are only a concern if the
+key is fetched per request rather than cached per instance; **cache it**, and a cold start per
+instance puts usage in the tens per month.
+
+**The sharp edge is rotation notifications: 3 per month, then $0.05 each.** That is a real, if
+small, cost, and it is the first thing in this project that is not free at any volume. Phase 21
+should rotate on a schedule the project controls rather than subscribe to Secret Manager's
+notifications — the free allowance permits quarterly rotation and nothing more frequent.
+
+`secretmanager.googleapis.com` is **not yet enabled**. Phase 21 enables it.
+
+### Re-checking these numbers
+
+```bash
+# Cloud Logging ingestion over the last 30 days, against the 50 GiB allowance.
+TOKEN=$(gcloud auth print-access-token)
+curl -sG "https://monitoring.googleapis.com/v3/projects/$GCP_PROJECT_ID/timeSeries" \
+  -H "Authorization: Bearer $TOKEN" \
+  --data-urlencode 'filter=metric.type="logging.googleapis.com/billing/bytes_ingested"' \
+  --data-urlencode "interval.startTime=$(date -u -v-30d +%Y-%m-%dT%H:%M:%SZ)" \
+  --data-urlencode "interval.endTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  --data-urlencode 'aggregation.alignmentPeriod=86400s' \
+  --data-urlencode 'aggregation.perSeriesAligner=ALIGN_SUM' \
+  --data-urlencode 'aggregation.crossSeriesReducer=REDUCE_SUM'
+
+# The cron tick is what spends the Neon budget. Confirm it is still */15.
+gcloud scheduler jobs describe agentforge-cron --location "$GCP_REGION" \
+  --format='value(schedule,state)'                       # */15 * * * *   ENABLED
+
+# Neon CU-hours consumed — MANUAL, see PROGRESS.md M9. neonctl needs a browser:
+#   neonctl auth   &&   neonctl consumption projects --project-id super-mountain-39872886
+```
+
+**Vendors change free tiers.** Every figure above carries the date it was read. Re-read them before
+any phase designs against them, rather than trusting this table a year from now.
+
+---
+
 ## Verification
 
 A deploy is verified only when all of these pass. Exit codes are not evidence.

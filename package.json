@@ -2,7 +2,7 @@
   "name": "agentforge",
   "version": "0.1.0",
   "private": true,
-  "description": "Agentic workflow automation — describe what you want, get a real executable workflow",
+  "description": "Agentic workflow automation \u2014 describe what you want, get a real executable workflow",
   "engines": {
     "node": ">=20.9.0"
   },
@@ -10,8 +10,13 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "lint": "oxlint",
+    "lint:fix": "oxlint --fix",
     "typecheck": "tsc --noEmit",
     "test": "node --import ./scripts/test-register.mjs --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test 'src/**/*.test.ts'",
+    "test:coverage": "node --import ./scripts/test-register.mjs --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-test-coverage --test-coverage-exclude='**/*.test.ts' --test-coverage-exclude='src/lib/engine/fixtures.ts' --test-coverage-lines=85 --test-coverage-branches=88 --test-coverage-functions=76 --test 'src/**/*.test.ts'",
+    "check": "npm run lint && npm run typecheck && npm run test:coverage",
+    "probe:models": "node scripts/probe-models.mjs",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio"
@@ -33,6 +38,7 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "drizzle-kit": "0.31.11",
+    "oxlint": "1.85.0",
     "tailwindcss": "4.3.3",
     "typescript": "7.0.2"
   }
