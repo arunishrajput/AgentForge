@@ -17,8 +17,8 @@ Do not pre-empt them.
 | Execution state machine | **DEFINED** | Phase 3 — `src/lib/engine/types.ts` |
 | API request/response shapes | **DEFINED** for Phases 3's routes | Phase 3, extended by 4–9 |
 | SSE event messages | **DEFINED** | Phase 5 — `src/lib/engine/stream.ts` |
-| Agent tool-call schema | `NOT YET DECIDED` | Phase 6 |
-| Credential storage shape | Table **DEFINED**, API `NOT YET DECIDED` | Table Phase 3, API Phase 6 |
+| Agent tool-call schema | **DEFINED** | Phase 6 — `src/lib/ai/` |
+| Credential storage shape | **DEFINED** | Table Phase 3, API Phase 6 |
 | Generation request/response | `NOT YET DECIDED` | Phase 7 |
 | Trigger shapes | `NOT YET DECIDED` | Phase 8 |
 
@@ -402,25 +402,143 @@ of a run's writes are therefore serialised on one chain in `dbRecorder`, or a la
 land after the finished step and silently drop a line. Without this a log only becomes visible when
 its node ends — which for an agent node is precisely when it stops being interesting.
 
-## Agent tool-call schema — `NOT YET DECIDED`
+## Agent tool-call schema — **DEFINED**
 
-Filled by **Phase 6**. Must cover: how a registry node is projected into a tool definition, the
-call and result shapes, how a tool error is returned to the model, and the iteration cap.
-Constraints already fixed: tools come only from the registry, and there is no shell, filesystem, or
-arbitrary-network tool.
+Shapes live in `src/lib/ai/types.ts`; the projection in `src/lib/ai/tools.ts`, the loop in
+`src/lib/ai/loop.ts`, the Gemini wire format in `src/lib/ai/gemini.ts`.
 
-## Credential storage shape — table **DEFINED**, API `NOT YET DECIDED`
+### The provider interface
+
+```ts
+interface LanguageModel {
+  provider: string;
+  defaultModel: string;
+  generate(request: GenerateRequest): Promise<GenerateResult>;
+  listModels(): Promise<ModelInfo[]>;   // live — never a hardcoded catalogue
+}
+```
+
+Gemini is the only implementation wired. A second provider is a new file implementing this
+interface; nothing above it changes.
+
+### A model turn is carried back verbatim — the one rule that shapes the rest
+
+```ts
+type ChatTurn =
+  | { role: "user";  text: string }
+  | { role: "model"; text: string; toolCalls: ToolCall[]; raw: unknown }
+  | { role: "tool";  results: ToolResult[] };
+```
+
+`raw` is the provider's own content payload, opaque to everything but the provider that produced
+it. Gemini 3 signs every `functionCall` part with a `thoughtSignature` and **rejects a
+conversation that has lost one with HTTP 400** — measured against the live API on 2026-09-26:
+
+> Function call is missing a thought_signature in functionCall parts. This is required for tools
+> to work correctly
+
+So a provider replays `raw` and never rebuilds a model turn from `text` + `toolCalls`. An adapter
+that normalised the turn into a tidy internal shape works for one tool call and fails on the
+second — which is every agent node that does more than one thing. The reconstruction path survives
+only for a turn that never came from that provider (a test fake, another provider's history).
+
+### Registry node → tool definition
+
+| Tool field | Comes from |
+|---|---|
+| `name` | the registry `type` with dots replaced: `core.log` → `core_log`, reversible |
+| `description` | the node's `description`, **verbatim** — it is written for a model |
+| `parameters` | the node's `configSchema` as JSON Schema, narrowed to the provider's dialect |
+
+**The tool set is exactly `agentCallable: true` (D19).** There is no second list. `allow` on an
+agent node can only narrow it: a type listed there that is not callable is reported in `rejected`
+and never granted. The agent reaches these entries and nothing else — no shell, no filesystem, no
+arbitrary network.
+
+**Gemini's `parameters` is not JSON Schema.** It is a narrow OpenAPI 3.0 subset where an unknown
+key is a hard 400, and `z.toJSONSchema()` emits `$schema`, `additionalProperties` and
+`propertyNames` for real registry nodes. `src/lib/ai/schema.ts` is therefore an **allow-list**: a
+key the provider does not document is dropped, so a new node with an exotic config degrades to a
+vaguer tool signature instead of breaking the agent. A `default` moves into the description; a
+typeless field (`z.unknown()` → `{}`) becomes a string; a tool with no fields declares no
+`parameters` key at all.
+
+### Call, result, and a tool error
+
+```ts
+interface ToolCall   { id: string; name: string; args: Record<string, unknown> }
+interface ToolResult { id: string; name: string; result: unknown }
+```
+
+A provider may emit **several calls in one turn** — Gemini does — so the loop executes the whole
+batch and returns every response in a single `tool` turn.
+
+Arguments are validated against the named node's own `configSchema` before it runs. A rejection, an
+invented tool name, or a throw from the node itself all come back to the model as
+`{ error: "..." }` rather than failing the step, so it can correct a bad argument. Runaway
+correcting is bounded by the cap.
+
+### The iteration cap
+
+`maxIterations` counts **model calls**, defaults to 5, and is clamped to
+`HARD_MAX_AGENT_ITERATIONS` = 8 — a safety property in the spirit of D16, not a tuning knob. A
+loop that reaches the cap while still calling tools returns `stopped: "cap"` and the node **fails
+its step**: an agent that will not converge must not return half an answer a downstream node would
+treat as a real one. A live model told to call a tool for ever did exactly that on all six turns it
+was given, so this bound is load-bearing.
+
+### Routing
+
+An agent node has one static output. Its decision comes out in `output.decision`, constrained to a
+configured `choices` list, and a `core.branch` node routes on `{{input.decision}}`. Per-instance
+output handles would break D21/D23 — the canvas draws a node's edges from its registry entry, so
+handles cannot depend on a run. A decision that cannot be read leaves `decision: null` and the run
+takes the default path rather than failing.
+
+## Credential storage shape — **DEFINED**
 
 The `credential` table landed in **Phase 3** because Phase 3 owns the schema. The encryption
-helpers and the write-only API are **Phase 6**.
+helpers (`src/lib/crypto.ts`), the store (`src/lib/credentials.ts`) and the write-only API are
+**Phase 6**.
 
 Columns: `id`, `ownerId`, `kind`, `label`, `ciphertext`, `iv`, `authTag`, `metadata`, `createdAt`,
 `updatedAt`. Unique on `(ownerId, kind, label)`. The AES-256-GCM envelope is stored as three base64
-columns; the key is `ENCRYPTION_KEY`.
+columns; the key is `ENCRYPTION_KEY`. GCM rather than CBC because it authenticates: a row edited in
+the database fails to decrypt instead of yielding plausible rubbish that then gets sent to a
+provider as an API key. A fresh IV per encryption, generated inside `encryptSecret` rather than
+passed in.
 
-Fixed now, and unchanged by Phase 6: nothing in this row is ever returned to a client in plaintext.
-`label` and `metadata` exist so the UI can show that a credential exists without reading it. The
-API is **write-only**.
+**Nothing in this row ever reaches a client.** Not the value, not a prefix, not a masked tail — a
+four-character hint is still key material. `configured: true` plus `updatedAt` is the whole answer
+to "is a key stored". `describeCredential` never reads the envelope columns into its result, so a
+future spread cannot leak them.
+
+At MVP there is one kind: `llm.google`, label `default`, `metadata: { model }`.
+
+### Routes
+
+| Route | Body | Returns |
+|---|---|---|
+| `GET /api/settings/provider` | — | `{ provider, configured, model, defaultModel, source, updatedAt }` |
+| `PUT /api/settings/provider` | `{ apiKey?, model? }` | the same shape |
+| `DELETE /api/settings/provider` | — | the same shape, `configured: false` |
+| `GET /api/settings/provider/models` | — | `{ models, source }`, live from the provider |
+
+`source` is `user` \| `environment` \| `none` — whether a run would use the user's own key or the
+server's development fallback. Surfaced deliberately: a demo silently running on
+`GOOGLE_GENERATIVE_AI_API_KEY` would make the whole feature look tested when nobody's key had ever
+been exercised.
+
+**Both fields are proved against the provider before they are stored, and proved differently:**
+
+- a **key** with one `models.list` call;
+- a **model** with one real, tiny `generateContent` call, on that model alone
+  (`fallbacks: []`, or a working model would answer for a broken choice).
+
+The second is not redundant. `models.list` on a working key returns `gemini-2.5-flash`, and calling
+it answers **404 "no longer available to new users"** — so the catalogue lists models a key cannot
+run, and validating a choice against the list would happily store one. Found by running it: an
+unvalidated model name was stored and every later run failed with a 404 from inside the engine.
 
 ## Generation request/response — `NOT YET DECIDED`
 

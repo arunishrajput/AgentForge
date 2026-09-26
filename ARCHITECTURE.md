@@ -147,8 +147,8 @@ this build.
 | `next` | 16.3.6 | `engines.node >= 20.9.0`; local Node is v26.8.2 |
 | `react` / `react-dom` | 19.3.0 | |
 | `@xyflow/react` | 12.12.0 | peer `react >= 17` — React 19 satisfied. **Installed in Phase 4** |
-| `ai` | 7.0.114 | AI SDK v7 |
-| `@ai-sdk/google` | 4.0.80 | peer `zod ^3.25.76 \|\| ^4.1.8` — satisfied by zod 4 |
+| ~~`ai`~~ | ~~7.0.114~~ | **SUPERSEDED in Phase 6 — not installed.** See *Agent and tool-calling architecture* |
+| ~~`@ai-sdk/google`~~ | ~~4.0.80~~ | **SUPERSEDED in Phase 6 — not installed.** Same |
 | `next-auth` | **5.0.0-beta.32** | see the note below |
 | `@auth/drizzle-adapter` | 1.11.3 | |
 | `drizzle-orm` / `drizzle-kit` | 0.45.3 / 0.31.11 | peers include `@neondatabase/serverless >= 0.10.0` |
@@ -354,7 +354,42 @@ Agent node
   but produces validated workflow JSON, schema-checked before persistence. Invalid model output is
   rejected and reported, never saved broken
 
-Tool-call schema: `CONTRACT.md`, binding at Phase 6.
+Tool-call schema: `CONTRACT.md` → *Agent tool-call schema*, **DEFINED** in Phase 6.
+
+### The adapter as built — `fetch`, no SDK (D32)
+
+```
+src/lib/ai/
+  types.ts     provider-agnostic interface + the lossless ChatTurn
+  schema.ts    JSON Schema → Gemini's OpenAPI subset (allow-list, pure, tested)
+  tools.ts     registry → tool definitions (pure, tested)
+  loop.ts      the bounded tool-calling loop (pure, tested against a fake model)
+  gemini.ts    the one HTTP implementation: retry, model fallback, wire parsing
+  provider.ts  stored key → a usable LanguageModel
+  settings.ts  the write-only settings API's logic
+```
+
+`ai` and `@ai-sdk/google` were in the adopted stack and are **not installed**. Four reasons, each
+one discovered by calling the real API rather than reasoning about it:
+
+1. **The history must be byte-exact.** Gemini 3 rejects a conversation whose `functionCall` parts
+   have lost their `thoughtSignature`. That demands control of the wire history, which is the thing
+   an SDK abstracts away.
+2. **The tool schema needs a sanitiser we own anyway.** Gemini rejects `additionalProperties`, which
+   Zod emits for real registry nodes.
+3. **Retry and a model fallback chain are demo-reliability properties.** `gemini-3.8-flash` answered
+   503 "experiencing high demand" on a first call. Through an SDK that is custom middleware; here it
+   is fifteen lines in the one place that makes HTTP requests.
+4. **Each tool call must become a visible, streamed step.** The engine already owns step recording
+   and `context.log`; an SDK's internal loop is a second loop to reconcile with it.
+
+The cost of the decision is one file of wire-format knowledge. The benefit is zero new dependencies,
+a smaller container, and tests that inject a fake `fetch` with no module mocking — which matters
+because `npm test` runs the TypeScript sources directly on Node's own runner.
+
+**The pure/impure split is deliberate.** `schema.ts`, `tools.ts` and `loop.ts` touch no network, no
+database and no registry state, so the property that actually matters — a model that never stops
+calling tools is stopped by the cap — is asserted in a millisecond instead of against a live quota.
 
 ---
 

@@ -17,7 +17,10 @@ export const assertNode = defineNode({
   kind: "action",
   category: "logic",
   outputs: [{ key: null, label: "Out" }],
-  agentCallable: true,
+  // Not agent-callable (Phase 6, D19). This node's effect is to fail the run. That
+  // is a guard the workflow author places deliberately, not a capability to hand a
+  // model — an agent that decided to abort would look identical to a bug.
+  agentCallable: false,
   configSchema: z.object({
     left: z.unknown(),
     operator: z

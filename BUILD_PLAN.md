@@ -391,6 +391,18 @@ restricted to the registry. Deployed and verified.
 **Documentation updates.** `CONTRACT.md` (tool-call schema, credential shape),
 `ARCHITECTURE.md` (adapter as built), `PROGRESS.md`.
 
+**Refinements made while building it, deliberately.**
+- Task 4 said "each tool call surfaced as a visible step". Tool calls are surfaced as **streamed log
+  lines on the agent's own step**, not as separate `run_step` rows. A step row is keyed by a graph
+  `nodeId`; a tool has none, so inventing one would break the canvas's node→step mapping and the
+  skipped-node accounting. The visibility is identical — the lines appear while the node is still
+  running (D30) — and the full list is also on `output.toolCalls`
+- Task 2 said the key is encrypted and never returned. It is also **verified against the provider
+  before being stored**, and a model choice is verified with a real call (D34), because the
+  catalogue lists models a key cannot serve
+- An agent node routes through `output.decision` plus a branch node rather than through its own
+  output handles (D37), because handles come from the registry entry and cannot depend on a run
+
 **Commit.** `feat: complete phase 06 agent layer and provider configuration`
 
 ---

@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { agentNode } from "./ai/agent";
+import { llmNode } from "./ai/llm";
 import { assertNode } from "./core/assert";
 import { branchNode } from "./core/branch";
 import { delayNode } from "./core/delay";
@@ -29,6 +31,8 @@ const definitions: RegisteredNode[] = [
   loopNode,
   delayNode,
   assertNode,
+  llmNode,
+  agentNode,
 ];
 
 const byType = new Map<string, RegisteredNode>();

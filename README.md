@@ -17,12 +17,15 @@ Built for the Zero Origin hackathon (Devpost) as a 72-hour solo build.
 
 ## Status
 
-**Phase 5 complete — workflows can be built visually, run, and watched live, in production.**
+**Phase 6 complete — agent nodes reason at runtime, in production.**
 Google sign-in works; a workflow is built on a canvas from a registry-driven palette, configured
 through forms generated from each node's schema, saved and reloaded without loss, and run from the
 canvas. While it runs, each node's status and each log line stream to the browser over SSE as they
-happen, and reloading mid-run picks the run back up. Agent nodes (Phase 6) and natural-language
-generation (Phase 7) are still ahead. Current state is always in [`PROGRESS.md`](./PROGRESS.md).
+happen, and reloading mid-run picks the run back up. A Gemini key pasted in Settings is verified,
+encrypted at rest and never shown again; an agent node then calls registry nodes as tools, reaches a
+decision a branch node routes on, and streams its reasoning onto the canvas while it is still
+thinking. Natural-language generation (Phase 7) is still ahead. Current state is always in
+[`PROGRESS.md`](./PROGRESS.md).
 
 ---
 
@@ -95,7 +98,7 @@ A single Next.js process plus the Neon database. No separate worker, no Redis.
 npm run dev          # http://localhost:3000
 npm run build        # production build (needs no environment)
 npm run typecheck    # tsc --noEmit
-npm test             # critical-path tests: engine, validation, templates, streaming
+npm test             # critical-path tests: engine, validation, templates, streaming, agent loop
 ```
 
 `npm test` runs the TypeScript sources directly on Node's built-in test runner — no framework, no
@@ -110,8 +113,13 @@ Verify it is actually working, rather than merely running:
 
 ```bash
 # The whole API, end to end: auth gating, owner scoping, graph round-trip, a
-# sequential run, both sides of a branch, a bounded loop, the failure path.
+# sequential run, both sides of a branch, a bounded loop, the failure path,
+# live streaming, and the agent layer.
 node --env-file=.env scripts/verify-api.mjs http://localhost:3000
+
+# Setting VERIFY_GEMINI_KEY additionally exercises key storage, model validation,
+# the LLM node, the agent node and its iteration cap. Without it those checks SKIP.
+# See PROGRESS.md for the pipe-it-in recipe that never prints the key.
 
 curl -fsS localhost:3000/api/health
 # {"status":"ok","database":"reachable","databaseLatencyMs":129,...}

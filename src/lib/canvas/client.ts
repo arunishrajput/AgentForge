@@ -1,3 +1,5 @@
+import type { ProviderSettings } from "@/lib/ai/settings";
+import type { ModelInfo } from "@/lib/ai/types";
 import type { ApiErrorCode } from "@/lib/api";
 import type { StreamRun } from "@/lib/engine/stream";
 import type { GraphProblem } from "@/lib/engine/validate";
@@ -17,6 +19,7 @@ import type { describeWorkflow } from "@/lib/workflow/store";
 
 export type Workflow = ReturnType<typeof describeWorkflow>;
 export type { NodeSummary, GraphProblem };
+export type { ProviderSettings, ModelInfo };
 
 /**
  * CONTRACT.md → "Run and step records". The wire shapes live in
@@ -97,4 +100,25 @@ export const api = {
     }),
 
   listRuns: (workflowId: string) => request<StreamRun[]>(`/api/workflows/${workflowId}/runs`),
+
+  /**
+   * Provider settings. Write-only by design: none of these ever returns the stored
+   * key, so there is no accessor here that could.
+   */
+  getProviderSettings: () => request<ProviderSettings>("/api/settings/provider"),
+
+  saveProviderSettings: (body: { apiKey?: string; model?: string }) =>
+    request<ProviderSettings>("/api/settings/provider", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+
+  deleteProviderSettings: () =>
+    request<ProviderSettings>("/api/settings/provider", { method: "DELETE" }),
+
+  /** Live from the provider, using the caller's stored key. */
+  listProviderModels: () =>
+    request<{ models: ModelInfo[]; source: "user" | "environment" }>(
+      "/api/settings/provider/models",
+    ),
 };

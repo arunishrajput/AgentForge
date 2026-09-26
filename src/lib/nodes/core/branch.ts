@@ -80,7 +80,11 @@ export const branchNode = defineNode({
     { key: "true", label: "True" },
     { key: "false", label: "False" },
   ],
-  agentCallable: true,
+  // Not agent-callable (Phase 6, D19). A branch node's whole purpose is the
+  // `sourceHandle` the run leaves through; called as a tool there is no edge to
+  // take, so the model would get a boolean it could have worked out itself. An
+  // agent that needs to route decides in its own output and a branch node reads it.
+  agentCallable: false,
   configSchema: z.object({
     left: z.unknown(),
     operator: z.enum(operators).default("equals"),

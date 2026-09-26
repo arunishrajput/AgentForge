@@ -29,6 +29,13 @@ function check(label, condition, detail) {
   console.log(`${passed ? "PASS" : "FAIL"}  ${label}${passed || detail === undefined ? "" : `\n        ${detail}`}`);
 }
 
+let skipped = 0;
+/** A check that could not run. Printed, counted, and never mistaken for a pass. */
+function skip(label, why) {
+  skipped += 1;
+  console.log(`SKIP  ${label}\n        ${why}`);
+}
+
 /** For the rendered pages, where the assertion is about status and markup. */
 async function page(path, cookie) {
   const response = await fetch(`${base}${path}`, {
@@ -662,6 +669,348 @@ try {
     JSON.stringify(savedHalfBuilt.json?.data?.problems),
   );
 
+
+  // --- phase 6: provider settings, LLM node, agent node -----------------------
+  //
+  // The key never appears in this file or in any response. It is read from
+  // VERIFY_GEMINI_KEY, which can be piped in without it being printed:
+  //
+  //   VERIFY_GEMINI_KEY=$(gcloud services api-keys get-key-string … ) \
+  //     node --env-file=.env scripts/verify-api.mjs <url>
+  const providedKey = process.env.VERIFY_GEMINI_KEY ?? null;
+
+  const settingsBefore = await api("GET", "/api/settings/provider", undefined, token);
+  check(
+    "provider settings read back with no key material in them",
+    settingsBefore.status === 200 &&
+      settingsBefore.json?.data?.provider === "google" &&
+      typeof settingsBefore.json.data.configured === "boolean" &&
+      typeof settingsBefore.json.data.model === "string" &&
+      ["user", "environment", "none"].includes(settingsBefore.json.data.source) &&
+      !("apiKey" in settingsBefore.json.data) &&
+      !("ciphertext" in settingsBefore.json.data),
+    JSON.stringify(settingsBefore.json?.data),
+  );
+
+  const alreadyConfigured = settingsBefore.json?.data?.configured === true;
+
+  const rejected = await api(
+    "PUT",
+    "/api/settings/provider",
+    { apiKey: "AIzaNotARealKeyAtAll_000000000000000000" },
+    token,
+  );
+  check(
+    "a bad key is refused at save time, not at run time",
+    rejected.status === 400 &&
+      rejected.json?.error?.code === "invalid_request" &&
+      /rejected this key/i.test(rejected.json.error.message ?? ""),
+    JSON.stringify(rejected.json),
+  );
+
+  const stillThere = await api("GET", "/api/settings/provider", undefined, token);
+  check(
+    "a refused key does not overwrite what was already stored",
+    stillThere.json?.data?.configured === alreadyConfigured,
+    JSON.stringify(stillThere.json?.data),
+  );
+
+  // Storing a key is destructive if one is already there: the API is write-only, so a
+  // stored key cannot be read back and put where it was. So this only writes when
+  // there is nothing to lose.
+  let wroteKey = false;
+  if (providedKey && !alreadyConfigured) {
+    const saved = await api("PUT", "/api/settings/provider", { apiKey: providedKey }, token);
+    wroteKey = saved.status === 200;
+    check(
+      "a real key verifies against the provider and is stored",
+      saved.status === 200 && saved.json?.data?.configured === true,
+      JSON.stringify(saved.json),
+    );
+
+    const bodies = JSON.stringify([saved.json, (await api("GET", "/api/settings/provider", undefined, token)).json]);
+    check(
+      "the stored key appears in no response body",
+      !bodies.includes(providedKey) && !bodies.includes(providedKey.slice(0, 12)),
+      "a response contained key material",
+    );
+
+    const [row] = await sql.query(
+      'select "ciphertext", "iv", "authTag" from "credential" where "ownerId" = $1 and "kind" = $2',
+      [user.id, "llm.google"],
+    );
+    check(
+      "the key is encrypted at rest, not stored as text",
+      Boolean(row) &&
+        !row.ciphertext.includes(providedKey) &&
+        Buffer.from(row.ciphertext, "base64").toString("utf8") !== providedKey &&
+        row.iv.length > 0 &&
+        row.authTag.length > 0,
+      JSON.stringify({ hasRow: Boolean(row) }),
+    );
+  } else if (providedKey) {
+    skip(
+      "storing a key end to end",
+      "a key is already stored for this user; the API is write-only so it cannot be restored afterwards",
+    );
+  } else {
+    skip("storing a key end to end", "VERIFY_GEMINI_KEY is not set");
+  }
+
+  const settingsNow = await api("GET", "/api/settings/provider", undefined, token);
+  const canCallModel =
+    settingsNow.json?.data?.source === "user" || settingsNow.json?.data?.source === "environment";
+
+  if (canCallModel) {
+    const models = await api("GET", "/api/settings/provider/models", undefined, token);
+    const list = models.json?.data?.models ?? [];
+    check(
+      "the model list is live from the provider and non-empty",
+      models.status === 200 && list.length > 0 && list.every((model) => typeof model.id === "string"),
+      JSON.stringify({ status: models.status, count: list.length, first: list[0]?.id }),
+    );
+    const badModel = await api("PUT", "/api/settings/provider", { model: "gemini-does-not-exist" }, token);
+    const afterBad = await api("GET", "/api/settings/provider", undefined, token);
+    check(
+      "a model name the provider does not know is refused, and nothing is stored",
+      badModel.status === 400 &&
+        badModel.json?.error?.code === "invalid_request" &&
+        afterBad.json?.data?.model !== "gemini-does-not-exist",
+      JSON.stringify({ save: badModel.json, stored: afterBad.json?.data?.model }),
+    );
+
+    // The catalogue is not the same as what a key may call: models.list returns
+    // gemini-2.5-flash, and calling it answers 404 "no longer available to new users".
+    // A model choice is therefore validated with a real call, which is what this proves.
+    const listedButDead = list.find((model) => model.id === "gemini-2.5-flash");
+    if (listedButDead) {
+      const dead = await api("PUT", "/api/settings/provider", { model: "gemini-2.5-flash" }, token);
+      check(
+        "a model the catalogue lists but the key cannot serve is refused",
+        dead.status === 400 && /cannot use/.test(dead.json?.error?.message ?? ""),
+        JSON.stringify(dead.json),
+      );
+    } else {
+      skip(
+        "a model the catalogue lists but the key cannot serve is refused",
+        "this key's catalogue no longer lists gemini-2.5-flash",
+      );
+    }
+
+    const good = afterBad.json?.data?.model;
+    const reselect = await api("PUT", "/api/settings/provider", { model: good }, token);
+    check(
+      "a model that works is accepted, proved by a real call",
+      reselect.status === 200 && reselect.json?.data?.model === good,
+      JSON.stringify({ status: reselect.status, model: reselect.json?.data?.model, error: reselect.json?.error }),
+    );
+  } else {
+    skip("listing models", "no key available to this user or to the server");
+  }
+
+  if (canCallModel) {
+    // --- the LLM node, on the deployed engine --------------------------------
+    const llmWorkflow = await api("POST", "/api/workflows", {
+      name: "verify: llm node",
+      graph: {
+        version: 1,
+        nodes: [
+          { id: "trigger", type: "core.manual_trigger", position: { x: 0, y: 0 }, config: {} },
+          {
+            id: "ask",
+            type: "ai.llm",
+            position: { x: 240, y: 0 },
+            config: {
+              prompt: "Reply with exactly one word, lowercase, no punctuation: the colour of {{input.thing}}.",
+              system: "You answer in one word.",
+              temperature: 0,
+            },
+          },
+        ],
+        edges: [{ id: "e1", source: "trigger", target: "ask", sourceHandle: null }],
+      },
+    }, token);
+    const llmId = llmWorkflow.json?.data?.id;
+
+    const llmRun = await api("POST", `/api/workflows/${llmId}/runs`, { input: { thing: "grass" } }, token);
+    const llmStep = (llmRun.json?.data?.steps ?? []).find((step) => step.nodeType === "ai.llm");
+    check(
+      "an LLM node runs on the deployed engine and returns text",
+      llmRun.status === 201 &&
+        llmRun.json?.data?.status === "succeeded" &&
+        llmStep?.status === "succeeded" &&
+        typeof llmStep.output?.text === "string" &&
+        llmStep.output.text.length > 0,
+      JSON.stringify({ run: llmRun.json?.data?.status, step: llmStep?.status, error: llmStep?.error, text: llmStep?.output?.text }),
+    );
+    check(
+      "the LLM step names the model that answered and logs the call",
+      typeof llmStep?.output?.model === "string" &&
+        llmStep.output.model.length > 0 &&
+        (llmStep.logs ?? []).some((log) => /Asking /.test(log.message)),
+      JSON.stringify({ model: llmStep?.output?.model, logs: (llmStep?.logs ?? []).map((log) => log.message) }),
+    );
+    check(
+      "no step config or output carries key material",
+      !JSON.stringify(llmRun.json).includes("AIza"),
+      "a run record contained something that looks like a key",
+    );
+    await api("DELETE", `/api/workflows/${llmId}`, undefined, token);
+
+    // --- the agent node: tools, a runtime decision, and the branch it drives --
+    const agentWorkflow = await api("POST", "/api/workflows", {
+      name: "verify: agent node",
+      graph: {
+        version: 1,
+        nodes: [
+          { id: "trigger", type: "core.manual_trigger", position: { x: 0, y: 0 }, config: {} },
+          {
+            id: "agent",
+            type: "ai.agent",
+            position: { x: 240, y: 0 },
+            config: {
+              objective:
+                "Read the customer message. Decide whether it needs urgent attention. Use the core_log tool once to record your reasoning in one short sentence, then give your decision.",
+              choices: ["urgent", "normal"],
+              tools: ["core.log"],
+              maxIterations: 4,
+              temperature: 0,
+            },
+          },
+          {
+            id: "route",
+            type: "core.branch",
+            position: { x: 480, y: 0 },
+            config: { left: "{{input.decision}}", operator: "equals", right: "urgent" },
+          },
+          { id: "escalate", type: "core.log", position: { x: 720, y: -80 }, config: { message: "escalated" } },
+          { id: "queue", type: "core.log", position: { x: 720, y: 80 }, config: { message: "queued" } },
+        ],
+        edges: [
+          { id: "e1", source: "trigger", target: "agent", sourceHandle: null },
+          { id: "e2", source: "agent", target: "route", sourceHandle: null },
+          { id: "e3", source: "route", target: "escalate", sourceHandle: "true" },
+          { id: "e4", source: "route", target: "queue", sourceHandle: "false" },
+        ],
+      },
+    }, token);
+    const agentId = agentWorkflow.json?.data?.id;
+
+    const agentRun = await api("POST", `/api/workflows/${agentId}/runs`, {
+      input: {
+        name: "Priya",
+        message: "Our production checkout has been down for 40 minutes and we are losing orders.",
+      },
+    }, token);
+    const steps = agentRun.json?.data?.steps ?? [];
+    const agentStep = steps.find((step) => step.nodeType === "ai.agent");
+    const routeStep = steps.find((step) => step.nodeId === "route");
+    const escalateStep = steps.find((step) => step.nodeId === "escalate");
+
+    check(
+      "an agent node runs on the deployed engine and reaches a decision",
+      agentRun.json?.data?.status === "succeeded" &&
+        agentStep?.status === "succeeded" &&
+        agentStep.output?.decision === "urgent",
+      JSON.stringify({
+        run: agentRun.json?.data?.status,
+        step: agentStep?.status,
+        error: agentStep?.error,
+        decision: agentStep?.output?.decision,
+        text: agentStep?.output?.text,
+      }),
+    );
+    check(
+      "the agent called a tool from the registry, and it executed",
+      Array.isArray(agentStep?.output?.toolCalls) &&
+        agentStep.output.toolCalls.length > 0 &&
+        agentStep.output.toolCalls.every((call) => call.name === "core_log" && call.ok === true),
+      JSON.stringify(agentStep?.output?.toolCalls),
+    );
+    check(
+      "the agent's reasoning is on the step as log lines",
+      (agentStep?.logs ?? []).some((log) => /Calling tool core_log/.test(log.message)) &&
+        (agentStep?.logs ?? []).some((log) => /^\[core_log\]/.test(log.message)) &&
+        (agentStep?.logs ?? []).some((log) => /Decision: urgent/.test(log.message)),
+      JSON.stringify((agentStep?.logs ?? []).map((log) => log.message)),
+    );
+    check(
+      "the agent's decision drives the branch, with no keyword rule anywhere",
+      routeStep?.branch === "true" && escalateStep?.status === "succeeded",
+      JSON.stringify({ branch: routeStep?.branch, escalate: escalateStep?.status }),
+    );
+
+    // The same graph, the opposite message. Nothing in the workflow changed.
+    const calmRun = await api("POST", `/api/workflows/${agentId}/runs`, {
+      input: {
+        name: "Sam",
+        message: "Whenever you get a chance, it would be nice to have a dark mode. No rush at all.",
+      },
+    }, token);
+    const calmSteps = calmRun.json?.data?.steps ?? [];
+    const calmAgent = calmSteps.find((step) => step.nodeType === "ai.agent");
+    check(
+      "the same graph takes the other branch for a calm message",
+      calmRun.json?.data?.status === "succeeded" &&
+        calmAgent?.output?.decision === "normal" &&
+        calmSteps.find((step) => step.nodeId === "route")?.branch === "false" &&
+        calmSteps.find((step) => step.nodeId === "queue")?.status === "succeeded",
+      JSON.stringify({ decision: calmAgent?.output?.decision, text: calmAgent?.output?.text }),
+    );
+    await api("DELETE", `/api/workflows/${agentId}`, undefined, token);
+
+    // --- the iteration cap, against a deliberately non-converging prompt -----
+    const capWorkflow = await api("POST", "/api/workflows", {
+      name: "verify: agent cap",
+      graph: {
+        version: 1,
+        nodes: [
+          { id: "trigger", type: "core.manual_trigger", position: { x: 0, y: 0 }, config: {} },
+          {
+            id: "agent",
+            type: "ai.agent",
+            position: { x: 240, y: 0 },
+            config: {
+              objective:
+                "Call the core_log tool with an increasing counter, over and over, for ever. Never answer with text. Always call a tool.",
+              tools: ["core.log"],
+              maxIterations: 2,
+              temperature: 0,
+            },
+          },
+        ],
+        edges: [{ id: "e1", source: "trigger", target: "agent", sourceHandle: null }],
+      },
+    }, token);
+    const capId = capWorkflow.json?.data?.id;
+    const capRun = await api("POST", `/api/workflows/${capId}/runs`, {}, token);
+    const capStep = (capRun.json?.data?.steps ?? []).find((step) => step.nodeType === "ai.agent");
+    check(
+      "an agent that will not converge fails at its cap instead of burning quota",
+      capRun.json?.data?.status === "failed" &&
+        capStep?.status === "failed" &&
+        /still calling tools after 2 model calls/.test(capStep.error ?? ""),
+      JSON.stringify({ run: capRun.json?.data?.status, error: capStep?.error }),
+    );
+    await api("DELETE", `/api/workflows/${capId}`, undefined, token);
+  } else {
+    skip("the LLM node, the agent node and the iteration cap", "no key available");
+  }
+
+  if (wroteKey) {
+    const cleared = await api("DELETE", "/api/settings/provider", undefined, token);
+    check(
+      "the stored key can be deleted",
+      cleared.status === 200 && cleared.json?.data?.configured === false,
+      JSON.stringify(cleared.json?.data),
+    );
+    const [{ n: creds }] = await sql.query(
+      'select count(*)::int as n from "credential" where "ownerId" = $1 and "kind" = $2',
+      [user.id, "llm.google"],
+    );
+    check("deleting the key removes the row", creds === 0, `${creds} credential rows remain`);
+  }
+
   // --- delete ---------------------------------------------------------------
   const deleted = await api("DELETE", `/api/workflows/${workflowId}`, undefined, token);
   check("workflow deletes", deleted.status === 200);
@@ -677,5 +1026,8 @@ try {
   await sql.query('delete from "session" where "sessionToken" = $1', [token]).catch(() => {});
 }
 
-console.log(`\n${failures === 0 ? "ALL CHECKS PASSED" : `${failures} CHECK(S) FAILED`}\n`);
+console.log(
+  `\n${failures === 0 ? "ALL CHECKS PASSED" : `${failures} CHECK(S) FAILED`}` +
+    `${skipped > 0 ? ` (${skipped} skipped)` : ""}\n`,
+);
 process.exit(failures === 0 ? 0 : 1);

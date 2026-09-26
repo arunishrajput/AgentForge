@@ -7,20 +7,19 @@ concise and operational — prune stale detail rather than appending forever. Th
 
 ## Project Status
 
-**Phase 5 is complete. A run streams onto the canvas live, in production.**
+**Phase 6 is complete. Agent nodes reason at runtime, in production, on a user-supplied key.**
 
 **https://agentforge-733000675212.asia-southeast1.run.app**
 
-Press Run and the canvas fills in as the run proceeds: each node flips to `Running` and then
-`Succeeded`, log lines appear while the node that wrote them is still running, and a `Live` badge
-shows a stream is open. Reloading the page mid-run — or opening the canvas for a run someone else
-triggered — recovers correct state and keeps streaming. Verified by 61 live checks against the
-deployed URL **and** by driving the deployed canvas in a real browser. No manual actions pending.
+Paste a Gemini key in Settings and it is verified against the provider, encrypted, and never shown
+again. An agent node then reads its input, calls registry nodes as tools, and reaches a decision a
+branch node routes on — with every step of its reasoning streaming onto the canvas while it is still
+thinking. Verified by 82 live checks against the deployed URL **and** by driving the deployed
+settings page and canvas in a real browser. No manual actions pending.
 
 ## Current Phase
 
-**Phase 6 — agent layer: LLM node, agent node with tool-calling, provider config** (not started) —
-`READY TO START`
+**Phase 7 — natural language → workflow generation** (not started) — `READY TO START`
 
 ## Completed Phases
 
@@ -32,6 +31,7 @@ deployed URL **and** by driving the deployed canvas in a real browser. No manual
 | **Phase 3** — data model, node registry, execution engine | **COMPLETE** — verified on the deployed URL, 2026-09-25 |
 | **Phase 4** — visual canvas: build, edit, save, load | **COMPLETE** — verified on the deployed URL in a browser, 2026-09-26 |
 | **Phase 5** — live execution: per-node status and log streaming | **COMPLETE** — verified on the deployed URL in a browser, 2026-09-26 |
+| **Phase 6** — agent layer: LLM node, agent node, provider config | **COMPLETE** — verified on the deployed URL in a browser, 2026-09-26 |
 
 ---
 
@@ -44,74 +44,83 @@ deployed URL **and** by driving the deployed canvas in a real browser. No manual
 | Service | `agentforge` on Cloud Run, `asia-southeast1` |
 | Revision | **`agentforge-00008-l8q`** — ready, 100% of traffic. Previous good revision: `agentforge-00007-xx7` |
 | Scaling | `min-instances 1`, `max-instances 3`, 1 vCPU / 1 GiB, 3600 s timeout, port 8080 |
-| Env vars set | `NODE_ENV` `AUTH_URL` `APP_BASE_URL` `DATABASE_URL` `AUTH_SECRET` `GOOGLE_CLIENT_ID` `GOOGLE_CLIENT_SECRET` `ENCRYPTION_KEY` `CRON_SECRET` — 9, unchanged by Phase 5 |
+| Env vars set | `NODE_ENV` `AUTH_URL` `APP_BASE_URL` `DATABASE_URL` `AUTH_SECRET` `GOOGLE_CLIENT_ID` `GOOGLE_CLIENT_SECRET` `ENCRYPTION_KEY` `CRON_SECRET` — 9, **unchanged by Phase 6**. No Gemini key on the service: the product path is the user's own key, and leaving the env fallback unset is what proved it |
 | Database | Neon `super-mountain-39872886` — **8 tables**, migrations `0000` + `0001` applied |
-| Routes | `/` `/dashboard`→`/workflows` `/workflows` `/workflows/[id]` + 8 API routes (Phase 5 added `GET /api/workflows/[id]/stream`) |
-| Warm latency | health ~140 ms India → Singapore. A 5-node run whose two delay nodes wait 2.5 s each took **5.18 s**, with stream events at +449 ms, +2.98 s and +5.53 s |
-| Last verified | **2026-09-26** — `node --env-file=.env scripts/verify-api.mjs <url>`, all **61** checks passed, plus a browser run on the deployed canvas watched live from start to finish |
+| Routes | `/` `/dashboard`→`/workflows` `/workflows` `/workflows/[id]` `/settings` + 10 API routes (Phase 6 added `/api/settings/provider` and `/api/settings/provider/models`) |
+| Warm latency | health ~140 ms India → Singapore. A 7-node run with a 1.5 s delay and an agent node that calls a tool: **3.6 s end to end**, agent step ~2 s of it (two `gemini-3.5-flash-lite` calls) |
+| Last verified | **2026-09-26** — `VERIFY_GEMINI_KEY=… node --env-file=.env scripts/verify-api.mjs <url>`, all **82** checks passed, plus the deployed settings page and an agent run driven in a real browser |
+| Provider key stored | **Yes, deliberately left in place.** The user's own free-tier key is stored (encrypted) against their account on the deployed app, so Phase 7 is not blocked on re-pasting it |
 
-**A redeploy preserves env vars.** Confirmed again on Phase 5's four deploys: `gcloud run deploy
+**A redeploy preserves env vars.** Confirmed again on Phase 6's three deploys: `gcloud run deploy
 agentforge --source . --region asia-southeast1` with no `--env-vars-file` carried all 9 variables
 to each new revision. The file is only needed when a variable changes.
 
 ---
 
-## Phase 5 — what was verified, not just written
+## Phase 6 — what was verified, not just written
 
-`npm test` — **60 tests**, no database, ~190 ms. Phase 5 added 19: the whole streaming protocol
-(`src/lib/engine/stream.test.ts`) plus two engine tests proving a log line reaches the recorder
-*before* its step finishes, and that a delay is cut short by the run deadline rather than outliving
-it.
-`scripts/verify-api.mjs` — **61 checks over HTTP**, run against localhost first, then the deployed
-URL. Phase 5 added 15, all of them about the stream.
+`npm test` — **128 tests**, no database, no network, ~490 ms. Phase 6 added 68: the Gemini wire
+format, the schema sanitiser, the tool projection, the agent loop against a fake model, and the
+crypto round trip.
+`scripts/verify-api.mjs` — **82 checks over HTTP**, run against localhost first, then the deployed
+URL. Phase 6 added 21, all of them about keys, models, or an agent actually deciding something.
 
-**A script cannot prove a canvas streams.** So the deployed app was also driven in a real browser,
-sampling the DOM every 400 ms while a run was in flight:
+**A script cannot prove the settings page or a live reasoning trace.** So the deployed app was also
+driven in a real browser:
 
-| Checked on the deployed canvas | Result |
+| Checked on the deployed app | Result |
 |---|---|
-| Press Run, watch the canvas fill in | ✓ `Manual trigger: Succeeded` at +0.4 s, first delay `Running`, second delay `Running` at +3.2 s, all `Succeeded` at +5.6 s |
-| `Live` badge while a stream is open | ✓ on from +0.8 s, off the moment the run ended |
-| Log lines mid-node | ✓ `Waiting 2500 ms.` shown while its node still read `Running`; `Done waiting.` added when it finished |
-| Press Run twice in a row | ✓ the second run starts from a clean canvas, does **not** show the first run's badges, and its stream follows the *new* run |
-| Load the canvas mid-run, run triggered from outside the browser | ✓ opened already showing 3 steps with the third `Running`, then advanced through each node for the next 28 s |
-| The run survives the client disconnecting | ✓ a `POST /runs` aborted after 1.2 s — the run still completed, `succeeded` in 5175 ms |
-| Stream closes itself | ✓ `done` with `reason: finished` at +5.53 s, and `reason: idle` after 20 s with no run |
+| Settings shows a stored key without showing the key | ✓ "Your key, stored 26 Sept 2026, 01:38 UTC", input reads "Replace the stored key…" |
+| A wrong key typed into the form | ✓ refused with the provider's own words: "API key not valid. Please pass a valid API key." — and the stored key was **not** overwritten |
+| Live model list | ✓ 18 models from the provider, current one marked `aria-current` |
+| Choosing a model the key cannot serve | ✓ refused: "This key cannot use gemini-2.5-flash: … no longer available to new users", working model stays selected |
+| Palette picks up the new nodes | ✓ "LLM" and "AI Agent" appear under **Agents**, from the registry, with no palette code touched |
+| Agent config form | ✓ Objective, System, Model, Tools, Choices, Max iterations, Temperature — all derived from the Zod schema, no per-node UI |
+| Agent reasoning streams mid-node | ✓ at +7.0 s `agent` reads **Running** with "Agent starting on gemini-3.5-flash-lite (key from user)"; at +8.05 s, **still Running**, "Calling tool core_log with {…}" and "[core_log] Production checkout is down for 40 minutes…" |
+| The decision drives the branch | ✓ "Model answered: DECISION: urgent" → `route` took `true`, `escalate` Succeeded, `queue` **Skipped** |
+| The same graph, a calm message | ✓ decision `normal`, the other branch taken. Nothing in the workflow changed |
+| The iteration cap | ✓ a deliberately non-converging agent failed its step: "still calling tools after 2 model calls" |
 | Console | ✓ **0 errors, 0 warnings** |
-| Database left clean | ✓ 0 workflows, 0 runs, 0 steps; every test session revoked |
+| Database left clean | ✓ 0 workflows, 0 runs, 0 steps; test sessions revoked |
 
-**Wire timings, deployed, measured end to end** (Cloud Run, Singapore, from India):
+**What the agent step actually contains, deployed:**
 
 ```
-stream open  +115 ms   200 text/event-stream
-+  449 ms  snapshot  run running, 2 step(s)
-+ 2979 ms  step      delay succeeded  logs=2 "Done waiting."
-+ 2981 ms  step      delay_2 running  logs=1 "Waiting 2500 ms."     ← mid-node log
-+ 5532 ms  step      delay_2 succeeded
-+ 5532 ms  run       succeeded 5176 ms
-+ 5534 ms  done      {"reason":"finished"}
-+ 5535 ms  POST /runs resolved: succeeded
+decision:   "urgent"
+reason:     "The customer reports a production outage lasting 40 minutes with
+             active financial loss, which requires immediate escalation."
+toolCalls:  [{ name: "core_log", ok: true, ms: 1, args: { level: "warn", message: … } }]
+iterations: 2      model: gemini-3.5-flash-lite      usage: 684 tokens
 ```
 
-**Three real problems were found by running it, not by reading it:**
+**The blocker this phase opened with.** Every Gemini model on the `agentforge-hackathon-2026` key
+answered **402 "Your prepayment credits are depleted"** — because that project has billing enabled,
+which moves it off the Gemini free tier. A free-tier key needs a project with **no** billing, so
+`agentforge-gemini-free` was created for exactly that and nothing else. The old key is dead; see
+*Known Issues*.
 
-1. **A `pull`-driven `ReadableStream` never polls.** The first version produced frames from the
-   stream's `pull` callback, which Next's Node adapter stops calling once its queue is satisfied.
-   It sent its opening frames and then went silent for ever — a stream that looks alive until you
-   watch the clock. The route now drives its own loop and enqueues on a timer.
-2. **The look-back adopted the wrong run.** Deciding which run to follow by comparing `startedAt`
-   against the stream's open time, with a 5 s window, passed locally and **failed the first time it
-   ran against Cloud Run**: the watcher latched onto the run from two seconds earlier, snapshotted
-   it and closed. It also compared two different clocks — the container's and Postgres's. Replaced
-   by a clock-free rule (D29).
-3. **Pressing Run showed the previous run's green badges** for the ~400 ms before the first
-   snapshot arrived, which reads as "already finished". The canvas now clears the run first.
+**Five problems found by calling the real API, not by reading about it:**
 
-**One claim was measured rather than assumed.** `no-transform` on the stream was written down as
-"the thing stopping Next's `compression` middleware buffering the stream". Compression *is* active
-on this build — an HTML response comes back gzipped — but a route handler's response bypasses it in
-Next 16.3.6. The header stays, because that is an implementation detail and `no-transform` is the
-documented opt-out, but the code comment now says what was measured.
+1. **A lossy adapter fails on the second tool call.** Gemini 3 signs `functionCall` parts with a
+   `thoughtSignature` and answers **400** to a history that has lost one. A normalising adapter
+   passes its first tool call and breaks on the next — so a model turn is replayed verbatim (D33).
+2. **Gemini rejects `additionalProperties`.** Its `parameters` is a narrow OpenAPI subset, and
+   `z.toJSONSchema()` emits keys it 400s on for nodes already in the registry. Every agent tool
+   would have been rejected, first visible on demo day. Hence the allow-list sanitiser.
+3. **`models.list` lists models a key cannot call.** `gemini-2.5-flash` is in the catalogue and
+   answers **404 "no longer available to new users"**. Validating a model choice against the list
+   stored a model that could not run — and it *did*: an unvalidated name got stored and every
+   subsequent run failed with a 404 from inside the engine. A model is now proved with a real call.
+4. **A client component's `toLocaleString()` is a hydration error.** React renders it on the server
+   and again in the browser; the two disagreed and threw #418 on the deployed settings page. Caught
+   by reading the console, not by any test. Now formatted in UTC with a fixed locale.
+5. **A model given only a sentinel answers with only the sentinel**, leaving `output.reason` empty.
+   The system prompt now asks for one sentence first.
+
+**`gemini-3.8-flash` answered 503 "experiencing high demand" on a first call** and 200 twenty
+seconds later, which is the *Known Issues* entry reproduced on demand. It is why the adapter retries
+and then falls back down a chain, and why the chain is ordered by measured latency:
+flash-lite ~1.2 s, 3.8-flash ~2.5 s, 3.5-flash ~8.9 s.
 
 ## Decisions — BINDING
 
@@ -145,6 +154,12 @@ Carried forward from every phase. These are the decisions later sessions must no
 | **D29** | **Which run to follow is decided by id, never by clock** | A run already finished the first time a stream looks becomes a baseline and is never reported; any other id is. The first attempt compared `startedAt` to the stream's open time with a 5 s window — that is two different clocks (container and Postgres) and it adopted the wrong run the first time it met Cloud Run. Recovery is likewise by full `snapshot` on every connection, not by replaying events, so mid-run connect, reconnect and reload are one code path with no `Last-Event-ID` |
 | **D30** | **A log line is persisted when it is written, not when its node ends** | `RunRecorder.stepLogged`. `context.log` stays synchronous, so all of a run's writes are serialised on one chain in `dbRecorder` — otherwise a late log write lands after the finished step and silently drops a line. Without this an agent node's reasoning only appears once it has stopped reasoning |
 | **D31** | **A stream is never idle for long** | Cloud Run bills CPU for the whole time one is open. It closes on a terminal run, after 20 s with nothing to watch, and at a 150 s ceiling — above the engine's 120 s deadline, so a watcher can never cut a legitimate run short |
+| **D32** | **The provider adapter is `fetch`, not the `ai` SDK** | `ai` 7 and `@ai-sdk/google` were in `ARCHITECTURE.md`'s adopted stack and are **not installed** (that table now says so). Four measured reasons: the history must be byte-exact for Gemini's `thoughtSignature`; the tool schema needs a sanitiser we own anyway; retry + a model fallback chain is a demo-reliability property, not middleware; and every tool call must become a step our own recorder streams. Cost: one file of wire-format knowledge. Benefit: zero new dependencies and tests that inject a fake `fetch` with no module mocking |
+| **D33** | **A model turn is carried back to the provider verbatim** | Gemini 3 signs every `functionCall` part with a `thoughtSignature` and answers **400** to a history that has lost one. So `ChatTurn` carries the provider's own content in an opaque `raw`, and the provider replays it rather than rebuilding the turn from `text` + `toolCalls`. A tidy normalising adapter passes its first tool call and fails on the second — which is every agent node that does more than one thing |
+| **D34** | **A model choice is proved with a real call; a key with `models.list`** | `models.list` on a working key returns `gemini-2.5-flash`, which then answers **404 "no longer available to new users"**. The catalogue is not the set of callable models, so validating a choice against it stored one that could not run — and did, until a real one-token call replaced the list lookup. Validation uses `fallbacks: []`, or a working model would answer for a broken choice |
+| **D35** | **The Gemini tool schema is an allow-list, not a deny-list** | `parameters` is a narrow OpenAPI 3.0 subset where an unknown key is a hard 400, and `z.toJSONSchema()` emits `$schema`, `additionalProperties` and `propertyNames` for nodes already in the registry. Dropping undocumented keys means a future node with an exotic config degrades to a vaguer tool signature instead of breaking the agent for every node |
+| **D36** | **`core.branch` and `core.assert` are closed to the agent; `core.log` and `core.set` are open** | Phase 6's deliberate exercise of D19. A branch called as a tool returns a boolean the model could compute itself, since there is no edge to take; an assert's effect is to fail the run, which is a guard an author places, not a capability to hand a model. Phase 9 opts each integration node in individually |
+| **D37** | **An agent node routes through its output, not through its own handles** | `output.decision` is constrained to a configured `choices` list and a `core.branch` reads `{{input.decision}}`. Per-instance output handles would break D21/D23 — the canvas draws a node's edges from its registry entry, so handles must not depend on having run. An unreadable decision is `null` and takes the default path rather than failing the run |
 
 ---
 
@@ -159,13 +174,17 @@ Carried forward from every phase. These are the decisions later sessions must no
 | **OAuth consent screen is in `Testing`** | Demo day | Only listed test users can sign in. Before the demo: publish the app, or add each judge as a test user (cap 100) |
 | **4 moderate `npm audit` findings, one root cause** | None in production | esbuild dev-server issue reachable only through `drizzle-kit`. Dev dependency, absent from the runtime image. **Accepted** |
 | **Discord rejects requests with no `User-Agent`** | Phase 9 Discord node | Send an explicit UA |
-| **`gemini-2.0-flash` is retired** | Phases 6, 7 | List models, never assume a name |
+| **The `agentforge-hackathon-2026` Gemini key is dead** | Was a Phase 6 blocker | Every model answers **402 "prepayment credits are depleted"**: the project has billing enabled, which moves it off the Gemini free tier. `GOOGLE_GENERATIVE_AI_API_KEY` in local `.env` is this dead key. **Use the `agentforge-gemini-free` key instead** (no billing → free tier). Do not enable billing on that project |
+| **`models.list` lists models a key cannot call** | Phases 6, 7 | `gemini-2.5-flash` is in the catalogue and answers 404 "no longer available to new users". Never treat the list as the callable set — make a real call (D34) |
+| **`gemini-2.0-flash` and `gemini-2.5-flash*` are retired** | Phases 6, 7 | List models, never assume a name. Current default: `gemini-3.5-flash-lite` |
+| **Free-tier rate limits are tight** | Phases 6, 7, demo | Back-to-back probes hit 429/503. The adapter retries twice per model then falls down the chain; do not run the verify script in a tight loop |
 | **No favicon — `/favicon.ico` 404s** | Cosmetic, visible in the browser tab on demo day | Phase 10 (UI/UX pass). `public/` already exists |
 | **A port-3000 `next dev` can outlive its session** | A stale server serves old code and the next session's `npm run dev` silently moves to 3001 | Check `lsof -nP -iTCP:3000 -sTCP:LISTEN` before trusting a local check. **Hit again in Phase 5** — a stale `next-server` was still listening |
 | **`scripts/verify-api.mjs` leaves rows behind if it is killed** | Stray test workflows in the shared database | Its cleanup runs at the end, so a `ctrl-c` or a timeout skips it. Phase 5 found two orphans that way and deleted them. Check `select count(*) from "workflow"` after an interrupted run |
 | **A `pull`-driven `ReadableStream` does not stream under Next** | Would have shipped a stream that opens and then says nothing | The SSE route drives its own loop. Do not "simplify" it back to `pull` (see `src/app/api/workflows/[id]/stream/route.ts`) |
-| **Pinned Gemini models return 503 under load** | Demo reliability | The adapter needs retry + a fallback chain |
-| **Gemini first call took ~8.9 s** | Demo pacing | Warm the model before the demo |
+| **Pinned Gemini models return 503 under load** | Demo reliability | **Handled.** Reproduced in Phase 6 (`gemini-3.8-flash`, 503 "experiencing high demand"). The adapter retries twice per model with backoff, then falls down `FALLBACK_MODELS`, and logs the fallback so it is never silent |
+| **`gemini-3.5-flash` takes ~8.9 s; flash-lite ~1.2 s** | Demo pacing | Default is `gemini-3.5-flash-lite`. Still warm the model right before the demo |
+| **A client component's `toLocaleString()` is a hydration error** | Any date rendered in a `"use client"` file | Server and browser disagree on locale and timezone → React #418. Format with `Intl.DateTimeFormat` pinned to a locale and `timeZone: "UTC"`. A **server** component is fine — the workflow list does it safely |
 
 Carried risks, recorded so they are not rediscovered:
 
@@ -195,7 +214,7 @@ Carried risks, recorded so they are not rediscovered:
 |---|---|---|---|
 | `AgentForge` git repository | GitHub | `arunishrajput/AgentForge` | **EXISTS** |
 | Google Cloud project | Google Cloud | `agentforge-hackathon-2026`, number **`733000675212`** | **EXISTS**, billing active ($300 / 90-day trial) |
-| **`agentforge` Cloud Run service** | Google Cloud | `asia-southeast1`, revision `agentforge-00008-l8q` | **LIVE 2026-09-26** |
+| **`agentforge` Cloud Run service** | Google Cloud | `asia-southeast1`, revision `agentforge-00011-tfq` | **LIVE 2026-09-26** |
 | **`cloud-run-source-deploy` repo** | Artifact Registry | `asia-southeast1` | **EXISTS** |
 | OAuth consent screen | Google Cloud | External, app "AgentForge" | **EXISTS** — status **Testing**, 1 test user |
 | OAuth 2.0 client | Google Cloud | "AgentForge Web", `733000675212-…ntm7` | **VERIFIED** — 4 redirect entries |
@@ -203,7 +222,10 @@ Carried risks, recorded so they are not rediscovered:
 | Neon branch / database / role | Neon | `production` / `neondb` / `neondb_owner` | **VERIFIED** |
 | Neon tables | Neon | `user` `account` `session` `verificationToken` `workflow` `run` `run_step` `credential` | **APPLIED** — `0000_dark_paladin`, `0001_smiling_leper_queen` |
 | Enabled APIs | Google Cloud | `run`, `cloudbuild`, `artifactregistry`, `cloudscheduler`, `apikeys`, `generativelanguage` | **ENABLED** |
-| Gemini API key | Google Cloud | "AgentForge Gemini", restricted to `generativelanguage.googleapis.com` | **VERIFIED** |
+| Stored provider credential | Neon | `credential` row, kind `llm.google`, for the demo user | **PRESENT** — the free-tier key, encrypted. Left in place so Phase 7 is not blocked |
+| ~~Gemini API key~~ | Google Cloud | "AgentForge Gemini" in `agentforge-hackathon-2026` | **DEAD** — 402, the project has billing so it is off the free tier. Kept, unused |
+| **`agentforge-gemini-free` project** | Google Cloud | **no billing**, `generativelanguage` enabled only | **CREATED Phase 6.** Exists solely to hold a free-tier Gemini key. **Never enable billing on it** |
+| **Gemini API key (free tier)** | Google Cloud | "AgentForge Gemini Free Tier" in `agentforge-gemini-free`, restricted to `generativelanguage.googleapis.com` | **VERIFIED 2026-09-26** — text generation and function calling both work. Read it with `gcloud services api-keys get-key-string` |
 | Discord server / channel / webhook | Discord | "AgentForge" · `#agentforge-demo` | **VERIFIED** |
 | `agentforge-cron` Scheduler job | Google Cloud | — | Not created — Phase 8 |
 
@@ -214,16 +236,17 @@ live. Phase 3's migration is purely additive, so the older revision still runs a
 
 All 15 contract variables have values; `.env.example` mirrors `CONTRACT.md`.
 
-### Installed stack — unchanged by Phase 5
+### Installed stack — unchanged by Phase 6
 
 `next` 16.3.6 · `react` / `react-dom` 19.3.0 · `next-auth` **5.0.0-beta.32** ·
 `@auth/drizzle-adapter` 1.11.3 · `drizzle-orm` 0.45.3 · `drizzle-kit` 0.31.11 ·
 `@neondatabase/serverless` 1.1.0 · `zod` 4.6.5 · `@xyflow/react` 12.12.0 ·
 `tailwindcss` 4.3.3 · `typescript` 7.0.2
 
-**Phase 5 added no dependencies at all.** SSE needs none: a `ReadableStream` on the server and the
-browser's own `EventSource` on the client. `ai` (Phase 6) is still deliberately not installed.
-Tests run on Node's built-in runner.
+**Phase 6 added no dependencies either.** The provider adapter is `fetch` and the encryption is
+`node:crypto`; `ai` and `@ai-sdk/google` are **deliberately not installed** (D32), and
+`ARCHITECTURE.md`'s stack table now records that. Five phases in, the dependency list is still the
+Phase 4 one. Tests run on Node's built-in runner.
 
 ### Local toolchain
 
@@ -235,12 +258,22 @@ Tests run on Node's built-in runner.
 ## How to verify the system, from a cold session
 
 ```bash
-npm run typecheck && npm test           # 60 tests, no database, ~190 ms
+npm run typecheck && npm test           # 128 tests, no database, no network, ~490 ms
 npm run build                           # Turbopack; one expected process.exit warning
 
-# 61 checks end to end over HTTP. Mints a real session row, drives the API, cleans up.
-# Takes ~40 s: one check deliberately waits 21 s for an idle stream to close itself.
-node --env-file=.env scripts/verify-api.mjs https://agentforge-733000675212.asia-southeast1.run.app
+# 82 checks end to end over HTTP. Mints a real session row, drives the API, cleans up.
+# Takes ~90 s: one check deliberately waits 21 s for an idle stream to close itself, and the
+# agent checks make real model calls.
+#
+# VERIFY_GEMINI_KEY turns on the 15 key/model/agent checks. Pipe the key in rather than
+# pasting it anywhere — it is never printed:
+VERIFY_GEMINI_KEY="$(gcloud services api-keys get-key-string \
+  "$(gcloud services api-keys list --project=agentforge-gemini-free --format='value(name)' | head -1)" \
+  --format='value(keyString)')" \
+  node --env-file=.env scripts/verify-api.mjs https://agentforge-733000675212.asia-southeast1.run.app
+
+# Without it those checks SKIP rather than pass. It also skips storing a key when one is
+# already stored: the API is write-only, so a stored key cannot be read back and restored.
 
 # To look at the canvas without driving Google OAuth by hand: mint a session row,
 # set it as a cookie in the browser, then revoke it. Same mechanism, no app bypass.
@@ -257,21 +290,25 @@ decorators anywhere in `src`.
 
 ---
 
-## Notes for Phase 6
+## Notes for Phase 7
 
-- **The streaming path is what makes an agent node watchable — use it.** `context.log` is already
-  persisted and streamed per line (D30), so an agent node that logs "calling tool X", "model chose
-  Y" gets a live reasoning trace on the canvas for free. Write those log lines deliberately; they
-  are `DEMO.md` Beat 7, the beat the product exists for
-- **`core.delay` is the only node currently slow enough to make streaming observable.** Once agent
-  nodes exist, they take over that job — but keep the delay node, it is what the streaming tests
-  assert against
-- **`agentCallable` defaults to false (D19).** Phase 6 decides deliberately which nodes the agent
-  may call; `core.delay` is currently `false`
-- The engine deadline is 120 s and the stream ceiling is 150 s. An agent node that needs longer
-  must raise `DEFAULT_DEADLINE_MS` *and* `STREAM_MAX_MS`, deliberately
-- `CONTRACT.md` → *Agent tool-call schema* is still `NOT YET DECIDED` — Phase 6 fills it
-- **`gemini-2.0-flash` is retired.** List models first, never assume a name (see Known Issues)
+- **The provider adapter is ready and the key is already stored.** `resolveProvider(ownerId)` hands
+  back a `LanguageModel`; `generate({ json: true })` asks for a JSON body and parses it. Generation
+  is a single call with no tools, so JSON mode is available (Gemini forbids JSON mode *with* tools)
+- **`json: true` is a request, not a guarantee.** `stripCodeFence` in `src/lib/nodes/ai/llm.ts`
+  already handles a model that fences its JSON anyway. Reuse it
+- **The generated graph must go through `validateGraph` before it is persisted**, and a failure must
+  be reported, never saved broken (`CONTRACT.md` → *Generation request/response*, still
+  `NOT YET DECIDED` — Phase 7 fills it)
+- **Feed the model the registry, not a hand-written node list.** `describeNodes()` is the same
+  projection the palette and the agent's tool set use; a separate prompt-side catalogue would drift
+  the first time a node changes
+- **D16's bounds are the containment for generated graphs.** A model that emits a cycle is caught by
+  validation; one that emits something pathological is caught by the run caps
+- **Ask for `gemini-3.5-flash-lite` first** but expect to need a stronger model for graph synthesis —
+  `FALLBACK_MODELS` in `src/lib/ai/gemini.ts` is where the chain lives. Measure before assuming
+- **A generation call is slower than a chat call.** Watch it against `DEFAULT_DEADLINE_MS` (120 s) if
+  generation ever runs inside a node rather than in its own route
 
 ## Open, but blocking nothing
 
@@ -282,29 +319,29 @@ the user deliberately** — it governs whether others may commercialise the work
 
 ## Recent Changes
 
-**2026-09-26 — Phase 5 complete, runs stream onto the canvas live**
+**2026-09-26 — Phase 6 complete, agent nodes reason at runtime in production**
 
-- SSE endpoint, client hook, canvas status and log streaming — deployed as revision
-  `agentforge-00008-l8q` and verified by 61 HTTP checks plus a browser run watched start to finish
-- **Put the streaming protocol in one pure, tested module** (`src/lib/engine/stream.ts`): wire
-  shapes, framing, the follow rule, and the "what changed" diff. 19 tests, no database, no HTTP
-- **Chose to read the database rather than emit in-process** (D27), because the watcher and the
-  runner are different requests and, on Cloud Run, possibly different containers
-- **Found that a `pull`-driven `ReadableStream` silently stops polling** under Next's Node adapter;
-  the route drives its own loop
-- **Found that a clock-based "which run" rule fails on Cloud Run** — it adopted the previous run.
-  Replaced with an id baseline (D29)
-- **Added `RunRecorder.stepLogged`** (D30) so a log line is persisted as it is written; all of a
-  run's writes are now serialised on one chain so a late log write cannot clobber a finished step
-- **Added `core.delay`**, the one node slow enough to make incremental delivery assertable, and the
-  only current exercise of mid-node log streaming
-- **Deduplicated the run wire types**: `lib/canvas/client.ts` now imports them from
-  `lib/engine/stream.ts` instead of re-declaring them
-- Confirmed a client disconnecting does **not** kill a run on Cloud Run, so a mid-run reload
-  recovers a run that is genuinely still going
+- Provider adapter, credential encryption, settings UI, LLM node and agent node — deployed as
+  revision `agentforge-00011-tfq`, verified by 82 HTTP checks plus the settings page and an agent run
+  driven in a real browser
+- **Unblocked a dead Gemini key.** Every model 402'd on the main project because billing moves it off
+  the free tier. Created `agentforge-gemini-free` (no billing) to hold a free-tier key
+- **Chose `fetch` over the `ai` SDK** (D32) on four measured grounds, and struck the two packages out
+  of `ARCHITECTURE.md`'s adopted-stack table rather than leaving it stale
+- **Found that a normalising adapter breaks on the second tool call** — Gemini 3's `thoughtSignature`
+  (D33). The history is now replayed verbatim
+- **Found that Gemini rejects the JSON Schema Zod emits**, so every agent tool would have failed at
+  first use. Added an allow-list sanitiser (D35)
+- **Found that `models.list` lists models a key cannot call.** A model choice is now proved with a
+  real call (D34) — the bug had already stored `gemini-does-not-exist` and broken every run
+- **Found a hydration error on the deployed settings page** by reading the console: a client
+  component's `toLocaleString()`. Now formatted in UTC with a fixed locale
+- **Closed `core.branch` and `core.assert` to the agent** (D36), Phase 6's deliberate exercise of D19
+- Put the tool projection, the schema sanitiser and the agent loop in pure modules so the cap is
+  asserted against a fake model in a millisecond rather than against a real quota
 
 ## Last Updated
 
-**2026-09-26** — Phase 5 complete. Revision `agentforge-00008-l8q` live, 61 deployed checks passed
-plus a browser run on the deployed canvas watched live from start to finish. No manual actions
+**2026-09-26** — Phase 6 complete. Revision `agentforge-00011-tfq` live, 82 deployed checks passed
+plus the deployed settings page and an agent run driven in a real browser. No manual actions
 pending.

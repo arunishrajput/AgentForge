@@ -25,7 +25,15 @@ export default async function WorkflowsPage() {
           <h1 className="text-xl font-semibold tracking-tight">Workflows</h1>
           <p className="text-muted mt-0.5 text-sm">{session.user.email}</p>
         </div>
-        <NewWorkflowButton />
+        <div className="flex items-center gap-3">
+          <Link
+            href="/settings"
+            className="bg-surface rounded-lg px-3 py-2 text-[13px] transition-opacity hover:opacity-80"
+          >
+            Settings
+          </Link>
+          <NewWorkflowButton />
+        </div>
       </header>
 
       {workflows.length === 0 ? (
