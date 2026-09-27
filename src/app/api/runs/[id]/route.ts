@@ -1,5 +1,5 @@
 import { describeRun, getRun } from "@/lib/engine/run";
-import { handle, ok, requireOwnerId } from "@/lib/api";
+import { handle, ok, requireScope } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -7,9 +7,9 @@ type Context = { params: Promise<{ id: string }> };
 
 export async function GET(_request: Request, { params }: Context) {
   return handle(async () => {
-    const ownerId = await requireOwnerId();
+    const scope = await requireScope();
     const { id } = await params;
-    const { run, steps } = await getRun(ownerId, id);
+    const { run, steps } = await getRun(scope, id);
     return ok(describeRun(run, steps));
   });
 }

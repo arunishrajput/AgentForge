@@ -9,6 +9,7 @@ import { branchNode, evaluate } from "./branch";
 import { delayNode, MAX_DELAY_MS } from "./delay";
 import { HARD_MAX_ITERATIONS, loopNode } from "./loop";
 import { setNode } from "./set";
+import { TEST_SCOPE } from "@/lib/engine/fixtures";
 
 /**
  * The control-flow core: branch, assert, loop, set, delay.
@@ -28,7 +29,7 @@ function fakeContext(iteration = 0): NodeContext & {
   return {
     runId: "run-1",
     workflowId: "wf-1",
-    ownerId: "owner-1",
+    scope: TEST_SCOPE,
     nodeId: "node-1",
     iteration,
     log: (message: string, level: LogLevel = "info") => lines.push({ message, level }),

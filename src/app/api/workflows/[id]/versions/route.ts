@@ -1,4 +1,4 @@
-import { handle, ok, requireOwnerId } from "@/lib/api";
+import { handle, ok, requireScope } from "@/lib/api";
 import { getWorkflow } from "@/lib/workflow/store";
 import { describeHistory, listVersions } from "@/lib/workflow/versions";
 
@@ -19,10 +19,10 @@ type Context = { params: Promise<{ id: string }> };
  */
 export async function GET(_request: Request, { params }: Context) {
   return handle(async () => {
-    const ownerId = await requireOwnerId();
+    const scope = await requireScope();
     const { id } = await params;
-    const workflow = await getWorkflow(ownerId, id);
-    const versions = await listVersions(ownerId, id);
+    const workflow = await getWorkflow(scope, id);
+    const versions = await listVersions(scope, id);
     return ok(describeHistory(versions, workflow));
   });
 }

@@ -7,6 +7,7 @@ import { ApiError } from "@/lib/api";
 import { describeRun, liveRun } from "@/lib/engine/run";
 import { describeNodes } from "@/lib/nodes";
 import { describeWorkflow, getWorkflow } from "@/lib/workflow/store";
+import { resolveScope } from "@/lib/workspace/store";
 
 export const dynamic = "force-dynamic";
 
@@ -33,7 +34,8 @@ export async function generateMetadata({
 
   try {
     const { id } = await params;
-    const workflow = await getWorkflow(session.user.id, id);
+    const scope = await resolveScope({ id: session.user.id, email: session.user.email });
+    const workflow = await getWorkflow(scope, id);
     return { title: workflow.name };
   } catch {
     return { title: "Workflow" };
@@ -74,10 +76,11 @@ export default async function WorkflowPage({
   let workflow: Awaited<ReturnType<typeof getWorkflow>>;
   let inFlight: Awaited<ReturnType<typeof liveRun>>;
   try {
-    workflow = await getWorkflow(session.user.id, id);
-    inFlight = await liveRun(session.user.id, workflow.id);
+    const scope = await resolveScope({ id: session.user.id, email: session.user.email });
+    workflow = await getWorkflow(scope, id);
+    inFlight = await liveRun(scope, workflow.id);
   } catch (error) {
-    // Another owner's workflow is indistinguishable from one that does not exist.
+    // A workflow in another workspace is indistinguishable from one that does not exist.
     if (error instanceof ApiError && error.code === "not_found") notFound();
     throw error;
   }

@@ -5,6 +5,7 @@ import { runs, runSteps, workflows, type Run, type RunStep, type Workflow } from
 import { ApiError } from "@/lib/api";
 import { required } from "@/lib/env";
 import { versionGraph } from "@/lib/workflow/versions";
+import { systemScope, type WorkspaceScope } from "@/lib/workspace/scope";
 
 import { readCursor } from "./cursor";
 import { executeWorkflow, GraphInvalidError } from "./execute";
@@ -43,7 +44,7 @@ import type { RunMode, RunOutcome, StepRecord, TriggerKind } from "./types";
 
 /** Minted per attempt, so a lease can be checked against the process that holds it. */
 export interface StartOptions {
-  ownerId: string;
+  scope: WorkspaceScope;
   workflow: Workflow;
   trigger: TriggerKind;
   input?: unknown;
@@ -63,7 +64,10 @@ async function createRun(options: StartOptions & { mode: RunMode }): Promise<Run
     .insert(runs)
     .values({
       workflowId: options.workflow.id,
-      ownerId: options.ownerId,
+      // The workspace comes from the workflow, never from the caller: a run of a
+      // workflow belongs where the workflow does, whoever pressed the button.
+      workspaceId: options.workflow.workspaceId,
+      ownerId: options.scope.userId,
       status: "queued",
       trigger: options.trigger,
       input: options.input ?? null,
@@ -104,7 +108,10 @@ async function drive(options: {
     outcome = await executeWorkflow({
       runId: run.id,
       workflowId: workflow.id,
-      ownerId: run.ownerId,
+      // Derived from the workflow rather than passed in, so a resumed delivery — which
+      // has no session and no caller — reaches exactly the same workspace's credentials
+      // as the attempt that started it.
+      scope: systemScope(workflow),
       graph: workflow.graph,
       input: run.input,
       recorder: dbRecorder(run.id, owner),
@@ -147,7 +154,7 @@ async function drive(options: {
 export async function startRun(
   options: StartOptions,
 ): Promise<{ run: Run; steps: RunStep[] }> {
-  await sweepAbandonedRuns(options.ownerId);
+  await sweepAbandonedRuns(options.scope);
 
   const created = await createRun({ ...options, mode: "sync" });
   const owner = mintLeaseOwner();
@@ -162,7 +169,7 @@ export async function startRun(
       status: "failed",
       error: "The run could not be started.",
     });
-    return getRun(options.ownerId, created.id);
+    return getRun(options.scope, created.id);
   }
 
   try {
@@ -179,7 +186,7 @@ export async function startRun(
     // keeps the response shape identical to a run that failed in a node.
   }
 
-  return getRun(options.ownerId, created.id);
+  return getRun(options.scope, created.id);
 }
 
 export interface EnqueueOutcome {
@@ -201,7 +208,7 @@ export interface EnqueueOutcome {
  * binding should degrade to a working product and a loud log, not to a lost run.
  */
 export async function startDurableRun(options: StartOptions): Promise<EnqueueOutcome> {
-  await sweepAbandonedRuns(options.ownerId);
+  await sweepAbandonedRuns(options.scope);
 
   const created = await createRun({ ...options, mode: "durable" });
 
@@ -375,13 +382,13 @@ function toStepRecord(step: RunStep): StepRecord {
 }
 
 export async function getRun(
-  ownerId: string,
+  scope: WorkspaceScope,
   runId: string,
 ): Promise<{ run: Run; steps: RunStep[] }> {
   const [run] = await db()
     .select()
     .from(runs)
-    .where(and(eq(runs.id, runId), eq(runs.ownerId, ownerId)))
+    .where(and(eq(runs.id, runId), eq(runs.workspaceId, scope.workspaceId)))
     .limit(1);
 
   if (!run) throw new ApiError("not_found", "No such run.");
@@ -396,14 +403,14 @@ export async function getRun(
 }
 
 export async function listRuns(
-  ownerId: string,
+  scope: WorkspaceScope,
   options: { workflowId?: string; limit?: number } = {},
 ): Promise<Run[]> {
-  await sweepAbandonedRuns(ownerId);
+  await sweepAbandonedRuns(scope);
 
   const where = options.workflowId
-    ? and(eq(runs.ownerId, ownerId), eq(runs.workflowId, options.workflowId))
-    : eq(runs.ownerId, ownerId);
+    ? and(eq(runs.workspaceId, scope.workspaceId), eq(runs.workflowId, options.workflowId))
+    : eq(runs.workspaceId, scope.workspaceId);
 
   return db()
     .select()
@@ -418,13 +425,13 @@ export async function listRuns(
  * it deliberately does not read steps and does not sweep: one statement, no writes.
  */
 export async function latestRun(
-  ownerId: string,
+  scope: WorkspaceScope,
   workflowId: string,
 ): Promise<Run | null> {
   const [run] = await db()
     .select()
     .from(runs)
-    .where(and(eq(runs.ownerId, ownerId), eq(runs.workflowId, workflowId)))
+    .where(and(eq(runs.workspaceId, scope.workspaceId), eq(runs.workflowId, workflowId)))
     .orderBy(desc(runs.startedAt))
     .limit(1);
 
@@ -451,7 +458,7 @@ export async function readSteps(runId: string): Promise<RunStep[]> {
  * about to run and must appear on the canvas.
  */
 export async function liveRun(
-  ownerId: string,
+  scope: WorkspaceScope,
   workflowId: string,
 ): Promise<{ run: Run; steps: RunStep[] } | null> {
   const [run] = await db()
@@ -459,7 +466,7 @@ export async function liveRun(
     .from(runs)
     .where(
       and(
-        eq(runs.ownerId, ownerId),
+        eq(runs.workspaceId, scope.workspaceId),
         eq(runs.workflowId, workflowId),
         inArray(runs.status, ["queued", "running"]),
         gt(sql`coalesce(${runs.leaseExpiresAt}, ${runs.startedAt} + interval '2 minutes')`, sql`now()`),

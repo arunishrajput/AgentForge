@@ -1,4 +1,4 @@
-import { handle, ok, requireOwnerId } from "@/lib/api";
+import { handle, ok, requireScope } from "@/lib/api";
 import { disconnectGoogle, googleStatus } from "@/lib/integrations/store";
 
 export const dynamic = "force-dynamic";
@@ -10,14 +10,14 @@ export const dynamic = "force-dynamic";
  */
 export async function GET() {
   return handle(async () => {
-    const ownerId = await requireOwnerId();
-    return ok(await googleStatus(ownerId));
+    const scope = await requireScope();
+    return ok(await googleStatus(scope));
   });
 }
 
 export async function DELETE() {
   return handle(async () => {
-    const ownerId = await requireOwnerId();
-    return ok(await disconnectGoogle(ownerId));
+    const scope = await requireScope();
+    return ok(await disconnectGoogle(scope));
   });
 }

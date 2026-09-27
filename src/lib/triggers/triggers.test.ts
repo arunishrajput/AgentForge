@@ -18,6 +18,7 @@ import {
   webhookTriggerNode,
   webhookUrl,
 } from "./webhook";
+import { TEST_SCOPE } from "@/lib/engine/fixtures";
 
 const graphOf = (
   ...nodes: { id: string; type: string; config?: Record<string, unknown> }[]
@@ -286,7 +287,7 @@ const context = () => {
     context: {
       runId: "run",
       workflowId: "wf",
-      ownerId: "owner",
+      scope: TEST_SCOPE,
       nodeId: "trigger",
       iteration: 0,
       log: (message: string) => logs.push(message),

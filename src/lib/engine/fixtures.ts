@@ -1,4 +1,5 @@
 import { GRAPH_VERSION, type WorkflowGraph } from "@/lib/workflow/graph";
+import type { WorkspaceScope } from "@/lib/workspace/scope";
 
 /**
  * Graph builders shared by the critical-path tests. Kept out of the test files so
@@ -104,3 +105,23 @@ export const failingGraph = (): WorkflowGraph =>
       { source: "guard", target: "never" },
     ],
   );
+
+/**
+ * A workspace scope for tests — Phase 19A.
+ *
+ * Every test that builds a `NodeContext` or calls `executeWorkflow` needs one, and a
+ * shared constant means a test asserting cross-workspace behaviour has to say so
+ * explicitly by building a different one, rather than happening to differ.
+ */
+export const TEST_SCOPE = {
+  workspaceId: "ws-1",
+  userId: "owner-1",
+  role: "owner",
+} as const satisfies WorkspaceScope;
+
+/** A second workspace, for the isolation tests. Same user is deliberately not a member. */
+export const OTHER_SCOPE = {
+  workspaceId: "ws-2",
+  userId: "owner-2",
+  role: "owner",
+} as const satisfies WorkspaceScope;

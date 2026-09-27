@@ -4,6 +4,7 @@ import { z } from "zod";
 import { db } from "@/db";
 import { workflowVersions, type Workflow, type WorkflowVersion } from "@/db/schema";
 import { ApiError } from "@/lib/api";
+import type { WorkspaceScope } from "@/lib/workspace/scope";
 
 import { diffGraphs, type DiffSummary } from "./diff";
 import type { WorkflowGraph } from "./graph";
@@ -11,8 +12,10 @@ import type { WorkflowGraph } from "./graph";
 /**
  * Workflow version history — CONTRACT.md → "Workflow versions".
  *
- * Owner-scoped like everything else: every query here filters on `ownerId`, and a
- * version belonging to somebody else answers 404 rather than 403 (D20).
+ * Workspace-scoped like everything else since Phase 19A: every query here filters on
+ * `scope.workspaceId`, and a version in somebody else's workspace answers 404 rather
+ * than 403 (D20). `ownerId` is still written — it records who saved that version, which
+ * in a shared workspace is not necessarily who created the workflow.
  *
  * **History is append-only.** Restoring version 3 does not rewind to 3; it writes 3's
  * graph as a *new* version on top. Nothing in this file deletes a version except the
@@ -56,6 +59,7 @@ export const versionLabelSchema = z.object({
  */
 export async function recordVersion(options: {
   workflowId: string;
+  workspaceId: string;
   ownerId: string;
   number: number;
   name: string;
@@ -65,6 +69,7 @@ export async function recordVersion(options: {
   try {
     await db().insert(workflowVersions).values({
       workflowId: options.workflowId,
+      workspaceId: options.workspaceId,
       ownerId: options.ownerId,
       number: options.number,
       name: options.name,
@@ -129,21 +134,24 @@ async function pruneVersions(workflowId: string): Promise<void> {
  * (~95 KB at the measured size), paid only when a user opens the history panel.
  */
 export async function listVersions(
-  ownerId: string,
+  scope: WorkspaceScope,
   workflowId: string,
 ): Promise<WorkflowVersion[]> {
   return db()
     .select()
     .from(workflowVersions)
     .where(
-      and(eq(workflowVersions.workflowId, workflowId), eq(workflowVersions.ownerId, ownerId)),
+      and(
+        eq(workflowVersions.workflowId, workflowId),
+        eq(workflowVersions.workspaceId, scope.workspaceId),
+      ),
     )
     .orderBy(desc(workflowVersions.number))
     .limit(VERSION_LIMIT);
 }
 
 export async function getVersion(
-  ownerId: string,
+  scope: WorkspaceScope,
   workflowId: string,
   number: number,
 ): Promise<WorkflowVersion> {
@@ -153,7 +161,7 @@ export async function getVersion(
     .where(
       and(
         eq(workflowVersions.workflowId, workflowId),
-        eq(workflowVersions.ownerId, ownerId),
+        eq(workflowVersions.workspaceId, scope.workspaceId),
         eq(workflowVersions.number, number),
       ),
     )
@@ -166,7 +174,7 @@ export async function getVersion(
 /**
  * The snapshot a durable run should resume against, or null when there is none.
  *
- * Deliberately **not** owner-scoped and deliberately not throwing: the caller is the
+ * Deliberately **not** workspace-scoped and deliberately not throwing: the caller is the
  * dispatch route, which has already authorised itself by `CRON_SECRET` and the run's
  * own `dispatchToken` and has a run row in hand. A missing snapshot is a normal
  * outcome — a pre-Phase-18 run, or a pruned version — and the caller falls back to the
@@ -190,12 +198,12 @@ export async function versionGraph(
 }
 
 export async function labelVersion(
-  ownerId: string,
+  scope: WorkspaceScope,
   workflowId: string,
   number: number,
   label: string | null,
 ): Promise<WorkflowVersion> {
-  await getVersion(ownerId, workflowId, number);
+  await getVersion(scope, workflowId, number);
 
   const [updated] = await db()
     .update(workflowVersions)
@@ -203,7 +211,7 @@ export async function labelVersion(
     .where(
       and(
         eq(workflowVersions.workflowId, workflowId),
-        eq(workflowVersions.ownerId, ownerId),
+        eq(workflowVersions.workspaceId, scope.workspaceId),
         eq(workflowVersions.number, number),
       ),
     )
@@ -263,14 +271,14 @@ export function describeHistory(versions: WorkflowVersion[], workflow: Workflow)
 
 /** Both sides of a comparison, and what differs. `from` and `to` are version numbers. */
 export async function compareVersions(
-  ownerId: string,
+  scope: WorkspaceScope,
   workflowId: string,
   from: number,
   to: number,
 ) {
   const [base, target] = await Promise.all([
-    getVersion(ownerId, workflowId, from),
-    getVersion(ownerId, workflowId, to),
+    getVersion(scope, workflowId, from),
+    getVersion(scope, workflowId, to),
   ]);
 
   return {

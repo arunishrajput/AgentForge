@@ -10,6 +10,7 @@ import {
   graph,
   loopGraph,
   sequentialGraph,
+  TEST_SCOPE,
 } from "./fixtures";
 
 import { CHECKPOINT_OK, type RunRecorder, type StepRecord } from "./types";
@@ -38,7 +39,7 @@ const run = (graphToRun: ReturnType<typeof sequentialGraph>, input?: unknown, re
   executeWorkflow({
     runId: "run_test",
     workflowId: "wf_test",
-    ownerId: "user_test",
+    scope: TEST_SCOPE,
     graph: graphToRun,
     input,
     recorder,
@@ -219,7 +220,7 @@ test("a delay is cut short by the run deadline rather than outliving it", async 
   const outcome = await executeWorkflow({
     runId: "run_test",
     workflowId: "wf_test",
-    ownerId: "user_test",
+    scope: TEST_SCOPE,
     graph: graph(
       [
         { id: "trigger", type: "core.manual_trigger" },

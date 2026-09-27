@@ -8,14 +8,20 @@ import { validateGraph } from "@/lib/engine/validate";
 import { required } from "@/lib/env";
 import { nextScheduleState, scheduleCron } from "@/lib/triggers/schedule";
 import { mintWebhookToken, webhookTriggerNode, webhookUrl } from "@/lib/triggers/webhook";
+import type { WorkspaceScope } from "@/lib/workspace/scope";
 
 import { emptyGraph, graphsEqual, workflowGraphSchema } from "./graph";
 import { getVersion, recordVersion } from "./versions";
 
 /**
- * Owner-scoped workflow persistence. Every query here filters on `ownerId` — the
- * scoping is server-side and there is no code path that reads a workflow by id
- * alone (ARCHITECTURE.md → "API surface").
+ * Workspace-scoped workflow persistence. Every query here filters on
+ * `scope.workspaceId` — the scoping is server-side and there is no code path that
+ * reads a workflow by id alone (ARCHITECTURE.md → "API surface").
+ *
+ * **Phase 19A moved the filter from `ownerId` to `workspaceId`.** `ownerId` is still
+ * written, and still means what it always did — who created this workflow — but it is
+ * no longer what decides who may see it. A workflow made by one member of a workspace
+ * is visible to the workspace, which is the entire point of having one.
  */
 
 export const createWorkflowSchema = z.object({
@@ -34,27 +40,29 @@ export const updateWorkflowSchema = z
     message: "Provide at least one field to update.",
   });
 
-export async function listWorkflows(ownerId: string): Promise<Workflow[]> {
+export async function listWorkflows(scope: WorkspaceScope): Promise<Workflow[]> {
   return db()
     .select()
     .from(workflows)
-    .where(eq(workflows.ownerId, ownerId))
+    .where(eq(workflows.workspaceId, scope.workspaceId))
     .orderBy(desc(workflows.updatedAt));
 }
 
-export async function getWorkflow(ownerId: string, id: string): Promise<Workflow> {
+export async function getWorkflow(scope: WorkspaceScope, id: string): Promise<Workflow> {
   const [workflow] = await db()
     .select()
     .from(workflows)
-    .where(and(eq(workflows.id, id), eq(workflows.ownerId, ownerId)))
+    .where(and(eq(workflows.id, id), eq(workflows.workspaceId, scope.workspaceId)))
     .limit(1);
 
+  // A workflow in somebody else's workspace answers 404 rather than 403, so the reply
+  // does not confirm that the id exists (D20).
   if (!workflow) throw new ApiError("not_found", "No such workflow.");
   return workflow;
 }
 
 export async function createWorkflow(
-  ownerId: string,
+  scope: WorkspaceScope,
   body: z.infer<typeof createWorkflowSchema>,
   /** Names version 1. The generator passes one; an empty new workflow does not. */
   versionLabel?: string,
@@ -64,7 +72,10 @@ export async function createWorkflow(
   const [workflow] = await db()
     .insert(workflows)
     .values({
-      ownerId,
+      // Two columns, two different facts: the workspace decides who can see it, the
+      // owner records who made it.
+      workspaceId: scope.workspaceId,
+      ownerId: scope.userId,
       name: body.name,
       description: body.description ?? null,
       graph,
@@ -82,7 +93,8 @@ export async function createWorkflow(
   // back.
   await recordVersion({
     workflowId: workflow.id,
-    ownerId,
+    workspaceId: scope.workspaceId,
+    ownerId: scope.userId,
     number: workflow.version,
     name: workflow.name,
     graph: workflow.graph,
@@ -93,13 +105,13 @@ export async function createWorkflow(
 }
 
 export async function updateWorkflow(
-  ownerId: string,
+  scope: WorkspaceScope,
   id: string,
   body: z.infer<typeof updateWorkflowSchema>,
   /** Names the version this save produces. A restore passes one; the canvas does not. */
   versionLabel?: string,
 ): Promise<Workflow> {
-  const previous = await getWorkflow(ownerId, id);
+  const previous = await getWorkflow(scope, id);
 
   /**
    * **Which saves become versions — the debounce `BUILD_PLAN.md` asks for.**
@@ -149,13 +161,16 @@ export async function updateWorkflow(
       ...(versioned ? { version: sql`${workflows.version} + 1` } : {}),
       updatedAt: new Date(),
     })
-    .where(and(eq(workflows.id, id), eq(workflows.ownerId, ownerId)))
+    .where(and(eq(workflows.id, id), eq(workflows.workspaceId, scope.workspaceId)))
     .returning();
 
   if (versioned) {
     await recordVersion({
       workflowId: workflow.id,
-      ownerId,
+      workspaceId: scope.workspaceId,
+      // The version records who saved it, which is not necessarily who created the
+      // workflow — the first thing in this file where the two genuinely differ.
+      ownerId: scope.userId,
       number: workflow.version,
       name: workflow.name,
       graph: workflow.graph,
@@ -182,23 +197,23 @@ export async function updateWorkflow(
  * exempts it from the retention cap.
  */
 export async function restoreVersion(
-  ownerId: string,
+  scope: WorkspaceScope,
   id: string,
   number: number,
 ): Promise<Workflow> {
-  const version = await getVersion(ownerId, id, number);
+  const version = await getVersion(scope, id, number);
   return updateWorkflow(
-    ownerId,
+    scope,
     id,
     { name: version.name, graph: version.graph },
     `Restored from v${number}`,
   );
 }
 
-export async function deleteWorkflow(ownerId: string, id: string): Promise<void> {
+export async function deleteWorkflow(scope: WorkspaceScope, id: string): Promise<void> {
   const deleted = await db()
     .delete(workflows)
-    .where(and(eq(workflows.id, id), eq(workflows.ownerId, ownerId)))
+    .where(and(eq(workflows.id, id), eq(workflows.workspaceId, scope.workspaceId)))
     .returning({ id: workflows.id });
 
   if (deleted.length === 0) throw new ApiError("not_found", "No such workflow.");
@@ -220,7 +235,7 @@ export function describeWorkflow(workflow: Workflow) {
     problems: validation.problems,
     /**
      * Only present when the graph actually holds a webhook trigger. The token is not
-     * a secret from its owner — every read here is already owner-scoped — but a URL
+     * a secret from its workspace — every read here is already workspace-scoped — but a URL
      * shown for a workflow that will not answer on it is a support question, and an
      * unused live endpoint advertised in the UI is a wider surface than the product
      * needs.

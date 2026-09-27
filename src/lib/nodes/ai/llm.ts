@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { NoProviderKeyError, resolveProvider } from "@/lib/ai/provider";
 import { ProviderError } from "@/lib/ai/types";
+import type { WorkspaceScope } from "@/lib/workspace/scope";
 
 import { defineNode, NodeError } from "../types";
 
@@ -39,7 +40,7 @@ export const llmNode = defineNode({
     json: z.boolean().default(false),
   }),
   async execute({ config, input, context }) {
-    const { model, source, selectedModel } = await resolveKey(context.ownerId);
+    const { model, source, selectedModel } = await resolveKey(context.scope);
     const modelId = config.model && config.model.length > 0 ? config.model : selectedModel;
 
     context.log(`Asking ${modelId} (key from ${source}).`);
@@ -97,9 +98,9 @@ export function stripCodeFence(text: string): string {
   return fenced ? fenced[1] : text.trim();
 }
 
-export async function resolveKey(ownerId: string) {
+export async function resolveKey(scope: WorkspaceScope) {
   try {
-    return await resolveProvider(ownerId);
+    return await resolveProvider(scope);
   } catch (error) {
     if (error instanceof NoProviderKeyError) throw new NodeError(error.message);
     throw error;

@@ -5,7 +5,7 @@ import { GRAPH_VERSION, type WorkflowGraph } from "@/lib/workflow/graph";
 
 import type { RunCursor } from "./cursor";
 import { executeWorkflow } from "./execute";
-import { graph, sequentialGraph } from "./fixtures";
+import { graph, sequentialGraph, TEST_SCOPE } from "./fixtures";
 import {
   CHECKPOINT_OK,
   type Checkpoint,
@@ -66,7 +66,7 @@ const run = (
   executeWorkflow({
     runId: "run_test",
     workflowId: "wf_test",
-    ownerId: "user_test",
+    scope: TEST_SCOPE,
     graph: graphToRun,
     input: options.input,
     recorder: options.recorder,

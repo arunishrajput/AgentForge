@@ -209,10 +209,24 @@ export function IntegrationsForm({
         </p>
 
         {google.connected && (
-          <ul className="mt-4 space-y-1.5 text-sm">
-            <Capability granted={google.canAppendSheets} label="Append rows to your Sheets" />
-            <Capability granted={google.canSendMail} label="Send email as you" />
-          </ul>
+          <>
+            <ul className="mt-4 space-y-1.5 text-sm">
+              <Capability granted={google.canAppendSheets} label="Append rows to your Sheets" />
+              <Capability granted={google.canSendMail} label="Send email as you" />
+            </ul>
+
+            {/*
+              The sharpest consequence of workspace-scoped credentials (Phase 19A), said
+              where the decision is made rather than only in a document nobody opens. A
+              connection stored against a workspace can be used by any workflow in it,
+              and "send email as you" means exactly that — so a member who never
+              connected anything can still send mail under this address.
+            */}
+            <Notice tone="warn" title="This connection belongs to the workspace" className="mt-4">
+              Anyone in it can run a workflow that uses these permissions — including
+              sending mail from this address. Disconnect it if that is not what you want.
+            </Notice>
+          </>
         )}
 
         <div className="mt-4 flex flex-wrap items-center gap-2">

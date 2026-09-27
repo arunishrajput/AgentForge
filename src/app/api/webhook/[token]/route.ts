@@ -10,6 +10,7 @@ import {
   webhookRequiredFields,
   webhookTriggerNode,
 } from "@/lib/triggers/webhook";
+import { systemScope } from "@/lib/workspace/scope";
 
 export const dynamic = "force-dynamic";
 
@@ -24,8 +25,8 @@ export const dynamic = "force-dynamic";
  * Two consequences this route is built around:
  *
  *  - The lookup is by token alone, the only query in the codebase not scoped by
- *    `ownerId`. The owner comes *out* of the row and is what the run is attributed
- *    to, so a webhook cannot run a workflow on anyone else's behalf.
+ *    a workspace. Both come *out* of the row, so a webhook cannot run a workflow in
+ *    anyone else's workspace, and the run is still attributed to the workflow's owner.
  *  - The payload is validated before a run row exists. A malformed call costs one
  *    indexed select and no writes — this endpoint can spend a user's model quota,
  *    so cheap rejection is a cost property, not tidiness.
@@ -75,7 +76,9 @@ export async function POST(request: Request, { params }: Context) {
     }
 
     const { run, steps } = await startRun({
-      ownerId: workflow.ownerId,
+      // Derived from the workflow the presented token resolved to — never from the
+      // request, which has no session and nothing trustworthy to say about a tenant.
+      scope: systemScope(workflow),
       workflow,
       trigger: "webhook",
       input: payload.body,

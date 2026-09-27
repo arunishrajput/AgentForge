@@ -1,4 +1,5 @@
 import { auth } from "@/auth";
+import { resolveScope } from "@/lib/workspace/store";
 import { required } from "@/lib/env";
 import { appReturn, exchangeCode, fetchEmail } from "@/lib/integrations/google";
 import {
@@ -44,6 +45,14 @@ export async function GET(request: Request) {
     return redirect(app.location, app.secure);
   }
 
+  // The connection is stored against the workspace the user is in, not against the
+  // user — so a workflow anybody in that workspace runs can reach it (Phase 19A).
+  const scope = await resolveScope({
+    id: session.user.id,
+    name: session.user.name,
+    email: session.user.email,
+  });
+
   // The user pressed Cancel, or unticked everything and Google refused.
   const denied = url.searchParams.get("error");
   if (denied) {
@@ -64,7 +73,7 @@ export async function GET(request: Request) {
     const tokens = await exchangeCode(googleOAuthConfig(), code);
     const email = await fetchEmail(tokens.accessToken);
     await storeGoogleConnection({
-      ownerId: session.user.id,
+      scope,
       refreshToken: tokens.refreshToken,
       scopes: tokens.scopes,
       email,

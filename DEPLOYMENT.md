@@ -16,10 +16,10 @@ Every step is labelled **`AUTOMATED BY CLAUDE CODE`** or **`MANUAL HUMAN ACTION`
 | Field | Value |
 |---|---|
 | Service | `agentforge`, Cloud Run, `asia-southeast1` |
-| Revision | `agentforge-00002-zdg` — 100% of traffic. Last known-good before it: `agentforge-00001-h4k` |
+| Revision | **`agentforge-00037-k7x`** — 100% of traffic (Phase 19A). Last known-good before it: `agentforge-00036-zm8`, then `agentforge-00035-vfd` (Phase 18) |
 | Scaling | `min-instances 1`, `max-instances 3`, 1 vCPU / 1 GiB, 3600 s timeout |
-| Database | Neon `super-mountain-39872886`, `aws-ap-southeast-1` |
-| Last verified | 2026-09-25 — health, gating, a full Google sign-in / reload / sign-out cycle, and 33 API checks including a workflow executed end to end |
+| Database | Neon `super-mountain-39872886`, `aws-ap-southeast-1` — **11 tables**, migrations `0000`–`0006` applied |
+| Last verified | **2026-09-27, after Phase 19A** — 212 API checks passed / 13 failed (all the Gemini daily free-tier 429) / 4 skipped, `verify-durable.mjs` 7/7 including a Cloud Tasks scheduled run completing, `verify-schema.mjs` 6/6, and a real browser at 1440 px and 375 px with 0 console errors |
 
 The service also answers on a legacy hashed URL. Do not use it — see *Deploy*.
 
@@ -612,17 +612,55 @@ Run against `DATABASE_URL_UNPOOLED`. The pooled endpoint breaks session-level op
 migrations need.
 
 ```bash
-DATABASE_URL="$DATABASE_URL_UNPOOLED" <migration command>   # exact command set in Phase 3
+npm run db:generate     # schema change -> a new drizzle/NNNN_*.sql
+npm run db:migrate      # applies every pending migration to DATABASE_URL_UNPOOLED
+npm run db:studio       # browse the live data
 ```
 
-Run migrations **after** the deploy that contains them, from a local shell against the production
-database. Do not run migrations on container start — with more than one instance, concurrent
-migrations race.
+Do not run migrations on container start — with more than one instance, concurrent migrations race.
+They are run from a local shell against the production database.
+
+### Check for drift first, and afterwards
+
+```bash
+node --env-file=.env scripts/verify-schema.mjs
+```
+
+**Phase 19A added this because the repository and the database had silently disagreed for days, in
+two ways at once, and nothing in the test suite could see either.** `credential_owner_kind_label_idx`
+was declared by migration `0001` and simply absent from the database — which made every credential
+*write* answer HTTP 500, because `putCredential`'s `ON CONFLICT` names that index and Postgres will
+not plan the statement without it. Separately, `drizzle.__drizzle_migrations` held three rows while
+five migrations were physically applied, so the next `db:migrate` would have tried to re-apply
+`0003` and failed on `CREATE TABLE ... already exists`. Run this before and after any migration.
+
+### An additive migration, and one that is not
+
+An **additive** migration — new table, new nullable column, new column with a default — can be
+applied while the previous revision is still serving, which is what Phases 17 and 18 did.
+
+A migration that **tightens** a constraint cannot. A `NOT NULL` column with no default makes every
+insert from the previous revision fail for the length of the deploy. Phase 19A is the worked
+example, and the pattern to copy:
+
+| Step | What | Why |
+|---|---|---|
+| 1 | `node --env-file=.env scripts/rehearse-migration.mjs` | Applies both halves **and the rollback** to a throwaway schema holding a copy of the real rows, and asserts the copy is digest-identical to where it started. The copy is a schema rather than a Neon branch because `neonctl` here is unauthenticated (M9) |
+| 2 | Record the row counts of every affected table | The completion criterion is *no data loss, verified by counts before and after* |
+| 3 | Apply the **expand** half only — columns nullable, data backfilled | The old revision keeps serving. Temporarily withhold the contract half's entry from `drizzle/meta/_journal.json` so `db:migrate` stops after it |
+| 4 | Deploy, and verify the new revision is the only one serving | |
+| 5 | Restore the journal and `npm run db:migrate` again — the **contract** half | `NOT NULL`, and drop whatever the new shape supersedes |
+| 6 | `scripts/verify-schema.mjs`, then the API and durable suites | |
+
+**Write the rollback by hand and keep it.** Drizzle has no down migrations. Phase 19A's is
+`drizzle/rollback_0005_0006.sql`; it is applied with a SQL client and it also removes the two ledger
+rows, so a later `db:migrate` re-applies rather than believing the work is already done.
 
 > **There is one Neon database.** Local development and production share `super-mountain-39872886`
 > / `production` / `neondb`. A migration applied from a developer machine is **immediately live**.
-> There is no staging copy to practise on, so read a destructive migration twice, and never run one
-> on demo day. This also means Phase 2 had no separate "migrate production" step — the Phase 1
+> There is no staging copy to practise on — which is what `scripts/rehearse-migration.mjs` is for:
+> it makes one, inside a throwaway schema, and drops it afterwards. Read a destructive migration
+> twice, and never run one on demo day. This also means Phase 2 had no separate "migrate production" step — the Phase 1
 > migration was already applied.
 
 ---
@@ -812,9 +850,18 @@ The arithmetic that sets the cron tick, now verified rather than assumed:
 | `* * * * *` | 730 h (never suspends) | **~182** | **blows it mid-month** |
 | `*/15 * * * *` — **current, confirmed `ENABLED`** | ~243 h (4 × 5 min per hour) | **~61** | fits, ~39 spare |
 
-**~39 CU-hours/month is the entire budget for real usage.** That is the number Phases 19 (teams)
-and 22 (analytics) must be designed against, and it is small: it is about 156 hours of additional
+**~39 CU-hours/month is the entire budget for real usage.** That is about 156 hours of additional
 awake time, or roughly 5 hours a day of genuine activity on top of the tick.
+
+> **Sharpened in Phase 19A, and it changes which features are expensive.** Neon meters **compute
+> time awake**, not statements. A second query inside a request that has already woken the database
+> is therefore close to free, and what actually spends the budget is a **new reason to wake an idle
+> database** — a poller, a tick, a background job.
+>
+> Workspaces were designed against that reading and cost essentially nothing: `requireScope()` adds
+> one query to requests that already make one, and Phase 19A added no poller, no tick and no
+> background job. **Phase 22's analytics is the phase that must be designed against the number** —
+> anything that aggregates on a schedule is spending awake time rather than borrowing it.
 
 Measured live while writing this: a first query after idle took **917 ms** and the next **103 ms**,
 so scale-to-zero is demonstrably active and the wake cost is ~0.9 s. The database is **8,488 kB**

@@ -1,5 +1,7 @@
 import type { z } from "zod";
 
+import type { WorkspaceScope } from "@/lib/workspace/scope";
+
 /**
  * The node definition interface — CONTRACT.md → "Node definition interface".
  *
@@ -43,7 +45,16 @@ export interface StepLog {
 export interface NodeContext {
   runId: string;
   workflowId: string;
-  ownerId: string;
+  /**
+   * The workspace this run belongs to, and who triggered it — Phase 19A.
+   *
+   * It replaced a bare `ownerId`, and it is the only thing a node uses to reach a
+   * credential. That is the whole of a node's authority: it can read the credentials of
+   * the workspace whose workflow is running, and nothing else. There is no ambient
+   * access to any other workspace's, and nothing here can be widened by a node's own
+   * config, which is what keeps an agent's tool-calling inside the tenant it started in.
+   */
+  scope: WorkspaceScope;
   nodeId: string;
   /**
    * How many times this node has already *completed* in this run. 0 on first

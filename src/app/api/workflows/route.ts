@@ -1,4 +1,4 @@
-import { handle, ok, readJson, requireOwnerId } from "@/lib/api";
+import { handle, ok, readJson, requireScope } from "@/lib/api";
 import {
   createWorkflow,
   createWorkflowSchema,
@@ -10,17 +10,17 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   return handle(async () => {
-    const ownerId = await requireOwnerId();
-    const workflows = await listWorkflows(ownerId);
+    const scope = await requireScope();
+    const workflows = await listWorkflows(scope);
     return ok(workflows.map(describeWorkflow));
   });
 }
 
 export async function POST(request: Request) {
   return handle(async () => {
-    const ownerId = await requireOwnerId();
+    const scope = await requireScope();
     const body = await readJson(request, createWorkflowSchema);
-    const workflow = await createWorkflow(ownerId, body);
+    const workflow = await createWorkflow(scope, body);
     return ok(describeWorkflow(workflow), 201);
   });
 }

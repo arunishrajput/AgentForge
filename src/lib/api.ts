@@ -1,6 +1,9 @@
 import { z } from "zod";
 
 import { auth } from "@/auth";
+import { ApiError, STATUS, type ApiErrorCode } from "@/lib/api-error";
+import { resolveScope } from "@/lib/workspace/store";
+import type { WorkspaceScope } from "@/lib/workspace/scope";
 
 /**
  * Shared shapes for every API route — CONTRACT.md → "API request/response shapes".
@@ -9,22 +12,7 @@ import { auth } from "@/auth";
  * One envelope means a client can tell the two apart without inspecting the status
  * code, and one place to make sure an internal error never reaches a client.
  */
-export type ApiErrorCode =
-  | "unauthenticated"
-  | "not_found"
-  | "invalid_request"
-  | "invalid_graph"
-  | "conflict"
-  | "internal";
-
-const STATUS: Record<ApiErrorCode, number> = {
-  unauthenticated: 401,
-  not_found: 404,
-  invalid_request: 400,
-  invalid_graph: 422,
-  conflict: 409,
-  internal: 500,
-};
+export { ApiError, type ApiErrorCode };
 
 export function ok<T>(data: T, status = 200): Response {
   return Response.json({ data }, { status });
@@ -42,35 +30,39 @@ export function fail(
 }
 
 /**
- * Thrown to unwind out of a handler with a specific API error.
+ * Every route except the three with no session requires one, and scopes its queries to
+ * the caller's active **workspace**, server-side (ARCHITECTURE.md → "API surface").
  *
- * Fields are declared and assigned rather than written as constructor parameter
- * properties: Node runs the TypeScript sources directly for `npm test`, and its
- * strip-only mode rejects that syntax.
+ * **This replaced `requireOwnerId` in Phase 19A**, and the change is not cosmetic: what
+ * a route is allowed to see stopped being "rows with your user id on them" and became
+ * "rows in your workspace". Returning a `WorkspaceScope` rather than a string is what
+ * makes that sweep safe — every store function takes the object, so a call site left on
+ * the old signature does not compile. See `lib/workspace/scope.ts`.
+ *
+ * It costs one query on top of the session read. That is affordable for the reason
+ * `lib/workspace/store.ts` sets out: Neon's free tier meters time awake, not
+ * statements, and this adds no new reason to wake an idle database.
  */
-export class ApiError extends Error {
-  readonly code: ApiErrorCode;
-  readonly details?: unknown;
-
-  constructor(code: ApiErrorCode, message: string, details?: unknown) {
-    super(message);
-    this.name = "ApiError";
-    this.code = code;
-    this.details = details;
-  }
+export async function requireScope(): Promise<WorkspaceScope> {
+  const session = await auth();
+  const user = session?.user;
+  if (!user?.id) throw new ApiError("unauthenticated", "Sign in to use this endpoint.");
+  return resolveScope({ id: user.id, name: user.name, email: user.email });
 }
 
 /**
- * Every route except the webhook receiver and the cron tick requires a session and
- * scopes its query to the owner, server-side (ARCHITECTURE.md → "API surface").
- * Returning the id rather than the session keeps callers from reaching for
- * anything wider.
+ * For the one route that needs to know somebody is signed in and nothing else: the node
+ * registry, which serves the same static list to everybody and reads no row.
+ *
+ * Kept separate so it does not resolve a workspace it will not use. The model list looks
+ * like it belongs here and does not — it resolves a provider key, and a key is a
+ * workspace credential.
  */
-export async function requireOwnerId(): Promise<string> {
+export async function requireUserId(): Promise<string> {
   const session = await auth();
-  const ownerId = session?.user?.id;
-  if (!ownerId) throw new ApiError("unauthenticated", "Sign in to use this endpoint.");
-  return ownerId;
+  const userId = session?.user?.id;
+  if (!userId) throw new ApiError("unauthenticated", "Sign in to use this endpoint.");
+  return userId;
 }
 
 export async function readJson<T>(

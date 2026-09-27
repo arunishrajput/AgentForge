@@ -1,7 +1,7 @@
 import { z } from "zod";
 
-import { ApiError, handle, ok, readJson, requireOwnerId } from "@/lib/api";
-import { IntegrationError } from "@/lib/integrations/net";
+import { handle, ok, readJson, requireScope } from "@/lib/api";
+import { integrationApiError } from "@/lib/integrations/errors";
 import {
   clearDiscordWebhook,
   discordStatus,
@@ -22,37 +22,26 @@ const bodySchema = z.object({
 
 export async function GET() {
   return handle(async () => {
-    const ownerId = await requireOwnerId();
-    return ok(await discordStatus(ownerId));
+    const scope = await requireScope();
+    return ok(await discordStatus(scope));
   });
 }
 
 export async function PUT(request: Request) {
   return handle(async () => {
-    const ownerId = await requireOwnerId();
+    const scope = await requireScope();
     const body = await readJson(request, bodySchema);
     try {
-      return ok(await storeDiscordWebhook(ownerId, body.webhookUrl));
+      return ok(await storeDiscordWebhook(scope, body.webhookUrl));
     } catch (error) {
-      throw asApiError(error);
+      throw integrationApiError("Discord", error);
     }
   });
 }
 
 export async function DELETE() {
   return handle(async () => {
-    const ownerId = await requireOwnerId();
-    return ok(await clearDiscordWebhook(ownerId));
+    const scope = await requireScope();
+    return ok(await clearDiscordWebhook(scope));
   });
-}
-
-/**
- * Discord's own words reach the user — "Unknown Webhook" tells them the webhook was
- * deleted, which is what they need to act on. The URL is never echoed back.
- */
-function asApiError(error: unknown): ApiError {
-  if (error instanceof IntegrationError) {
-    return new ApiError("invalid_request", error.message);
-  }
-  return new ApiError("internal", "Could not reach Discord.");
 }

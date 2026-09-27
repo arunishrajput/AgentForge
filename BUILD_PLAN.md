@@ -28,13 +28,14 @@ phase is incomplete. Current position is in `PROGRESS.md`, not here.
 **Chapter 2 — the real product. Phases 13–25. THIS IS THE CURRENT WORK.**
 
 ```
-13  Reset, verification, and professional foundations   ← START HERE
-14  Toybox — the design system                          ← the look changes here
-15  UI rebuild I — the shell
-16  UI rebuild II — the canvas                          ← the screen that matters
-17  Durable execution — a real queue, resumable runs
-18  Workflow versioning and diffing
-19  Workspaces and membership                           ← largest and riskiest
+13  Reset, verification, and professional foundations   ✅
+14  Toybox — the design system                          ✅
+15  UI rebuild I — the shell                            ✅
+16  UI rebuild II — the canvas                          ✅
+17  Durable execution — a real queue, resumable runs    ✅
+18  Workflow versioning and diffing                     ✅
+19A Workspaces — the data model and scoping            ← START HERE
+19B Membership — invitations and the switcher
 20  Roles, permissions and sharing
 21  Credential vault and rotation
 22  Observability and run analytics
@@ -1010,33 +1011,126 @@ the free-tier budget.
 
 ---
 
-## Phase 19 — Workspaces and membership
+## Phase 19 — Workspaces and membership — **SPLIT into 19A and 19B**
 
-**Objective.** AgentForge stops being single-user. Workflows, credentials and runs belong to a
-workspace, not directly to a person.
+**The split, decided 2026-09-27 at the start of the phase**, under the licence this phase always
+carried: *"This is the largest and riskiest phase in Chapter 2 — expect to split it; record the
+split here if so."*
 
-**Dependencies.** Phase 17 (do not migrate the data model while execution is being rewritten).
+**Why here.** The phase holds two things with different risk profiles and different ways of going
+wrong. One is a **schema migration against a live, metered database holding real data**, plus a
+scoping change that touches every query in the product — it is verified by row counts, an
+isolation matrix and a rehearsed rollback. The other is **new product surface** — invitations, an
+accept flow, a switcher — verified by driving it. Shipping both in one deploy means that if the
+deployed system misbehaves afterwards, there is no way to tell which half did it, and the
+expand/contract migration below *wants* a deploy of its own between its two steps.
 
-**Tasks.** `workspace` and `workspace_member` tables. Migrate every existing owned resource to a
-personal workspace per user — **with a reversible migration**. A workspace switcher. Invitations by
-email with accept and revoke. Every query scoped to the active workspace.
+**What did not change:** the objective, the completion criteria, or the scope. Everything Phase 19
+listed is still built, in the same order, across two sessions.
 
-**Primary files.** `drizzle/*`, `src/lib/auth/*`, `src/lib/db/*`, every API route.
+---
 
-**Implementation notes.** **This is the largest and riskiest phase in Chapter 2** — it touches every
-query in the product. Expect to split it; record the split here if so. Write the migration to be
-reversible and rehearse the rollback before running it against the deployed database. Every new
-query is load against the Neon budget from Phase 13.
+## Phase 19A — Workspaces: the data model and scoping
 
-**Validation steps.** Existing data survives the migration intact. A second account can be invited,
-accept, and see only what it should. The rollback is rehearsed on a copy.
+**Objective.** Every resource in the product belongs to a **workspace** rather than directly to a
+person, and no query can read across one. AgentForge is still single-user in practice — every user
+has exactly one workspace and is its only member — but the *shape* is multi-tenant and proven so.
 
-**Completion criteria.** Migration applied to the deployed database with no data loss, verified by
-row counts before and after.
+**Dependencies.** Phase 18.
 
-**Documentation updates.** `CONTRACT.md`, `ARCHITECTURE.md`, `PRD.md`, `DEPLOYMENT.md`, `PROGRESS.md`.
+**Tasks.**
 
-**Commit.** `feat: complete phase 19 workspaces and membership`
+- `workspace` and `workspace_member` tables. `workspace_member.role` is written now and
+  **enforced in Phase 20** — see the handoff note below.
+- A `workspaceId` column on `workflow`, `run`, `workflow_version` and `credential`, **added
+  alongside `ownerId`, never replacing it.** `ownerId` keeps its own meaning — *who created this*,
+  *who triggered this run* — and stays the reason a run survives as a record of what happened.
+- An **expand/contract migration in two steps, with a hand-written rollback**: `0005` adds the
+  tables and the columns **nullable** and backfills a personal workspace per user, so the previous
+  revision keeps serving throughout; `0006` makes the columns `NOT NULL` and drops the superseded
+  credential index, once the new revision is the only one running.
+- **Rehearse the rollback on a copy before running either against the deployed database.**
+- One request-scoped resolution of the active workspace, and a `WorkspaceScope` that every store
+  function takes **instead of** an owner id — a distinct type, so a call site that was missed
+  fails the typecheck rather than silently reading across a tenant.
+- A personal workspace is created at first sign-in, and by the scope resolver if it is ever
+  missing.
+- The header names the active workspace.
+
+**Primary files.** `drizzle/*`, `src/db/schema.ts`, `src/lib/workspace/*` (new), `src/lib/api.ts`,
+`src/auth.ts`, every store module, every API route, `src/components/shell/app-header.tsx`.
+
+**Implementation notes.**
+
+- **The Neon budget is not the constraint it looks like.** Neon's free tier meters *compute time
+  awake*, not statements, so a second query inside a request that already made one costs nothing —
+  what costs is a **new reason to wake the database**. Workspaces add queries to requests that
+  already exist and add no poller, no tick and no background job, so they are close to free against
+  the ~39 CU-hour balance. Phase 22's analytics is the one that must be designed against the
+  number, not this.
+- **Credentials become workspace-scoped, and that is a widening of a security surface.** It is
+  necessary — a workflow shared to a teammate that cannot reach its Google credential fails at the
+  first integration node, at runtime, silently — but it means *connecting Google to a workspace
+  lets every member of that workspace act as you on those scopes*. Say so where a user connects
+  one, and record it in `CONTRACT.md`.
+- **The unique index on `credential` moves from `(ownerId, kind, label)` to
+  `(workspaceId, kind, label)`.** Both exist between `0005` and `0006` — the old one must be gone
+  before any user can hold a second workspace, or storing the same kind in two of them is refused.
+
+**Validation steps.** Row counts before and after the migration match, and every pre-existing row
+has a workspace. Rollback rehearsed on a copy and the copy verified identical to where it started.
+A second workspace with a second user sees none of the first's workflows, runs, versions or
+credentials — asserted **at the API**, over HTTP, against the deployed system. The demo path still
+runs end to end. A real browser, 0 console errors.
+
+**Completion criteria.** Both migrations applied to the deployed database with **no data loss,
+verified by row counts before and after**; the isolation matrix passes against the deployed URL;
+CI green.
+
+**Documentation updates.** `CONTRACT.md`, `ARCHITECTURE.md`, `PRD.md`, `DEPLOYMENT.md`,
+`PROGRESS.md`.
+
+**Commit.** `feat: complete phase 19a workspaces data model and scoping`
+
+---
+
+## Phase 19B — Membership: invitations and the switcher
+
+**Objective.** More than one person in a workspace, and more than one workspace per person.
+
+**Dependencies.** Phase 19A.
+
+**Tasks.** Create and rename a workspace. Invitations by email — issue, accept, revoke, expire — on
+a single-use unguessable token. A members list. A workspace switcher in the header that sets the
+active workspace. The empty and single-workspace states designed, not defaulted.
+
+**Primary files.** `drizzle/*`, `src/lib/workspace/*`, `src/app/api/workspaces/*` (new),
+`src/components/shell/*`, `src/app/settings/*`.
+
+**Implementation notes.**
+
+- **An invitation token is a new unauthenticated surface.** Treat it exactly like the webhook
+  trigger token: CSPRNG, single use, expiring, and an accept endpoint that leaks nothing about a
+  workspace to a holder of a wrong token.
+- **The handoff Phase 19A leaves, and it is load-bearing.** 19A writes `workspace_member.role` and
+  **does not enforce it** — which is inert there, because every member it creates is the `owner` of
+  their own personal workspace. **The moment this phase can create a member who is not an owner,
+  that stops being true.** Either enforce the role here, or merge this phase with Phase 20. Do not
+  ship an invitation that hands somebody a `viewer` badge and full write access.
+- An invitation is addressed to an email, and the invitee may not have an account yet. Accept after
+  sign-in, matching on the verified email from the identity provider — never on a claim in the URL.
+
+**Validation steps.** A second real account is invited, accepts, and sees exactly the shared
+workspace and nothing else. A revoked invitation cannot be accepted. An expired one cannot. The
+switcher changes what the workflow list returns.
+
+**Completion criteria.** Two accounts, one shared workspace, proven in a browser — and the second
+account proven unable to reach the first's personal workspace through a crafted request.
+
+**Documentation updates.** `CONTRACT.md`, `ARCHITECTURE.md`, `PRD.md`, `SECURITY.md` if it exists
+by then, `PROGRESS.md`.
+
+**Commit.** `feat: complete phase 19b workspace membership and invitations`
 
 ---
 

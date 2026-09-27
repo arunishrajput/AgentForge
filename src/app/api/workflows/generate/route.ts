@@ -1,6 +1,7 @@
 import { NoProviderKeyError, resolveProvider } from "@/lib/ai/provider";
 import { ProviderError } from "@/lib/ai/types";
-import { ApiError, handle, ok, readJson, requireOwnerId } from "@/lib/api";
+import { ApiError, handle, ok, readJson, requireScope } from "@/lib/api";
+import type { WorkspaceScope } from "@/lib/workspace/scope";
 import { generateWorkflow } from "@/lib/generate/generate";
 import { generateRequestSchema } from "@/lib/generate/schema";
 import { createWorkflow, describeWorkflow } from "@/lib/workflow/store";
@@ -20,10 +21,10 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(request: Request) {
   return handle(async () => {
-    const ownerId = await requireOwnerId();
+    const scope = await requireScope();
     const body = await readJson(request, generateRequestSchema);
 
-    const provider = await resolveProviderOr422(ownerId);
+    const provider = await resolveProviderOr422(scope);
 
     let result;
     try {
@@ -57,7 +58,7 @@ export async function POST(request: Request) {
     }
 
     const workflow = await createWorkflow(
-      ownerId,
+      scope,
       {
         name: result.name,
         description: result.description,
@@ -90,9 +91,9 @@ export async function POST(request: Request) {
  * not there. Here the caller asked to generate, and the fix is a different page, so
  * it is reported as an actionable failure with the message the provider module wrote.
  */
-async function resolveProviderOr422(ownerId: string) {
+async function resolveProviderOr422(scope: WorkspaceScope) {
   try {
-    return await resolveProvider(ownerId);
+    return await resolveProvider(scope);
   } catch (error) {
     if (error instanceof NoProviderKeyError) {
       throw new ApiError("invalid_request", error.message);

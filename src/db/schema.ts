@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  boolean,
   index,
   integer,
   jsonb,
@@ -15,6 +16,7 @@ import type { RunCursor } from "@/lib/engine/cursor";
 import type { RunMode, RunStatus, StepStatus, TriggerKind } from "@/lib/engine/types";
 import type { StepLog } from "@/lib/nodes/types";
 import type { WorkflowGraph } from "@/lib/workflow/graph";
+import type { WorkspaceRole } from "@/lib/workspace/roles";
 
 /**
  * Auth tables (Phase 1) and the workflow domain (Phase 3).
@@ -78,6 +80,85 @@ export const verificationTokens = pgTable(
 );
 
 /* ------------------------------------------------------------------ *
+ * Phase 19A — workspaces and membership
+ * ------------------------------------------------------------------ */
+
+/**
+ * A workspace is **the unit every resource belongs to** — a workflow, a run, a version
+ * and a credential all name one, and no query in the product reads across a workspace
+ * boundary.
+ *
+ * It replaces "the user" as the tenant, and it does **not** replace `ownerId`. Those
+ * two columns answer different questions and both are worth keeping: `workspaceId`
+ * answers *who may see this*, `ownerId` answers *who made this happen*. Collapsing
+ * them would cost the run history the only record it has of who triggered a run.
+ *
+ * `personal` marks the workspace created automatically for a user, which is the one
+ * they land in and the one every pre-Phase-19 resource was backfilled into. It is a
+ * fact about the row's origin, not a permission: a personal workspace is an ordinary
+ * workspace in every other respect, and Phase 19B may invite somebody into one.
+ */
+export const workspaces = pgTable(
+  "workspace",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    name: text("name").notNull(),
+    /**
+     * Who created it. **Not an authorisation column** — membership is, and the check
+     * is always against `workspace_member`. `set null` rather than `cascade`: deleting
+     * the person who made a workspace must not delete the workspace out from under
+     * everybody else in it.
+     */
+    createdBy: text("createdBy").references(() => users.id, { onDelete: "set null" }),
+    personal: boolean("personal").notNull().default(false),
+    createdAt: timestamp("createdAt", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updatedAt", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // One personal workspace per creator, enforced rather than assumed: the scope
+    // resolver creates one when it finds none, and two requests arriving together on a
+    // cold account would otherwise both find none and both create one. `neon-http` has
+    // no transactions (D6), so this index *is* the interlock — the loser of the race
+    // gets a conflict and re-reads.
+    uniqueIndex("workspace_personal_idx")
+      .on(table.createdBy)
+      .where(sql`${table.personal}`),
+  ],
+);
+
+/**
+ * Who is in a workspace, and as what.
+ *
+ * `(workspaceId, userId)` is the primary key, so a person cannot be in the same
+ * workspace twice — the shape that makes an invitation idempotent in Phase 19B.
+ *
+ * **`role` is written here and enforced in Phase 20.** `lib/workspace/roles.ts` holds
+ * that handoff in full; the short version is that Phase 19A only ever writes `owner`,
+ * so there is nothing yet for an enforcement layer to refuse.
+ */
+export const workspaceMembers = pgTable(
+  "workspace_member",
+  {
+    workspaceId: text("workspaceId")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    userId: text("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    role: text("role").$type<WorkspaceRole>().notNull().default("owner"),
+    createdAt: timestamp("createdAt", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.workspaceId, table.userId] }),
+    // Every request resolves the active workspace by asking "which workspaces is this
+    // user in", so this is the hot index, not the primary key's.
+    index("workspace_member_user_idx").on(table.userId),
+  ],
+);
+
+/* ------------------------------------------------------------------ *
  * Phase 3 — workflows, runs, steps, credentials
  * ------------------------------------------------------------------ */
 
@@ -96,6 +177,17 @@ export const workflows = pgTable(
     ownerId: text("ownerId")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    /**
+     * The workspace this workflow belongs to — Phase 19A, and **the scoping column**.
+     * Every query the product makes filters on it.
+     *
+     * It sits *alongside* `ownerId` rather than replacing it, because the two answer
+     * different questions: this one answers *who may see this*, `ownerId` answers
+     * *who made this happen*.
+     */
+    workspaceId: text("workspaceId")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     description: text("description"),
     graph: jsonb("graph").$type<WorkflowGraph>().notNull(),
@@ -134,6 +226,11 @@ export const workflows = pgTable(
   },
   (table) => [
     index("workflow_owner_idx").on(table.ownerId, table.updatedAt),
+    // The workflow list's query since Phase 19A — the owner index above no longer
+    // serves it, because the list is "every workflow in this workspace", whoever made
+    // each one. Kept side by side rather than replaced: `ownerId` is still a real
+    // column with real reads, and an index on a two-row table costs nothing to keep.
+    index("workflow_workspace_idx").on(table.workspaceId, table.updatedAt),
     // The cron tick's only query. Partial, because every workflow without a schedule
     // trigger is a null here and has no business being in the index.
     index("workflow_schedule_due_idx")
@@ -185,6 +282,17 @@ export const runs = pgTable(
     ownerId: text("ownerId")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    /**
+     * The workspace this run belongs to — Phase 19A, and **the scoping column**.
+     * Every query the product makes filters on it.
+     *
+     * It sits *alongside* `ownerId` rather than replacing it, because the two answer
+     * different questions: this one answers *who may see this*, `ownerId` answers
+     * *who made this happen*.
+     */
+    workspaceId: text("workspaceId")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
     status: text("status").$type<RunStatus>().notNull(),
     trigger: text("trigger").$type<TriggerKind>().notNull(),
     input: jsonb("input"),
@@ -218,6 +326,7 @@ export const runs = pgTable(
   },
   (table) => [
     index("run_owner_idx").on(table.ownerId, table.startedAt),
+    index("run_workspace_idx").on(table.workspaceId, table.startedAt),
     index("run_workflow_idx").on(table.workflowId, table.startedAt),
     index("run_status_idx").on(table.status, table.heartbeatAt),
     // The sweeper's query: unfinished runs whose lease has lapsed. Partial would be
@@ -291,6 +400,17 @@ export const workflowVersions = pgTable(
     ownerId: text("ownerId")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    /**
+     * The workspace this version belongs to — Phase 19A, and **the scoping column**.
+     * Every query the product makes filters on it.
+     *
+     * It sits *alongside* `ownerId` rather than replacing it, because the two answer
+     * different questions: this one answers *who may see this*, `ownerId` answers
+     * *who made this happen*.
+     */
+    workspaceId: text("workspaceId")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
     number: integer("number").notNull(),
     label: text("label"),
     name: text("name").notNull(),
@@ -324,6 +444,17 @@ export const credentials = pgTable(
     ownerId: text("ownerId")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    /**
+     * The workspace this credential belongs to — Phase 19A, and **the scoping column**.
+     * Every query the product makes filters on it.
+     *
+     * It sits *alongside* `ownerId` rather than replacing it, because the two answer
+     * different questions: this one answers *who may see this*, `ownerId` answers
+     * *who made this happen*.
+     */
+    workspaceId: text("workspaceId")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
     kind: text("kind").notNull(),
     label: text("label").notNull(),
     ciphertext: text("ciphertext").notNull(),
@@ -333,9 +464,32 @@ export const credentials = pgTable(
     createdAt: timestamp("createdAt", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updatedAt", { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [uniqueIndex("credential_owner_kind_label_idx").on(table.ownerId, table.kind, table.label)],
+  (table) => [
+    /**
+     * **One credential per `(workspace, kind, label)` — Phase 19A**, and the index the
+     * upsert in `lib/credentials.ts` targets.
+     *
+     * It supersedes `credential_owner_kind_label_idx` above, which is dropped by
+     * migration `0006` rather than by `0005`. Both exist in between on purpose: while
+     * two revisions are serving, one writes `ownerId` and the other writes
+     * `workspaceId`, and at that moment the two are in exact one-to-one
+     * correspondence, so keeping both is the only state in which neither revision can
+     * write a duplicate.
+     *
+     * **The old one must be gone before any user can hold a second workspace** (Phase
+     * 19B), or storing the same kind of credential in two of their workspaces is
+     * refused by an index that is measuring the wrong thing.
+     */
+    uniqueIndex("credential_workspace_kind_label_idx").on(
+      table.workspaceId,
+      table.kind,
+      table.label,
+    ),
+  ],
 );
 
+export type Workspace = typeof workspaces.$inferSelect;
+export type WorkspaceMember = typeof workspaceMembers.$inferSelect;
 export type Workflow = typeof workflows.$inferSelect;
 export type WorkflowVersion = typeof workflowVersions.$inferSelect;
 export type Run = typeof runs.$inferSelect;

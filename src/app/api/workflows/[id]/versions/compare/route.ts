@@ -1,4 +1,4 @@
-import { ApiError, handle, ok, requireOwnerId } from "@/lib/api";
+import { ApiError, handle, ok, requireScope } from "@/lib/api";
 import { getWorkflow } from "@/lib/workflow/store";
 import { compareVersions } from "@/lib/workflow/versions";
 
@@ -21,15 +21,15 @@ type Context = { params: Promise<{ id: string }> };
  */
 export async function GET(request: Request, { params }: Context) {
   return handle(async () => {
-    const ownerId = await requireOwnerId();
+    const scope = await requireScope();
     const { id } = await params;
-    const workflow = await getWorkflow(ownerId, id);
+    const workflow = await getWorkflow(scope, id);
 
     const query = new URL(request.url).searchParams;
     const from = parse(query.get("from"), "from");
     const to = query.get("to") === null ? workflow.version : parse(query.get("to"), "to");
 
-    return ok(await compareVersions(ownerId, id, from, to));
+    return ok(await compareVersions(scope, id, from, to));
   });
 }
 

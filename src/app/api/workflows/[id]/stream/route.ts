@@ -1,4 +1,5 @@
-import { ApiError, fail, requireOwnerId } from "@/lib/api";
+import { ApiError, fail, requireScope } from "@/lib/api";
+import type { WorkspaceScope } from "@/lib/workspace/scope";
 import { describeRun, getRun, latestRun, readSteps } from "@/lib/engine/run";
 import {
   STREAM_HEADERS,
@@ -45,16 +46,16 @@ function sleep(ms: number): Promise<void> {
 }
 
 export async function GET(request: Request, { params }: Context) {
-  let ownerId: string;
+  let scope: WorkspaceScope;
   let workflowId: string;
 
-  // Auth and owner-scoping happen before a single byte is streamed, so a failure is
-  // an ordinary JSON error response. An `EventSource` given a non-200 fails without
+  // Auth and workspace scoping happen before a single byte is streamed, so a failure
+  // is an ordinary JSON error response. An `EventSource` given a non-200 fails without
   // retrying, which is the behaviour we want for 401 and 404.
   try {
-    ownerId = await requireOwnerId();
+    scope = await requireScope();
     const { id } = await params;
-    await getWorkflow(ownerId, id);
+    await getWorkflow(scope, id);
     workflowId = id;
   } catch (error) {
     if (error instanceof ApiError) return fail(error.code, error.message, error.details);
@@ -79,7 +80,7 @@ export async function GET(request: Request, { params }: Context) {
     if (pinnedRunId) {
       firstPoll = false;
       try {
-        const { run, steps } = await getRun(ownerId, pinnedRunId);
+        const { run, steps } = await getRun(scope, pinnedRunId);
         // Owner scoping came from `getRun`; this keeps the stream honest about which
         // workflow it claims to be watching.
         if (run.workflowId !== workflowId) return null;
@@ -89,7 +90,7 @@ export async function GET(request: Request, { params }: Context) {
       }
     }
 
-    const candidate = await latestRun(ownerId, workflowId);
+    const candidate = await latestRun(scope, workflowId);
     const decision = followDecision(candidate, { baselineRunId, firstPoll });
     firstPoll = false;
     baselineRunId = decision.baselineRunId;

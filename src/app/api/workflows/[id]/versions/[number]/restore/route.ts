@@ -1,4 +1,4 @@
-import { ApiError, handle, ok, requireOwnerId } from "@/lib/api";
+import { ApiError, handle, ok, requireScope } from "@/lib/api";
 import { describeWorkflow, restoreVersion } from "@/lib/workflow/store";
 
 export const dynamic = "force-dynamic";
@@ -17,7 +17,7 @@ type Context = { params: Promise<{ id: string; number: string }> };
  */
 export async function POST(_request: Request, { params }: Context) {
   return handle(async () => {
-    const ownerId = await requireOwnerId();
+    const scope = await requireScope();
     const { id, number } = await params;
 
     const parsed = Number(number);
@@ -25,6 +25,6 @@ export async function POST(_request: Request, { params }: Context) {
       throw new ApiError("not_found", "No such version of this workflow.");
     }
 
-    return ok(describeWorkflow(await restoreVersion(ownerId, id, parsed)));
+    return ok(describeWorkflow(await restoreVersion(scope, id, parsed)));
   });
 }

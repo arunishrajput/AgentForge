@@ -1,4 +1,4 @@
-import { handle, ok, requireOwnerId } from "@/lib/api";
+import { handle, ok, requireScope } from "@/lib/api";
 import { finishUnclaimedRun, requestCancel } from "@/lib/engine/lease";
 import { describeRun, getRun } from "@/lib/engine/run";
 
@@ -29,16 +29,16 @@ type Context = { params: Promise<{ id: string }> };
  * finished run is therefore a no-op that answers with the run — which is the useful reply
  * to "stop this" when it has already stopped.
  *
- * Owner scoping needs no separate check: `requestCancel` filters on `ownerId`, so another
+ * Scoping needs no separate check: `requestCancel` filters on the workspace, so another
  * user's run is untouched, and the read-back is `getRun`, which 404s on it (D-era rule:
  * somebody else's record is indistinguishable from one that does not exist).
  */
 export async function POST(_request: Request, { params }: Context) {
   return handle(async () => {
-    const ownerId = await requireOwnerId();
+    const scope = await requireScope();
     const { id } = await params;
 
-    const asked = await requestCancel({ runId: id, ownerId });
+    const asked = await requestCancel({ runId: id, scope });
     if (asked) {
       await finishUnclaimedRun({
         runId: id,
@@ -47,7 +47,7 @@ export async function POST(_request: Request, { params }: Context) {
       });
     }
 
-    const { run, steps } = await getRun(ownerId, id);
+    const { run, steps } = await getRun(scope, id);
     return ok(describeRun(run, steps));
   });
 }

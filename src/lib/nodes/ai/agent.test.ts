@@ -13,13 +13,14 @@ import {
   stripDecisionLine,
 } from "./agent";
 import { stripCodeFence } from "./llm";
+import { TEST_SCOPE } from "@/lib/engine/fixtures";
 
 function fakeContext(): NodeContext & { lines: Array<{ message: string; level: LogLevel }> } {
   const lines: Array<{ message: string; level: LogLevel }> = [];
   return {
     runId: "run-1",
     workflowId: "wf-1",
-    ownerId: "owner-1",
+    scope: TEST_SCOPE,
     nodeId: "agent_1",
     iteration: 0,
     log: (message: string, level: LogLevel = "info") => lines.push({ message, level }),

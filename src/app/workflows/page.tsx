@@ -1,7 +1,5 @@
 import type { Metadata } from "next";
-import { redirect } from "next/navigation";
 
-import { auth } from "@/auth";
 import { AppHeader } from "@/components/shell/app-header";
 import { NewWorkflowButton } from "@/components/workflows/actions";
 import { GenerateWorkflowForm } from "@/components/workflows/generate-form";
@@ -9,6 +7,8 @@ import { WorkflowList } from "@/components/workflows/workflow-list";
 import { getNode } from "@/lib/nodes";
 import { toWorkflowCard } from "@/lib/workflow/list";
 import { describeWorkflow, listWorkflows } from "@/lib/workflow/store";
+import { requirePageSession } from "@/lib/workspace/page";
+import { describeWorkspace } from "@/lib/workspace/store";
 
 export const dynamic = "force-dynamic";
 
@@ -31,10 +31,8 @@ export const metadata: Metadata = { title: "Workflows" };
  * is hydration error #418.
  */
 export default async function WorkflowsPage() {
-  const session = await auth();
-  if (!session?.user?.id) redirect("/");
-
-  const workflows = (await listWorkflows(session.user.id)).map(describeWorkflow);
+  const { email, scope, membership } = await requirePageSession();
+  const workflows = (await listWorkflows(scope)).map(describeWorkflow);
   const cards = workflows.map((workflow) =>
     toWorkflowCard(workflow, (type) => {
       const node = getNode(type);
@@ -44,7 +42,7 @@ export default async function WorkflowsPage() {
 
   return (
     <>
-      <AppHeader email={session.user.email ?? ""} active="workflows" />
+      <AppHeader email={email} workspace={describeWorkspace(membership)} active="workflows" />
 
       <main id="main" className="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-10">
         <div className="animate-rise mb-6 flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
@@ -53,7 +51,7 @@ export default async function WorkflowsPage() {
             <p className="text-muted mt-1 text-sm">
               {cards.length === 0
                 ? "Describe one below, and it is built, validated and saved before you see it."
-                : `${cards.length} workflow${cards.length === 1 ? "" : "s"} in your account.`}
+                : `${cards.length} workflow${cards.length === 1 ? "" : "s"} in ${membership.workspace.personal ? "your workspace" : membership.workspace.name}.`}
             </p>
           </div>
           <NewWorkflowButton />

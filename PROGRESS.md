@@ -14,10 +14,11 @@ Phases 0–12 built and shipped a hackathon MVP. It was submitted on 2026-09-26
 (<https://www.youtube.com/watch?v=Suc4RV9LnLs>), and that chapter is done and not reopened.
 
 **Chapter 2 turns the MVP into a real, professional, open-source product.** Thirteen phases,
-13 → 25, defined in `BUILD_PLAN.md`. **Phases 13–18 are done.**
+13 → 25, defined in `BUILD_PLAN.md`. **Phases 13–18 are done, and Phase 19 has been split — 19A is
+done, 19B is next.**
 
 **The live system still works and must keep working:**
-**https://agentforge-733000675212.asia-southeast1.run.app** — revision `agentforge-00035-vfd`.
+**https://agentforge-733000675212.asia-southeast1.run.app** — revision `agentforge-00037-k7x`.
 
 ### Four binding decisions, made 2026-09-26
 
@@ -33,68 +34,79 @@ Phases 0–12 built and shipped a hackathon MVP. It was submitted on 2026-09-26
 Zero budget plus teams plus observability plus a vault **pull against each other**. Neon's free tier
 is 100 CU-hours/month with autosuspend that cannot be disabled, and Chapter 1 already had to set the
 cron tick to `*/15` to stay inside it. Multi-user queries and analytics both spend from that same
-budget. **Phase 13 measured the real headroom; Phase 18 re-measured storage.** Phases 19 and 22 design against those numbers.
+budget. **Phase 13 measured the real headroom; Phase 18 re-measured storage; Phase 19A sharpened
+what the meter actually counts — compute time awake, not statements**, which is why workspaces were
+nearly free and why Phase 22's analytics is the phase that has to be designed against the number.
 `BUILD_PLAN.md` → *The zero-cost problem* holds the per-area resolution.
 
 ---
 
 ## Current Phase
 
-## ▶ NEXT: PHASE 19 — Workspaces and membership
+## ▶ NEXT: PHASE 19B — Membership: invitations and the switcher
 
-**Phase 18 is COMPLETE (2026-09-27).** Full definition of Phase 19 in `BUILD_PLAN.md`.
-Read `CONTRACT.md` before any shared schema, and `ARCHITECTURE.md` before adding a component.
+**Phase 19A is COMPLETE (2026-09-27).** Full definition of 19B in `BUILD_PLAN.md`. Read
+`CONTRACT.md` → *Workspaces and membership* before touching any of it.
 
-**Before designing Phase 19, read `DEPLOYMENT.md` → *Free-tier headroom*.** Neon compute is the
-binding resource with **~39 CU-hours/month spare**, and multi-user query load spends from exactly
-that. M9 below is still open: the *budget* is verified, the *balance* is not.
+**Phase 19 was split, deliberately and under the licence it always carried** ("expect to split it;
+record the split here if so"). 19A is the data model, the migration and the scoping; 19B is
+invitations, the switcher and the members list. The reasoning is in `BUILD_PLAN.md` → *Phase 19*.
 
-**What Phase 18 leaves you:**
+**What Phase 19A leaves you:**
 
-- **Every save is a version, and the number is race-free without a transaction.** `neon-http` has
-  no transactions (D6), so `max(number) + 1` read and inserted a moment later is a genuine race.
-  The counter is `workflow.version`, **bumped inside the same single-row UPDATE that writes the
-  graph**, and `RETURNING` hands back a number no concurrent save can also have. Same primitive
-  D42 claims a cron slot with. **Do not move the numbering into `workflow_version`**
-- **Not every save is a version — that is the debounce.** A save that changes neither the graph
-  nor the name writes no snapshot. The canvas PATCHes the whole graph before *every run*, so
-  without it, running a workflow five times leaves five identical rows on a metered database. The
-  comparison is `graphsEqual`, which **moved from `lib/canvas/bridge.ts` to `lib/workflow/graph.ts`
-  in this phase** so the canvas's dirty check and the debounce cannot drift apart
-- **History is append-only. Restore moves forward.** Restoring v3 writes v3's graph as v8; nothing
-  is renumbered and nothing between is deleted. Rewinding would be the obvious implementation and
-  it would silently corrupt the run history, which is the one thing versioning exists to make
-  trustworthy
-- **A run records `workflowVersion`, and it is load-bearing on resume.** A durable run redelivered
-  after an edit now executes **the graph it started on**, read back from the snapshot. Without it,
-  delivery 1 runs three nodes of v4, an edit lands, and delivery 2 resumes from a cursor naming a
-  node that no longer exists. Null falls back to the live graph — the pre-Phase-18 behaviour
-- **The retention cap is 50 unlabelled versions per workflow, and a named version is never
-  pruned.** Measured: **737 bytes** per stored graph on average, **1,097** for the six-node demo,
-  the whole database **8.55 MiB of 0.5 GB**. Storage is *not* the binding Neon resource; the cap
-  exists because unbounded history has no ceiling
-- **Diff mode is a mode, and the canvas is inert in it.** The graph on screen is the union of two
-  versions and was never anybody's workflow. `onNodesChange` is withheld, which is the whole safety
-  story — a draggable diff would feed nodes from that union back into the editing state and the
-  next Save would write it
+- **A workspace is the tenant, and `workspaceId` sits alongside `ownerId` rather than replacing
+  it.** The two answer different questions — *who may see this* and *who made this happen* — and
+  collapsing them would cost the run history its only record of who triggered a run. Four tables
+  carry both: `workflow`, `run`, `workflow_version`, `credential`
+- **`WorkspaceScope` is an object, and that is the whole safety argument.** The refactor changed the
+  meaning of the first argument of ~30 functions from "the user" to "the workspace". Had both been
+  `string`, every call site missed in the sweep would have compiled and read one tenant's rows under
+  another tenant's name. As a type, **all 43 call sites failed the typecheck** and were found that
+  way. Do not weaken it back to a string
+- **Credentials are workspace-scoped, and that widens a security surface on purpose.** A shared
+  workflow that cannot reach its Google credential fails at the first integration node, at runtime.
+  The consequence — *every member can act as you within the scopes you granted* — is on the
+  settings card where the connection is made, not only in a document
+- **`role` is written and NOT enforced. That is inert today and stops being inert in 19B.** 19A only
+  ever creates the `owner` of a personal workspace, so there is no member to enforce against. **The
+  moment an invitation can create a `viewer`, an unenforced role is a badge next to full write
+  access.** Enforce it in 19B, or merge 19B with Phase 20
+- **There is no cookie, no `activeWorkspaceId` and no switcher.** Every user has exactly one
+  workspace until invitations exist, and a switcher offering one option teaches the user it does
+  nothing. `activeMembership()` in `lib/workspace/store.ts` is the single line 19B replaces
+- **Neon's meter reads compute time awake, not statements.** So workspaces cost essentially nothing:
+  one extra query on requests that already make one, and no new poller, tick or background job.
+  **Phase 22's analytics is the phase that must be designed against the ~39 CU-hour balance**, not
+  this one. `DEPLOYMENT.md` → *Free-tier headroom*
 
-**Two defects found in a browser that no API check could see** — the Phase 12 lesson, again:
+**Two silent defects were found by rehearsing the migration, both live for days, neither visible to
+any test.** This is the Phase 12 lesson in a new place — *a green suite proves the code and says
+nothing about the shape of the database it is talking to*:
 
-1. **A removed node stacked exactly on top of an added one.** Delete the last node of a chain and
-   add a new one and `addNode` reuses the vacated slot, so the union held two nodes at identical
-   coordinates and the *added* node rendered invisible underneath. `diffGraph` now drops a ghost
-   until it is clear; the live graph never moves
-2. **The minimap rendered empty for the whole time a diff was on screen.** React Flow writes
-   measurements back **through `onNodesChange`**, which diff mode withholds, so a diff node never
-   gains `measured` and everything reading it treats the node as having no dimensions. Fixed with
-   `initialWidth`/`initialHeight`, which satisfies that read without forcing the DOM size
+1. **Every credential write was answering HTTP 500 in production.**
+   `credential_owner_kind_label_idx` is created by migration `0001` and was **absent** from the
+   deployed database — every other index from that migration was present. `putCredential` upserts
+   with `ON CONFLICT ("ownerId", "kind", "label")`, and Postgres will not *plan* that statement
+   without a matching unique index, so saving an API key, connecting Google or storing a Discord
+   webhook all 500'd. Proved against the deployed URL, repaired inside migration `0005`, and proved
+   fixed by the same request returning 200 on the **unchanged** revision
+2. **`drizzle.__drizzle_migrations` held 3 rows while 5 migrations were physically applied.**
+   `0003` and `0004` were in the database and not in the ledger, so the next `db:migrate` would have
+   tried to re-apply them and failed on `CREATE TABLE ... already exists` — with 19A's own
+   migrations queued behind. Reconciled with evidence-gated inserts
 
-**One latent race in the verification script, fixed rather than explained away.** *"the run it
-created is attributed to the schedule trigger and succeeded"* asserted `succeeded` on a run it had
-just enqueued — and scheduled runs are always durable, so it had been passing on luck since Phase
-17. One extra query on the resume path tipped it. It now waits for a terminal status.
+**`scripts/verify-schema.mjs` exists so neither class can hide again.** It compares drizzle's own
+snapshot, its journal and `information_schema`, and it is the check that would have caught both.
+**Run it before and after every migration.**
 
-**Do not start Phase 20 in the same session.** One phase per session still holds; `/clear` between.
+**A third defect, cheaper but worth the note:** the Discord route reported *any* failure as "Could
+not reach Discord" — including a database error, for a request in which Discord had answered
+successfully. It sent the diagnosis in entirely the wrong direction for a while. Now
+`integrationApiError` only speaks for the service when the error actually came from it, and there is
+a test that fails without the fix.
+
+**Do not start Phase 20 in the same session as 19B.** One phase per session still holds; `/clear`
+between.
 
 ---
 
@@ -127,7 +139,8 @@ just enqueued — and scheduled runs are always durable, so it had been passing 
 | **16** — UI rebuild II: the canvas | **COMPLETE** — deployed and verified in a real browser at 1920 / 1440 / 375 px, 2026-09-27 |
 | **17** — durable execution | **COMPLETE** — verified on the deployed URL by `verify-durable.mjs` (7 checks, all passing) and in a real browser, 2026-09-27 |
 | **18** — workflow versioning and diffing | **COMPLETE** — verified on the deployed URL (185 API checks, 32 of them Phase 18's own) and in a real browser, 2026-09-27 |
-| **19** — workspaces and membership | **NOT STARTED ← next** |
+| **19A** — workspaces: the data model and scoping | **COMPLETE** — both migrations applied to the deployed database with **no data loss** (row counts identical before and after), 26 workspace checks green over HTTP against the deployed URL, rollback rehearsed forward and backward on a copy, 2026-09-27 |
+| **19B** — membership: invitations and the switcher | **NOT STARTED ← next** |
 | **20** — roles, permissions and sharing | NOT STARTED |
 | **21** — credential vault and rotation | NOT STARTED |
 | **22** — observability and run analytics | NOT STARTED |
@@ -145,13 +158,13 @@ just enqueued — and scheduled runs are always durable, so it had been passing 
 | **Canonical URL** | **`https://agentforge-733000675212.asia-southeast1.run.app`** |
 | Legacy URL | `https://agentforge-i5d2u66boa-as.a.run.app` — works, do not publish it |
 | Service | `agentforge` on Cloud Run, `asia-southeast1` |
-| Revision | **`agentforge-00035-vfd`** — ready, **`latestRevision: True`**, 100% of traffic (Phase 18). Previous good revisions: `agentforge-00034-54v` (Phase 17), `agentforge-00030-gv2` (Phase 16), `agentforge-00029-8t7` (Phase 15). **`00032` and `00033` were deliberately deleted** during Phase 17's verification, testing whether deleting a serving revision kills its in-flight request — it does not. Rollback was tested against `agentforge-00020-rcr` |
+| Revision | **`agentforge-00037-k7x`** — ready, **`latestRevision: True`**, 100% of traffic (Phase 19A). Previous good revisions: `agentforge-00036-zm8` (Phase 19A, first of two deploys — the expand/contract migration wanted one between its halves), `agentforge-00035-vfd` (Phase 18), `agentforge-00034-54v` (Phase 17), `agentforge-00030-gv2` (Phase 16). **`00032` and `00033` were deliberately deleted** during Phase 17's verification, testing whether deleting a serving revision kills its in-flight request — it does not. Rollback was tested against `agentforge-00020-rcr` |
 | Scaling | `min-instances 1`, `max-instances 3`, 1 vCPU / 1 GiB, 3600 s timeout, port 8080 |
 | Env vars set | `NODE_ENV` `AUTH_URL` `APP_BASE_URL` `DATABASE_URL` `AUTH_SECRET` `GOOGLE_CLIENT_ID` `GOOGLE_CLIENT_SECRET` `ENCRYPTION_KEY` `CRON_SECRET` `TASKS_QUEUE` `TASKS_LOCATION` — **11 now. Phase 17 added the last two** (`TASKS_PROJECT` is deliberately unset; the project comes from the metadata server, which cannot be wrong the way a copied variable can). They were added with `--update-env-vars`, which **merges**, rather than `--env-vars-file`, which replaces the whole set — so the other nine were never handled. Phases 9–16 added none (`SMOKE_SPREADSHEET_ID` is a local test variable, never on the service): the Google integration flow reuses `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `APP_BASE_URL`, and every third-party credential is a `credential` row rather than an environment variable. No Gemini key on the service: the product path is the user's own key |
-| Database | Neon `super-mountain-39872886` — **9 tables**, migrations `0000` + `0001` + `0002_wooden_morlocks` + `0003_omniscient_norman_osborn` + **`0004_wonderful_bloodscream`** applied. **Phase 18's migration adds the `workflow_version` table, `workflow.version` and `run.workflowVersion`**, all additive with defaults, plus a hand-written backfill giving every pre-existing workflow a version 1 labelled `Before versioning` — confirmed applied, and the previous revision kept serving throughout. Storage re-measured: whole database **8.55 MiB of 0.5 GB**, a stored graph **737 bytes** on average. **Phase 17's migration adds 7 columns and 1 index to `run`** (`mode` `cursor` `attempt` `leaseOwner` `leaseExpiresAt` `cancelRequestedAt` `dispatchToken`) and is **purely additive with defaults**, so the previous revision kept serving against it while it was applied — verified in `information_schema`. **Phases 14, 15 and 16 needed no migration** — none of them touches data. **Phases 9, 10 and 11 needed none either**: two new credential kinds are rows in the existing `credential` table, which is what `(ownerId, kind, label)` was for |
-| Routes | `/` `/dashboard`→`/workflows` `/workflows` `/workflows/[id]` `/settings` **`/design`** + **21** API routes. **Phase 18 added four**, all under `/api/workflows/[id]/versions` — the history, one version, its label, restore, and compare. No new page: version history is a dialog on the canvas, deliberately, because a third side panel would undo what Phase 16 spent itself solving. **Phase 16 added no route and no API** — it rebuilt what `/workflows/[id]` renders, and added a `generateMetadata` to that page so the tab carries the workflow's name. Phase 15 added none either. **Phase 14 added `/design`** — the design-system gallery, **public (no session) and prerendered static**, which is deliberate: it is the page to link a contributor to and it holds nothing belonging to any account |
+| Database | Neon `super-mountain-39872886` — **11 tables**, migrations `0000`–**`0006`** applied. **Phase 19A's two migrations add `workspace` and `workspace_member`, plus a `workspaceId` on `workflow`, `run`, `workflow_version` and `credential`.** Deliberately two: `0005` adds them **nullable** and backfills a personal workspace per user so the previous revision kept serving through the deploy, `0006` sets `NOT NULL` and drops the superseded credential index once the new revision was alone. **`0005` also repairs `credential_owner_kind_label_idx`, which migration `0001` creates and which was missing from the database** — see *Known Issues*. Row counts identical before and after: user 1, workflow 2, run 11, run_step 65, credential 3, workflow_version 2, session 14, account 1. Older: **9 tables**, migrations `0000` + `0001` + `0002_wooden_morlocks` + `0003_omniscient_norman_osborn` + **`0004_wonderful_bloodscream`** applied. **Phase 18's migration adds the `workflow_version` table, `workflow.version` and `run.workflowVersion`**, all additive with defaults, plus a hand-written backfill giving every pre-existing workflow a version 1 labelled `Before versioning` — confirmed applied, and the previous revision kept serving throughout. Storage re-measured: whole database **8.55 MiB of 0.5 GB**, a stored graph **737 bytes** on average. **Phase 17's migration adds 7 columns and 1 index to `run`** (`mode` `cursor` `attempt` `leaseOwner` `leaseExpiresAt` `cancelRequestedAt` `dispatchToken`) and is **purely additive with defaults**, so the previous revision kept serving against it while it was applied — verified in `information_schema`. **Phases 14, 15 and 16 needed no migration** — none of them touches data. **Phases 9, 10 and 11 needed none either**: two new credential kinds are rows in the existing `credential` table, which is what `(ownerId, kind, label)` was for |
+| Routes | `/` `/dashboard`→`/workflows` `/workflows` `/workflows/[id]` `/settings` **`/design`** + **21** API routes. **Phase 19A added none** — it changed what every existing one is scoped to, not the surface. The switcher and the invitation routes are 19B. **Phase 18 added four**, all under `/api/workflows/[id]/versions` — the history, one version, its label, restore, and compare. No new page: version history is a dialog on the canvas, deliberately, because a third side panel would undo what Phase 16 spent itself solving. **Phase 16 added no route and no API** — it rebuilt what `/workflows/[id]` renders, and added a `generateMetadata` to that page so the tab carries the workflow's name. Phase 15 added none either. **Phase 14 added `/design`** — the design-system gallery, **public (no session) and prerendered static**, which is deliberate: it is the page to link a contributor to and it holds nothing belonging to any account |
 | Latency | **Warm**: health ~190 ms India → Singapore, database 7–11 ms. A 6-node demo-path run **4.2–7.5 s** end to end across five consecutive walks (Phase 13; it was 3.1–4.8 s in Chapter 1 when the model answered first time, and **94.5 s** when it did not — that second case is what Phase 13 removed). Generation 2.7–3.5 s. **Cold (Neon suspended)**: health **1.14 s, of which 739 ms is the database wake** — re-measured 2026-09-26 at 917 ms for a first query, 103 ms on the next. Cloud Run itself is never cold at `min-instances 1` |
-| Last verified | **2026-09-27, after Phase 18.** On **`agentforge-00035-vfd`**: `verify-api.mjs` against the deployed URL — **185 passed / 13 failed / 4 skipped**, and **every one of the 13 is the Gemini daily free-tier 429**, the same set as Phases 14–17. **32 of the passes are Phase 18's own**, including the two that can only be proved against real Postgres: a re-save with **reordered JSON keys** writes no version, and restoring v1 produces **v5 with all five versions still present** while a run made before it still reports **v4**. `verify-durable.mjs` re-run because the engine's resume path changed: **7/7 checks pass**, including the sweeper's four-way decision and a redelivery resuming from its cursor. **A real browser** at 1440 px and 375 px on the deployed URL with **0 console errors or warnings**: the toolbar's `v2` button opens the history dialog, each row carries its change summary with the words (not only `+1 −1`) reaching the accessibility tree, comparing v1 with v2 puts the canvas in diff mode with all four treatments legible, the minimap draws all four nodes, and the canvas is genuinely inert — drag and Delete do nothing and Save, Run and Queue are disabled. Restoring v1 reloaded the canvas onto v3 with the toast naming both numbers. Local: `npm run check` **544 passing** (was 512), coverage **88.32 / 91.95 / 80.22** against thresholds 85 / 88 / 76 |
+| Last verified | **2026-09-27, after Phase 19A.** On **`agentforge-00037-k7x`**: `verify-api.mjs` against the deployed URL — **212 passed / 13 failed / 4 skipped**, and **every one of the 13 is the Gemini daily free-tier 429**, the same set as Phases 14–18 (the fallback chain exhausted all three models and reported the provider's own words, which is the designed behaviour, not a regression). **26 of the passes are Phase 19A's own**: a genuine second tenant — a second `user`, `workspace`, membership and session — answered **404 to all thirteen cross-tenant routes**, its run list and all three credential surfaces came back empty, the refused edit and delete were confirmed to have **changed nothing in the database**, and the reverse direction was proved too (the second workspace creates its own workflow, stamped with its own id, which the first cannot read). `verify-durable.mjs` re-run because every run insert changed: **7/7**, including a Cloud Tasks **scheduled run completing end to end** on this revision and the sweeper's four-way decision. `verify-schema.mjs` **6/6** — repository and database agree on tables, columns, nullability, indexes and the migration ledger. **A real browser** at 1440 px and 375 px with **0 console errors or warnings**: the workspace badge renders in the header, settings names the workspace and says it is shared, both stored credentials still resolve through the new scope, and the canvas draws all six nodes. Local: `npm run check` **560 passing** (was 544), coverage **87.82 / 92.16 / 78.27** against thresholds 85 / 88 / 76 |
 | Rollback | **TESTED 2026-09-26, finally.** Traffic shifted to `agentforge-00020-rcr` in **~15 s**, health confirmed the older revision was serving, the demo path walked clean on it, then `--to-latest` restored `agentforge-00021-v4s` in ~15 s. The oldest open item in this file is closed |
 | Billing | Trial credit account `Billing - AgentForge` is **open and enabled**. Actual spend is **not queryable from the CLI** (no billing export configured) — **eyeball it in the console once before judging** |
 | Provider key stored | **Yes**, and the model was **rotated in Phase 13** from `gemini-3.5-flash-lite` to **`gemini-3-flash-preview`** — the only model healthy on both the text and tool-calling paths in all three probe passes. Confirmed persisted in Neon. Re-probe with `npm run probe:models` |
@@ -254,6 +267,9 @@ Carried forward from every phase. These are the decisions later sessions must no
 | **D82** | **The dispatch route is guarded by `CRON_SECRET` *plus* a per-run token, and not by OIDC** | Cloud Tasks can sign a delivery with an OIDC token, but this service must stay `--allow-unauthenticated` to serve the app, so Cloud Run would not check it and the app would have to verify the JWT against Google's rotating JWKS — a meaningful amount of security-critical code sitting **outside** the thing that is already narrow. The run's `dispatchToken` is 192 bits of CSPRNG scoped to **one run**, so the most a holder can do is cause a run its owner already started to be resumed; it cannot start an arbitrary workflow. The lease then makes even that harmless. If the worker is ever split onto a private endpoint, OIDC becomes the right answer |
 | **D83** | **The version number lives on `workflow.version` and is bumped by the save's own UPDATE** | `neon-http` has no transactions (D6), so reading `max(number)` from `workflow_version` and inserting a moment later is a real race — two saves of the same workflow can both read 4, and the unique index then turns the second into an error the user sees. Bumping a counter **inside the single-row UPDATE that writes the graph** is atomic for free and `RETURNING` hands back a number nothing else can have. D42's primitive, reused. The cost is that a failed snapshot leaves a **gap** in the sequence, which is the honest outcome: the workflow row is already correct, and refusing somebody's save because its *history* could not be written is the wrong trade |
 | **D84** | **Not every save is a version, and the test is structural** | The canvas PATCHes the whole graph on Save **and again before every run**, so versioning every PATCH would mean five identical snapshots for five runs of an unchanged workflow, on a metered database. A save that changes neither the graph nor the name writes nothing. It cannot be a string comparison — `jsonb` normalises key order (D25) — so `graphsEqual` **moved out of `lib/canvas/bridge.ts` into `lib/workflow/graph.ts`**, where the canvas's dirty check and the debounce call the same function. Two copies would drift, and the failure would be silent both ways: a canvas that never looks saved, or a history that quietly drops an edit. **A description change is deliberately not a version** — it is not restored either, so versioning it would offer a restore that did not restore it |
+| **D89** | **The scoping token is a type, not a string** | Phase 19A changed the meaning of the first argument of about thirty store functions from "the user" to "the workspace". With both as `string`, every call site missed in that sweep would have compiled, run, and read one tenant's rows under another tenant's name — the worst possible failure mode, silent and cross-tenant. `WorkspaceScope` is an object carrying `workspaceId`, `userId` and `role`, so a missed call site is a **typecheck failure**; all 43 were found that way. It also gives Phase 20 one place to put an authorisation check that is already in the hand of every mutating function. **Do not weaken it back to a string** |
+| **D90** | **`workspaceId` is added alongside `ownerId`, never replacing it** | The obvious migration is to rename the column, and it is wrong twice over. Semantically the two answer different questions — *who may see this* and *who made this happen* — and a run row exists precisely to record what happened, so losing who triggered it would cost the history its point. Operationally, an additive column is a **reversible** migration: the hand-written rollback drops what Phase 19A added and every workflow, run, version and credential is still attributed exactly as before, which is what let the rollback be rehearsed and believed. The cost is four columns that look redundant until you ask either question |
+| **D91** | **A tightening migration is expand/contract, with a deploy between the halves** | A `NOT NULL` column with no default makes every insert from the *previous* revision fail for the length of a deploy, and Cloud Run serves both revisions during one. So `0005` adds the columns nullable and backfills, the new revision goes out, and only then does `0006` tighten them. The schema file declares the final state throughout; the database is deliberately looser in between, which is what expand/contract *is*. Paired with a hand-written rollback and `scripts/rehearse-migration.mjs`, which proves both directions on a copy of the real rows before either half is applied |
 | **D85** | **Restoring moves history forward; it never rewinds** | Restoring v3 writes v3's graph as v8. Deleting 4–7 or resetting the counter is the obvious implementation and it would silently corrupt the run history — a run that recorded v5 would point at a number that no longer means what it meant. That history is the entire reason versioning was added, so the append-only rule outranks the tidier-looking one. The restored save is **labelled**, which is also what exempts it from the retention cap |
 | **D86** | **A run records `workflowVersion` as an integer, not a foreign key — and a resumed run executes that snapshot** | Denormalised for the reason `ownerId` already is: a run survives as a record of what happened and must stay true when the version row is gone. The sharper half is the resume. Durability means a run survives a redeploy, which means it can also survive an **edit**: delivery 1 runs three nodes of v4, v5 lands removing one, delivery 2 resumes from a cursor naming a node that no longer exists — half of one workflow and half of another, reported as neither. Reading the snapshot back closes it. Null falls back to the live graph, which is exactly the pre-Phase-18 behaviour, so nothing in flight broke when this landed |
 | **D87** | **A removed node in a diff keeps its position only where that position is free** | Delete the last node of a chain and add a new one, and `addNode` places the new one in the slot that just came free — so the union graph held two nodes at identical coordinates, React Flow stacked them, and the **added** node rendered invisible underneath the removed one. Every API check passed. A ghost now drops until it is clear and the live graph never moves: a ghost moving is honest, since it has no position in the newer workflow, while moving a surviving node would be a lie about where the workflow actually is. **Found in a browser** — the Phase 12 lesson, for the fourth time |
@@ -275,12 +291,15 @@ Carried forward from every phase. These are the decisions later sessions must no
 | **D57** | **The generator is never allowed to starve an agent of model calls** | A tool-calling agent needs at least two model calls — one to make the call, one to read the result — and the generator wrote `maxIterations: 1` in **5 of 12** generations of the pinned demo prompt. Valid against the schema (1–8), valid as a graph, and fatal at runtime, so nothing reported it. Fixed in two places on purpose: the prompt now says not to set the field **and gives the reason**, and `assembleGraph` **drops** a generated agent budget below 3 so the registry default applies. The prompt rule is the real fix; the guard is what makes it a property rather than a tendency, which is the same division D40 draws. Deliberately narrow: it only ever touches a **generated** `ai.agent` node, and only by removing the key. A user who types 1 into the config form still gets 1 — D16's bounds are untouched. Re-measured on the deployed revision: **0 of 12** |
 | **D58** | **Beat 5 resolves the webhook at fire time and fits the payload to the graph** | `createWorkflow` mints a fresh token per workflow at creation (D41) and Beat 3 generates the demonstrated workflow **live**, so a `$WEBHOOK_URL` exported before the demo cannot be the right one. Copying it live puts a bearer secret on a shared screen; firing a stale one is worse still — **201, a real run on the wrong workflow, and a canvas that never moves**, because the stream is workflow-scoped (D28). `scripts/demo-fire.mjs` asks the API which workflow is newest and never prints the URL. It also fits the payload: the trigger's `requiredFields` are the model's choice and in **8 of 20** measured walks it wanted a field the fixed JSON did not send. Fields are only ever **added**, never overwritten, and the graph's own `{{trigger.x}}` references are read too — a field that passes validation but is referenced and missing produces a successful run with an empty cell, which is Beat 8's payoff quietly becoming a blank |
 | **D59** | **The canvas watches while it is visible, not only while a run it started is going** | It watched only if the page loaded mid-run or the user pressed Run, so a **webhook- or schedule-triggered run was invisible** — the run executed, finished, and the graph never moved. That is `DEMO.md` Beat 6, whose claim is literally "nothing is being refreshed", broken in exactly the case Beat 5 sets up. Now every stream close re-arms, because none of the server's three reasons (`finished · idle · timeout`) means the *canvas* is finished — only that the connection is. Gated on `document.visibilityState`, so a hidden tab costs nothing and re-attaches when it returns, and an explicit `stop()` still wins. **The cost is bounded by human attention rather than uptime**: 2 statements / 300 ms while someone is looking, which is 0.25 CU on Neon ≈ 400 hours of continuously-watched canvas inside the free month. The Known Issue about pinning Neon awake is about a *background* poller at 720 h/month; a visible tab is not that |
-| **D60** | **The demo account's state is produced by a script, not by hand** | Phase 11's sharpest lesson was a demo spreadsheet set up by hand whose id was recorded nowhere and, because the `spreadsheets` scope cannot search Drive, could not be recovered. `scripts/seed-demo.mjs` is the answer: it connects nothing it cannot verify, generates the backup workflow **and actually runs it end to end**, clears the sheet to its header row, and sweeps strays. Idempotent, so it is the pre-demo checklist's step rather than a one-off. It also states plainly what it **cannot** do — a Discord webhook post can only be deleted by its own message id, which the app has no reason to keep — so that gap is a printed instruction rather than a surprise |
+| **D92** | **The demo account's state is produced by a script, not by hand** *(was numbered D60, which Phase 13 had already used — renumbered in Phase 19A)* | Phase 11's sharpest lesson was a demo spreadsheet set up by hand whose id was recorded nowhere and, because the `spreadsheets` scope cannot search Drive, could not be recovered. `scripts/seed-demo.mjs` is the answer: it connects nothing it cannot verify, generates the backup workflow **and actually runs it end to end**, clears the sheet to its header row, and sweeps strays. Idempotent, so it is the pre-demo checklist's step rather than a one-off. It also states plainly what it **cannot** do — a Discord webhook post can only be deleted by its own message id, which the app has no reason to keep — so that gap is a printed instruction rather than a surprise |
 
 ## Known Issues
 
 | Issue | Impact | Action |
 |---|---|---|
+| **A migration can be in the .sql and NOT in the database, and nothing in the suite can see it** | Was: every credential *write* 500'd in production, for days | **Found in Phase 19A, by rehearsing a migration on a copy.** `credential_owner_kind_label_idx` is created by migration `0001`; every other index from that migration was present in Neon and **this one was not**. `putCredential` upserts with `ON CONFLICT ("ownerId", "kind", "label")` and Postgres will not *plan* that statement without a matching unique index, so saving an API key, connecting Google and storing a Discord webhook all answered 500. Proved against the deployed URL, repaired inside migration `0005`, and proved fixed when the identical request returned **200 on the unchanged revision**. **`scripts/verify-schema.mjs` now compares drizzle's snapshot, its journal and `information_schema` — run it before and after every migration.** The general lesson is the Phase 12 lesson in a new place: a green suite proves the code and says nothing about the shape of the database it is talking to |
+| **`drizzle.__drizzle_migrations` had 3 rows while 5 migrations were applied** | Would have broken the next `db:migrate`, with Phase 19A's own migrations queued behind | **Found in Phase 19A.** `0003` and `0004` were physically in the database and absent from the ledger — applied by hand at some point, with the bookkeeping never updated. The next `drizzle-kit migrate` would have tried to re-apply them and died on `CREATE TABLE ... already exists`. Reconciled by `verify-schema.mjs --repair`, which **refuses to record a migration whose DDL it cannot actually see**, and is reversible by deleting the two rows |
+| **An error mapper that speaks for a service it did not hear from sends the diagnosis the wrong way** | Cost real time in Phase 19A | The Discord route turned *any* non-`IntegrationError` into `"Could not reach Discord."` — including a Postgres error, on a request where Discord had already answered successfully. Now `integrationApiError` only speaks for the service when the error came from it, logs the cause, and says plainly that it does not know otherwise. Three tests, one of which fails against the old mapping |
 | **Cloud Run DRAINS in-flight requests. A redeploy does not kill a running run — and neither does deleting the serving revision** | Corrects a risk this project carried from Chapter 1 to Phase 17 | **Measured twice in Phase 17, both times the opposite of what was assumed.** A durable run was interrupted by (a) a new revision taking 100% of traffic and (b) **deleting the revision that was serving it**. Both times the run carried on and completed **on the old revision**, `attempt` never left 1 — the second one finished on a revision that no longer existed. So "in-flight runs die on redeploy" was substantially wrong: a run dies on a **crash, an OOM kill, or the request timeout**, not on an ordinary deploy. Phase 17 is still worth it — durability covers the cases that *do* kill a run, and it is what let the cron tick go from 3 schedules per tick to 25 — but **do not repeat the old claim.** The practical consequence: a container cannot be killed on demand from outside, so the resume path is verified by delivering the retry the queue would deliver (`verify-durable` check 3b) |
 | **A Cloud Tasks queue reporting `PAUSED` still dispatches** | Any test that tries to hold a task in the queue | **Measured in Phase 17.** `gcloud tasks queues pause` was issued, `describe` was polled until it returned `state: PAUSED`, and a task created immediately afterwards was **still delivered inside a second**. Pausing is not a lever a test can rely on. `verify-durable` check 4 therefore asserts the invariant that holds either way — "cancelling stops it and no further node runs" — and check 4b constructs the unclaimed state directly instead of racing for it |
 | **A model's health flips on a timescale of MINUTES, and the text and tool-calling paths fail independently** | Every model choice, every fallback chain | The single most useful thing Phase 13 learned. Three probe passes minutes apart: `gemini-3.6-flash` went healthy → healthy → 503; `gemini-3.5-flash-lite` went healthy → timeout → timeout; `gemini-3.1-flash-lite` timed out on tool-calling twice and then worked. **Only `gemini-3-flash-preview` was healthy on both paths in all three.** Never conclude a model is good from one call, and never conclude a model that answers prose can call tools. `npm run probe:models` checks both paths and is the only honest way to pick a chain |
@@ -354,8 +373,11 @@ Carried risks, recorded so they are not rediscovered:
 ### M9 — read Neon's consumed CU-hours — **OPEN, blocks nothing today**
 
 **Why.** Neon's Free plan is **100 CU-hours per project per month** and the `*/15` cron tick
-commits about **61** of them, leaving ~39 for real use. That ~39 is the budget Phases 19
-(workspaces) and 22 (analytics) must design against — and the *balance* has never been read. The
+commits about **61** of them, leaving ~39 for real use. **Phase 19A no longer needs it**: Neon
+meters compute *time awake* rather than statements, workspaces add a query to requests that already
+make one and add no poller or tick, so they spend essentially nothing from that balance. **Phase 22
+still does** — anything that aggregates on a schedule spends awake time rather than borrowing it.
+The
 *budget* is verified (`DEPLOYMENT.md` → *Free-tier headroom*); the balance is not.
 
 **Why it is not automated.** Neon exposes consumption only through its API or console, never
@@ -426,13 +448,13 @@ hours).
 | **GitHub Actions CI** | GitHub | `.github/workflows/ci.yml`, job `check` | **CREATED Phase 13** — lint · typecheck · test+coverage · build, on every push and PR to `main`. Green in **53–60 s** on PR #1 and on `main`. Free for a public repository |
 | **Branch protection on `main`** | GitHub | required check `lint · typecheck · test · build` | **CREATED Phase 13.** Strict (a branch must be current with `main`), no force pushes, no deletions, conversation resolution required. **`enforce_admins` is deliberately `false`** so `CLAUDE.md`'s "work directly on `main`" still works for the solo developer — **verified by an actual direct push, not assumed**. A contributor's PR is gated; the owner's direct push is not |
 | Google Cloud project | Google Cloud | `agentforge-hackathon-2026`, number **`733000675212`** | **EXISTS**, billing active ($300 / 90-day trial) |
-| **`agentforge` Cloud Run service** | Google Cloud | `asia-southeast1`, revision **`agentforge-00023-xf4`** | **LIVE 2026-09-26** (this row was stale at `00018-x7q`; corrected in Phase 13) |
+| **`agentforge` Cloud Run service** | Google Cloud | `asia-southeast1`, revision **`agentforge-00037-k7x`** | **LIVE 2026-09-27.** This row has gone stale twice now (`00018-x7q`, then `00023-xf4`) — the *Deployed State* table above is the one kept current, and this one is corrected against it at the end of each phase |
 | **`cloud-run-source-deploy` repo** | Artifact Registry | `asia-southeast1` | **EXISTS** |
 | OAuth consent screen | Google Cloud | External, app "AgentForge" | **EXISTS** — status **Testing**, 1 test user |
 | OAuth 2.0 client | Google Cloud | "AgentForge Web", `733000675212-…ntm7` | **VERIFIED** — 4 redirect entries |
 | Neon Postgres project | Neon | `agentforge`, id `super-mountain-39872886` | **EXISTS** — free plan, PostgreSQL 18.6 |
 | Neon branch / database / role | Neon | `production` / `neondb` / `neondb_owner` | **VERIFIED** |
-| Neon tables | Neon | `user` `account` `session` `verificationToken` `workflow` `run` `run_step` `credential` | **APPLIED** — `0000_dark_paladin`, `0001_smiling_leper_queen`, `0002_wooden_morlocks` |
+| Neon tables | Neon | `user` `account` `session` `verificationToken` `workflow` `run` `run_step` `credential` `workflow_version` **`workspace` `workspace_member`** | **11 tables. `0000`–`0006` APPLIED and verified against `information_schema` by `scripts/verify-schema.mjs`** — the ledger was three migrations behind reality until Phase 19A reconciled it |
 | Enabled APIs | Google Cloud | `run`, `cloudbuild`, `artifactregistry`, `cloudscheduler`, `apikeys`, `generativelanguage`, **`gmail`, `sheets`** | **ENABLED** — the last two added 2026-09-26, without which `integration.gmail` and `integration.sheets` fail at runtime however the OAuth consent went |
 | Stored provider credential | Neon | `credential` row, kind `llm.google`, for the demo user | **PRESENT** — the free-tier key, encrypted. Left in place so no phase is blocked |
 | Stored Discord credential | Neon | `credential` row, kind `integration.discord` | **PRESENT 2026-09-26** — webhook "AgentForge", channel `1553084744504316034`, verified against Discord before storage. **Note it goes absent whenever `scripts/verify-api.mjs` is run with `VERIFY_DISCORD_WEBHOOK`**: the script stores it, posts with it, then deletes it, because deletion is one of the paths under test. Re-add it from `DISCORD_WEBHOOK_URL` in local `.env` — a `PUT /api/integrations/discord` is enough |
@@ -492,6 +514,28 @@ Node's built-in runner, now with coverage thresholds that fail the build.
 npm run check          # lint + typecheck + test with coverage thresholds. Same four gates as CI
 npm run probe:models   # which Gemini models actually answer, on BOTH paths. ~1 min, real calls
 ```
+
+**Does the database match the repository?** — instant, no deployment, added in Phase 19A:
+
+```bash
+node --env-file=.env scripts/verify-schema.mjs
+```
+
+It compares drizzle's own snapshot, its migration journal and `information_schema`. **Run it before
+and after every migration.** It exists because two silent drifts had been live for days and no test
+could see either — see *Known Issues*. `--repair` records migrations whose DDL is verifiably already
+present, and refuses to record one whose effects it cannot see.
+
+**Rehearse a migration before applying it** — Phase 19A, ~10 s:
+
+```bash
+node --env-file=.env scripts/rehearse-migration.mjs
+```
+
+It clones the affected tables and their rows into a throwaway schema, applies the migration forward,
+applies the hand-written rollback backward, and asserts the copy is **digest-identical** to where it
+started. The copy is a schema rather than a Neon branch only because `neonctl` here is
+unauthenticated (M9). The procedure it belongs to is in `DEPLOYMENT.md` → *Migrations*.
 
 **Storage against the free tier** — Phase 18 is the first feature whose cost is storage rather
 than compute. The queries are in `DEPLOYMENT.md` → *Free-tier headroom* → *Storage, re-measured in
@@ -656,6 +700,74 @@ still documents a path known to work end to end, which is a useful smoke referen
 ---
 
 ## Recent Changes
+
+**2026-09-27 — Phase 19A complete. AgentForge is multi-tenant: every resource belongs to a
+workspace, proved by a second tenant over HTTP — and rehearsing the migration uncovered two silent
+production defects that no test could see**
+
+- **Phase 19 was split into 19A and 19B**, under the licence the phase always carried. 19A is the
+  data model, the migration and the scoping; 19B is invitations, the switcher and the members list.
+  The two halves fail in different ways and the expand/contract migration wanted a deploy between
+  its own halves — bundling them would have made a misbehaving deploy impossible to attribute.
+  Recorded in `BUILD_PLAN.md`
+- **`workspace` and `workspace_member`, and a `workspaceId` alongside `ownerId`** on `workflow`,
+  `run`, `workflow_version` and `credential`. Alongside, never replacing: the two answer *who may
+  see this* and *who made this happen*, and collapsing them would cost the run history its only
+  record of who triggered a run
+- **`WorkspaceScope` is an object, and that is the entire safety argument** (D89). The sweep changed
+  the meaning of the first argument of ~30 functions from "the user" to "the workspace". Had both
+  been `string`, every missed call site would have compiled and read one tenant's rows under
+  another's name. As a distinct type, **all 43 failed the typecheck** and were found that way
+- **The migration was expand/contract, with a deploy between the halves.** `0005` adds the tables
+  and columns **nullable** and backfills a personal workspace per user, so the previous revision
+  kept serving; `0006` sets `NOT NULL` and drops the superseded credential index once the new
+  revision was alone. **Row counts identical before and after** — the phase's completion criterion
+- **The rollback is hand-written and was rehearsed both directions before either half was applied.**
+  `scripts/rehearse-migration.mjs` clones the affected tables and rows into a throwaway schema, runs
+  the migration forward, the rollback backward, and asserts the copy is **digest-identical** to
+  where it started. 12/12. Neon branching would have been the obvious tool and `neonctl` here is
+  unauthenticated (M9), so a schema on the same database is the copy
+- **Credentials became workspace-scoped, which widens a security surface on purpose.** A shared
+  workflow that cannot reach its Google credential fails at the first integration node, at runtime.
+  The consequence is stated where the decision is made: the Google card now says the connection
+  belongs to the workspace and anyone in it can send mail from that address
+- **`role` is written and not enforced — and that is inert only until Phase 19B.** 19A creates
+  exactly one kind of member, the `owner` of their own personal workspace. `lib/workspace/roles.ts`
+  and `CONTRACT.md` both carry the handoff
+- **Verified by building a real second tenant, not by asserting isolation.** A second `user`,
+  `workspace`, membership and session drove the deployed API: **404 on all thirteen cross-tenant
+  routes**, empty run list, all three credential surfaces empty, the refused edit and delete
+  confirmed to have **changed nothing in the database**, and the reverse direction proved too
+
+**Two silent defects, both live for days, neither visible to any test — found by rehearsing the
+migration rather than by running the suite:**
+
+1. **Every credential write was answering HTTP 500 in production.**
+   `credential_owner_kind_label_idx` is created by migration `0001` and was **absent** from the
+   deployed database; every other index from that migration was present. `putCredential` upserts
+   with `ON CONFLICT ("ownerId", "kind", "label")` and Postgres will not *plan* that statement
+   without a matching unique index. Saving an API key, connecting Google and storing a Discord
+   webhook all 500'd. Proved against the deployed URL, repaired inside `0005`, and proved fixed when
+   the identical request answered **200 on the unchanged revision**
+2. **`drizzle.__drizzle_migrations` held 3 rows while 5 migrations were physically applied.** The
+   next `db:migrate` would have tried to re-apply `0003` and died on `CREATE TABLE ... already
+   exists`, with 19A's own migrations queued behind it
+
+**`scripts/verify-schema.mjs` is the guard for both**, comparing drizzle's snapshot, its journal and
+`information_schema`. It would have caught each of them, and it runs before and after every
+migration from here.
+
+**A third, cheaper defect:** the Discord route reported *any* failure as "Could not reach Discord",
+including a database error on a request where Discord had answered successfully — which sent the
+diagnosis the wrong way for a while. `integrationApiError` now only speaks for a service when the
+error came from it. Three tests, one of which fails against the old mapping.
+
+**`ApiError` moved to `src/lib/api-error.ts`.** `lib/api.ts` imports `@/auth`, which the test runner
+cannot load (D18), so anything merely *returning* an `ApiError` was untestable by association —
+including the mapper above. `lib/api.ts` re-exports it, so no existing import changed.
+
+
+---
 
 **2026-09-27 — Phase 18 complete. Every save is a version, any version restores, and two versions
 compare on the canvas — plus two rendering defects only a browser could find**
@@ -842,24 +954,19 @@ Older entries pruned — **Phases 12 and 13, plus 4 earlier Chapter 1 entries**,
 
 ## Last Updated
 
-**2026-09-27** — **Phase 18 complete.** Revision `agentforge-00035-vfd` live, `/api/health` green,
-migration `0004_wonderful_bloodscream` applied with its backfill.
+**2026-09-27** — **Phase 19A complete.** Revision `agentforge-00037-k7x` live, `/api/health` green,
+migrations `0005_nappy_vampiro` and `0006_reflective_electro` applied with the backfill, **with a
+deploy between them** and **no data loss** — row counts identical before and after.
 
-**Verified on the deployed system, not asserted.** `verify-api.mjs` — **185 passed / 13 failed /
-4 skipped**, every failure the Gemini daily free-tier 429 and the same set as Phases 14–17.
-**32 of the passes are Phase 18's own**, including the two that only real Postgres can prove: a
-re-save with reordered JSON keys writes no version, and restoring v1 produces v5 with all five
-versions intact while a run made beforehand still reports v4. `verify-durable.mjs all` re-run
-because the resume path changed — **7/7**.
+**Verified on the deployed system, not asserted.** `verify-api.mjs` — **212 passed / 13 failed /
+4 skipped**, every failure the Gemini daily free-tier 429 and the same set as Phases 14–18.
+**26 of the passes are this phase's**, driven by a genuine second tenant rather than by a second
+cookie. `verify-durable.mjs` **7/7**, including a Cloud Tasks scheduled run completing end to end on
+this revision. `verify-schema.mjs` **6/6** — repository and database now agree on tables, columns,
+nullability, indexes and the migration ledger, which they had not for days.
+`rehearse-migration.mjs` **12/12** forward and backward on a copy.
+**A real browser** at 1440 px and 375 px, **0 console errors or warnings**.
+Local `npm run check` **560 passing**, coverage **87.82 / 92.16 / 78.27** against 85 / 88 / 76.
 
-**Verified in a real browser** at 1440 px and 375 px on the deployed URL, **0 console errors or
-warnings**. The `v2` button opens the history dialog; each row's change summary reaches the
-accessibility tree as words, not only as `+1 −1`; comparing v1 with v2 puts the canvas into diff
-mode with added, removed, changed and unchanged all legible and the minimap drawing every node; the
-canvas is genuinely inert there; restoring v1 reloaded the canvas onto v3. **Two defects were found
-this way and fixed** — see D87 and D88.
-
-Local: `npm run check` **544 passing**, coverage **88.32 / 91.95 / 80.22**.
-
-**Next session: Phase 19 — workspaces and membership.** Read `DEPLOYMENT.md` → *Free-tier
-headroom* before designing it; Neon compute is the binding resource and M9 is still open.
+**Next session: Phase 19B — membership, invitations and the switcher.** Read the handoff at the top
+of this file first; the unenforced `role` column is the part that stops being inert there.

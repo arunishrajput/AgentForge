@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { workflows, type Workflow } from "@/db/schema";
 import { sweepAbandonedRuns } from "@/lib/engine/lease";
 import { startDurableRun } from "@/lib/engine/run";
+import { systemScope } from "@/lib/workspace/scope";
 
 import { nextTimeFor } from "./cron";
 import { scheduleCron } from "./schedule";
@@ -134,7 +135,9 @@ export async function runDueSchedules(options: { now?: Date; signal?: AbortSigna
      * no longer holds its request open for the runs it fires.
      */
     const { run, queued } = await startDurableRun({
-      ownerId: workflow.ownerId,
+      // No session here — the scope comes off the workflow row, so a scheduled run
+      // lands in the same workspace as the workflow that scheduled it.
+      scope: systemScope(workflow),
       workflow,
       trigger: "schedule",
       input: {

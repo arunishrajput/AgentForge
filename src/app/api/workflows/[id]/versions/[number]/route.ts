@@ -1,4 +1,4 @@
-import { ApiError, handle, ok, readJson, requireOwnerId } from "@/lib/api";
+import { ApiError, handle, ok, readJson, requireScope } from "@/lib/api";
 import { getWorkflow } from "@/lib/workflow/store";
 import {
   describeVersion,
@@ -26,10 +26,10 @@ function versionNumber(raw: string): number {
 
 export async function GET(_request: Request, { params }: Context) {
   return handle(async () => {
-    const ownerId = await requireOwnerId();
+    const scope = await requireScope();
     const { id, number } = await params;
-    const workflow = await getWorkflow(ownerId, id);
-    const version = await getVersion(ownerId, id, versionNumber(number));
+    const workflow = await getWorkflow(scope, id);
+    const version = await getVersion(scope, id, versionNumber(number));
     return ok(
       describeVersion(version, { graph: true, current: version.number === workflow.version }),
     );
@@ -47,11 +47,11 @@ export async function GET(_request: Request, { params }: Context) {
  */
 export async function PATCH(request: Request, { params }: Context) {
   return handle(async () => {
-    const ownerId = await requireOwnerId();
+    const scope = await requireScope();
     const { id, number } = await params;
-    const workflow = await getWorkflow(ownerId, id);
+    const workflow = await getWorkflow(scope, id);
     const body = await readJson(request, versionLabelSchema);
-    const version = await labelVersion(ownerId, id, versionNumber(number), body.label);
+    const version = await labelVersion(scope, id, versionNumber(number), body.label);
     return ok(describeVersion(version, { current: version.number === workflow.version }));
   });
 }

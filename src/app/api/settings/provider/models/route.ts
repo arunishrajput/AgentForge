@@ -1,4 +1,4 @@
-import { handle, ok, requireOwnerId } from "@/lib/api";
+import { handle, ok, requireScope } from "@/lib/api";
 import { listModelsFor } from "@/lib/ai/settings";
 import { NoProviderKeyError } from "@/lib/ai/provider";
 import { ApiError } from "@/lib/api";
@@ -11,9 +11,9 @@ export const dynamic = "force-dynamic";
  */
 export async function GET() {
   return handle(async () => {
-    const ownerId = await requireOwnerId();
+    const scope = await requireScope();
     try {
-      return ok(await listModelsFor(ownerId));
+      return ok(await listModelsFor(scope));
     } catch (error) {
       if (error instanceof NoProviderKeyError) {
         throw new ApiError("not_found", error.message);

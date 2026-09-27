@@ -2,6 +2,7 @@ import { getNode } from "@/lib/nodes";
 import { NodeError, type LogLevel, type StepLog } from "@/lib/nodes/types";
 import { edgesFrom, type WorkflowGraph } from "@/lib/workflow/graph";
 import { resolveConfig } from "@/lib/workflow/template";
+import type { WorkspaceScope } from "@/lib/workspace/scope";
 
 import {
   initialCursor,
@@ -62,7 +63,7 @@ export const DEFAULT_DEADLINE_MS = 120_000;
 export interface ExecuteOptions {
   runId: string;
   workflowId: string;
-  ownerId: string;
+  scope: WorkspaceScope;
   graph: WorkflowGraph;
   /** Payload from the trigger; becomes the trigger node's input. */
   input?: unknown;
@@ -175,7 +176,7 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
   const {
     runId,
     workflowId,
-    ownerId,
+    scope,
     graph,
     input = null,
     recorder = noopRecorder,
@@ -243,7 +244,12 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
     // which is what lets the cursor stay small (`cursor.ts`).
     const nodeInput = item.fromSeq === null ? input : bySeq.get(item.fromSeq);
 
-    const scope = {
+    // Named `templateScope` rather than `scope`, because `scope` now means the
+    // workspace one destructured above and this is a different thing entirely: the
+    // values `{{ }}` references resolve against. They were briefly both called `scope`
+    // while Phase 19A was being written, and the inner one shadowed the outer, which
+    // would have handed every node the template bag in place of its workspace.
+    const templateScope = {
       run: { id: runId, workflowId },
       trigger: input,
       input: nodeInput,
@@ -282,7 +288,7 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
     };
 
     try {
-      const resolved = resolveConfig(node.config ?? {}, scope);
+      const resolved = resolveConfig(node.config ?? {}, templateScope);
       step.config = resolved;
 
       const parsed = definition.configSchema.safeParse(resolved);
@@ -302,7 +308,7 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
         policy: readPolicy(node.policy),
         signal,
         log,
-        context: { runId, workflowId, ownerId, nodeId: node.id, iteration, log },
+        context: { runId, workflowId, scope, nodeId: node.id, iteration, log },
       });
 
       step.status = "succeeded";

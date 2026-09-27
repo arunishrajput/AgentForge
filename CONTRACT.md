@@ -182,7 +182,10 @@ interface NodeDefinition<Config> {
 }
 
 interface NodeContext {
-  runId, workflowId, ownerId, nodeId: string;
+  runId, workflowId, nodeId: string;
+  scope: WorkspaceScope;   // Phase 19A. Replaced `ownerId`. A node's ENTIRE authority:
+                           // the credentials of the workspace whose workflow is running,
+                           // and nothing else. Nothing in a node's config can widen it
   iteration: number;                    // completed executions of THIS node in THIS run; 0 on the first
   log(message: string, level?: "info" | "warn" | "error"): void;
   signal: AbortSignal;                  // aborted on cancellation or deadline
@@ -243,7 +246,7 @@ Tables in `src/db/schema.ts`; wire shapes from `describeRun` in `src/lib/engine/
 | Field | Notes |
 |---|---|
 | `id` | uuid |
-| `workflowId`, `ownerId` | `ownerId` is denormalised from the workflow so every run query is owner-scoped without a join |
+| `workflowId`, `workspaceId`, `ownerId` | **`workspaceId` is the scoping column** (Phase 19A) — every run query filters on it, denormalised from the workflow so it needs no join. `ownerId` is kept and still means *who triggered this run*, which the workspace cannot answer |
 | `status` | the run state machine below |
 | `trigger` | `manual` \| `webhook` \| `schedule` \| `agent` |
 | `input`, `output`, `error` | trigger payload, last node's output, failure message |
@@ -294,7 +297,7 @@ deletes one except the retention cap below.
 | Field | Notes |
 |---|---|
 | `id` | uuid |
-| `workflowId`, `ownerId` | `ownerId` denormalised, so every query is owner-scoped without a join |
+| `workflowId`, `workspaceId`, `ownerId` | **`workspaceId` is the scoping column** (Phase 19A). `ownerId` records *who saved this version*, which in a shared workspace is not necessarily who created the workflow |
 | `number` | **the version number, unique per workflow.** Supplied by `workflow.version`, not computed here |
 | `label` | null for an ordinary save. A restore and a generation set one. **A labelled version is never pruned** |
 | `name`, `graph` | the two things a save can change and a restore must put back. **A compact snapshot, not a row copy** — the webhook token, the schedule columns and the timestamps describe the workflow as it is *now*, not as it was |
@@ -370,7 +373,7 @@ exactly the pre-Phase-18 behaviour.
 | `POST /api/workflows/:id/versions/:number/restore` | — | **The workflow**, at its new version. Writes that graph and name as a new version on top |
 | `GET /api/workflows/:id/versions/compare?from=&to=` | — | `{ from, to, diff }` with **both graphs**. `to` defaults to the current version |
 
-All five require a session and are owner-scoped. A non-numeric or unknown version is a **404**, not
+All five require a session and are workspace-scoped. A non-numeric or unknown version is a **404**, not
 a coerced query; a non-numeric `from`/`to` on compare is a **400**.
 
 A workflow now returns `version` alongside its other fields, and a run returns `workflowVersion`.
@@ -441,7 +444,7 @@ loop.
 |---|---|---|
 | `unauthenticated` | 401 | No session |
 | `invalid_request` | 400 | Body failed its schema; `details` lists path + message |
-| `not_found` | 404 | No such record **for this owner** — indistinguishable from someone else's record, deliberately |
+| `not_found` | 404 | No such record **in this workspace** — indistinguishable from a record in somebody else's, deliberately. 404 and never 403, so the reply does not confirm the id exists |
 | `invalid_graph` | 422 | The graph cannot run; `details` is the problem list |
 | `conflict` | 409 | Reserved |
 | `internal` | 500 | Unexpected. The detail goes to the server log, never to the client |
@@ -468,7 +471,7 @@ loop.
 | `POST /api/cron/tick` | — | The tick outcome. **No session**, `CRON_SECRET` required |
 | `POST /api/runs/dispatch` | `{ runId, token }` | **No session** (Phase 17). `CRON_SECRET` **and** the run's own `dispatchToken` both required. Executes or resumes that one run. **Always 200 on a delivery it declines** — a 4xx/5xx tells Cloud Tasks to retry, and every declined case (already finished, already claimed, forged token, deliveries exhausted) is one where retrying is pointless or harmful; the body says which |
 
-Every route above requires a session and is owner-scoped, **except the last three**, which are
+Every route above requires a session and is workspace-scoped, **except the last three**, which are
 machine endpoints. The tick and the webhook are specified under *Trigger shapes*; the dispatcher is
 specified below.
 
@@ -520,7 +523,7 @@ not 403.
 ## SSE event messages — **DEFINED**
 
 Shapes and framing live in `src/lib/engine/stream.ts`; the endpoint is
-`GET /api/workflows/:id/stream`, owner-scoped like every other route.
+`GET /api/workflows/:id/stream`, workspace-scoped like every other route.
 
 ### The endpoint is workflow-scoped, not run-scoped
 
@@ -714,14 +717,82 @@ output handles would break D21/D23 — the canvas draws a node's edges from its 
 handles cannot depend on a run. A decision that cannot be read leaves `decision: null` and the run
 takes the default path rather than failing.
 
+## Workspaces and membership — **DEFINED** (Phase 19A)
+
+Tables `workspace` and `workspace_member` in `src/db/schema.ts`. The scope type and its resolution
+are `src/lib/workspace/`.
+
+**A workspace is the tenant. Every resource belongs to one, and no query reads across the
+boundary.** `workflow`, `run`, `workflow_version` and `credential` each carry a `workspaceId`, and
+every store function filters on it.
+
+### `workspace`
+
+| Field | Notes |
+|---|---|
+| `id` | uuid |
+| `name` | shown in the header. Backfilled as `<user>'s workspace` for accounts that predate this phase |
+| `createdBy` | who made it. **Not an authorisation column** — membership is. `on delete set null`, so removing a person does not delete the workspace others are in |
+| `personal` | the workspace created automatically for a user. A fact about origin, not a permission |
+| `createdAt`, `updatedAt` | |
+
+Unique partial index on `createdBy where personal` — **that index is the interlock**, not a code
+check. `neon-http` has no transactions (D6), so "select, insert if absent" is a real race on a cold
+account; the loser's insert conflicts and it re-reads.
+
+### `workspace_member`
+
+| Field | Notes |
+|---|---|
+| `workspaceId`, `userId` | composite primary key, so a person cannot be in one workspace twice |
+| `role` | `owner` \| `admin` \| `editor` \| `viewer`. **Written in Phase 19A, enforced in Phase 20** |
+| `createdAt` | |
+
+### `WorkspaceScope` — what every store function takes
+
+```ts
+interface WorkspaceScope {
+  workspaceId: string;   // what a row must belong to for this request to see it
+  userId: string;        // who is doing this; written to `ownerId` on anything created
+  role: WorkspaceRole;   // carried for Phase 20. Not consulted yet
+}
+```
+
+**It is an object rather than a string on purpose.** Phase 19A changed the meaning of the first
+argument of about thirty functions from "the user" to "the workspace". Had both been `string`, every
+call site missed in that sweep would have compiled, run, and read one tenant's rows under another
+tenant's name. As a distinct type, a missed call site fails the typecheck — which is how all 43 of
+them were found.
+
+`requireScope()` in `src/lib/api.ts` resolves it for a route; `requirePageSession()` in
+`src/lib/workspace/page.ts` does it for a page and redirects instead of answering 401.
+
+### The three routes with no session get theirs from the row
+
+`systemScope(workflow)` derives the scope from the workflow the webhook token, the cron tick or the
+dispatch token resolved to. Nothing about the request can name a workspace, so those routes cannot
+reach another tenant even if their own token check were wrong about *which* workflow.
+
+### Roles are declared and not yet enforced — **read this before Phase 19B**
+
+Phase 19A only ever creates one kind of member: the `owner` of their own personal workspace. There
+is therefore no member whose role could be enforced against them, and the unenforced column is
+inert. **The moment Phase 19B can create a member who is not an owner, that stops being true** — an
+invitation handing somebody a `viewer` badge next to full write access. Either enforce the role
+there, or merge that phase with Phase 20.
+
+---
+
 ## Credential storage shape — **DEFINED**
 
 The `credential` table landed in **Phase 3** because Phase 3 owns the schema. The encryption
 helpers (`src/lib/crypto.ts`), the store (`src/lib/credentials.ts`) and the write-only API are
 **Phase 6**.
 
-Columns: `id`, `ownerId`, `kind`, `label`, `ciphertext`, `iv`, `authTag`, `metadata`, `createdAt`,
-`updatedAt`. Unique on `(ownerId, kind, label)`. The AES-256-GCM envelope is stored as three base64
+Columns: `id`, `workspaceId`, `ownerId`, `kind`, `label`, `ciphertext`, `iv`, `authTag`,
+`metadata`, `createdAt`, `updatedAt`. **Unique on `(workspaceId, kind, label)` since Phase 19A** —
+it was `(ownerId, kind, label)`, and migration `0006` dropped the old index. The AES-256-GCM
+envelope is stored as three base64
 columns; the key is `ENCRYPTION_KEY`. GCM rather than CBC because it authenticates: a row edited in
 the database fails to decrypt instead of yielding plausible rubbish that then gets sent to a
 provider as an API key. A fresh IV per encryption, generated inside `encryptSecret` rather than
@@ -734,6 +805,28 @@ future spread cannot leak them.
 
 Phase 6 added one kind, `llm.google`, label `default`, `metadata: { model }`. Phase 9 added two
 more — see *Integration nodes and their credentials* for `integration.discord` and `google.oauth`.
+
+### A credential belongs to a workspace — **Phase 19A, and it widens a surface**
+
+**Every member of a workspace can use every credential in it.** That is required rather than
+incidental: a workflow shared with a teammate that cannot reach its Google credential fails at the
+first integration node, at runtime, with an error about a connection the teammate never made.
+
+The consequence has to be stated rather than discovered, and the sharpest case is `google.oauth`:
+**connecting Google to a workspace lets every member of that workspace act as you within the scopes
+you granted** — sending mail from your address, writing to your spreadsheets. The settings page says
+so on the card where the connection is made, not only here.
+
+`ownerId` is still written and still means *who connected it*, which is the name the UI needs when
+somebody asks whose account a workflow is sending mail from. It is **not** an authorisation column
+any more; nothing reads it to decide access.
+
+**Two unique indexes existed between migrations `0005` and `0006`**, on `(ownerId, kind, label)` and
+`(workspaceId, kind, label)`. That was deliberate: while two revisions were serving, one wrote each
+column, and at that moment the two were in exact one-to-one correspondence, so keeping both was the
+only state in which neither revision could write a duplicate. **The old one had to be gone before
+any user could hold a second workspace**, or the same kind of credential in two of their workspaces
+would be refused by an index measuring the wrong thing.
 
 ### Routes
 
@@ -871,7 +964,8 @@ webhook trigger**, so the UI never prints a URL that would answer 404.
 
 It cannot have one: the caller is another system. The token is therefore the whole of its access
 control, and the owner comes *out* of the row, so a webhook can never run a workflow on anyone
-else's behalf. This is the one query in the codebase not scoped by `ownerId`.
+else's behalf. This is the one query in the codebase not scoped by `workspaceId` — the workspace
+comes *out* of the row it finds, through `systemScope`, so a webhook cannot reach another tenant.
 
 Order of checks, and it matters — everything before the run is cheap, because this endpoint can spend
 a user's model quota:

@@ -61,7 +61,7 @@ export const sheetsNode = defineNode({
 
     try {
       const accessToken = await googleAccessToken({
-        ownerId: context.ownerId,
+        scope: context.scope,
         requiredScopes: [SHEETS_SCOPE],
         capability: "edit your spreadsheets",
         signal: context.signal,

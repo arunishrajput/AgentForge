@@ -57,7 +57,7 @@ export const gmailNode = defineNode({
 
     try {
       const accessToken = await googleAccessToken({
-        ownerId: context.ownerId,
+        scope: context.scope,
         requiredScopes: [GMAIL_SEND_SCOPE],
         capability: "send email on your behalf",
         signal: context.signal,
@@ -65,7 +65,7 @@ export const gmailNode = defineNode({
 
       // The authenticated mailbox, so the message carries a From the recipient
       // recognises. Cosmetic only — Gmail sets it regardless of what is claimed.
-      const { email } = await googleStatus(context.ownerId);
+      const { email } = await googleStatus(context.scope);
 
       const result = await sendMail({
         accessToken,

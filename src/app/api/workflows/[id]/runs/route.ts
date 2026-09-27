@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { describeRun, listRuns, startDurableRun, startRun } from "@/lib/engine/run";
 import { RUN_MODES } from "@/lib/engine/types";
-import { handle, ok, readJson, requireOwnerId } from "@/lib/api";
+import { handle, ok, readJson, requireScope } from "@/lib/api";
 import { getWorkflow } from "@/lib/workflow/store";
 
 export const dynamic = "force-dynamic";
@@ -31,9 +31,9 @@ type Context = { params: Promise<{ id: string }> };
 
 export async function POST(request: Request, { params }: Context) {
   return handle(async () => {
-    const ownerId = await requireOwnerId();
+    const scope = await requireScope();
     const { id } = await params;
-    const workflow = await getWorkflow(ownerId, id);
+    const workflow = await getWorkflow(scope, id);
 
     const body =
       request.headers.get("content-length") === "0"
@@ -45,7 +45,7 @@ export async function POST(request: Request, { params }: Context) {
 
     if (body.mode === "durable") {
       const outcome = await startDurableRun({
-        ownerId,
+        scope,
         workflow,
         trigger: "manual",
         input: body.input ?? null,
@@ -61,7 +61,7 @@ export async function POST(request: Request, { params }: Context) {
     }
 
     const { run, steps } = await startRun({
-      ownerId,
+      scope,
       workflow,
       trigger: "manual",
       input: body.input ?? null,
@@ -74,10 +74,10 @@ export async function POST(request: Request, { params }: Context) {
 
 export async function GET(_request: Request, { params }: Context) {
   return handle(async () => {
-    const ownerId = await requireOwnerId();
+    const scope = await requireScope();
     const { id } = await params;
-    await getWorkflow(ownerId, id);
-    const runs = await listRuns(ownerId, { workflowId: id });
+    await getWorkflow(scope, id);
+    const runs = await listRuns(scope, { workflowId: id });
     return ok(runs.map((run) => describeRun(run)));
   });
 }

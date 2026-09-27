@@ -1,7 +1,5 @@
 import type { Metadata } from "next";
-import { redirect } from "next/navigation";
 
-import { auth } from "@/auth";
 import { AppHeader } from "@/components/shell/app-header";
 import { AccountPanel } from "@/components/settings/account-panel";
 import { IntegrationsForm } from "@/components/settings/integrations-form";
@@ -9,6 +7,8 @@ import { ProviderForm } from "@/components/settings/provider-form";
 import { Tabs } from "@/components/ui/tabs";
 import { readSettings } from "@/lib/ai/settings";
 import { discordStatus, googleStatus } from "@/lib/integrations/store";
+import { requirePageSession } from "@/lib/workspace/page";
+import { describeWorkspace } from "@/lib/workspace/store";
 
 export const dynamic = "force-dynamic";
 
@@ -36,29 +36,26 @@ export default async function SettingsPage({
 }: {
   searchParams: Promise<{ google?: string }>;
 }) {
-  const session = await auth();
-  if (!session?.user?.id) redirect("/");
-
-  const ownerId = session.user.id;
+  const { name, email, scope, membership } = await requirePageSession();
   const [settings, discord, google, params] = await Promise.all([
-    readSettings(ownerId),
-    discordStatus(ownerId),
-    googleStatus(ownerId),
+    readSettings(scope),
+    discordStatus(scope),
+    googleStatus(scope),
     searchParams,
   ]);
 
-  const email = session.user.email ?? "";
-
   return (
     <>
-      <AppHeader email={email} active="settings" />
+      <AppHeader email={email} workspace={describeWorkspace(membership)} active="settings" />
 
       <main id="main" className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-10">
         <div className="animate-rise mb-6">
           <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
           <p className="text-muted mt-1 text-sm text-pretty">
             The model your LLM and agent nodes run on, the services your integration nodes
-            reach, and what this account holds.
+            reach, and what this account holds. Everything on this page belongs to{" "}
+            <strong className="font-semibold">{membership.workspace.name}</strong> and is
+            shared with everyone in it.
           </p>
         </div>
 
@@ -80,7 +77,7 @@ export default async function SettingsPage({
             {
               id: "account",
               label: "Account",
-              content: <AccountPanel name={session.user.name} email={email} />,
+              content: <AccountPanel name={name} email={email} />,
             },
           ]}
         />

@@ -5,6 +5,7 @@ import {
   readSecret,
 } from "@/lib/credentials";
 import { required } from "@/lib/env";
+import type { WorkspaceScope } from "@/lib/workspace/scope";
 
 import {
   DISCORD_CREDENTIAL_KIND,
@@ -47,8 +48,8 @@ export interface DiscordStatus {
   updatedAt: string | null;
 }
 
-export async function discordStatus(ownerId: string): Promise<DiscordStatus> {
-  const credential = await getCredential({ ownerId, kind: DISCORD_CREDENTIAL_KIND });
+export async function discordStatus(scope: WorkspaceScope): Promise<DiscordStatus> {
+  const credential = await getCredential({ scope, kind: DISCORD_CREDENTIAL_KIND });
   return {
     configured: credential !== null,
     webhookName: credential?.metadata.webhookName ?? null,
@@ -59,14 +60,14 @@ export async function discordStatus(ownerId: string): Promise<DiscordStatus> {
 
 /** Shape-checked, then proved against Discord, and only then stored. */
 export async function storeDiscordWebhook(
-  ownerId: string,
+  scope: WorkspaceScope,
   rawUrl: string,
 ): Promise<DiscordStatus> {
   const url = normaliseWebhookUrl(rawUrl);
   const info = await verifyWebhook(url);
 
   await putCredential({
-    ownerId,
+    scope,
     kind: DISCORD_CREDENTIAL_KIND,
     secret: url,
     metadata: {
@@ -76,17 +77,17 @@ export async function storeDiscordWebhook(
     },
   });
 
-  return discordStatus(ownerId);
+  return discordStatus(scope);
 }
 
-export async function clearDiscordWebhook(ownerId: string): Promise<DiscordStatus> {
-  await deleteCredential({ ownerId, kind: DISCORD_CREDENTIAL_KIND });
-  return discordStatus(ownerId);
+export async function clearDiscordWebhook(scope: WorkspaceScope): Promise<DiscordStatus> {
+  await deleteCredential({ scope, kind: DISCORD_CREDENTIAL_KIND });
+  return discordStatus(scope);
 }
 
 /** Server-side only. The node's `execute` is the only caller. */
-export async function readDiscordWebhook(ownerId: string): Promise<string> {
-  const secret = await readSecret({ ownerId, kind: DISCORD_CREDENTIAL_KIND });
+export async function readDiscordWebhook(scope: WorkspaceScope): Promise<string> {
+  const secret = await readSecret({ scope, kind: DISCORD_CREDENTIAL_KIND });
   if (!secret) {
     throw new IntegrationError(
       "No Discord webhook is connected. Add one in Settings → Integrations.",
@@ -117,8 +118,8 @@ export interface GoogleStatus {
   updatedAt: string | null;
 }
 
-export async function googleStatus(ownerId: string): Promise<GoogleStatus> {
-  const credential = await getCredential({ ownerId, kind: GOOGLE_CREDENTIAL_KIND });
+export async function googleStatus(scope: WorkspaceScope): Promise<GoogleStatus> {
+  const credential = await getCredential({ scope, kind: GOOGLE_CREDENTIAL_KIND });
   const scopes = credential?.metadata.scopes ?? [];
   return {
     connected: credential !== null,
@@ -133,6 +134,12 @@ export async function googleStatus(ownerId: string): Promise<GoogleStatus> {
 /**
  * Stores a completed connection.
  *
+ * **It is stored against the workspace, not the person** (Phase 19A). Every member of
+ * that workspace can therefore run a workflow that sends mail as this account and
+ * writes to its sheets. That is what makes a shared workflow runnable, and it is the
+ * sharpest consequence of workspace-scoped credentials — the settings page says so
+ * where the connection is made.
+ *
  * A refresh token is **required** here rather than optional. Google omits it when the
  * user has already granted these scopes and the request did not force a consent
  * prompt — leaving a connection that works for one hour and then fails in a run with
@@ -140,7 +147,7 @@ export async function googleStatus(ownerId: string): Promise<GoogleStatus> {
  * into a legible error on the settings page instead.
  */
 export async function storeGoogleConnection(options: {
-  ownerId: string;
+  scope: WorkspaceScope;
   refreshToken: string | null;
   scopes: string[];
   email: string | null;
@@ -152,18 +159,18 @@ export async function storeGoogleConnection(options: {
   }
 
   await putCredential({
-    ownerId: options.ownerId,
+    scope: options.scope,
     kind: GOOGLE_CREDENTIAL_KIND,
     secret: options.refreshToken,
     metadata: { email: options.email, scopes: options.scopes },
   });
 
-  return googleStatus(options.ownerId);
+  return googleStatus(options.scope);
 }
 
-export async function disconnectGoogle(ownerId: string): Promise<GoogleStatus> {
-  await deleteCredential({ ownerId, kind: GOOGLE_CREDENTIAL_KIND });
-  return googleStatus(ownerId);
+export async function disconnectGoogle(scope: WorkspaceScope): Promise<GoogleStatus> {
+  await deleteCredential({ scope, kind: GOOGLE_CREDENTIAL_KIND });
+  return googleStatus(scope);
 }
 
 /**
@@ -179,13 +186,13 @@ export async function disconnectGoogle(ownerId: string): Promise<GoogleStatus> {
  * from what was asked for. The consent screen lets a user untick one.
  */
 export async function googleAccessToken(options: {
-  ownerId: string;
+  scope: WorkspaceScope;
   requiredScopes: string[];
   capability: string;
   signal?: AbortSignal;
 }): Promise<string> {
   const credential = await getCredential({
-    ownerId: options.ownerId,
+    scope: options.scope,
     kind: GOOGLE_CREDENTIAL_KIND,
   });
   if (!credential) {
@@ -202,7 +209,7 @@ export async function googleAccessToken(options: {
   }
 
   const refreshToken = await readSecret({
-    ownerId: options.ownerId,
+    scope: options.scope,
     kind: GOOGLE_CREDENTIAL_KIND,
   });
   if (!refreshToken) {

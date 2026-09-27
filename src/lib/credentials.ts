@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 
 import { db } from "@/db";
 import { credentials } from "@/db/schema";
+import type { WorkspaceScope } from "@/lib/workspace/scope";
 
 import { decryptSecret, encryptSecret, type SecretEnvelope } from "./crypto";
 
@@ -13,9 +14,23 @@ import { decryptSecret, encryptSecret, type SecretEnvelope } from "./crypto";
  * a prefix, not a masked tail. A four-character hint is still key material, and the
  * phase's rule is that none of it leaves the server, not even truncated.
  *
- * One row per `(ownerId, kind, label)`. `neon-http` has no transactions (D6), so a
+ * One row per `(workspaceId, kind, label)`. `neon-http` has no transactions (D6), so a
  * write is a single upsert rather than a delete-then-insert that could lose a
  * credential halfway.
+ *
+ * **Phase 19A made credentials belong to a workspace, and that widens a security
+ * surface on purpose.** It is necessary: a workflow shared with a teammate that cannot
+ * reach its Google credential fails at the first integration node, at runtime, with an
+ * error about a connection the teammate never made. The consequence has to be said out
+ * loud rather than discovered — **connecting Google to a workspace lets every member of
+ * that workspace act as you within the scopes you granted**, sending mail as you and
+ * writing to your sheets. `CONTRACT.md` → *Credential storage shape* records it, the
+ * settings UI says it, and Phase 20's roles are what will decide who may add or remove
+ * one.
+ *
+ * `ownerId` is still written and still means who connected it — which is exactly the
+ * name the UI needs when a workspace member asks whose account a workflow is sending
+ * mail from.
  */
 
 /** The user's own LLM provider key. One per user at MVP. */
@@ -51,7 +66,7 @@ export interface CredentialSummary {
 }
 
 export async function putCredential(options: {
-  ownerId: string;
+  scope: WorkspaceScope;
   kind: string;
   label?: string;
   secret: string;
@@ -63,7 +78,8 @@ export async function putCredential(options: {
   const [row] = await db()
     .insert(credentials)
     .values({
-      ownerId: options.ownerId,
+      workspaceId: options.scope.workspaceId,
+      ownerId: options.scope.userId,
       kind: options.kind,
       label,
       ciphertext: envelope.ciphertext,
@@ -72,11 +88,19 @@ export async function putCredential(options: {
       metadata: options.metadata ?? {},
     })
     .onConflictDoUpdate({
-      target: [credentials.ownerId, credentials.kind, credentials.label],
+      // **This names an index, and Postgres refuses to plan the statement without a
+      // matching one.** Phase 19A found `credential_owner_kind_label_idx` missing from
+      // the deployed database, which made the previous version of this upsert answer
+      // 42P10 on every credential write — a 500 on saving a key, connecting Google, or
+      // storing a webhook. `scripts/verify-schema.mjs` exists to catch that class.
+      target: [credentials.workspaceId, credentials.kind, credentials.label],
       set: {
         ciphertext: envelope.ciphertext,
         iv: envelope.iv,
         authTag: envelope.authTag,
+        // Who connected it last is who it now belongs to, which is the honest record
+        // when one member replaces another's credential.
+        ownerId: options.scope.userId,
         ...(options.metadata ? { metadata: options.metadata } : {}),
         updatedAt: new Date(),
       },
@@ -88,7 +112,7 @@ export async function putCredential(options: {
 
 /** Changes the stored metadata without touching the secret. */
 export async function updateCredentialMetadata(options: {
-  ownerId: string;
+  scope: WorkspaceScope;
   kind: string;
   label?: string;
   metadata: CredentialMetadata;
@@ -99,7 +123,7 @@ export async function updateCredentialMetadata(options: {
     .set({ metadata: options.metadata, updatedAt: new Date() })
     .where(
       and(
-        eq(credentials.ownerId, options.ownerId),
+        eq(credentials.workspaceId, options.scope.workspaceId),
         eq(credentials.kind, options.kind),
         eq(credentials.label, label),
       ),
@@ -110,7 +134,7 @@ export async function updateCredentialMetadata(options: {
 }
 
 export async function getCredential(options: {
-  ownerId: string;
+  scope: WorkspaceScope;
   kind: string;
   label?: string;
 }): Promise<CredentialSummary | null> {
@@ -124,7 +148,7 @@ export async function getCredential(options: {
  * may call this.
  */
 export async function readSecret(options: {
-  ownerId: string;
+  scope: WorkspaceScope;
   kind: string;
   label?: string;
 }): Promise<string | null> {
@@ -134,7 +158,7 @@ export async function readSecret(options: {
 }
 
 export async function deleteCredential(options: {
-  ownerId: string;
+  scope: WorkspaceScope;
   kind: string;
   label?: string;
 }): Promise<boolean> {
@@ -143,7 +167,7 @@ export async function deleteCredential(options: {
     .delete(credentials)
     .where(
       and(
-        eq(credentials.ownerId, options.ownerId),
+        eq(credentials.workspaceId, options.scope.workspaceId),
         eq(credentials.kind, options.kind),
         eq(credentials.label, label),
       ),
@@ -153,14 +177,14 @@ export async function deleteCredential(options: {
   return deleted.length > 0;
 }
 
-async function readRow(options: { ownerId: string; kind: string; label?: string }) {
+async function readRow(options: { scope: WorkspaceScope; kind: string; label?: string }) {
   const label = options.label ?? DEFAULT_CREDENTIAL_LABEL;
   const [row] = await db()
     .select()
     .from(credentials)
     .where(
       and(
-        eq(credentials.ownerId, options.ownerId),
+        eq(credentials.workspaceId, options.scope.workspaceId),
         eq(credentials.kind, options.kind),
         eq(credentials.label, label),
       ),

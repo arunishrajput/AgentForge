@@ -1,5 +1,5 @@
 import { describeNodes } from "@/lib/nodes";
-import { handle, ok, requireOwnerId } from "@/lib/api";
+import { handle, ok, requireUserId } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
  */
 export async function GET() {
   return handle(async () => {
-    await requireOwnerId();
+    await requireUserId();
     return ok(describeNodes());
   });
 }

@@ -43,6 +43,11 @@ an API key, and they will abandon a tool that takes an afternoon to understand.
 Not targeted at MVP: enterprise teams, non-technical users needing hand-holding, anyone
 requiring on-premise or compliance guarantees.
 
+**A small team is now in scope**, as of Chapter 2 — a workspace with a handful of people in it, not
+an org chart. Phase 19A made every resource belong to a workspace rather than to a person; Phase 19B
+lets somebody be invited into one. "Enterprise teams" stays out: no SSO, no SCIM, no audit export,
+no compliance posture.
+
 ---
 
 ## Product objective
@@ -106,7 +111,8 @@ mapped to the phase that delivers it. `BUILD_PLAN.md` is the contract; this is t
 | C3 | Durable execution, resumable runs, a real queue | 17 — **DONE** | Carried risk: "in-flight runs die on redeploy" |
 | C4 | Retry and timeout configuration in the UI | 17 — **DONE** | S6, never built |
 | C5 | Workflow versioning, restore, visual diff | 18 — **DONE** | Post-Hackathon |
-| C6 | Workspaces, membership, invitations | 19 | Post-Hackathon |
+| C6a | Workspaces: the data model and scoping | 19A — **DONE** | Post-Hackathon |
+| C6b | Membership: invitations and the switcher | 19B | Post-Hackathon |
 | C7 | Roles, permissions, sharing | 20 | Post-Hackathon |
 | C8 | Credential vault, rotation, audit log | 21 | Post-Hackathon. Rotation was the sharpest known gap |
 | C9 | Observability, metrics, run analytics | 22 | Post-Hackathon |
@@ -140,8 +146,15 @@ Will not be built, in any form.
 
 ## Functional requirements
 
-**Auth.** Google OAuth only. A session survives a page reload. Every workflow, run, and credential
-is scoped to its owner, enforced server-side.
+**Auth.** Google OAuth only. A session survives a page reload. Sign-in answers *who is this* and
+nothing else — every authorisation question is answered by workspace membership.
+
+**Workspaces.** Every workflow, run, version and credential belongs to a **workspace**, enforced
+server-side on every query; nothing reads across the boundary, and a resource in another workspace
+answers 404 rather than 403 so the reply does not confirm it exists. A new account is given a
+personal workspace automatically. **Credentials belong to the workspace**, which is what makes a
+shared workflow runnable — and means connecting Google lets every member act as you within the
+scopes you granted, said plainly where the connection is made.
 
 **Workflows.** Create, rename, delete. A workflow is a set of nodes and directed edges with
 per-node configuration. Save and load must round-trip losslessly — a saved workflow reloads

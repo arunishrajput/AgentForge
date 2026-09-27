@@ -486,9 +486,14 @@ if (command === "session") {
   /* 4b — the unclaimed path, made deterministic */
   console.log("\n4b. A run nothing has claimed is cancelled outright, with no steps");
   const [owner] = await sql.query('select id from "user" order by id limit 1');
+  // `workspaceId` is selected from the workflow rather than passed in, exactly as the
+  // engine does it — a run belongs where its workflow does. It became required in Phase
+  // 19A, and the deployed run of that phase's migration is what caught this insert
+  // predating it.
   const [orphan] = await sql.query(
-    `insert into "run" (id, "workflowId", "ownerId", status, trigger, mode, "dispatchToken")
-     values ($1, $2, $3, 'queued', 'manual', 'durable', $4) returning id`,
+    `insert into "run" (id, "workflowId", "ownerId", "workspaceId", status, trigger, mode, "dispatchToken")
+     select $1, $2, $3, w."workspaceId", 'queued', 'manual', 'durable', $4
+     from "workflow" w where w."id" = $2 returning id`,
     [crypto.randomUUID(), workflowId, owner.id, crypto.randomUUID().replaceAll("-", "").repeat(2).slice(0, 48)],
   );
   // A `queued` run with no task behind it — exactly the row an enqueue failure leaves, and
@@ -552,10 +557,11 @@ if (command === "session") {
   const abandoned = async (mode, status, attempt) => {
     const id = crypto.randomUUID();
     await sql.query(
-      `insert into "run" (id, "workflowId", "ownerId", status, trigger, mode, attempt,
+      `insert into "run" (id, "workflowId", "ownerId", "workspaceId", status, trigger, mode, attempt,
                           "dispatchToken", "heartbeatAt", "leaseOwner", "leaseExpiresAt")
-       values ($1, $2, $3, $4, 'manual', $5, $6, $7,
-               now() - interval '10 minutes', 'dead-worker', now() - interval '10 minutes')`,
+       select $1, $2, $3, w."workspaceId", $4, 'manual', $5, $6, $7,
+              now() - interval '10 minutes', 'dead-worker', now() - interval '10 minutes'
+       from "workflow" w where w."id" = $2`,
       [id, workflowId, sweepOwner.id, status, mode, attempt, crypto.randomUUID().replaceAll("-", "").repeat(2).slice(0, 48)],
     );
     return id;

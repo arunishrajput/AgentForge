@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { ApiError } from "@/lib/api";
+import type { WorkspaceScope } from "@/lib/workspace/scope";
 import {
   deleteCredential,
   getCredential,
@@ -37,7 +38,7 @@ export type ProviderSettingsInput = z.infer<typeof providerSettingsSchema>;
 
 export interface ProviderSettings {
   provider: "google";
-  /** Whether this user has their own key stored. */
+  /** Whether this workspace has its own key stored. */
   configured: boolean;
   /** The model that will be used when a node does not name one. */
   model: string;
@@ -59,8 +60,8 @@ export interface ProviderSettings {
   health: ModelHealth[];
 }
 
-export async function readSettings(ownerId: string): Promise<ProviderSettings> {
-  const credential = await getCredential({ ownerId, kind: LLM_CREDENTIAL_KIND });
+export async function readSettings(scope: WorkspaceScope): Promise<ProviderSettings> {
+  const credential = await getCredential({ scope, kind: LLM_CREDENTIAL_KIND });
   const configured = credential !== null;
   const model =
     typeof credential?.metadata.model === "string" && credential.metadata.model.length > 0
@@ -102,27 +103,27 @@ export async function readSettings(ownerId: string): Promise<ProviderSettings> {
  * mid-run on demo day, with the real cause three layers down in a step error.
  */
 export async function writeSettings(
-  ownerId: string,
+  scope: WorkspaceScope,
   input: ProviderSettingsInput,
 ): Promise<ProviderSettings> {
   if (input.apiKey) {
     await verifyKey(input.apiKey);
 
-    const existing = await getCredential({ ownerId, kind: LLM_CREDENTIAL_KIND });
+    const existing = await getCredential({ scope, kind: LLM_CREDENTIAL_KIND });
     const model = input.model ?? existing?.metadata.model ?? DEFAULT_MODEL;
     if (input.model) await verifyModel(input.apiKey, input.model);
 
     await putCredential({
-      ownerId,
+      scope,
       kind: LLM_CREDENTIAL_KIND,
       secret: input.apiKey,
       metadata: { model },
     });
 
-    return readSettings(ownerId);
+    return readSettings(scope);
   }
 
-  const secret = await readSecret({ ownerId, kind: LLM_CREDENTIAL_KIND });
+  const secret = await readSecret({ scope, kind: LLM_CREDENTIAL_KIND });
   if (!secret) {
     throw new ApiError(
       "invalid_request",
@@ -133,7 +134,7 @@ export async function writeSettings(
   await verifyModel(secret, input.model!);
 
   const updated = await updateCredentialMetadata({
-    ownerId,
+    scope,
     kind: LLM_CREDENTIAL_KIND,
     metadata: { model: input.model },
   });
@@ -142,12 +143,12 @@ export async function writeSettings(
     throw new ApiError("not_found", "No stored key to attach a model to.");
   }
 
-  return readSettings(ownerId);
+  return readSettings(scope);
 }
 
-export async function clearSettings(ownerId: string): Promise<ProviderSettings> {
-  await deleteCredential({ ownerId, kind: LLM_CREDENTIAL_KIND });
-  return readSettings(ownerId);
+export async function clearSettings(scope: WorkspaceScope): Promise<ProviderSettings> {
+  await deleteCredential({ scope, kind: LLM_CREDENTIAL_KIND });
+  return readSettings(scope);
 }
 
 /**
@@ -156,10 +157,10 @@ export async function clearSettings(ownerId: string): Promise<ProviderSettings> 
  * baked-in catalogue would offer models that cannot run.
  */
 export async function listModelsFor(
-  ownerId: string,
+  scope: WorkspaceScope,
 ): Promise<{ models: ModelInfo[]; source: "user" | "environment" }> {
   const { resolveProvider } = await import("./provider");
-  const { model, source } = await resolveProvider(ownerId);
+  const { model, source } = await resolveProvider(scope);
   try {
     return { models: await model.listModels(), source };
   } catch (error) {

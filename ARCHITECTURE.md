@@ -280,7 +280,8 @@ a handful of requests per page, not thirty per workflow run.
 | **Agent layer** | Provider adapter over the LLM, prompt assembly, and the bounded tool-calling loop whose tools are derived from the registry |
 | **Generation** | Natural language → validated workflow JSON → persisted workflow |
 | **Versioning and diffing** | Phase 18. One compact snapshot per save (`src/lib/workflow/versions.ts`), a pure graph diff (`src/lib/workflow/diff.ts`), and the canvas's read-only diff mode (`src/components/canvas/diff/`) |
-| **Persistence** | Neon Postgres. Users, credentials, workflows, workflow versions, runs, run steps |
+| **Tenancy** | Phase 19A. `src/lib/workspace/` — the `WorkspaceScope` every store function takes, the one query that resolves it per request, and the roles Phase 20 will enforce. **No query in the product reads across a workspace** |
+| **Persistence** | Neon Postgres. Workspaces and memberships, users, credentials, workflows, workflow versions, runs, run steps |
 | **Cloud Scheduler** | Managed cron, calls `/api/cron/tick` to fire due schedule triggers |
 
 ---
@@ -573,6 +574,11 @@ Neon Postgres, free tier.
   Cloud Run instances multiply connections and Neon's free compute has a low limit.
   `DATABASE_URL_UNPOOLED` is the direct endpoint, used for migrations, which need a session
   connection that pooling breaks
+- **Neon's free tier meters compute time awake, not statements.** This is the fact that decides
+  whether a feature is affordable, and Phase 19A is the worked example: workspaces add a query to
+  requests that already make one, and add no poller, tick or background job, so they cost
+  essentially nothing against the ~39 CU-hour balance. What costs is a **new reason to wake an idle
+  database**. Phase 22's analytics is the one that must be designed against the number
 - **Neon free compute autosuspends** when idle, so the first query after a quiet period pays a
   wake-up. Combined with Cloud Run cold start this is the demo's slowest possible first moment —
   hence the warm-up step in `DEMO.md`
@@ -593,8 +599,22 @@ Neon Postgres, free tier.
   | `workflow` | 3 | Owns the graph as a single `jsonb` column |
   | `run` | 3 | One per execution; `heartbeatAt` is what makes an interrupted run observable |
   | `run_step` | 3 | One per node execution, unique on `(runId, seq)`; snapshots its resolved config |
-  | `credential` | 3 | Table only. Encryption and the write-only API are Phase 6 |
+  | `credential` | 3 | Table only. Encryption and the write-only API are Phase 6. **Unique on `(workspaceId, kind, label)` since 19A** |
   | `workflow_version` | **18** | One compact snapshot per save — `number`, `name`, `graph`. Unique on `(workflowId, number)` |
+  | `workspace` | **19A** | **The tenant.** Every resource belongs to one. Unique partial index on `createdBy where personal` |
+  | `workspace_member` | **19A** | Who is in a workspace and as what. `(workspaceId, userId)` primary key. `role` is written here and **enforced in Phase 20** |
+
+- **`workspaceId` is the scoping column, and it sits alongside `ownerId` rather than replacing it**
+  — Phase 19A, on `workflow`, `run`, `workflow_version` and `credential`. The two answer different
+  questions and both are worth keeping: `workspaceId` answers *who may see this*, `ownerId` answers
+  *who made this happen*. Collapsing them would cost the run history the only record it has of who
+  triggered a run
+- **The migration was expand/contract, in two steps with a deploy between them.** `0005` added the
+  tables and the columns **nullable** and backfilled a personal workspace per user, so the previous
+  revision — which knows nothing about `workspaceId` — kept serving throughout; `0006` set the
+  columns `NOT NULL` once the new revision was the only one running. The rollback is hand-written
+  (`drizzle/rollback_0005_0006.sql`) and was rehearsed forward *and* backward on a throwaway schema
+  holding a copy of the real rows before either half was applied — `scripts/rehearse-migration.mjs`
 
 - **The graph is one `jsonb` column, not node and edge tables.** Decided in Phase 3. `neon-http`
   has no transactions, so a graph spread over three tables could not be saved atomically; a
@@ -747,7 +767,13 @@ deploying and collapse the two-step into one. The two-step is still the safe def
 form is not known in advance. Exact values live in `DEPLOYMENT.md`.
 
 Integration credentials (Google API scopes for Sheets and Gmail, Discord webhook URLs) are stored
-encrypted per user, separate from the sign-in session.
+encrypted **per workspace** since Phase 19A, separate from the sign-in session.
+
+**Sign-in identifies a person; a workspace decides what they can reach.** Auth.js answers *who is
+this*, and nothing more — every authorisation question is answered by a `workspace_member` row, not
+by the session. A new account is given a personal workspace by the `createUser` event, and the scope
+resolver creates one if it ever finds none, so the event is a convenience rather than a correctness
+requirement: a failure there is repaired by the next request instead of locking somebody out.
 
 ---
 

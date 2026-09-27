@@ -36,6 +36,20 @@
       "when": 1790472418437,
       "tag": "0004_wonderful_bloodscream",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1790478191170,
+      "tag": "0005_nappy_vampiro",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790478230252,
+      "tag": "0006_reflective_electro",
+      "breakpoints": true
     }
   ]
 }

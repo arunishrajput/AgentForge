@@ -2,6 +2,7 @@ import { and, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 
 import { db } from "@/db";
 import { runs, type Run } from "@/db/schema";
+import type { WorkspaceScope } from "@/lib/workspace/scope";
 
 import type { RunCursor } from "./cursor";
 import type { Checkpoint, RunStatus } from "./types";
@@ -259,7 +260,7 @@ export async function finishUnclaimedRun(options: {
  */
 export async function requestCancel(options: {
   runId: string;
-  ownerId: string;
+  scope: WorkspaceScope;
 }): Promise<Run | null> {
   const [row] = await db()
     .update(runs)
@@ -267,7 +268,7 @@ export async function requestCancel(options: {
     .where(
       and(
         eq(runs.id, options.runId),
-        eq(runs.ownerId, options.ownerId),
+        eq(runs.workspaceId, options.scope.workspaceId),
         inArray(runs.status, NON_TERMINAL),
       ),
     )
@@ -294,7 +295,7 @@ export async function requestCancel(options: {
  * zero and a timer would not fire; the cron tick calls it across every owner too, so a
  * signed-out user's abandoned run is not left pending on nobody looking at it.
  */
-export async function sweepAbandonedRuns(ownerId?: string): Promise<number> {
+export async function sweepAbandonedRuns(scope?: WorkspaceScope): Promise<number> {
   const lapsed = or(
     isNull(runs.leaseExpiresAt),
     lt(runs.leaseExpiresAt, agoSeconds(SWEEP_GRACE_MS / 1000)),
@@ -318,7 +319,11 @@ export async function sweepAbandonedRuns(ownerId?: string): Promise<number> {
     })
     .where(
       and(
-        ...(ownerId ? [eq(runs.ownerId, ownerId)] : []),
+        // Scoped when a request is sweeping its own workspace, unscoped when the cron
+        // tick sweeps across every workspace — which is the only caller that may, and
+        // the reason a run abandoned by somebody who never comes back does not sit in
+        // `running` for ever on nobody looking at it.
+        ...(scope ? [eq(runs.workspaceId, scope.workspaceId)] : []),
         inArray(runs.status, NON_TERMINAL),
         lt(runs.heartbeatAt, agoSeconds(SWEEP_GRACE_MS / 1000)),
         lapsed,

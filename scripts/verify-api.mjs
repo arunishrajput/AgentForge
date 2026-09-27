@@ -166,6 +166,22 @@ const graph = {
   ],
 };
 
+/**
+ * Remove every trace of the isolation probe — including one left behind by a run that
+ * was killed before its `finally`.
+ *
+ * The workspace is deleted explicitly rather than relied upon to cascade: `workspace`
+ * references the user with `on delete set null`, deliberately, so that deleting the
+ * person who made a workspace does not delete the workspace out from under everybody
+ * else in it. The consequence here is that deleting the probe user would otherwise
+ * leave an ownerless workspace behind for ever.
+ */
+async function cleanUpProbe(userId) {
+  await sql.query('delete from "workspace" where "createdBy" = $1', [userId]).catch(() => {});
+  await sql.query('delete from "session" where "userId" = $1', [userId]).catch(() => {});
+  await sql.query('delete from "user" where "id" = $1', [userId]).catch(() => {});
+}
+
 const token = crypto.randomUUID() + crypto.randomUUID();
 let workflowId = null;
 
@@ -353,8 +369,12 @@ try {
   // would ever move it out of `running`. Simulated here by writing the row a dead
   // engine would have left behind (ARCHITECTURE.md → Execution engine design).
   const orphan = crypto.randomUUID();
+  // `workspaceId` is read off the workflow rather than passed in, exactly as the engine
+  // does it: a run belongs where its workflow does. It became required in Phase 19A, and
+  // this insert not having it is what the deployed run of that phase's migration caught.
   await sql.query(
-    'insert into "run" ("id", "workflowId", "ownerId", "status", "trigger", "startedAt", "heartbeatAt") values ($1, $2, $3, $4, $5, $6, $6)',
+    `insert into "run" ("id", "workflowId", "ownerId", "workspaceId", "status", "trigger", "startedAt", "heartbeatAt")
+     select $1, $2, $3, w."workspaceId", $4, $5, $6, $6 from "workflow" w where w."id" = $2`,
     [orphan, workflowId, user.id, "running", "manual", new Date(Date.now() - 30 * 60 * 1000)],
   );
   await api("GET", "/api/runs", undefined, token);
@@ -363,7 +383,12 @@ try {
     reaped?.status === "failed" && typeof reaped?.error === "string",
     JSON.stringify(reaped));
 
-  // --- owner scoping --------------------------------------------------------
+  // --- a brand-new account gets its own workspace ---------------------------
+  // Since Phase 19A this also exercises the healing path: a user row with no workspace
+  // and no membership gets one created by the scope resolver on its very first request
+  // (`lib/workspace/store.ts`). The account below is created straight in the database,
+  // so it never goes through the `createUser` event — which is precisely the case the
+  // resolver's fallback exists for.
   const stranger = crypto.randomUUID();
   const [other2] = await sql.query(
     'insert into "user" ("id", "email") values ($1, $2) returning id',
@@ -379,6 +404,21 @@ try {
     `got ${poached.status}`);
   const poachedRun = await api("POST", `/api/workflows/${workflowId}/runs`, {}, strangerToken);
   check("another user cannot run this workflow", poachedRun.status === 404);
+
+  const [{ n: healed }] = await sql.query(
+    'select count(*)::int as n from "workspace_member" where "userId" = $1',
+    [other2.id],
+  );
+  check(
+    "an account with no workspace is given one on its first request",
+    healed === 1,
+    `${healed} memberships`,
+  );
+
+  // The workspace is deleted explicitly: `workspace.createdBy` is `on delete set null`
+  // so that removing a person does not remove the workspace other people are in, which
+  // means deleting this user alone would strand the workspace it just created.
+  await sql.query('delete from "workspace" where "createdBy" = $1', [other2.id]);
   await sql.query('delete from "user" where id = $1', [other2.id]);
 
   // --- phase 4: the canvas --------------------------------------------------
@@ -2339,6 +2379,203 @@ try {
     );
     check("deleting a workflow cascades to its versions", orphans === 0, `${orphans} orphaned`);
   }
+
+  // --- workspace isolation (Phase 19A) --------------------------------------
+  //
+  // **The checks this phase exists for.** Everything above proves a signed-in user can
+  // drive their own workspace; none of it proves another workspace cannot. So this
+  // creates a genuine second tenant — a second `user` row, a second `workspace`, and a
+  // real session for them — and asserts that every route answers as though the first
+  // workspace's resources simply do not exist.
+  //
+  // A second *account* rather than a second *cookie*: the scoping is resolved from
+  // membership on the server, so anything less than a real user with a real membership
+  // would be testing the test rather than the product.
+  //
+  // The probe user's id is fixed and sorts last on purpose. This script selects its
+  // main user with `order by id limit 1`, and a probe left behind by an interrupted run
+  // must never become the user a later run drives.
+  const PROBE_USER_ID = "zzzz-workspace-isolation-probe";
+  const probeToken = crypto.randomUUID() + crypto.randomUUID();
+  let probeWorkspaceId = null;
+  let probeWorkflowId = null;
+
+  try {
+    await cleanUpProbe(PROBE_USER_ID);
+
+    await sql.query('insert into "user" ("id", "name", "email") values ($1, $2, $3)', [
+      PROBE_USER_ID,
+      "Isolation Probe",
+      "workspace-isolation-probe@agentforge.invalid",
+    ]);
+    const [probeWorkspace] = await sql.query(
+      'insert into "workspace" ("id", "name", "createdBy", "personal") values (gen_random_uuid()::text, $1, $2, true) returning "id"',
+      ["Probe workspace", PROBE_USER_ID],
+    );
+    probeWorkspaceId = probeWorkspace.id;
+    await sql.query(
+      'insert into "workspace_member" ("workspaceId", "userId", "role") values ($1, $2, $3)',
+      [probeWorkspaceId, PROBE_USER_ID, "owner"],
+    );
+    await sql.query(
+      'insert into "session" ("sessionToken", "userId", "expires") values ($1, $2, $3)',
+      [probeToken, PROBE_USER_ID, new Date(Date.now() + 60 * 60 * 1000)],
+    );
+
+    // The probe is a real, working tenant — otherwise every 404 below would pass for
+    // the wrong reason, namely a session that does not work at all.
+    const probeList = await api("GET", "/api/workflows", undefined, probeToken);
+    check(
+      "the second workspace's session works and its list is its own",
+      probeList.status === 200 && Array.isArray(probeList.json?.data),
+      `got ${probeList.status}`,
+    );
+    check(
+      "the second workspace cannot see the first's workflow in its list",
+      !(probeList.json?.data ?? []).some((w) => w.id === workflowId),
+      "the first workspace's workflow appeared in the second's list",
+    );
+
+    const [aRun] = await sql.query(
+      'select "id" from "run" where "workflowId" = $1 order by "startedAt" desc limit 1',
+      [workflowId],
+    );
+
+    // Every route that takes an id, asked for a resource in the other workspace. 404
+    // and not 403 throughout: the reply must not confirm that the id exists (D20).
+    const crossTenant = [
+      ["read a workflow", "GET", `/api/workflows/${workflowId}`, undefined],
+      ["edit a workflow", "PATCH", `/api/workflows/${workflowId}`, { name: "hijacked" }],
+      ["delete a workflow", "DELETE", `/api/workflows/${workflowId}`, undefined],
+      ["trigger a run", "POST", `/api/workflows/${workflowId}/runs`, {}],
+      ["list its runs", "GET", `/api/workflows/${workflowId}/runs`, undefined],
+      ["list its versions", "GET", `/api/workflows/${workflowId}/versions`, undefined],
+      ["read one of its versions", "GET", `/api/workflows/${workflowId}/versions/1`, undefined],
+      ["label one of its versions", "PATCH", `/api/workflows/${workflowId}/versions/1`, { label: "x" }],
+      ["restore one of its versions", "POST", `/api/workflows/${workflowId}/versions/1/restore`, {}],
+      ["compare its versions", "GET", `/api/workflows/${workflowId}/versions/compare?from=1&to=2`, undefined],
+      ["open its run stream", "GET", `/api/workflows/${workflowId}/stream`, undefined],
+      ...(aRun ? [
+        ["read its run", "GET", `/api/runs/${aRun.id}`, undefined],
+        ["cancel its run", "POST", `/api/runs/${aRun.id}/cancel`, {}],
+      ] : []),
+    ];
+
+    for (const [what, method, path, body] of crossTenant) {
+      const response = await api(method, path, body, probeToken);
+      check(
+        `another workspace cannot ${what}`,
+        response.status === 404,
+        `got ${response.status} ${JSON.stringify(response.json).slice(0, 160)}`,
+      );
+    }
+
+    // The edit and delete above must have answered 404 *and* done nothing. A route that
+    // wrote first and refused afterwards would pass every check above this one.
+    const [stillThere] = await sql.query(
+      'select "name" from "workflow" where "id" = $1',
+      [workflowId],
+    );
+    check(
+      "the refused edit and delete changed nothing",
+      stillThere !== undefined && stillThere.name !== "hijacked",
+      stillThere ? `name is now ${stillThere.name}` : "the workflow was deleted",
+    );
+
+    const probeRuns = await api("GET", "/api/runs", undefined, probeToken);
+    check(
+      "another workspace's run list is empty of the first's runs",
+      !(probeRuns.json?.data ?? []).some((run) => run.workflowId === workflowId),
+      "a run from the first workspace appeared in the second's list",
+    );
+
+    // Credentials are the sharpest case: they are workspace-scoped now, so the *only*
+    // thing keeping one tenant's Google connection away from another is this filter.
+    const probeDiscord = await api("GET", "/api/integrations/discord", undefined, probeToken);
+    check(
+      "another workspace sees no Discord credential",
+      probeDiscord.status === 200 && probeDiscord.json?.data?.configured === false,
+      JSON.stringify(probeDiscord.json).slice(0, 160),
+    );
+
+    const probeGoogle = await api("GET", "/api/integrations/google", undefined, probeToken);
+    check(
+      "another workspace sees no Google connection",
+      probeGoogle.status === 200 && probeGoogle.json?.data?.connected === false,
+      JSON.stringify(probeGoogle.json).slice(0, 160),
+    );
+
+    const probeProvider = await api("GET", "/api/settings/provider", undefined, probeToken);
+    check(
+      "another workspace sees no stored provider key",
+      probeProvider.status === 200 && probeProvider.json?.data?.configured === false,
+      JSON.stringify(probeProvider.json).slice(0, 160),
+    );
+
+    // The reverse direction, which is the half a one-way test would miss.
+    const probeCreated = await api(
+      "POST",
+      "/api/workflows",
+      { name: "Probe workspace workflow" },
+      probeToken,
+    );
+    check("the second workspace can create its own workflow", probeCreated.status === 201);
+    probeWorkflowId = probeCreated.json?.data?.id ?? null;
+
+    if (probeWorkflowId) {
+      const [row] = await sql.query('select "workspaceId" from "workflow" where "id" = $1', [
+        probeWorkflowId,
+      ]);
+      check(
+        "a new workflow is stamped with the creator's workspace",
+        row?.workspaceId === probeWorkspaceId,
+        `${row?.workspaceId} !== ${probeWorkspaceId}`,
+      );
+
+      const firstSees = await api("GET", `/api/workflows/${probeWorkflowId}`, undefined, token);
+      check("the first workspace cannot read the second's workflow", firstSees.status === 404);
+    }
+  } finally {
+    await cleanUpProbe(PROBE_USER_ID);
+    await sql.query('delete from "session" where "sessionToken" = $1', [probeToken]).catch(() => {});
+  }
+
+  // --- the migration's own invariants ---------------------------------------
+  //
+  // Asserted against the live database rather than against the migration file, because
+  // the file only says what was intended. Phase 19A found a migration whose index never
+  // actually landed (`scripts/verify-schema.mjs`), so "it is in the .sql" is not
+  // evidence that it is in the database.
+  const [{ n: unscoped }] = await sql.query(`
+    select (
+      (select count(*) from "workflow" where "workspaceId" is null) +
+      (select count(*) from "run" where "workspaceId" is null) +
+      (select count(*) from "workflow_version" where "workspaceId" is null) +
+      (select count(*) from "credential" where "workspaceId" is null)
+    )::int as n`);
+  check("every row in every scoped table has a workspace", unscoped === 0, `${unscoped} without one`);
+
+  const [tenancy] = await sql.query(`
+    select
+      (select count(*) from "user")::int as users,
+      (select count(*) from "workspace" where "personal")::int as personal,
+      (select count(distinct "userId") from "workspace_member")::int as members`);
+  check(
+    "every user has a personal workspace and a membership",
+    tenancy.users === tenancy.personal && tenancy.users === tenancy.members,
+    JSON.stringify(tenancy),
+  );
+
+  // A resource whose workspace nobody is a member of is unreachable by every route in
+  // the product — invisible, undeletable, and still costing metered storage.
+  const [{ n: orphanedByMembership }] = await sql.query(`
+    select count(*)::int as n from "workflow" w
+    where not exists (select 1 from "workspace_member" m where m."workspaceId" = w."workspaceId")`);
+  check(
+    "no workflow is stranded in a workspace with no members",
+    orphanedByMembership === 0,
+    `${orphanedByMembership} stranded`,
+  );
 
   // --- delete ---------------------------------------------------------------
   const deleted = await api("DELETE", `/api/workflows/${workflowId}`, undefined, token);

@@ -36,7 +36,7 @@ export const discordNode = defineNode({
   }),
   async execute({ config, context }) {
     try {
-      const webhookUrl = await readDiscordWebhook(context.ownerId);
+      const webhookUrl = await readDiscordWebhook(context.scope);
       const result = await postMessage(
         webhookUrl,
         { content: config.content, ...(config.username ? { username: config.username } : {}) },

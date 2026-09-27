@@ -4,6 +4,7 @@ import {
   readSecret,
   type CredentialMetadata,
 } from "@/lib/credentials";
+import type { WorkspaceScope } from "@/lib/workspace/scope";
 
 import { DEFAULT_MODEL, geminiModel } from "./gemini";
 import type { LanguageModel } from "./types";
@@ -36,11 +37,11 @@ export interface ResolvedProvider {
   selectedModel: string;
 }
 
-export async function resolveProvider(ownerId: string): Promise<ResolvedProvider> {
-  const stored = await readSecret({ ownerId, kind: LLM_CREDENTIAL_KIND });
+export async function resolveProvider(scope: WorkspaceScope): Promise<ResolvedProvider> {
+  const stored = await readSecret({ scope, kind: LLM_CREDENTIAL_KIND });
 
   if (stored) {
-    const credential = await getCredential({ ownerId, kind: LLM_CREDENTIAL_KIND });
+    const credential = await getCredential({ scope, kind: LLM_CREDENTIAL_KIND });
     const selectedModel = pickModel(credential?.metadata);
     return {
       model: geminiModel({ apiKey: stored, defaultModel: selectedModel }),

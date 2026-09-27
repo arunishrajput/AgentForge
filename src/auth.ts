@@ -29,6 +29,34 @@ export const { handlers, auth, signIn, signOut } = NextAuth(() => ({
       clientSecret: required("GOOGLE_CLIENT_SECRET"),
     }),
   ],
+  events: {
+    /**
+     * A new account gets a personal workspace before it ever loads a page — Phase 19A.
+     *
+     * **It is a convenience, not a correctness requirement**, and that is on purpose.
+     * If this event fails, or Auth.js changes its payload across a beta upgrade, the
+     * scope resolver creates the workspace on the first request instead
+     * (`lib/workspace/store.ts` → `ensurePersonalWorkspace`). Doing it here as well
+     * means the common path is one fewer write on a metered database, and doing it
+     * there as well means a failure here is invisible rather than fatal.
+     *
+     * Throwing from an event would fail the sign-in, so this swallows and logs. A user
+     * who cannot sign in because a *workspace* could not be written would be a bad
+     * trade for a thing the next request repairs by itself.
+     */
+    async createUser({ user }) {
+      if (!user.id) return;
+      try {
+        const { createPersonalWorkspaceForNewUser } = await import("@/lib/workspace/store");
+        await createPersonalWorkspaceForNewUser(user.id);
+      } catch (error) {
+        console.error(
+          `[workspace] could not create a personal workspace for new user ${user.id}:`,
+          error,
+        );
+      }
+    },
+  },
   // Cloud Run terminates TLS at the proxy, so the forwarded host must be trusted.
   // AUTH_URL still wins as the canonical origin for callbacks.
   trustHost: true,
