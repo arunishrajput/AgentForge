@@ -132,24 +132,12 @@ export function nextEdgeId(taken: Iterable<string>): string {
 }
 
 /**
- * Structural graph comparison, used to decide whether the canvas has unsaved work.
+ * Whether the canvas has unsaved work.
  *
- * It must not be a string comparison of the two graphs: Postgres `jsonb`
- * normalises object key order, so a graph read back is deeply equal to what was
- * written but not byte-identical (PROGRESS.md, Phase 3). Comparing the raw JSON
- * would mark a freshly loaded workflow as dirty. This canonicalises key order
- * first, so the comparison is on structure alone.
+ * Re-exported rather than defined here: the comparison is a property of the graph
+ * shape, so it lives in `lib/workflow/graph.ts` beside the schema it compares, and
+ * `lib/workflow/versions.ts` asks the same function the same question on the server.
+ * Two copies would eventually disagree, and the failure would be silent in both
+ * directions — a canvas that never looks saved, or a history that drops an edit.
  */
-function canonical(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonical);
-  if (value !== null && typeof value === "object") {
-    return Object.keys(value as Record<string, unknown>)
-      .sort()
-      .map((key) => [key, canonical((value as Record<string, unknown>)[key])]);
-  }
-  return value;
-}
-
-export function graphsEqual(a: WorkflowGraph, b: WorkflowGraph): boolean {
-  return JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
-}
+export { graphsEqual } from "@/lib/workflow/graph";

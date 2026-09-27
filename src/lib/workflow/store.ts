@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { db } from "@/db";
@@ -9,7 +9,8 @@ import { required } from "@/lib/env";
 import { nextScheduleState, scheduleCron } from "@/lib/triggers/schedule";
 import { mintWebhookToken, webhookTriggerNode, webhookUrl } from "@/lib/triggers/webhook";
 
-import { emptyGraph, workflowGraphSchema } from "./graph";
+import { emptyGraph, graphsEqual, workflowGraphSchema } from "./graph";
+import { getVersion, recordVersion } from "./versions";
 
 /**
  * Owner-scoped workflow persistence. Every query here filters on `ownerId` — the
@@ -55,6 +56,8 @@ export async function getWorkflow(ownerId: string, id: string): Promise<Workflow
 export async function createWorkflow(
   ownerId: string,
   body: z.infer<typeof createWorkflowSchema>,
+  /** Names version 1. The generator passes one; an empty new workflow does not. */
+  versionLabel?: string,
 ): Promise<Workflow> {
   const graph = body.graph ?? emptyGraph();
 
@@ -73,6 +76,19 @@ export async function createWorkflow(
     })
     .returning();
 
+  // Version 1 is written at creation rather than on the first edit, so "restore it to
+  // how it started" is answerable for every workflow. A generated one needs this most:
+  // the model's first draft is exactly the thing a user edits away from and then wants
+  // back.
+  await recordVersion({
+    workflowId: workflow.id,
+    ownerId,
+    number: workflow.version,
+    name: workflow.name,
+    graph: workflow.graph,
+    label: versionLabel ?? null,
+  });
+
   return workflow;
 }
 
@@ -80,8 +96,33 @@ export async function updateWorkflow(
   ownerId: string,
   id: string,
   body: z.infer<typeof updateWorkflowSchema>,
+  /** Names the version this save produces. A restore passes one; the canvas does not. */
+  versionLabel?: string,
 ): Promise<Workflow> {
   const previous = await getWorkflow(ownerId, id);
+
+  /**
+   * **Which saves become versions — the debounce `BUILD_PLAN.md` asks for.**
+   *
+   * A save that changes neither the graph nor the name is not a version. The canvas
+   * PATCHes the whole graph whenever Save is pressed and again before every run, so
+   * without this a user who runs the same workflow five times would have five
+   * identical snapshots in their history and five rows of metered storage spent to say
+   * nothing.
+   *
+   * The comparison is structural, never a string one: `jsonb` normalises key order, so
+   * a graph read back and written again is deeply equal and not byte-identical, and a
+   * byte comparison would version every save (D25, now shared with the canvas through
+   * `graph.ts`).
+   *
+   * A description change is deliberately **not** a version. A version is what the
+   * workflow *is* — the graph and the name it goes by; the description is annotation
+   * about it, and it is not restored either, so versioning it would offer a restore
+   * that silently did not restore it.
+   */
+  const graphChanged = body.graph !== undefined && !graphsEqual(body.graph, previous.graph);
+  const nameChanged = body.name !== undefined && body.name !== previous.name;
+  const versioned = graphChanged || nameChanged;
 
   const [workflow] = await db()
     .update(workflows)
@@ -101,12 +142,57 @@ export async function updateWorkflow(
               previousNextAt: previous.scheduleNextAt,
             }),
           }),
+      // Bumped in the same single-row UPDATE that writes the graph, which is what
+      // makes the number unique without a transaction — see the column's own note in
+      // `db/schema.ts`. `RETURNING` below hands back the number no concurrent save can
+      // also have been given.
+      ...(versioned ? { version: sql`${workflows.version} + 1` } : {}),
       updatedAt: new Date(),
     })
     .where(and(eq(workflows.id, id), eq(workflows.ownerId, ownerId)))
     .returning();
 
+  if (versioned) {
+    await recordVersion({
+      workflowId: workflow.id,
+      ownerId,
+      number: workflow.version,
+      name: workflow.name,
+      graph: workflow.graph,
+      label: versionLabel ?? null,
+    });
+  }
+
   return workflow;
+}
+
+/**
+ * Restore a version — **forward, never backward**.
+ *
+ * Version 3's graph and name are written as an ordinary save, which produces version
+ * 8. Nothing is renumbered, nothing between 3 and 7 is deleted, and a run that
+ * recorded version 5 still refers to the graph it actually executed.
+ *
+ * Rewinding instead — deleting 4 through 7, or resetting the counter — would be the
+ * obvious implementation and it would quietly corrupt the run history, which is the
+ * one thing versioning was added to make trustworthy.
+ *
+ * The restored save is labelled, because "Restored from v3" is exactly the row
+ * somebody scrolling this history a week later is looking for, and it is also what
+ * exempts it from the retention cap.
+ */
+export async function restoreVersion(
+  ownerId: string,
+  id: string,
+  number: number,
+): Promise<Workflow> {
+  const version = await getVersion(ownerId, id, number);
+  return updateWorkflow(
+    ownerId,
+    id,
+    { name: version.name, graph: version.graph },
+    `Restored from v${number}`,
+  );
 }
 
 export async function deleteWorkflow(ownerId: string, id: string): Promise<void> {
@@ -142,6 +228,8 @@ export function describeWorkflow(workflow: Workflow) {
     webhookUrl: webhookTriggerNode(workflow.graph)
       ? webhookUrl(required("APP_BASE_URL"), workflow.webhookToken)
       : null,
+    /** The version the stored graph is — every save produces a new one (Phase 18). */
+    version: workflow.version,
     scheduleCron: scheduleCron(workflow.graph),
     scheduleNextAt: workflow.scheduleNextAt?.toISOString() ?? null,
     scheduleLastFiredAt: workflow.scheduleLastFiredAt?.toISOString() ?? null,

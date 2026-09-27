@@ -58,6 +58,12 @@ export interface StreamRun {
   attempt: number;
   /** A stop was asked for; the engine acts on it at its next step boundary. */
   cancelRequested: boolean;
+  /**
+   * The workflow version this run executed (Phase 18). Null for a run from before
+   * versioning existed. It is **not** in `StreamRunPatch` below and must not be: it is
+   * fixed at the run's creation, so a patch could never carry a new value for it.
+   */
+  workflowVersion: number | null;
   input: unknown;
   output: unknown;
   error: string | null;

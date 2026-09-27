@@ -6,8 +6,10 @@ import type { StreamRun } from "@/lib/engine/stream";
 import type { GraphProblem } from "@/lib/engine/validate";
 import type { DiscordStatus, GoogleStatus } from "@/lib/integrations/store";
 import type { NodeSummary } from "@/lib/nodes";
+import type { GraphDiff } from "@/lib/workflow/diff";
 import type { WorkflowGraph } from "@/lib/workflow/graph";
 import type { describeWorkflow } from "@/lib/workflow/store";
+import type { describeVersion } from "@/lib/workflow/versions";
 
 /**
  * The browser's view of the Phase 3 API — CONTRACT.md → "API request/response
@@ -20,6 +22,22 @@ import type { describeWorkflow } from "@/lib/workflow/store";
  */
 
 export type Workflow = ReturnType<typeof describeWorkflow>;
+
+/**
+ * CONTRACT.md → "Workflow versions". `graph` is present only where the endpoint was
+ * asked for it — the history list deliberately omits every snapshot and sends the
+ * per-version `changes` summary instead.
+ */
+export type WorkflowVersion = ReturnType<typeof describeVersion>;
+
+/** What `GET /versions/compare` answers: both sides, and what differs. */
+export interface VersionComparison {
+  from: WorkflowVersion & { graph: WorkflowGraph };
+  to: WorkflowVersion & { graph: WorkflowGraph };
+  diff: GraphDiff;
+}
+
+export type { GraphDiff, NodeChange, NodeDiff, DiffSummary } from "@/lib/workflow/diff";
 export type { NodeSummary, GraphProblem };
 export type { ProviderSettings, ModelInfo };
 export type { DiscordStatus, GoogleStatus };
@@ -125,6 +143,40 @@ export const api = {
 
   deleteWorkflow: (id: string) =>
     request<{ deleted: string }>(`/api/workflows/${id}`, { method: "DELETE" }),
+
+  /**
+   * Version history, newest first, **without the graphs**. Each entry carries what it
+   * changed relative to the version below it, which is what the list prints — fetching
+   * fifty snapshots to render fifty timestamps would be the obvious and wrong shape.
+   */
+  listVersions: (id: string) => request<WorkflowVersion[]>(`/api/workflows/${id}/versions`),
+
+  /** One version, with its graph. */
+  getVersion: (id: string, number: number) =>
+    request<WorkflowVersion & { graph: WorkflowGraph }>(
+      `/api/workflows/${id}/versions/${number}`,
+    ),
+
+  /** Name a version, or clear the name with `null`. A named version is never pruned. */
+  labelVersion: (id: string, number: number, label: string | null) =>
+    request<WorkflowVersion>(`/api/workflows/${id}/versions/${number}`, {
+      method: "PATCH",
+      body: JSON.stringify({ label }),
+    }),
+
+  /**
+   * Restore: writes that version's graph as a NEW version on top. It answers with the
+   * workflow, whose `version` is the number the restore produced — history moves
+   * forward, so the caller never has to reconcile a rewound number.
+   */
+  restoreVersion: (id: string, number: number) =>
+    request<Workflow>(`/api/workflows/${id}/versions/${number}/restore`, { method: "POST" }),
+
+  /** Both graphs and the diff between them. `to` defaults to the current version. */
+  compareVersions: (id: string, from: number, to?: number) =>
+    request<VersionComparison>(
+      `/api/workflows/${id}/versions/compare?from=${from}${to === undefined ? "" : `&to=${to}`}`,
+    ),
 
   /** Synchronous: the request stays open until the run finishes and returns every step. */
   runWorkflow: (id: string, input?: unknown) =>

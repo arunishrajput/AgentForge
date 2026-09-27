@@ -991,6 +991,23 @@ the free-tier budget.
 
 **Commit.** `feat: complete phase 18 workflow versioning and diffing`
 
+> **DONE, 2026-09-27.** Every save is a version, restore moves the history *forward* rather than
+> rewinding it, and two versions compare on the canvas in a read-only diff mode. Four decisions
+> worth carrying: the version number is a counter on `workflow.version` bumped by the save's own
+> UPDATE, because `neon-http` has no transactions and `max(number) + 1` is a real race (D83); a
+> save that changes nothing writes no snapshot, which is the debounce this phase asked for (D84);
+> a run records `workflowVersion` **and a redelivered durable run executes that snapshot**, which
+> closed a hole Phase 17 had opened (D86); and retention is 50 unlabelled versions per workflow,
+> sized against measured numbers — 737 bytes per stored graph, 8.55 MiB of a 0.5 GB allowance.
+>
+> **Two defects were found only by driving a browser** and both have tests that fail without the
+> fix: a removed node stacked exactly on top of an added one and hid it (D87), and the minimap
+> rendered empty for the whole time a diff was on screen (D88). 185 deployed API checks had passed
+> over both.
+>
+> 32 deployed checks in `scripts/verify-api.mjs`; storage figures in `DEPLOYMENT.md` →
+> *Free-tier headroom*.
+
 ---
 
 ## Phase 19 — Workspaces and membership

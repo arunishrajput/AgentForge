@@ -48,6 +48,7 @@ function run(overrides: Partial<StreamRun> = {}): StreamRun {
     mode: "sync",
     attempt: 1,
     cancelRequested: false,
+    workflowVersion: 1,
     input: null,
     output: null,
     error: null,

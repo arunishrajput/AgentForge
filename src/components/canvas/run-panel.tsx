@@ -73,6 +73,20 @@ export function RunPanel({
           </span>
         )}
 
+        {/* Which graph this run actually executed (Phase 18). It is the difference
+            between "the same workflow behaved differently today" and "it is not the
+            same workflow" — and before versioning there was no way to tell those two
+            apart from a run record. Null on a run from before this existed, and then
+            nothing is claimed. */}
+        {run.workflowVersion !== null && (
+          <span
+            className="chip text-muted shrink-0 font-mono"
+            title="The workflow version this run executed"
+          >
+            v{run.workflowVersion}
+          </span>
+        )}
+
         {/* Above one delivery means this run was interrupted and carried on. Worth stating
             plainly: a run that took 40 seconds because it resumed twice is a different
             story from one that took 40 seconds of work. */}

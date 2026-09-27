@@ -56,11 +56,18 @@ export async function POST(request: Request) {
       });
     }
 
-    const workflow = await createWorkflow(ownerId, {
-      name: result.name,
-      description: result.description,
-      graph: result.graph,
-    });
+    const workflow = await createWorkflow(
+      ownerId,
+      {
+        name: result.name,
+        description: result.description,
+        graph: result.graph,
+      },
+      // Names version 1 in the history, and thereby exempts it from the retention
+      // cap. The model's first draft is the one thing a user edits away from and
+      // then wants back, so it is the version worth keeping for ever.
+      "Generated",
+    );
 
     return ok(
       {

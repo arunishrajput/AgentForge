@@ -344,6 +344,49 @@ card's breathing ring and its "Running" chip. Three colours for one fact is thre
 it as three facts. Every edge the run crossed stays lit in accent, and on a branch the untaken edge
 never lights — so a finished run is still showing the route it chose.
 
+### Diff mode — Phase 18
+
+Comparing two versions puts the canvas into a **mode**, and the design problem is entirely that:
+the graph on screen is the *union* of two versions and was never anybody's workflow, so a user who
+does not realise it will try to edit it.
+
+Three things say so, and all three are needed:
+
+- **A pop-filled bar across the top**, with an ink label — the one loud element on the canvas, and
+  the only place in the product where a whole bar takes a `-pop` fill. It names both versions, the
+  counts, and the way out. A mode that looks like the ordinary page is a mode people edit by
+  mistake
+- **The canvas is inert.** No dragging, no connecting, no selecting, no Delete key. Save, Run and
+  Queue are all disabled — there is nothing here any of them could honestly write
+- **Every node wears its change as a ribbon** above the category strip, because at the zoom a
+  whole-graph diff is read at, the top two centimetres are all there is
+
+`src/lib/canvas/changes.ts`, asserted by `changes.test.ts` on the same terms as `status.ts`:
+
+| Change | Word | Shape | Outline | Surface |
+|---|---|---|---|---|
+| added | "Added" | `+` | **green** | raised |
+| removed | "Removed" | `−` | **red, dashed** | **sunken, flatter shadow** |
+| changed | "Changed" | `~` | **amber** | raised |
+| moved | "Moved" | `⤢` | ink | raised |
+| unchanged | — | — | ink | raised |
+
+**An unchanged node is undecorated, deliberately.** A diff where every card is decorated is a diff
+with no signal in the decoration; the point of the mode is that the nodes which changed are the
+ones that stand out. A `changed` ribbon also names *what* changed — "configuration", "name" — in
+the space the ribbon already occupies.
+
+**Run status is suppressed in diff mode.** No run ever executed the union graph, so a green
+"Succeeded" badge on a node in a diff would be a statement about a different graph.
+
+Edges follow the cards: an added connection is green at 3px, a removed one is **red and dashed**.
+Dashed as well as coloured, because *Never colour alone* applies to a line exactly as it does to a
+card.
+
+**Version history is a dialog, not a third panel.** Phase 16 spent itself solving what two side
+panels cost the canvas — at 1440 px two open columns leave 880 px — and a third column would undo
+it. History is also read in a considered way: you open it, look, decide.
+
 ### The run panel is the quiet register
 
 **No mascot here, and that is a rule rather than an omission.** Sparky is allowed as a small

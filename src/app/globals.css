@@ -677,6 +677,25 @@
   stroke-width: 3.5;
 }
 
+/* Diff mode (Phase 18). A connection that exists in one version and not the other.
+   Dashed as well as coloured, because `DESIGN.md` → *Never colour alone* applies to a
+   line exactly as it does to a card, and a diff read in greyscale still has to say
+   which edges are gone.
+
+   `stroke-dasharray` here rather than as an inline style on the edge object, so the
+   whole treatment is one declaration a reader can find beside the other two edge
+   states. */
+.react-flow__edge.edge-removed .react-flow__edge-path {
+  stroke: var(--color-bad);
+  stroke-width: 2.5;
+  stroke-dasharray: 7 5;
+}
+
+.react-flow__edge.edge-added .react-flow__edge-path {
+  stroke: var(--color-ok);
+  stroke-width: 3;
+}
+
 /* ---------------------------------------------------------------------------
    Reduced motion. One blanket rule, deliberately: every animation in this file
    is decoration over a state that is also stated in text, so removing all of

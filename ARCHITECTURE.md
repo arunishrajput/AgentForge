@@ -279,7 +279,8 @@ a handful of requests per page, not thirty per workflow run.
 | **Execution engine** | Walks the workflow DAG in-process, calls the registry per node, threads output forward, writes step records, emits events |
 | **Agent layer** | Provider adapter over the LLM, prompt assembly, and the bounded tool-calling loop whose tools are derived from the registry |
 | **Generation** | Natural language → validated workflow JSON → persisted workflow |
-| **Persistence** | Neon Postgres. Users, credentials, workflows, runs, run steps |
+| **Versioning and diffing** | Phase 18. One compact snapshot per save (`src/lib/workflow/versions.ts`), a pure graph diff (`src/lib/workflow/diff.ts`), and the canvas's read-only diff mode (`src/components/canvas/diff/`) |
+| **Persistence** | Neon Postgres. Users, credentials, workflows, workflow versions, runs, run steps |
 | **Cloud Scheduler** | Managed cron, calls `/api/cron/tick` to fire due schedule triggers |
 
 ---
@@ -442,6 +443,14 @@ per 32 KB of task payload.
 The deadline applies to **each attempt**, not to the run's whole life. The alternative is a run
 that can never finish because its first attempt spent the clock.
 
+**A redelivered run executes the graph it started on, not the graph as it is now** — Phase 18.
+Durability means a run survives a redeploy, which means it can also survive an *edit*: delivery 1
+runs three nodes of v4, the author saves v5 removing one of them, and delivery 2 resumes from a
+cursor naming a node that no longer exists. The run's recorded `workflowVersion` is what closes it;
+the snapshot is read back and executed. A run with no recorded version, or whose snapshot was
+pruned, falls back to the live graph — the pre-Phase-18 behaviour, so nothing in flight broke when
+this landed.
+
 ### The sweeper knows which runs are actually lost
 
 Chapter 1's `reapStaleRuns` failed every `running` run whose heartbeat had gone quiet, because a
@@ -585,6 +594,7 @@ Neon Postgres, free tier.
   | `run` | 3 | One per execution; `heartbeatAt` is what makes an interrupted run observable |
   | `run_step` | 3 | One per node execution, unique on `(runId, seq)`; snapshots its resolved config |
   | `credential` | 3 | Table only. Encryption and the write-only API are Phase 6 |
+  | `workflow_version` | **18** | One compact snapshot per save — `number`, `name`, `graph`. Unique on `(workflowId, number)` |
 
 - **The graph is one `jsonb` column, not node and edge tables.** Decided in Phase 3. `neon-http`
   has no transactions, so a graph spread over three tables could not be saved atomically; a
@@ -596,7 +606,17 @@ Neon Postgres, free tier.
   so the swap to `neon-serverless` stays unspent
 - **Postgres `jsonb` normalises object key order.** A graph read back is deeply equal to what was
   written but not byte-identical. Found while verifying the Phase 3 round-trip; nothing may compare
-  graphs as strings
+  graphs as strings. `graphsEqual` in `src/lib/workflow/graph.ts` is the single structural
+  comparison, shared since Phase 18 by the canvas's dirty check and the version debounce
+- **Versioning needs no sequence table and has no read-then-write race** (Phase 18). `neon-http`
+  has no transactions, so `max(number) + 1` read and inserted a moment later is a genuine race.
+  The number lives on `workflow.version` and is bumped **inside the same single-row UPDATE that
+  writes the graph**, with `RETURNING` handing back a number no concurrent save can have. Same
+  primitive D42 uses to claim a cron slot. A gap in the sequence is legal: a snapshot that could
+  not be written must not fail the user's save
+- **Version history is append-only and capped.** Restoring writes forward; nothing renumbers.
+  `VERSION_LIMIT` is 50 unlabelled versions per workflow — measured at ~737 bytes per stored
+  graph, so a fully-capped workflow is ~60 KB against a 0.5 GB free tier
 
 ---
 

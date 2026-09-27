@@ -92,3 +92,39 @@ export function edgesFrom(
     (edge) => edge.source === nodeId && (edge.sourceHandle ?? null) === handle,
   );
 }
+
+/**
+ * Structural graph comparison — the question "is this the same graph?", asked in two
+ * places that must answer it identically.
+ *
+ * It must not be a string comparison. Postgres `jsonb` normalises object key order,
+ * so a graph read back is deeply equal to what was written but not byte-identical
+ * (PROGRESS.md, Phase 3). Comparing the raw JSON would mark a freshly loaded workflow
+ * as dirty, and — since Phase 18 — would write a new version on every save that
+ * changed nothing.
+ *
+ * It lives here rather than in `lib/canvas/bridge.ts`, where Phase 4 first wrote it,
+ * because it is a property of the graph shape and not of the canvas. The canvas asks
+ * it to decide whether there is unsaved work; `lib/workflow/versions.ts` asks it to
+ * decide whether a save is worth a version. Two copies of this function would
+ * eventually disagree, and the failure would be silent in both directions: a canvas
+ * that never looks saved, or a history that quietly drops an edit.
+ */
+function canonical(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (value !== null && typeof value === "object") {
+    return Object.keys(value as Record<string, unknown>)
+      .sort()
+      .map((key) => [key, canonical((value as Record<string, unknown>)[key])]);
+  }
+  return value;
+}
+
+export function graphsEqual(a: WorkflowGraph, b: WorkflowGraph): boolean {
+  return JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
+}
+
+/** The same question about one node's substance — `diff.ts` asks it per node. */
+export function valuesEqual(a: unknown, b: unknown): boolean {
+  return JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
+}

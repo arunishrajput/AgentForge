@@ -117,6 +117,18 @@ export const workflows = pgTable(
      */
     scheduleNextAt: timestamp("scheduleNextAt", { withTimezone: true }),
     scheduleLastFiredAt: timestamp("scheduleLastFiredAt", { withTimezone: true }),
+    /**
+     * The current version number (Phase 18), and the reason versioning needs no
+     * sequence table and no read-then-write race.
+     *
+     * `neon-http` has no transactions (D6), so `max(number) + 1` read from
+     * `workflow_version` and inserted a moment later is a genuine race: two saves of
+     * the same workflow can both read 4. Bumping this column **inside the same
+     * single-row UPDATE that saves the graph** is atomic for free — the same primitive
+     * D42 claims a cron slot with — and `RETURNING` hands back a number no other save
+     * can have been given.
+     */
+    version: integer("version").notNull().default(1),
     createdAt: timestamp("createdAt", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updatedAt", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -188,6 +200,21 @@ export const runs = pgTable(
     leaseExpiresAt: timestamp("leaseExpiresAt", { withTimezone: true }),
     cancelRequestedAt: timestamp("cancelRequestedAt", { withTimezone: true }),
     dispatchToken: text("dispatchToken"),
+    /**
+     * Which version of the workflow this run executed (Phase 18). Null for every run
+     * recorded before versioning existed, and for a run whose version row was pruned.
+     *
+     * A **number, not a foreign key**, for the same reason `ownerId` is denormalised
+     * onto this table: a run survives as a record of what happened, and the record must
+     * stay true even when the thing it refers to is gone. The number is immutable and
+     * unique per workflow, so it identifies the version without a join and without
+     * anything that can cascade.
+     *
+     * It is also load-bearing on resume: a durable run redelivered after the workflow
+     * was edited executes the graph it *started* on, which it can only do because this
+     * column says which one that was.
+     */
+    workflowVersion: integer("workflowVersion"),
   },
   (table) => [
     index("run_owner_idx").on(table.ownerId, table.startedAt),
@@ -200,9 +227,11 @@ export const runs = pgTable(
 );
 
 /**
- * `config` is a snapshot of what the step actually ran with, after template
- * resolution. There is no workflow versioning, so without the snapshot run history
- * becomes misleading the first time the workflow is edited.
+ * `config` is a snapshot of what the step actually ran with, **after template
+ * resolution**. Phase 18 added workflow versioning, and it does not make this
+ * redundant: the version says what the config *template* was, this says what the
+ * template resolved to on this run. `{{input.subject}}` is the same in every version
+ * and different in every run, and the resolved value is the one worth reading back.
  *
  * `(runId, seq)` is unique: steps are appended as they execute and `seq` is the
  * execution order, which is also how a looped node's passes stay distinguishable.
@@ -231,6 +260,49 @@ export const runSteps = pgTable(
     finishedAt: timestamp("finishedAt", { withTimezone: true }),
   },
   (table) => [uniqueIndex("run_step_run_seq_idx").on(table.runId, table.seq)],
+);
+
+/**
+ * A snapshot of a workflow as it was at one save — Phase 18.
+ *
+ * **A compact snapshot, not a row copy.** `webhookToken`, the schedule columns and the
+ * timestamps are all properties of the workflow as it exists *now*, not of what it
+ * looked like then; copying them per save would multiply the metered storage this
+ * table spends for nothing anybody can read back. What a version is, is the `graph`
+ * and the `name` — the two things a save can change and a restore must put back.
+ *
+ * `number` comes from `workflow.version`, bumped by the same UPDATE that wrote the
+ * graph, so it is unique without a transaction. A gap in the sequence is possible and
+ * is the honest outcome when a snapshot could not be written: the number is never
+ * reused, so history never lies about the order things happened in.
+ *
+ * `label` is null for an ordinary save. A restore and a generation set one, because
+ * those are the two versions somebody scrolling a history is actually looking for.
+ */
+export const workflowVersions = pgTable(
+  "workflow_version",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    workflowId: text("workflowId")
+      .notNull()
+      .references(() => workflows.id, { onDelete: "cascade" }),
+    ownerId: text("ownerId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    number: integer("number").notNull(),
+    label: text("label"),
+    name: text("name").notNull(),
+    graph: jsonb("graph").$type<WorkflowGraph>().notNull(),
+    createdAt: timestamp("createdAt", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // Unique, so a number that two saves somehow contended for cannot become two
+    // versions with the same name. It is also the history list's only query — newest
+    // first for one workflow — so the same index serves both.
+    uniqueIndex("workflow_version_workflow_number_idx").on(table.workflowId, table.number),
+  ],
 );
 
 /**
@@ -265,6 +337,7 @@ export const credentials = pgTable(
 );
 
 export type Workflow = typeof workflows.$inferSelect;
+export type WorkflowVersion = typeof workflowVersions.$inferSelect;
 export type Run = typeof runs.$inferSelect;
 export type RunStep = typeof runSteps.$inferSelect;
 export type Credential = typeof credentials.$inferSelect;

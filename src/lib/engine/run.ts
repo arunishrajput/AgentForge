@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { runs, runSteps, workflows, type Run, type RunStep, type Workflow } from "@/db/schema";
 import { ApiError } from "@/lib/api";
 import { required } from "@/lib/env";
+import { versionGraph } from "@/lib/workflow/versions";
 
 import { readCursor } from "./cursor";
 import { executeWorkflow, GraphInvalidError } from "./execute";
@@ -68,6 +69,9 @@ async function createRun(options: StartOptions & { mode: RunMode }): Promise<Run
       input: options.input ?? null,
       mode: options.mode,
       dispatchToken: mintDispatchToken(),
+      // Which graph this run is executing (Phase 18). Recorded at creation, never
+      // updated — a resume three deliveries later must still say what it started on.
+      workflowVersion: options.workflow.version,
     })
     .returning();
 
@@ -306,6 +310,24 @@ export async function resumeRun(options: {
     return { handled: true, status: "failed" };
   }
 
+  /**
+   * **A redelivered run executes the graph it started on, not the graph as it is now.**
+   *
+   * This is the defect Phase 18 made visible and then fixed. A durable run survives a
+   * redeploy by design, which means it can also survive an *edit*: delivery 1 runs
+   * three nodes of version 4, the author saves version 5 removing one of them, and
+   * delivery 2 resumes from a cursor whose queue names nodes that no longer exist. The
+   * result is a run that executed half of one workflow and half of another and reports
+   * a version number for neither.
+   *
+   * The snapshot is what closes it. A run with no recorded version — every run from
+   * before this phase — and a run whose version was pruned both fall back to the live
+   * graph, which is exactly the old behaviour, so nothing in flight was broken by
+   * adding this.
+   */
+  const snapshot = await versionGraph(workflow.id, claimed.workflowVersion);
+  const executing = snapshot ? { ...workflow, graph: snapshot } : workflow;
+
   // A cursor is present from the second delivery onward. Reading the steps back is what
   // lets the cursor stay small — node outputs live in the step rows, not in the cursor
   // (`cursor.ts`).
@@ -317,7 +339,7 @@ export async function resumeRun(options: {
   try {
     const outcome = await drive({
       run: claimed,
-      workflow,
+      workflow: executing,
       owner,
       signal: options.signal,
       resume,
@@ -461,6 +483,11 @@ export function describeRun(run: Run, steps?: RunStep[]) {
     attempt: run.attempt,
     /** A stop was asked for. The engine acts on it at its next step boundary. */
     cancelRequested: run.cancelRequestedAt !== null,
+    /**
+     * The workflow version this run executed (Phase 18). Null for a run recorded
+     * before versioning existed — it is not claimed to be v1, because it is unknown.
+     */
+    workflowVersion: run.workflowVersion,
     input: run.input,
     output: run.output,
     error: run.error,

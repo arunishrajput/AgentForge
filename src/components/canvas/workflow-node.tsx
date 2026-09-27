@@ -5,6 +5,7 @@ import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { cn } from "@/components/ui/cn";
 import type { CanvasNode } from "@/lib/canvas/bridge";
 import { categoryLook } from "@/lib/canvas/categories";
+import { changeLook, fieldWords } from "@/lib/canvas/changes";
 import { nodeStatusLook } from "@/lib/canvas/status";
 
 import { useCanvas } from "./context";
@@ -56,9 +57,19 @@ const STAGGER_CAP_MS = 660;
 const NODE_WIDTH = "w-56";
 
 export function WorkflowNodeView({ id, data, selected }: NodeProps<CanvasNode>) {
-  const { registry, runStates, entryOrder } = useCanvas();
+  const { registry, runStates, diffStates, entryOrder } = useCanvas();
   const definition = registry.get(data.nodeType);
   const state = runStates.get(id);
+
+  /**
+   * In diff mode the node's *change* owns the outline and the surface, which is why
+   * it is resolved here and why `status` is not consulted below when it is set. The
+   * two would otherwise fight over the same two channels: a diff showing run status
+   * is a diff of a graph that was never run in that shape, so status has nothing
+   * true to say about it.
+   */
+  const diff = diffStates.get(id);
+  const change = diff ? changeLook(diff.change) : null;
 
   const category = categoryLook(definition?.category);
   const status = nodeStatusLook(state?.status ?? "idle", definition?.category === "agent");
@@ -88,13 +99,39 @@ export function WorkflowNodeView({ id, data, selected }: NodeProps<CanvasNode>) 
           // Status owns the outline and the surface. `idle`, `running` and `succeeded`
           // all keep the plain ink outline on a raised card — a canvas where three
           // quarters of the cards are tinted is a canvas with no signal in the tint.
-          status.outline,
-          status.surface,
+          // In diff mode the change owns them instead, for the same reason: the two
+          // cannot both have the border.
+          change ? change.outline : status.outline,
+          change ? change.surface : status.surface,
           // Selection owns the lift, and nothing else, so a selected *failed* node
           // still shows that it failed.
-          selected ? "shadow-lift -translate-x-px -translate-y-px" : status.shadow,
+          selected
+            ? "shadow-lift -translate-x-px -translate-y-px"
+            : (change?.shadow ?? status.shadow),
         )}
       >
+        {/* The diff ribbon. Above the category strip rather than inside the card body,
+            because at a 0.4 zoom — which is where a whole-graph diff is read — the body
+            is unreadable and the top two centimetres are all there is. The word rides
+            with the glyph: `DESIGN.md` → *Never colour alone*. */}
+        {change?.ribbon && (
+          <div
+            className={cn(
+              "border-line text-ink flex items-center gap-1.5 rounded-t-[0.875rem] border-b-2 px-2.5 py-1",
+              change.fill,
+            )}
+          >
+            <span aria-hidden="true" className="text-2xs leading-none font-bold">
+              {change.glyph}
+            </span>
+            <span className="text-3xs font-bold tracking-wide uppercase">{change.label}</span>
+            {diff && diff.fields.length > 0 && (
+              <span className="text-3xs ml-auto truncate opacity-75">
+                {fieldWords(diff.fields)}
+              </span>
+            )}
+          </div>
+        )}
         {/* The running pulse. An overlay rather than a box-shadow on the card, so the
             animation touches opacity only and stays on the compositor. */}
         {running && (
@@ -120,7 +157,10 @@ export function WorkflowNodeView({ id, data, selected }: NodeProps<CanvasNode>) 
             The radius is the card's less its border, so the strip does not poke out. */}
         <div
           className={cn(
-            "border-line text-ink flex items-center gap-1.5 rounded-t-[0.875rem] border-b-2 px-2.5 py-1.5",
+            "border-line text-ink flex items-center gap-1.5 border-b-2 px-2.5 py-1.5",
+            // Square when the diff ribbon is above it, or two stacked radii poke
+            // through each other at the card's top corners.
+            change?.ribbon ? "" : "rounded-t-[0.875rem]",
             category.fill,
           )}
         >
@@ -144,7 +184,10 @@ export function WorkflowNodeView({ id, data, selected }: NodeProps<CanvasNode>) 
             </p>
           )}
 
-          {state && (
+          {/* Run status is suppressed in diff mode: the union graph on screen was never
+              anybody's workflow, so no run ever executed it and a green "Succeeded"
+              badge on a node in a diff would be a statement about a different graph. */}
+          {state && !change && (
             <div className="flex flex-wrap items-center gap-1">
               <span
                 // Remounting on a status change is what replays the one-shot motion.
@@ -178,7 +221,7 @@ export function WorkflowNodeView({ id, data, selected }: NodeProps<CanvasNode>) 
             </div>
           )}
 
-          {state?.error && (
+          {state?.error && !change && (
             <p className="text-bad line-clamp-3 text-2xs leading-snug">{state.error}</p>
           )}
         </div>

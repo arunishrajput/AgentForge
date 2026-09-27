@@ -1479,12 +1479,32 @@ try {
       JSON.stringify(firedTick.json?.data).slice(0, 300),
     );
 
-    const scheduleRuns = await api("GET", `/api/workflows/${scheduleId}/runs`, undefined, token);
-    const scheduleRun = (scheduleRuns.json?.data ?? [])[0];
+    /**
+     * A scheduled run is ALWAYS durable (Phase 17), so the tick enqueues it and
+     * answers; a Cloud Tasks delivery is what actually executes it. Reading the run
+     * straight afterwards and asserting `succeeded` is therefore a race, and it is one
+     * this check lost for the first time in Phase 18 — a single extra query on the
+     * resume path was enough to tip it. It had been passing on luck since Phase 17.
+     *
+     * So it waits, the way a client would. The run must still reach `succeeded`; the
+     * only thing that changed is that "not yet" stopped counting as "no".
+     */
+    let scheduleRun = null;
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      const scheduleRuns = await api("GET", `/api/workflows/${scheduleId}/runs`, undefined, token);
+      scheduleRun = (scheduleRuns.json?.data ?? [])[0];
+      if (scheduleRun && scheduleRun.status !== "queued" && scheduleRun.status !== "running") break;
+      await sleep(1000);
+    }
     check(
       "the run it created is attributed to the schedule trigger and succeeded",
       scheduleRun?.trigger === "schedule" && scheduleRun?.status === "succeeded",
       JSON.stringify(scheduleRun).slice(0, 250),
+    );
+    check(
+      "a scheduled run records the workflow version it executed",
+      typeof scheduleRun?.workflowVersion === "number",
+      `workflowVersion ${JSON.stringify(scheduleRun?.workflowVersion)}`,
     );
 
     const after = await api("GET", `/api/workflows/${scheduleId}`, undefined, token);
@@ -2033,6 +2053,291 @@ try {
   // Clean up Phase 9's own workflows.
   for (const id of [httpId, credsId, discordId]) {
     if (id) await api("DELETE", `/api/workflows/${id}`, undefined, token);
+  }
+
+  // --- Phase 18: versioning and diffing --------------------------------------
+  //
+  // The whole point of these is that they cannot be proved by a unit test: the
+  // version NUMBER is produced by a `RETURNING` on a single-row UPDATE against real
+  // Postgres, the debounce depends on `jsonb` key normalisation, and the backfill is
+  // a data statement in a migration. All three are properties of the database.
+  {
+    let vId = null;
+    try {
+      const created = await api(
+        "POST",
+        "/api/workflows",
+        {
+          name: "Phase 18 versioning",
+          graph: {
+            version: 1,
+            nodes: [
+              { id: "start", type: "core.manual_trigger", position: { x: 0, y: 0 }, config: {} },
+              { id: "note", type: "core.log", position: { x: 240, y: 0 }, config: { message: "one" } },
+            ],
+            edges: [{ id: "e1", source: "start", target: "note", sourceHandle: null }],
+          },
+        },
+        token,
+      );
+      vId = created.json?.data?.id;
+      check(
+        "a new workflow starts at v1",
+        created.json?.data?.version === 1,
+        `version ${created.json?.data?.version}`,
+      );
+
+      const first = await api("GET", `/api/workflows/${vId}/versions`, undefined, token);
+      check(
+        "creating a workflow records version 1, not nothing",
+        Array.isArray(first.json?.data) &&
+          first.json.data.length === 1 &&
+          first.json.data[0].number === 1 &&
+          first.json.data[0].current === true,
+        JSON.stringify(first.json?.data).slice(0, 250),
+      );
+      check(
+        "the history carries no graphs — it is a list, not fifty snapshots",
+        first.json?.data?.[0]?.graph === undefined,
+        JSON.stringify(Object.keys(first.json?.data?.[0] ?? {})),
+      );
+      check(
+        "the oldest version reports null changes rather than a zeroed summary",
+        first.json?.data?.[0]?.changes === null,
+        JSON.stringify(first.json?.data?.[0]?.changes),
+      );
+
+      // The debounce. A PATCH that re-sends the graph it already stored must not
+      // version — the canvas does exactly this before every run.
+      const unchanged = await api(
+        "PATCH",
+        `/api/workflows/${vId}`,
+        { graph: created.json.data.graph },
+        token,
+      );
+      check(
+        "re-saving an identical graph does NOT create a version",
+        unchanged.json?.data?.version === 1,
+        `version ${unchanged.json?.data?.version}`,
+      );
+
+      // The same graph with every object key in a different order. `jsonb` normalises
+      // key order on the way back out, so a byte comparison would version this.
+      const reordered = {
+        edges: [{ sourceHandle: null, target: "note", source: "start", id: "e1" }],
+        nodes: [
+          { config: {}, position: { y: 0, x: 0 }, type: "core.manual_trigger", id: "start" },
+          { config: { message: "one" }, position: { y: 0, x: 240 }, type: "core.log", id: "note" },
+        ],
+        version: 1,
+      };
+      const keyOrder = await api("PATCH", `/api/workflows/${vId}`, { graph: reordered }, token);
+      check(
+        "re-saving with reordered JSON keys does NOT create a version",
+        keyOrder.json?.data?.version === 1,
+        `version ${keyOrder.json?.data?.version}`,
+      );
+
+      // A real edit: change one config value, add a node, add an edge.
+      const editedGraph = {
+        version: 1,
+        nodes: [
+          { id: "start", type: "core.manual_trigger", position: { x: 0, y: 0 }, config: {} },
+          { id: "note", type: "core.log", position: { x: 240, y: 0 }, config: { message: "two" } },
+          { id: "note_2", type: "core.log", position: { x: 480, y: 0 }, config: { message: "added" } },
+        ],
+        edges: [
+          { id: "e1", source: "start", target: "note", sourceHandle: null },
+          { id: "e2", source: "note", target: "note_2", sourceHandle: null },
+        ],
+      };
+      const edited = await api("PATCH", `/api/workflows/${vId}`, { graph: editedGraph }, token);
+      check(
+        "an actual edit bumps the version",
+        edited.json?.data?.version === 2,
+        `version ${edited.json?.data?.version}`,
+      );
+
+      // A move only. Substance unchanged, position changed.
+      const movedGraph = structuredClone(editedGraph);
+      movedGraph.nodes[2].position = { x: 480, y: 160 };
+      const moved = await api("PATCH", `/api/workflows/${vId}`, { graph: movedGraph }, token);
+      check("moving a node is a version too", moved.json?.data?.version === 3);
+
+      // A rename with no graph change.
+      const renamed = await api(
+        "PATCH",
+        `/api/workflows/${vId}`,
+        { name: "Phase 18 versioning, renamed" },
+        token,
+      );
+      check("renaming the workflow is a version", renamed.json?.data?.version === 4);
+
+      const history = await api("GET", `/api/workflows/${vId}/versions`, undefined, token);
+      const rows = history.json?.data ?? [];
+      check(
+        "the history is newest first and holds every version",
+        rows.length === 4 && rows.map((r) => r.number).join(",") === "4,3,2,1",
+        rows.map((r) => r.number).join(","),
+      );
+      check(
+        "exactly one version is marked current, and it is the newest",
+        rows.filter((r) => r.current).length === 1 && rows[0].current === true,
+      );
+
+      const v2 = rows.find((r) => r.number === 2);
+      check(
+        "v2 reports what it changed: one node added, one changed, one edge added",
+        v2?.changes?.added === 1 && v2?.changes?.changed === 1 && v2?.changes?.edgesAdded === 1,
+        JSON.stringify(v2?.changes),
+      );
+      const v3 = rows.find((r) => r.number === 3);
+      check(
+        "v3 reports a move, and NOT a change — substance and position are different facts",
+        v3?.changes?.moved === 1 && v3?.changes?.changed === 0 && v3?.changes?.added === 0,
+        JSON.stringify(v3?.changes),
+      );
+      const v4 = rows.find((r) => r.number === 4);
+      check(
+        "a rename-only version reports no graph changes but a different name",
+        v4?.changes?.any === false && v4?.name === "Phase 18 versioning, renamed",
+        `${JSON.stringify(v4?.changes)} / ${v4?.name}`,
+      );
+
+      const one = await api("GET", `/api/workflows/${vId}/versions/1`, undefined, token);
+      check(
+        "one version can be read back with its graph",
+        one.status === 200 && one.json?.data?.graph?.nodes?.length === 2,
+        JSON.stringify(one.json?.data?.graph?.nodes?.length),
+      );
+      const missing = await api("GET", `/api/workflows/${vId}/versions/99`, undefined, token);
+      check("a version that does not exist is a 404", missing.status === 404);
+      const nonsense = await api("GET", `/api/workflows/${vId}/versions/abc`, undefined, token);
+      check(
+        "a non-numeric version is a 404, not a coerced query",
+        nonsense.status === 404,
+        `${nonsense.status} ${JSON.stringify(nonsense.json).slice(0, 160)}`,
+      );
+
+      const compare = await api(
+        "GET",
+        `/api/workflows/${vId}/versions/compare?from=1&to=4`,
+        undefined,
+        token,
+      );
+      check(
+        "compare returns both graphs and the diff between them",
+        compare.status === 200 &&
+          compare.json?.data?.from?.graph?.nodes?.length === 2 &&
+          compare.json?.data?.to?.graph?.nodes?.length === 3 &&
+          compare.json?.data?.diff?.summary?.added === 1,
+        JSON.stringify(compare.json?.data?.diff?.summary),
+      );
+      check(
+        "`to` defaults to the current version",
+        (await api("GET", `/api/workflows/${vId}/versions/compare?from=1`, undefined, token)).json
+          ?.data?.to?.number === 4,
+      );
+      const badCompare = await api(
+        "GET",
+        `/api/workflows/${vId}/versions/compare?from=nope`,
+        undefined,
+        token,
+      );
+      check("compare rejects a non-numeric version with a 400", badCompare.status === 400);
+
+      const labelled = await api(
+        "PATCH",
+        `/api/workflows/${vId}/versions/2`,
+        { label: "  Before the rewrite  " },
+        token,
+      );
+      check(
+        "a version can be named, and the name is trimmed",
+        labelled.json?.data?.label === "Before the rewrite",
+        JSON.stringify(labelled.json?.data?.label),
+      );
+      const cleared = await api(
+        "PATCH",
+        `/api/workflows/${vId}/versions/2`,
+        { label: null },
+        token,
+      );
+      check("a name can be cleared", cleared.json?.data?.label === null);
+
+      // A run records the version it executed.
+      const ran = await api("POST", `/api/workflows/${vId}/runs`, { input: {} }, token);
+      check(
+        "a run records the workflow version it executed",
+        ran.json?.data?.workflowVersion === 4,
+        `recorded v${ran.json?.data?.workflowVersion}, workflow is at v4`,
+      );
+
+      // Restore: forward, never backward.
+      const restored = await api(
+        "POST",
+        `/api/workflows/${vId}/versions/1/restore`,
+        undefined,
+        token,
+      );
+      check(
+        "restoring writes a NEW version rather than rewinding the number",
+        restored.json?.data?.version === 5,
+        `version ${restored.json?.data?.version}`,
+      );
+      check(
+        "the restored workflow has v1's graph and v1's name back",
+        restored.json?.data?.graph?.nodes?.length === 2 &&
+          restored.json?.data?.name === "Phase 18 versioning",
+        `${restored.json?.data?.graph?.nodes?.length} nodes / ${restored.json?.data?.name}`,
+      );
+
+      const afterRestore = await api("GET", `/api/workflows/${vId}/versions`, undefined, token);
+      const restoredRows = afterRestore.json?.data ?? [];
+      check(
+        "nothing between was deleted — all five versions are still there",
+        restoredRows.length === 5 &&
+          restoredRows.map((r) => r.number).join(",") === "5,4,3,2,1",
+        restoredRows.map((r) => r.number).join(","),
+      );
+      check(
+        "the restore is labelled, which is also what exempts it from the retention cap",
+        restoredRows[0]?.label === "Restored from v1",
+        JSON.stringify(restoredRows[0]?.label),
+      );
+
+      // The earlier run still points at the version it actually ran, not at the
+      // current one. This is the whole reason restore moves forward.
+      const priorRun = await api("GET", `/api/runs/${ran.json?.data?.id}`, undefined, token);
+      check(
+        "a run made before the restore still reports the version it really executed",
+        priorRun.json?.data?.workflowVersion === 4,
+        `v${priorRun.json?.data?.workflowVersion}`,
+      );
+
+      // Owner scoping: a version is not reachable without a session.
+      const anonymous = await api("GET", `/api/workflows/${vId}/versions`, undefined, undefined);
+      check("version history requires a session", anonymous.status === 401);
+
+      const [{ n: versionRows }] = await sql.query(
+        'select count(*)::int as n from "workflow_version" where "workflowId" = $1',
+        [vId],
+      );
+      check("the history is really five rows in Postgres", versionRows === 5, `${versionRows}`);
+
+      const [{ bytes }] = await sql.query(
+        'select coalesce(sum(pg_column_size(graph)), 0)::int as bytes from "workflow_version" where "workflowId" = $1',
+        [vId],
+      );
+      console.log(`      storage: ${versionRows} versions of this graph = ${bytes} stored bytes`);
+    } finally {
+      if (vId) await api("DELETE", `/api/workflows/${vId}`, undefined, token);
+    }
+
+    const [{ n: orphans }] = await sql.query(
+      'select count(*)::int as n from "workflow_version" wv left join "workflow" w on w."id" = wv."workflowId" where w."id" is null',
+    );
+    check("deleting a workflow cascades to its versions", orphans === 0, `${orphans} orphaned`);
   }
 
   // --- delete ---------------------------------------------------------------

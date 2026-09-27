@@ -119,7 +119,10 @@ workflows".
   0–10 000, `timeoutMs` 1 000–60 000 — because a *model* writes these graphs too
 - Limits: 100 nodes, 200 edges per workflow
 - **Postgres `jsonb` normalises object key order.** A graph read back is deeply equal to what was
-  written but not byte-identical. Nothing may depend on key order
+  written but not byte-identical. Nothing may depend on key order. `graphsEqual` in
+  `src/lib/workflow/graph.ts` is the one structural comparison, and **both the canvas's dirty
+  check and Phase 18's version debounce call it** — two copies would eventually disagree, and the
+  failure would be silent in both directions
 
 ### How the canvas maps onto this shape — **DEFINED** (Phase 4)
 
@@ -252,6 +255,7 @@ Tables in `src/db/schema.ts`; wire shapes from `describeRun` in `src/lib/engine/
 | `leaseOwner`, `leaseExpiresAt` | who is executing it and until when. **The correctness columns**: Cloud Tasks is at-least-once, so without them a redelivery would run a workflow twice |
 | `cancelRequestedAt` | a stop was asked for. The engine reads it at its next checkpoint |
 | `dispatchToken` | 192 bits of CSPRNG. The task carries it and `POST /api/runs/dispatch` demands it, so that route can only ever resume a run that already exists. Never returned to a client |
+| `workflowVersion` | which version of the workflow this run executed (Phase 18). An integer, not a foreign key — see *Workflow versions*. Null for a run recorded before versioning, and **that is not claimed to be v1** |
 
 ### `run_step`
 
@@ -268,12 +272,108 @@ Tables in `src/db/schema.ts`; wire shapes from `describeRun` in `src/lib/engine/
 | `error` | failure message, user-readable when the node threw `NodeError` |
 | `startedAt`, `finishedAt` | both null on a `skipped` step, which never ran |
 
-**The config snapshot is load-bearing.** There is no workflow versioning, so without it run history
-becomes misleading the first time the workflow is edited. It stores the config *after* template
+**The config snapshot is load-bearing, and Phase 18 did not make it redundant.** A version says
+what the config *template* was; this says what it resolved to on this run. `{{input.subject}}` is
+identical in every version and different in every run, and the resolved value is the one worth
+reading back. It stores the config *after* template
 resolution, which is what the node actually saw.
 
 **Every node that never ran gets a `skipped` step.** The untaken side of a branch is visible in run
 history rather than an unexplained gap.
+
+## Workflow versions — **DEFINED** (Phase 18)
+
+Table `workflow_version` in `src/db/schema.ts`; wire shapes from `describeVersion` and
+`describeHistory` in `src/lib/workflow/versions.ts`. The diff is `src/lib/workflow/diff.ts`.
+
+**Every save is a version, and history is append-only.** Nothing renumbers a version and nothing
+deletes one except the retention cap below.
+
+### `workflow_version`
+
+| Field | Notes |
+|---|---|
+| `id` | uuid |
+| `workflowId`, `ownerId` | `ownerId` denormalised, so every query is owner-scoped without a join |
+| `number` | **the version number, unique per workflow.** Supplied by `workflow.version`, not computed here |
+| `label` | null for an ordinary save. A restore and a generation set one. **A labelled version is never pruned** |
+| `name`, `graph` | the two things a save can change and a restore must put back. **A compact snapshot, not a row copy** — the webhook token, the schedule columns and the timestamps describe the workflow as it is *now*, not as it was |
+| `createdAt` | when the save happened |
+
+### `workflow.version` is the counter, and that is what makes the number safe
+
+`neon-http` has no transactions (D6), so `max(number) + 1` read from `workflow_version` and
+inserted a moment later is a real race — two saves of the same workflow can both read 4. The
+number is instead bumped **inside the same single-row UPDATE that writes the graph**, and
+`RETURNING` hands back a number no concurrent save can also have been given. Same atomic primitive
+D42 claims a cron slot with.
+
+**A gap in the numbering is legal and is the honest outcome** when a snapshot could not be
+written: the workflow row is already correct, and refusing a user's save because its *history*
+could not be recorded would be the wrong trade. A number is never reused, so the order things
+happened in is never misreported.
+
+### Which saves become versions — the debounce
+
+A save that changes neither the graph nor the name **is not a version**. The canvas PATCHes the
+whole graph on every Save and again before every run, so without this, running a workflow five
+times would leave five identical snapshots. The comparison is `graphsEqual`, never a string one.
+
+**A description change is deliberately not a version**, and is not restored either — versioning it
+would offer a restore that silently did not restore it.
+
+### Retention
+
+`VERSION_LIMIT` is **50 per workflow**, and the cap bounds the *unlabelled* tail only. Measured
+2026-09-27: a stored graph averages **737 bytes** and the six-node demo workflow is **1,097**, so
+a fully-capped workflow is ~60 KB against Neon's 0.5 GB free tier (`DEPLOYMENT.md` → *Free-tier
+headroom*). Naming a version is how a user keeps it for ever.
+
+### A run records the version it executed
+
+`run.workflowVersion` — an **integer, not a foreign key**, for the same reason `ownerId` is
+denormalised onto that table: a run survives as a record of what happened, and must stay true even
+when the version row is gone. Null for every run recorded before Phase 18; **that is not claimed to
+be v1**, it is unknown.
+
+**It is load-bearing on resume.** A durable run redelivered after the workflow was edited executes
+**the graph it started on**, read back from the snapshot — otherwise delivery 1 runs three nodes of
+v4, an edit lands, and delivery 2 resumes from a cursor naming nodes that no longer exist. A run
+with no recorded version, or whose snapshot was pruned, falls back to the live graph, which is
+exactly the pre-Phase-18 behaviour.
+
+### The diff
+
+`diffGraphs(base, target)` returns per-node `added` | `removed` | `changed` | `moved` |
+`unchanged`, per-edge `added` | `removed` | `unchanged`, and a summary.
+
+- **Nodes are matched by `id`; edges by what they connect.** A node id is the node's identity
+  everywhere else in the system and `nextNodeId` mints stable ones. An edge id is **not** stable —
+  `nextEdgeId` returns the lowest free `eN`, so deleting `e1` and drawing an unrelated connection
+  re-mints `e1`, and an id-matched diff would call two different edges "unchanged"
+- **Substance outranks position.** A node reconfigured *and* dragged is `changed`, not `moved`
+- **`changed` names its fields** — `type`, `label`, `config`, `policy`
+- **The oldest version in a history window reports `changes: null`**, not a zeroed summary: its
+  predecessor may simply have been pruned
+- `diffGraph()` builds the renderable union. **A removed node keeps its base position only where
+  that position is free** — delete the last node of a chain and add a new one and the canvas
+  reuses the slot, which stacked the two and rendered the *added* node invisible. Found in a
+  browser; no API check could see it
+
+### Routes
+
+| Route | Body | Returns |
+|---|---|---|
+| `GET /api/workflows/:id/versions` | — | The history, newest first, **without graphs**. Each entry carries `changes` against its predecessor |
+| `GET /api/workflows/:id/versions/:number` | — | One version, **with** its graph |
+| `PATCH /api/workflows/:id/versions/:number` | `{ label }` | Names it, or clears it with `null`. The label is the only part of a version that can change after the fact |
+| `POST /api/workflows/:id/versions/:number/restore` | — | **The workflow**, at its new version. Writes that graph and name as a new version on top |
+| `GET /api/workflows/:id/versions/compare?from=&to=` | — | `{ from, to, diff }` with **both graphs**. `to` defaults to the current version |
+
+All five require a session and are owner-scoped. A non-numeric or unknown version is a **404**, not
+a coerced query; a non-numeric `from`/`to` on compare is a **400**.
+
+A workflow now returns `version` alongside its other fields, and a run returns `workflowVersion`.
 
 ## Execution state machine — **DEFINED**
 
@@ -357,6 +457,7 @@ loop.
 | `GET /api/workflows/:id` | — | The workflow |
 | `PATCH /api/workflows/:id` | `{ name?, description?, graph? }` | The workflow |
 | `DELETE /api/workflows/:id` | — | `{ deleted: id }` |
+| `GET /api/workflows/:id/versions` and the four routes beside it | — | Version history, restore and diff — see *Workflow versions* (Phase 18) |
 | `POST /api/workflows/:id/runs` | `{ input?, mode? }` | `mode` defaults to `sync` → **201, the finished run with every step**. `mode: "durable"` → **202**, a `queued` run with no steps; it is executed by a Cloud Tasks delivery and watched over the stream. A durable request that could not reach the queue falls back to executing in-process and answers **201**, so the status code says which happened without a flag to interpret |
 | `GET /api/workflows/:id/runs` | — | Run list for that workflow |
 | `GET /api/runs?workflowId=` | — | Run list |
@@ -372,7 +473,7 @@ machine endpoints. The tick and the webhook are specified under *Trigger shapes*
 specified below.
 
 A workflow is returned as `{ id, name, description, graph, runnable, problems, webhookUrl,
-scheduleCron, scheduleNextAt, scheduleLastFiredAt, createdAt, updatedAt }`. `runnable` and
+version, scheduleCron, scheduleNextAt, scheduleLastFiredAt, createdAt, updatedAt }`. `runnable` and
 `problems` come from `validateGraph`, so a client can show what is wrong without the save having
 failed. `webhookUrl` is null unless the **stored** graph holds a webhook trigger, and the three
 `schedule*` fields are null unless it holds a schedule trigger (Phase 8).

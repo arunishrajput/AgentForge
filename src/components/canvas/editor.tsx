@@ -41,8 +41,11 @@ import { tweenMs } from "@/lib/canvas/motion";
 import { useRunStream } from "@/lib/canvas/run-stream";
 import { defaultConfig } from "@/lib/canvas/schema";
 import { formatDuration } from "@/lib/format/duration";
+import { diffGraph, type GraphDiff, type NodeDiff } from "@/lib/workflow/diff";
 
 import { CanvasContext, type NodeRunState } from "./context";
+import { DiffBar } from "./diff/diff-bar";
+import { History } from "./diff/history";
 import { Inspector } from "./inspector";
 import { Palette } from "./palette";
 import { useCollapsed } from "./panel";
@@ -80,6 +83,9 @@ export function Editor({
 // every render, and re-creates every node when it changes.
 const nodeTypes = { [CANVAS_NODE_TYPE]: WorkflowNodeView };
 
+/** Stable empty map, so leaving diff mode does not hand the context a new object. */
+const EMPTY_DIFF: Map<string, NodeDiff> = new Map();
+
 /**
  * 0.18, not React Flow's 0.3. Padding is the one term in the fitView fraction worth
  * spending: Chapter 1 measured 0.39 → 0.46 zoom at 1440px from this change alone.
@@ -87,6 +93,9 @@ const nodeTypes = { [CANVAS_NODE_TYPE]: WorkflowNodeView };
  * `panel.tsx` — but the padding still earns its keep.
  */
 const FIT = { padding: 0.18, maxZoom: 1 } as const;
+
+/** Matches `NODE_WIDTH` in `workflow-node.tsx`. Read by the diff view's minimap fix. */
+const NODE_WIDTH = 224;
 
 /**
  * Edges as *drawn*, never as stored.
@@ -152,6 +161,19 @@ function EditorInner({
   const { run, live, watch, stop: stopStream, setRun } = useRunStream(workflow.id, liveRun);
   const [triggerInput, setTriggerInput] = useState("");
   const [busy, setBusy] = useState<null | "saving" | "running" | "queueing" | "stopping">(null);
+
+  /**
+   * Version history and the diff mode it opens (Phase 18).
+   *
+   * `comparison` is the whole of diff mode: when it is set the canvas renders the
+   * **union** of two versions instead of the editing graph, read-only. The editing
+   * `nodes`/`edges` are untouched underneath, which is what makes leaving diff mode
+   * free — there is nothing to restore, because nothing was replaced.
+   */
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [comparison, setComparison] = useState<
+    { from: number; to: number; diff: GraphDiff } | null
+  >(null);
 
   const { fitView, screenToFlowPosition } = useReactFlow();
   const wrapper = useRef<HTMLDivElement>(null);
@@ -282,6 +304,61 @@ function EditorInner({
 
   const graph = useMemo(() => fromFlow(nodes, edges), [nodes, edges]);
   const dirty = !graphsEqual(graph, saved.graph) || name !== saved.name;
+
+  /**
+   * What the canvas draws in diff mode, and the per-node treatment that goes with it.
+   *
+   * The union graph is built once per comparison and handed to React Flow **in place
+   * of** `nodes`/`edges`, with every interaction handler withheld below. That is what
+   * keeps the mode safe: React Flow reports changes through `onNodesChange`, so a
+   * draggable diff would feed nodes from a graph nobody ever saved straight back into
+   * the editing state and the next Save would write it.
+   */
+  const diffView = useMemo(() => {
+    if (!comparison) return null;
+
+    const union = diffGraph(comparison.diff, saved.graph.version);
+    const flow = toFlow(union);
+
+    // `diffGraph` emits the edges in the same order it was handed them, so the two
+    // arrays line up by index. Zipping beats re-deriving the change from the rendered
+    // id, which would mean reading meaning out of a string this file minted.
+    const edges = flow.edges.map((edge, index) => {
+      const change = comparison.diff.edges[index]?.change ?? "unchanged";
+      return {
+        ...edge,
+        type: "smoothstep" as const,
+        markerEnd: EDGE_MARKER,
+        ...(change === "unchanged" ? {} : { className: `edge-${change}` }),
+      };
+    });
+
+    const states = new Map(comparison.diff.nodes.map((entry) => [entry.id, entry]));
+
+    /**
+     * `initialWidth`/`initialHeight`, and they are not decoration.
+     *
+     * React Flow measures a rendered node and writes the result back into the
+     * controlled array **through `onNodesChange`** — which diff mode withholds. So a
+     * diff node never gains a `measured` field, and everything that reads one treats
+     * it as having no dimensions: the **minimap renders empty** for the whole time a
+     * diff is on screen. Found in a browser; invisible to every other kind of check.
+     *
+     * `initialWidth` satisfies that read without forcing the DOM size the way `width`
+     * would, so the cards still lay themselves out and the minimap has something to
+     * draw. The height is an estimate, which is all a minimap needs: 119px is a plain
+     * card as React Flow measured one, and a ribbon adds a row.
+     */
+    const nodes = flow.nodes.map((node) => ({
+      ...node,
+      initialWidth: NODE_WIDTH,
+      initialHeight: states.get(node.id)?.change === "unchanged" ? 119 : 147,
+    }));
+
+    return { nodes, edges, states };
+  }, [comparison, saved.graph.version]);
+
+  const comparing = diffView !== null;
 
   const selected = nodes.find((node) => node.id === selectedId) ?? null;
 
@@ -657,9 +734,64 @@ function EditorInner({
     }
   }, [run, setRun, toast]);
 
+  /**
+   * Enter diff mode. Fetching here rather than in the dialog is deliberate: the canvas
+   * owns the mode, and a dialog that closed *and then* failed to load would leave the
+   * user staring at an unchanged canvas with nothing to explain it.
+   */
+  const compare = useCallback(
+    async (from: number, to: number) => {
+      try {
+        const result = await api.compareVersions(workflow.id, from, to);
+        setSelectedId(null);
+        setNodes((all) => all.map((node) => ({ ...node, selected: false })));
+        setComparison({ from, to, diff: result.diff });
+        requestAnimationFrame(() => fitView({ ...FIT, duration: tweenMs(250) }));
+      } catch (error) {
+        toast({
+          tone: "bad",
+          title: "Could not compare those versions",
+          detail: error instanceof ApiRequestError ? error.message : undefined,
+          duration: null,
+        });
+      }
+    },
+    [fitView, setNodes, toast, workflow.id],
+  );
+
+  /** Leave diff mode. Nothing to restore — the editing graph was never replaced. */
+  const stopComparing = useCallback(() => {
+    setComparison(null);
+    requestAnimationFrame(() => fitView({ ...FIT, duration: tweenMs(250) }));
+  }, [fitView]);
+
+  /**
+   * A restore rewrites the stored workflow, so the canvas has to adopt it wholesale:
+   * the saved baseline, the name, and the nodes and edges on screen. Doing less would
+   * leave the canvas showing the old graph and reporting it as unsaved work.
+   */
+  const adoptRestored = useCallback(
+    (restored: Workflow) => {
+      const flow = toFlow(restored.graph);
+      setSaved(restored);
+      setName(restored.name);
+      setNodes(flow.nodes);
+      setEdges(flow.edges);
+      setSelectedId(null);
+      setComparison(null);
+      requestAnimationFrame(() => fitView({ ...FIT, duration: tweenMs(250) }));
+    },
+    [fitView, setEdges, setNodes],
+  );
+
   const canvasValue = useMemo(
-    () => ({ registry, runStates, entryOrder }),
-    [entryOrder, registry, runStates],
+    () => ({
+      registry,
+      runStates,
+      diffStates: diffView?.states ?? EMPTY_DIFF,
+      entryOrder,
+    }),
+    [diffView, entryOrder, registry, runStates],
   );
 
   /**
@@ -669,14 +801,15 @@ function EditorInner({
    */
   const inFlight = run !== null && (run.status === "queued" || run.status === "running");
 
-  const status =
-    busy === "saving"
+  const status = comparison
+    ? `Comparing v${comparison.from} with v${comparison.to}`
+    : busy === "saving"
       ? "Saving…"
       : dirty
         ? "Unsaved changes"
         : saved.runnable
-          ? "Saved"
-          : `Saved · ${saved.problems.length} problem${saved.problems.length === 1 ? "" : "s"}`;
+          ? `Saved · v${saved.version}`
+          : `v${saved.version} · ${saved.problems.length} problem${saved.problems.length === 1 ? "" : "s"}`;
 
   return (
     <CanvasContext value={canvasValue}>
@@ -751,10 +884,26 @@ function EditorInner({
               {status}
             </span>
 
+            {/* The version number *is* the affordance. A button reading "v7" says both
+                what this workflow is at and that there is something behind it, in the
+                width a canvas toolbar can spare at 375px — where the word "History"
+                would have to be the first thing dropped anyway. */}
+            <button
+              type="button"
+              onClick={() => setHistoryOpen(true)}
+              aria-haspopup="dialog"
+              className="btn btn-ghost shrink-0 px-2 font-mono"
+            >
+              <span aria-hidden="true">v{saved.version}</span>
+              <span className="sr-only">Version history — currently version {saved.version}</span>
+            </button>
+
             <button
               type="button"
               onClick={save}
-              disabled={busy !== null || !dirty}
+              // Nothing on the canvas in diff mode belongs to the editing graph, so
+              // there is nothing here that Save could honestly write.
+              disabled={busy !== null || !dirty || comparing}
               className="btn btn-quiet shrink-0"
             >
               Save
@@ -781,7 +930,7 @@ function EditorInner({
               // accessible name mid-announcement and drops out of the tab order
               // under the user's cursor (`DESIGN.md`).
               aria-busy={busy === "running"}
-              disabled={busy === "saving"}
+              disabled={busy === "saving" || comparing}
               className={cn("btn btn-primary shrink-0", busy === "running" && "opacity-70")}
             >
               {busy === "running" ? (
@@ -808,6 +957,17 @@ function EditorInner({
             <CommandPalette className="max-md:hidden" />
           </div>
         </header>
+
+        {/* The mode bar. Below the toolbar and above the canvas, so the thing it
+            describes is directly under it and the toolbar keeps its position. */}
+        {comparison && (
+          <DiffBar
+            from={comparison.from}
+            to={comparison.to}
+            summary={comparison.diff.summary}
+            onExit={stopComparing}
+          />
+        )}
 
         <div className="relative flex min-h-0 flex-1">
           {/* Backdrop for the drawers. Not focusable — Escape and the panel's own
@@ -841,14 +1001,23 @@ function EditorInner({
 
           <main id="main" ref={wrapper} className="min-w-0 flex-1">
             <ReactFlow
-              nodes={nodes}
-              edges={displayEdges}
+              // In diff mode the canvas renders the union of two versions instead of
+              // the editing graph. Every handler below is withheld with it, and that
+              // is the whole safety story: React Flow reports edits through
+              // `onNodesChange`, so a diff that stayed interactive would feed nodes
+              // from a graph nobody ever saved back into the editing state, and the
+              // next Save would write a workflow assembled out of two others.
+              nodes={diffView ? diffView.nodes : nodes}
+              edges={diffView ? diffView.edges : displayEdges}
               nodeTypes={nodeTypes}
-              onNodesChange={onNodesChange}
-              onEdgesChange={onEdgesChange}
-              onConnect={onConnect}
-              onSelectionChange={onSelectionChange}
-              deleteKeyCode={["Delete", "Backspace"]}
+              onNodesChange={comparing ? undefined : onNodesChange}
+              onEdgesChange={comparing ? undefined : onEdgesChange}
+              onConnect={comparing ? undefined : onConnect}
+              onSelectionChange={comparing ? undefined : onSelectionChange}
+              nodesDraggable={!comparing}
+              nodesConnectable={!comparing}
+              elementsSelectable={!comparing}
+              deleteKeyCode={comparing ? null : ["Delete", "Backspace"]}
               // Light, because the product is light-first. The `dark` this replaces
               // was inert for our own custom node — React Flow's node colours only
               // reach its built-in types — but it left every variable Phase 14 did
@@ -894,7 +1063,7 @@ function EditorInner({
             triggerInput={triggerInput}
             onChangeTriggerInput={setTriggerInput}
             queueing={busy === "queueing"}
-            canRun={busy === null && !inFlight}
+            canRun={busy === null && !inFlight && !comparing}
             onRunDurably={startDurable}
             onChangeNode={changeNode}
             onDeleteNode={deleteNode}
@@ -902,6 +1071,15 @@ function EditorInner({
           />
         </div>
       </div>
+
+      <History
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        workflow={saved}
+        dirty={dirty}
+        onRestored={adoptRestored}
+        onCompare={compare}
+      />
     </CanvasContext>
   );
 }

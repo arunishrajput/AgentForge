@@ -105,7 +105,7 @@ mapped to the phase that delivers it. `BUILD_PLAN.md` is the contract; this is t
 | C2 | Full UI rebuild, shell and canvas | 15–16 — **DONE** | MVP styling only |
 | C3 | Durable execution, resumable runs, a real queue | 17 — **DONE** | Carried risk: "in-flight runs die on redeploy" |
 | C4 | Retry and timeout configuration in the UI | 17 — **DONE** | S6, never built |
-| C5 | Workflow versioning, restore, visual diff | 18 | Post-Hackathon |
+| C5 | Workflow versioning, restore, visual diff | 18 — **DONE** | Post-Hackathon |
 | C6 | Workspaces, membership, invitations | 19 | Post-Hackathon |
 | C7 | Roles, permissions, sharing | 20 | Post-Hackathon |
 | C8 | Credential vault, rotation, audit log | 21 | Post-Hackathon. Rotation was the sharpest known gap |
@@ -146,6 +146,12 @@ is scoped to its owner, enforced server-side.
 **Workflows.** Create, rename, delete. A workflow is a set of nodes and directed edges with
 per-node configuration. Save and load must round-trip losslessly — a saved workflow reloads
 identically. Canvas supports add, connect, move, delete, and per-node config editing.
+
+**Versioning.** Every save that changes the graph or the name is a version, kept with a compact
+snapshot. Any version can be read, named and restored; two can be compared on the canvas, showing
+nodes added, removed, changed and moved. **Restoring moves the history forward rather than
+rewinding it**, so a past run still refers to the graph it actually executed. Every run records
+its workflow version, and a resumed durable run executes the graph it started on.
 
 **Execution.** A run is triggered manually, by webhook, or by schedule. The engine walks the DAG,
 executes each node through the registry, passes output forward, and records a step record per node

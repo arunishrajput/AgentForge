@@ -3,6 +3,7 @@
 import { createContext, useContext } from "react";
 
 import type { NodeSummary, StepStatus } from "@/lib/canvas/client";
+import type { NodeDiff } from "@/lib/workflow/diff";
 
 /**
  * What a canvas node needs to render, beyond the graph itself.
@@ -33,6 +34,17 @@ export interface CanvasContextValue {
   registry: Map<string, NodeSummary>;
   runStates: Map<string, NodeRunState>;
   /**
+   * How each node differs between the two versions being compared, or an empty map
+   * when the canvas is editing rather than comparing (Phase 18).
+   *
+   * It travels by context for exactly the reason `runStates` does: a diff is a
+   * *projection over* the graph and must never reach a node's `data`, or `fromFlow`
+   * would write it into the saved workflow. It is also what makes diff mode safe —
+   * the graph React Flow renders in that mode is a union of two versions that was
+   * never anybody's workflow, and nothing about it can be persisted.
+   */
+  diffStates: Map<string, NodeDiff>;
+  /**
    * Position of each node in the graph as it was *first loaded*, used only to stagger
    * the entry animation left to right. A node added after load is absent and animates
    * with no delay — the click must feel immediate, whereas a generated graph wants to
@@ -44,6 +56,7 @@ export interface CanvasContextValue {
 export const CanvasContext = createContext<CanvasContextValue>({
   registry: new Map(),
   runStates: new Map(),
+  diffStates: new Map(),
   entryOrder: new Map(),
 });
 

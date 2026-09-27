@@ -821,6 +821,38 @@ so scale-to-zero is demonstrably active and the wake cost is ~0.9 s. The databas
 with 1 user, 1 workflow, 1 run, 6 run steps and 3 credentials — storage is nowhere near a limit;
 **compute time is the only Neon resource in play.**
 
+#### Storage, re-measured in Phase 18 — versioning does not move the needle
+
+Phase 18 writes a graph snapshot per save, which is the first feature in this project whose cost is
+*storage* rather than compute. Measured on the deployed database, 2026-09-27:
+
+| Figure | Measured |
+|---|---|
+| Whole database | **8.55 MiB** of the **0.5 GB** free allowance — **1.7 %** |
+| Stored graph, average | **737 bytes** (`pg_column_size`, so after TOAST compression) |
+| Stored graph, the six-node demo workflow | **1,097 bytes** |
+| `VERSION_LIMIT` — unlabelled versions kept per workflow | **50** |
+| Worst case per fully-edited workflow | ~50 × 1.1 KB ≈ **60 KB** |
+
+At 60 KB per capped workflow, the remaining ~503 MB is several thousand heavily-edited workflows.
+**Storage is still not the binding Neon resource; compute is.** The cap exists because unbounded
+history is a slow leak with no ceiling, not because the current numbers are close to one — and
+because a user who *names* a version is exempt from it, so the thing they meant to keep is kept.
+
+The queries that re-measure it:
+
+```bash
+# per-table size and the whole database
+psql "$DATABASE_URL_UNPOOLED" -c "select relname, pg_size_pretty(pg_total_relation_size(c.oid)) \
+  from pg_class c join pg_namespace n on n.oid = c.relnamespace \
+  where n.nspname='public' and c.relkind='r' order by pg_total_relation_size(c.oid) desc"
+psql "$DATABASE_URL_UNPOOLED" -c "select pg_size_pretty(pg_database_size(current_database()))"
+
+# what a stored snapshot actually costs
+psql "$DATABASE_URL_UNPOOLED" -c "select count(*), avg(pg_column_size(graph))::int, \
+  max(pg_column_size(graph)) from workflow_version"
+```
+
 > **`UNKNOWN — VERIFY` still open: CU-hours actually consumed this billing period.** Neon does not
 > expose consumption through the connection, only through its API or console, and `neonctl` on this
 > machine is unauthenticated. See *Manual Actions Pending* in `PROGRESS.md` (M9). The *budget* is
