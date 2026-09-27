@@ -2,7 +2,8 @@ import { redirect } from "next/navigation";
 
 import { auth } from "@/auth";
 
-import { activeMembership, ensurePersonalWorkspace, listMemberships, type Membership } from "./store";
+import { readActiveWorkspaceId } from "./active";
+import { chooseMembership, ensurePersonalWorkspace, listMemberships, type Membership } from "./store";
 import type { WorkspaceScope } from "./scope";
 
 /**
@@ -25,7 +26,7 @@ export interface PageSession {
   name: string | null;
   scope: WorkspaceScope;
   membership: Membership;
-  /** Every workspace this user is in. One of them until Phase 19B's invitations. */
+  /** Every workspace this user is in, oldest first — what the switcher lists. */
   memberships: Membership[];
 }
 
@@ -35,7 +36,9 @@ export async function requirePageSession(): Promise<PageSession> {
   if (!user?.id) redirect("/");
 
   const memberships = await listMemberships(user.id);
-  let membership = activeMembership(memberships);
+  // The cookie is a preference and `chooseMembership` only honours an id that is in the
+  // list above, so a forged or stale one narrows nothing — see `./active.ts`.
+  let membership = chooseMembership(memberships, user.id, await readActiveWorkspaceId());
 
   if (!membership) {
     // Heals an account with no workspace rather than failing the page — see

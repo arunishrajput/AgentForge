@@ -41,6 +41,12 @@ const CALLBACK_MESSAGES: Record<string, { text: string; tone: "ok" | "bad" }> = 
     tone: "bad",
   },
   failed: { text: "Google could not complete the connection. Try again.", tone: "bad" },
+  // Phase 19B: connecting a credential is an admin action, because every member of the
+  // workspace can then act as the connected account.
+  forbidden: {
+    text: "Connecting Google needs the admin role in this workspace.",
+    tone: "bad",
+  },
 };
 
 export function IntegrationsForm({

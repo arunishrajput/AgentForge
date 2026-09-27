@@ -280,7 +280,7 @@ a handful of requests per page, not thirty per workflow run.
 | **Agent layer** | Provider adapter over the LLM, prompt assembly, and the bounded tool-calling loop whose tools are derived from the registry |
 | **Generation** | Natural language → validated workflow JSON → persisted workflow |
 | **Versioning and diffing** | Phase 18. One compact snapshot per save (`src/lib/workflow/versions.ts`), a pure graph diff (`src/lib/workflow/diff.ts`), and the canvas's read-only diff mode (`src/components/canvas/diff/`) |
-| **Tenancy** | Phase 19A. `src/lib/workspace/` — the `WorkspaceScope` every store function takes, the one query that resolves it per request, and the roles Phase 20 will enforce. **No query in the product reads across a workspace** |
+| **Tenancy** | Phases 19A–19B. `src/lib/workspace/` — the `WorkspaceScope` every store function takes, the one query that resolves it per request, invitations, and **the role check every mutating route now passes through**. **No query in the product reads across a workspace** |
 | **Persistence** | Neon Postgres. Workspaces and memberships, users, credentials, workflows, workflow versions, runs, run steps |
 | **Cloud Scheduler** | Managed cron, calls `/api/cron/tick` to fire due schedule triggers |
 
@@ -602,7 +602,8 @@ Neon Postgres, free tier.
   | `credential` | 3 | Table only. Encryption and the write-only API are Phase 6. **Unique on `(workspaceId, kind, label)` since 19A** |
   | `workflow_version` | **18** | One compact snapshot per save — `number`, `name`, `graph`. Unique on `(workflowId, number)` |
   | `workspace` | **19A** | **The tenant.** Every resource belongs to one. Unique partial index on `createdBy where personal` |
-  | `workspace_member` | **19A** | Who is in a workspace and as what. `(workspaceId, userId)` primary key. `role` is written here and **enforced in Phase 20** |
+  | `workspace_member` | **19A** | Who is in a workspace and as what. `(workspaceId, userId)` primary key. `role` is written here and **enforced since 19B** |
+  | `workspace_invitation` | **19B** | An invitation by email on a hashed, expiring, single-use token. Partial unique index on `(workspaceId, email)` among rows neither accepted nor revoked — **that index is what makes re-inviting an atomic upsert** rather than a read-then-write race |
 
 - **`workspaceId` is the scoping column, and it sits alongside `ownerId` rather than replacing it**
   — Phase 19A, on `workflow`, `run`, `workflow_version` and `credential`. The two answer different
@@ -774,6 +775,26 @@ this*, and nothing more — every authorisation question is answered by a `works
 by the session. A new account is given a personal workspace by the `createUser` event, and the scope
 resolver creates one if it ever finds none, so the event is a convenience rather than a correctness
 requirement: a failure there is repaired by the next request instead of locking somebody out.
+
+**Which workspace a request is in comes from a cookie that grants nothing** — `af_workspace`,
+Phase 19B. It is unsigned and carries only a workspace id, because `chooseMembership` honours that id
+only when it appears in the memberships the database just returned for this user. A forged cookie, a
+borrowed one and a stale one all fall back to the user's own personal workspace. The alternative — a
+signed cookie, or a column on `user` — would buy nothing the membership query does not already
+provide, and the column would additionally make the choice global across every tab.
+
+**Authorisation is one function, called in one place.** `requireScope(minimumRole)` resolves the
+scope and calls `assertRole`; `requireScopeFor(workspaceId, minimumRole)` does the same for routes
+that name a workspace in the path. The default minimum is `viewer`, so a route that forgets the
+argument fails closed rather than open. `CONTRACT.md` → *What each role may do* holds the matrix, and
+Phase 20 replaces this floor with per-workflow sharing and a UI that hides what it refuses.
+
+**An invitation is the product's third unauthenticated surface**, after the webhook trigger and the
+dispatch endpoint, and it is built on the same rules: a CSPRNG token, checked against a pattern
+before the database is asked anything, expiring, single use — and, unlike the webhook token, **stored
+only as a hash**, because it is shown once rather than displayed for ever. Possession is never
+sufficient: the accept path also requires a session whose provider-verified email matches the address
+invited.
 
 ---
 

@@ -29,7 +29,7 @@ export async function GET() {
 
 export async function PUT(request: Request) {
   return handle(async () => {
-    const scope = await requireScope();
+    const scope = await requireScope("admin");
     const body = await readJson(request, bodySchema);
     try {
       return ok(await storeDiscordWebhook(scope, body.webhookUrl));
@@ -41,7 +41,7 @@ export async function PUT(request: Request) {
 
 export async function DELETE() {
   return handle(async () => {
-    const scope = await requireScope();
+    const scope = await requireScope("admin");
     return ok(await clearDiscordWebhook(scope));
   });
 }

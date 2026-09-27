@@ -37,9 +37,12 @@ Sheets and Gmail. Originally built across 13 phases for the Zero Origin hackatho
 [`BUILD_PLAN.md`](./BUILD_PLAN.md). **Durable execution** landed in Phase 17: a run is handed to a
 queue, survives a redeploy or a crash, and resumes from the last step it finished. **Versioning**
 landed in Phase 18: every save is a version, any version can be named and restored, two versions
-compare visually on the canvas, and every run records which version it executed. Still to come —
-multi-user workspaces, a credential vault, observability, a much larger node catalogue, and proper
-documentation. It stays free to run.
+compare visually on the canvas, and every run records which version it executed. **Workspaces**
+landed in Phase 19: every workflow, run, version and credential belongs to a workspace rather than
+to a person, people are invited into one by a single-use expiring link, and `viewer` / `editor` /
+`admin` / `owner` are enforced server-side on every route. Still to come — per-workflow sharing, a
+credential vault, observability, a much larger node catalogue, and proper documentation. It stays
+free to run.
 
 **The redesign has landed.** Phase 14 replaced the dark Chapter 1 interface with **Toybox** — bright,
 playful and light-first, with saturated colour, thick ink outlines and hard offset shadows. It is

@@ -31,7 +31,7 @@ type Context = { params: Promise<{ id: string }> };
 
 export async function POST(request: Request, { params }: Context) {
   return handle(async () => {
-    const scope = await requireScope();
+    const scope = await requireScope("editor");
     const { id } = await params;
     const workflow = await getWorkflow(scope, id);
 

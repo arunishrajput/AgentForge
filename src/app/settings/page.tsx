@@ -4,11 +4,13 @@ import { AppHeader } from "@/components/shell/app-header";
 import { AccountPanel } from "@/components/settings/account-panel";
 import { IntegrationsForm } from "@/components/settings/integrations-form";
 import { ProviderForm } from "@/components/settings/provider-form";
+import { WorkspacePanel } from "@/components/settings/workspace-panel";
 import { Tabs } from "@/components/ui/tabs";
 import { readSettings } from "@/lib/ai/settings";
 import { discordStatus, googleStatus } from "@/lib/integrations/store";
 import { requirePageSession } from "@/lib/workspace/page";
-import { describeWorkspace } from "@/lib/workspace/store";
+import { atLeast } from "@/lib/workspace/roles";
+import { describeMember, describeWorkspace, listInvitations, listMembers } from "@/lib/workspace/store";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +28,12 @@ export const metadata: Metadata = { title: "Settings" };
  * behaviour is client-side while the content stays on the server.
  *
  * Returning from Google's consent screen opens the integrations tab, since that is
- * where the answer to what just happened is.
+ * where the answer to what just happened is. `?tab=workspace` opens the workspace tab,
+ * which is where the header's switcher sends somebody who wants to make another one.
+ *
+ * **The invitations list is only read for somebody who may see it.** The route refuses a
+ * non-admin regardless; not asking here as well would mean the page fetched rows it then
+ * had to throw away, on a metered database.
  *
  * `searchParams` is awaited: request APIs are async in Next 16
  * (`node_modules/next/dist/docs/01-app/02-guides/upgrading/version-16.md`).
@@ -34,19 +41,28 @@ export const metadata: Metadata = { title: "Settings" };
 export default async function SettingsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ google?: string }>;
+  searchParams: Promise<{ google?: string; tab?: string }>;
 }) {
-  const { name, email, scope, membership } = await requirePageSession();
-  const [settings, discord, google, params] = await Promise.all([
+  const { name, email, scope, membership, memberships } = await requirePageSession();
+  const canAdminister = atLeast(scope.role, "admin");
+  const workspace = describeWorkspace(membership, scope.userId);
+  const [settings, discord, google, members, invitations, params] = await Promise.all([
     readSettings(scope),
     discordStatus(scope),
     googleStatus(scope),
+    listMembers(scope),
+    canAdminister ? listInvitations(scope) : Promise.resolve([]),
     searchParams,
   ]);
 
   return (
     <>
-      <AppHeader email={email} workspace={describeWorkspace(membership)} active="settings" />
+      <AppHeader
+        email={email}
+        workspace={workspace}
+        workspaces={memberships.map((m) => describeWorkspace(m, scope.userId))}
+        active="settings"
+      />
 
       <main id="main" className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-10">
         <div className="animate-rise mb-6">
@@ -60,7 +76,7 @@ export default async function SettingsPage({
         </div>
 
         <Tabs
-          initial={params.google ? 1 : 0}
+          initial={params.tab === "workspace" ? 2 : params.google ? 1 : 0}
           tabs={[
             { id: "provider", label: "Model provider", content: <ProviderForm initial={settings} /> },
             {
@@ -71,6 +87,19 @@ export default async function SettingsPage({
                   discord={discord}
                   google={google}
                   {...(params.google ? { callbackStatus: params.google } : {})}
+                />
+              ),
+            },
+            {
+              id: "workspace",
+              label: "Workspace",
+              content: (
+                <WorkspacePanel
+                  workspace={workspace}
+                  members={members.map((member) => describeMember(member, scope.userId))}
+                  invitations={invitations}
+                  canAdminister={canAdminister}
+                  viewerUserId={scope.userId}
                 />
               ),
             },

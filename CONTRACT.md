@@ -443,11 +443,26 @@ loop.
 | `code` | HTTP | When |
 |---|---|---|
 | `unauthenticated` | 401 | No session |
+| `forbidden` | 403 | **Phase 19B.** Signed in, a member of this workspace, and the role does not carry this action — see *Two refusals that mean different things* below |
 | `invalid_request` | 400 | Body failed its schema; `details` lists path + message |
 | `not_found` | 404 | No such record **in this workspace** — indistinguishable from a record in somebody else's, deliberately. 404 and never 403, so the reply does not confirm the id exists |
 | `invalid_graph` | 422 | The graph cannot run; `details` is the problem list |
-| `conflict` | 409 | Reserved |
+| `conflict` | 409 | A state the caller can see but not change by retrying the same request: the last owner of a workspace leaving, a spent invitation, a membership that moved underfoot |
 | `internal` | 500 | Unexpected. The detail goes to the server log, never to the client |
+
+### Two refusals that mean different things — **read this before adding a route**
+
+`403` and `404` are not interchangeable here, and the difference is the whole of the tenancy model:
+
+- **`404`** — the resource is in **another workspace**. D20: answering 403 would confirm the id
+  exists, so a workflow, run, version or workspace the caller is not in is indistinguishable from
+  one that never existed.
+- **`403`** — the resource is in **this caller's own workspace**, they can already see it, and
+  their role does not carry the action. Hiding that behind a 404 would make a real permission
+  boundary look like a bug.
+
+`requireScope(minimumRole)` produces the first refusal by resolving no membership, and the second
+through `assertRole`. Both are server-side and neither depends on the UI hiding anything.
 
 ### Routes
 
@@ -469,10 +484,22 @@ loop.
 | `GET /api/workflows/:id/stream` | — | **SSE.** The workflow's current run, live. `?runId=` pins one |
 | `POST /api/webhook/:token` | any JSON object | 201, the finished run. **No session** — see *Trigger shapes* |
 | `POST /api/cron/tick` | — | The tick outcome. **No session**, `CRON_SECRET` required |
+| `GET /api/workspaces` | — | Every workspace this **account** is in — the switcher's list |
+| `POST /api/workspaces` | `{ name }` | 201, the workspace. Also **switches to it**, by setting the active-workspace cookie on the response |
+| `POST /api/workspaces/active` | `{ workspaceId }` | The workspace, and sets the cookie. A workspace the caller is not in answers 404 |
+| `PATCH /api/workspaces/:id` | `{ name }` | The workspace. **`admin`** |
+| `GET /api/workspaces/:id/members` | — | `[{ userId, name, email, role, joinedAt, you }]`. Every member may read it |
+| `DELETE /api/workspaces/:id/members/:userId` | — | `{ removed }`. Removing somebody else needs `admin`; removing **yourself** is leaving and needs only membership; the **last owner** cannot be removed by anybody |
+| `GET /api/workspaces/:id/invitations` | — | Every invitation with its state, newest first. **`admin`**. No token, ever |
+| `POST /api/workspaces/:id/invitations` | `{ email, role? }` | 201, `{ invitation, url }`. **`admin`**. `role` defaults to `editor` and can never be `owner`. **The `url` is the only time the link exists** |
+| `DELETE /api/workspaces/:id/invitations/:invitationId` | — | The revoked invitation. **`admin`**. Already accepted or already revoked answers 404 |
+| `GET /api/invitations/:token` | — | `{ workspace, role }` and nothing else. **No session** — see *Invitations* |
+| `POST /api/invitations/:token/accept` | — | The workspace, and switches to it. Session required; the **verified email** must match |
 | `POST /api/runs/dispatch` | `{ runId, token }` | **No session** (Phase 17). `CRON_SECRET` **and** the run's own `dispatchToken` both required. Executes or resumes that one run. **Always 200 on a delivery it declines** — a 4xx/5xx tells Cloud Tasks to retry, and every declined case (already finished, already claimed, forged token, deliveries exhausted) is one where retrying is pointless or harmful; the body says which |
 
-Every route above requires a session and is workspace-scoped, **except the last three**, which are
-machine endpoints. The tick and the webhook are specified under *Trigger shapes*; the dispatcher is
+Every route above requires a session and is workspace-scoped, **except `GET /api/invitations/:token`
+and the last three**, which need none: the first is reached by a link holder before they sign in, and
+the other three are machine endpoints. The tick and the webhook are specified under *Trigger shapes*; the dispatcher is
 specified below.
 
 A workflow is returned as `{ id, name, description, graph, runnable, problems, webhookUrl,
@@ -717,7 +744,7 @@ output handles would break D21/D23 — the canvas draws a node's edges from its 
 handles cannot depend on a run. A decision that cannot be read leaves `decision: null` and the run
 takes the default path rather than failing.
 
-## Workspaces and membership — **DEFINED** (Phase 19A)
+## Workspaces and membership — **DEFINED** (Phase 19A, extended in 19B)
 
 Tables `workspace` and `workspace_member` in `src/db/schema.ts`. The scope type and its resolution
 are `src/lib/workspace/`.
@@ -745,7 +772,7 @@ account; the loser's insert conflicts and it re-reads.
 | Field | Notes |
 |---|---|
 | `workspaceId`, `userId` | composite primary key, so a person cannot be in one workspace twice |
-| `role` | `owner` \| `admin` \| `editor` \| `viewer`. **Written in Phase 19A, enforced in Phase 20** |
+| `role` | `owner` \| `admin` \| `editor` \| `viewer`. Written in Phase 19A, **enforced since Phase 19B** — see *What each role may do* |
 | `createdAt` | |
 
 ### `WorkspaceScope` — what every store function takes
@@ -754,7 +781,7 @@ account; the loser's insert conflicts and it re-reads.
 interface WorkspaceScope {
   workspaceId: string;   // what a row must belong to for this request to see it
   userId: string;        // who is doing this; written to `ownerId` on anything created
-  role: WorkspaceRole;   // carried for Phase 20. Not consulted yet
+  role: WorkspaceRole;   // what this member may do. Checked by `requireScope(minimumRole)`
 }
 ```
 
@@ -764,7 +791,10 @@ call site missed in that sweep would have compiled, run, and read one tenant's r
 tenant's name. As a distinct type, a missed call site fails the typecheck — which is how all 43 of
 them were found.
 
-`requireScope()` in `src/lib/api.ts` resolves it for a route; `requirePageSession()` in
+`requireScope(minimumRole)` in `src/lib/api.ts` resolves it for a route — and refuses when the role
+falls short. `requireScopeFor(workspaceId, minimumRole)` does the same for the workspace-management
+routes, which name a workspace in the path: a workspace the caller is not a member of answers 404.
+`requirePageSession()` in
 `src/lib/workspace/page.ts` does it for a page and redirects instead of answering 401.
 
 ### The three routes with no session get theirs from the row
@@ -773,13 +803,83 @@ them were found.
 dispatch token resolved to. Nothing about the request can name a workspace, so those routes cannot
 reach another tenant even if their own token check were wrong about *which* workflow.
 
-### Roles are declared and not yet enforced — **read this before Phase 19B**
+### What each role may do — **ENFORCED since Phase 19B**
 
-Phase 19A only ever creates one kind of member: the `owner` of their own personal workspace. There
-is therefore no member whose role could be enforced against them, and the unenforced column is
-inert. **The moment Phase 19B can create a member who is not an owner, that stops being true** — an
-invitation handing somebody a `viewer` badge next to full write access. Either enforce the role
-there, or merge that phase with Phase 20.
+Phase 19A wrote `role` and enforced nothing, which was inert while every member was the `owner` of
+their own personal workspace. Invitations ended that, so `requireScope(minimumRole)` in
+`src/lib/api.ts` now gates every route and `assertRole` in `src/lib/workspace/roles.ts` is the check.
+
+**The default is `viewer`**, the least privilege — so a route that says nothing gets read access and
+not write access, and a new mutating route that forgets the argument fails closed.
+
+| Action | Needs |
+|---|---|
+| Read workflows, runs, versions, the members list, credential *status* | `viewer` |
+| Create, edit, delete, run, cancel, generate, label and restore a version | `editor` |
+| Store or delete a provider key, connect or disconnect an integration, **list provider models** | `admin` |
+| Rename the workspace, invite, revoke, remove another member | `admin` |
+| Remove an **owner** | `owner` |
+| Leave the workspace | membership alone — and never the last owner |
+
+Two entries look odd and are deliberate. **Listing provider models is `admin` although it is a GET**:
+it spends the workspace's provider quota on an outbound call with the workspace's key, to fill a
+picker beside a Save button no lesser role can press. **Running a workflow is `editor`, not
+`viewer`**: a run sends mail, posts to Discord and writes to spreadsheets, so it is a write to the
+outside world whatever it is to the database.
+
+**What is still Phase 20's**: per-workflow sharing, a public share link, changing an existing
+member's role, and hiding in the UI what the API already refuses. A viewer today sees a Save button
+and is told *"This needs the editor role in this workspace, or higher"* when they press it. That is
+correct and unpolished, in that order.
+
+---
+
+## Invitations — **DEFINED** (Phase 19B)
+
+Table `workspace_invitation`; the rules are `src/lib/workspace/invitations.ts` and the queries are
+`src/lib/workspace/store.ts`.
+
+**An invitation link is an unauthenticated bearer token that will be pasted into a chat window**, so
+it is treated exactly like the webhook trigger token (D41), with one deliberate difference.
+
+| Property | Value |
+|---|---|
+| Token | 32 bytes of CSPRNG, base64url — 256 bits in 43 characters. Wider than the webhook token's 192 bits because this grants a *workspace*, not one workflow start |
+| Stored as | **`sha256(token)` hex, unique.** The plaintext is never written. The link is shown once, in one response; re-inviting the same address rotates it |
+| Expiry | **7 days.** Short because delivery is by hand — the shorter the window, the fewer live bearer tokens sit in other people's message history |
+| Single use | Enforced by the `where` on the accepting UPDATE, not by the read before it |
+| Live at most once per address | Partial unique index on `(workspaceId, email)` where neither accepted nor revoked. **The index is the interlock** — `neon-http` has no transactions (D6), so re-inviting is an upsert, not a read-then-write |
+| Role | `admin` \| `editor` \| `viewer`. **Never `owner`** — ownership does not arrive by link |
+| Addressed to | An email, lower-cased and trimmed. Dots and `+tags` are **not** stripped: those are provider rules, and a normalisation the identity provider does not share would refuse a legitimate accept |
+
+**Accepting needs two independent facts.** The token proves the holder was sent the link; the session
+proves who they are. The membership is written for the address the **identity provider verified**,
+never for anything in the URL — an `?email=` would make the invited address a claim by the caller.
+
+**Every dead link answers identically.** Expired, revoked, already used, and never existed all return
+the same 404 with the same message from `GET /api/invitations/:token`, and `/invite/:token` renders
+the byte-identical page for each. The endpoint cannot be used to sort real tokens from invented ones.
+A *signed-in* caller attempting to accept gets the specific reason, because only somebody holding a
+real token and a real session can reach that path, and "wrong Google account" is the single most
+likely failure in the flow.
+
+**AgentForge does not send the email.** There is no mail provider on a zero-cost budget, so the API
+returns one link and the inviter delivers it themselves. The settings panel says so rather than
+implying a message was sent.
+
+### The active workspace is a cookie — and it is a preference, never a permission
+
+`af_workspace`, httpOnly, `SameSite=Lax`, `Secure` when `APP_BASE_URL` is https, one year.
+
+It carries a workspace id and nothing else: no signature, no user id, no expiry check. **It does not
+need them.** `chooseMembership` honours the id only if it appears in the memberships the database
+returned for this user, so a forged cookie, one copied from another browser, and one naming a
+workspace the user has since been removed from all fall back to their own personal workspace. The
+server asks the database who you are on every request; the cookie only ever narrows an answer it
+already has.
+
+There is deliberately no `activeWorkspaceId` column: it would be a write on every switch against a
+metered database, and it would make the choice global across every browser and tab.
 
 ---
 

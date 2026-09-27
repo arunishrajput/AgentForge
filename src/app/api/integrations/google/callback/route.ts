@@ -1,4 +1,6 @@
 import { auth } from "@/auth";
+import { readActiveWorkspaceId } from "@/lib/workspace/active";
+import { atLeast } from "@/lib/workspace/roles";
 import { resolveScope } from "@/lib/workspace/store";
 import { required } from "@/lib/env";
 import { appReturn, exchangeCode, fetchEmail } from "@/lib/integrations/google";
@@ -46,12 +48,23 @@ export async function GET(request: Request) {
   }
 
   // The connection is stored against the workspace the user is in, not against the
-  // user — so a workflow anybody in that workspace runs can reach it (Phase 19A).
-  const scope = await resolveScope({
-    id: session.user.id,
-    name: session.user.name,
-    email: session.user.email,
-  });
+  // user — so a workflow anybody in that workspace runs can reach it (Phase 19A). Which
+  // workspace that is comes from the switcher's cookie (Phase 19B), so connecting Google
+  // while looking at a shared workspace connects it *there*, which is what the settings
+  // page just said it would do.
+  const scope = await resolveScope(
+    {
+      id: session.user.id,
+      name: session.user.name,
+      email: session.user.email,
+    },
+    await readActiveWorkspaceId(),
+  );
+
+  // Re-checked here and not only on the way out. The consent flow is a round trip
+  // through Google, and a role that was admin when it started may not be when it comes
+  // back — this is the request that actually writes the credential.
+  if (!atLeast(scope.role, "admin")) return back("forbidden");
 
   // The user pressed Cancel, or unticked everything and Google refused.
   const denied = url.searchParams.get("error");

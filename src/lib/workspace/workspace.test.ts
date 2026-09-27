@@ -5,9 +5,17 @@ import { ApiError } from "@/lib/api-error";
 import { integrationApiError } from "@/lib/integrations/errors";
 import { IntegrationError } from "@/lib/integrations/net";
 
-import { atLeast, isWorkspaceRole, WORKSPACE_ROLES } from "./roles";
+import {
+  assertRole,
+  atLeast,
+  INVITABLE_ROLES,
+  isInvitableRole,
+  isWorkspaceRole,
+  removalRefusal,
+  WORKSPACE_ROLES,
+} from "./roles";
 import { systemScope } from "./scope";
-import { activeMembership, describeWorkspace, personalWorkspaceName, type Membership } from "./store";
+import { chooseMembership, describeWorkspace, personalWorkspaceName, type Membership } from "./store";
 
 const workspace = (over: Partial<Membership["workspace"]> = {}) =>
   ({
@@ -88,37 +96,247 @@ describe("personalWorkspaceName", () => {
   });
 });
 
-describe("activeMembership", () => {
+describe("chooseMembership", () => {
+  const ME = "user-1";
+  const mine = (over: Partial<Membership["workspace"]> = {}): Membership => ({
+    workspace: workspace({ personal: true, createdBy: ME, ...over }),
+    role: "owner",
+  });
+
   it("is null when the user is in no workspace", () => {
-    assert.equal(activeMembership([]), null);
+    assert.equal(chooseMembership([], ME), null);
   });
 
-  it("prefers the personal workspace over one joined later", () => {
+  it("prefers this user's own personal workspace over one joined later", () => {
     const shared: Membership = { workspace: workspace({ id: "ws-shared" }), role: "editor" };
-    const personal: Membership = {
-      workspace: workspace({ id: "ws-personal", personal: true }),
-      role: "owner",
-    };
-    assert.equal(activeMembership([shared, personal])?.workspace.id, "ws-personal");
+    const personal = mine({ id: "ws-personal" });
+    assert.equal(chooseMembership([shared, personal], ME)?.workspace.id, "ws-personal");
   });
 
-  it("falls back to the first workspace when none is personal", () => {
+  it("does NOT treat somebody else's personal workspace as home", () => {
+    // The bug the deployed suite found. A personal workspace can be shared, and
+    // `listMemberships` returns oldest first — so `find(personal)` landed an invited
+    // account in the INVITER's workspace by default. `createdBy` is what fixes it.
+    const theirs: Membership = {
+      workspace: workspace({ id: "ws-theirs", personal: true, createdBy: "user-2" }),
+      role: "viewer",
+    };
+    const ours = mine({ id: "ws-ours" });
+    assert.equal(chooseMembership([theirs, ours], ME)?.workspace.id, "ws-ours");
+  });
+
+  it("falls back to the first workspace when the user owns no personal one", () => {
     const a: Membership = { workspace: workspace({ id: "ws-a" }), role: "editor" };
     const b: Membership = { workspace: workspace({ id: "ws-b" }), role: "viewer" };
-    assert.equal(activeMembership([a, b])?.workspace.id, "ws-a");
+    assert.equal(chooseMembership([a, b], ME)?.workspace.id, "ws-a");
+  });
+
+  it("honours the cookie's workspace over the personal one", () => {
+    const shared: Membership = { workspace: workspace({ id: "ws-shared" }), role: "editor" };
+    assert.equal(
+      chooseMembership([mine({ id: "ws-personal" }), shared], ME, "ws-shared")?.workspace.id,
+      "ws-shared",
+    );
+  });
+
+  it("IGNORES a preferred id the user is not a member of", () => {
+    // **The security property the whole cookie design rests on.** The cookie is not
+    // signed and carries no user id, which is only safe because a workspace the database
+    // did not return is discarded rather than honoured. If this test ever fails, an
+    // attacker with a forged cookie reads another tenant's rows.
+    assert.equal(
+      chooseMembership([mine({ id: "ws-personal" })], ME, "ws-somebody-elses")?.workspace.id,
+      "ws-personal",
+    );
+  });
+
+  it("falls back when the preferred workspace was left in another tab", () => {
+    // A stale cookie, which is the ordinary case rather than an attack: removed from a
+    // workspace elsewhere, the cookie still names it, and the next request must land
+    // somewhere real.
+    assert.equal(chooseMembership([mine({ id: "ws-personal" })], ME, "ws-gone")?.workspace.id, "ws-personal");
+  });
+
+  it("ignores an empty or absent preference", () => {
+    const a = mine({ id: "ws-a" });
+    assert.equal(chooseMembership([a], ME, "")?.workspace.id, "ws-a");
+    assert.equal(chooseMembership([a], ME, null)?.workspace.id, "ws-a");
+    assert.equal(chooseMembership([a], ME, undefined)?.workspace.id, "ws-a");
+  });
+});
+
+describe("assertRole", () => {
+  it("passes when the role carries the requirement", () => {
+    assert.doesNotThrow(() => assertRole("owner", "admin"));
+    assert.doesNotThrow(() => assertRole("editor", "editor"));
+    assert.doesNotThrow(() => assertRole("viewer", "viewer"));
+  });
+
+  it("throws a 403 ApiError when it does not", () => {
+    // 403 and not 404: the row is in the caller's own workspace and they can already see
+    // it, so hiding behind a 404 would make a real permission boundary look like a bug.
+    // D20's 404 is for another tenant's resource, which is a different question.
+    assert.throws(
+      () => assertRole("viewer", "editor"),
+      (error: unknown) =>
+        error instanceof ApiError && error.code === "forbidden" && /editor/.test(error.message),
+    );
+  });
+
+  it("refuses every role below every requirement, as a matrix", () => {
+    for (const held of WORKSPACE_ROLES) {
+      for (const required of WORKSPACE_ROLES) {
+        const allowed = atLeast(held, required);
+        if (allowed) assert.doesNotThrow(() => assertRole(held, required));
+        else assert.throws(() => assertRole(held, required), ApiError);
+      }
+    }
+  });
+});
+
+describe("invitable roles", () => {
+  it("never includes owner", () => {
+    // Ownership must not arrive by link: an invitation is a bearer token in somebody's
+    // inbox, and the blast radius of a leaked one has to stop short of being able to
+    // remove everybody else.
+    assert.equal((INVITABLE_ROLES as readonly string[]).includes("owner"), false);
+    assert.equal(isInvitableRole("owner"), false);
+  });
+
+  it("includes every other role", () => {
+    for (const role of WORKSPACE_ROLES) {
+      assert.equal(isInvitableRole(role), role !== "owner", role);
+    }
+  });
+});
+
+describe("removalRefusal", () => {
+  const base = {
+    actorRole: "owner" as const,
+    actorUserId: "user-a",
+    targetUserId: "user-b",
+    targetRole: "editor" as const,
+    ownerCount: 1,
+  };
+
+  it("lets an owner remove an editor", () => {
+    assert.equal(removalRefusal(base), null);
+  });
+
+  it("lets an admin remove an editor", () => {
+    assert.equal(removalRefusal({ ...base, actorRole: "admin" }), null);
+  });
+
+  it("refuses an editor removing anybody else", () => {
+    assert.equal(removalRefusal({ ...base, actorRole: "editor" }), "not_allowed");
+    assert.equal(removalRefusal({ ...base, actorRole: "viewer" }), "not_allowed");
+  });
+
+  it("tells a viewer aiming at the sole owner that they are not allowed, not that it is the last owner", () => {
+    // The bug the deployed suite found: the invariant was tested before the actor's
+    // authority, so a viewer got a 409 saying "this is the workspace's only owner" —
+    // which leaked how many owners it has and called a refusal a conflict.
+    assert.equal(
+      removalRefusal({ ...base, actorRole: "viewer", targetRole: "owner", ownerCount: 1 }),
+      "not_allowed",
+    );
+    assert.equal(
+      removalRefusal({ ...base, actorRole: "admin", targetRole: "owner", ownerCount: 1 }),
+      "owner_only",
+    );
+  });
+
+  it("lets anybody remove THEMSELVES — leaving is not a privilege", () => {
+    for (const actorRole of WORKSPACE_ROLES) {
+      if (actorRole === "owner") continue;
+      assert.equal(
+        removalRefusal({
+          ...base,
+          actorRole,
+          targetUserId: base.actorUserId,
+          targetRole: actorRole,
+        }),
+        null,
+        actorRole,
+      );
+    }
+  });
+
+  it("refuses removing the last owner, even by themselves", () => {
+    // The irreversible case. A workspace with no owner has nobody who can invite a
+    // replacement, and its workflows, credentials and history are still in it.
+    assert.equal(
+      removalRefusal({
+        ...base,
+        targetUserId: base.actorUserId,
+        targetRole: "owner",
+        ownerCount: 1,
+      }),
+      "last_owner",
+    );
+  });
+
+  it("lets an owner leave when there is another owner", () => {
+    assert.equal(
+      removalRefusal({
+        ...base,
+        targetUserId: base.actorUserId,
+        targetRole: "owner",
+        ownerCount: 2,
+      }),
+      null,
+    );
+  });
+
+  it("refuses an admin removing an owner", () => {
+    // Otherwise `admin` is `owner` with extra steps, and an invitation handing out admin
+    // hands out the ability to evict the person who sent it.
+    assert.equal(
+      removalRefusal({ ...base, actorRole: "admin", targetRole: "owner", ownerCount: 2 }),
+      "owner_only",
+    );
+  });
+
+  it("lets an owner remove another owner when one would remain", () => {
+    assert.equal(removalRefusal({ ...base, targetRole: "owner", ownerCount: 2 }), null);
   });
 });
 
 describe("describeWorkspace", () => {
   it("carries the name and role and nothing else", () => {
-    const described = describeWorkspace({
-      workspace: workspace({ id: "ws-1", name: "Team", personal: false }),
+    const described = describeWorkspace(
+      { workspace: workspace({ id: "ws-1", name: "Team", personal: false }), role: "admin" },
+      "user-1",
+    );
+    assert.deepEqual(described, {
+      id: "ws-1",
+      name: "Team",
+      personal: false,
+      own: false,
       role: "admin",
     });
-    assert.deepEqual(described, { id: "ws-1", name: "Team", personal: false, role: "admin" });
     // `createdBy` is a user id and has no business reaching a client that only needs a
     // label in a header.
     assert.equal("createdBy" in described, false);
+  });
+
+  it("marks the viewer's OWN personal workspace as own", () => {
+    const described = describeWorkspace(
+      { workspace: workspace({ personal: true, createdBy: "user-1" }), role: "owner" },
+      "user-1",
+    );
+    assert.equal(described.own, true);
+  });
+
+  it("does not mark somebody else's personal workspace as own", () => {
+    // Found by driving a browser: the switcher labelled the inviter's workspace
+    // `PERSONAL` to a guest, and the workflow list called it "your workspace".
+    const described = describeWorkspace(
+      { workspace: workspace({ personal: true, createdBy: "user-2" }), role: "viewer" },
+      "user-1",
+    );
+    assert.equal(described.personal, true);
+    assert.equal(described.own, false);
   });
 });
 

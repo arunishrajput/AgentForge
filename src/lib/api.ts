@@ -2,7 +2,9 @@ import { z } from "zod";
 
 import { auth } from "@/auth";
 import { ApiError, STATUS, type ApiErrorCode } from "@/lib/api-error";
-import { resolveScope } from "@/lib/workspace/store";
+import { readActiveWorkspaceId } from "@/lib/workspace/active";
+import { assertRole, type WorkspaceRole } from "@/lib/workspace/roles";
+import { listMemberships, resolveScope } from "@/lib/workspace/store";
 import type { WorkspaceScope } from "@/lib/workspace/scope";
 
 /**
@@ -30,8 +32,10 @@ export function fail(
 }
 
 /**
- * Every route except the three with no session requires one, and scopes its queries to
- * the caller's active **workspace**, server-side (ARCHITECTURE.md → "API surface").
+ * Every route except the three with no session requires one, scopes its queries to the
+ * caller's active **workspace**, and — since Phase 19B — refuses the request if their
+ * role in that workspace does not carry it. All three server-side
+ * (ARCHITECTURE.md → "API surface").
  *
  * **This replaced `requireOwnerId` in Phase 19A**, and the change is not cosmetic: what
  * a route is allowed to see stopped being "rows with your user id on them" and became
@@ -39,15 +43,65 @@ export function fail(
  * makes that sweep safe — every store function takes the object, so a call site left on
  * the old signature does not compile. See `lib/workspace/scope.ts`.
  *
+ * **Phase 19B added the argument, and it is the phase's load-bearing line.** 19A wrote
+ * `role` and enforced nothing, which was inert while every member was the owner of their
+ * own workspace; an invitation that can hand somebody `viewer` ends that. The default is
+ * `viewer` — the least privilege — so **a route that says nothing gets read access and
+ * not write access**, and a new mutating route that forgets the argument fails closed
+ * rather than open. The matrix is in `CONTRACT.md` → *What each role may do*.
+ *
  * It costs one query on top of the session read. That is affordable for the reason
  * `lib/workspace/store.ts` sets out: Neon's free tier meters time awake, not
  * statements, and this adds no new reason to wake an idle database.
  */
-export async function requireScope(): Promise<WorkspaceScope> {
+export async function requireScope(minimumRole: WorkspaceRole = "viewer"): Promise<WorkspaceScope> {
   const session = await auth();
   const user = session?.user;
   if (!user?.id) throw new ApiError("unauthenticated", "Sign in to use this endpoint.");
-  return resolveScope({ id: user.id, name: user.name, email: user.email });
+
+  const scope = await resolveScope(
+    { id: user.id, name: user.name, email: user.email },
+    await readActiveWorkspaceId(),
+  );
+  assertRole(scope.role, minimumRole);
+  return scope;
+}
+
+/**
+ * A scope for **a named workspace** rather than the active one — the workspace
+ * management routes, Phase 19B.
+ *
+ * Those routes carry the workspace in the path, so that they read as what they are and
+ * so that managing a workspace does not depend on which one a cookie happens to name.
+ * The id in the URL is therefore an input from the caller, and this is the one function
+ * that turns it into an authority: **a workspace the caller is not a member of answers
+ * 404**, exactly as another tenant's workflow does (D20), because 403 would confirm that
+ * the id exists. Insufficient role inside a workspace they *are* in answers 403 — see
+ * `assertRole`.
+ *
+ * It reads the same membership list `requireScope` does, so there is one query and one
+ * source of truth about who is in what.
+ */
+export async function requireScopeFor(
+  workspaceId: string,
+  minimumRole: WorkspaceRole = "viewer",
+): Promise<WorkspaceScope> {
+  const session = await auth();
+  const user = session?.user;
+  if (!user?.id) throw new ApiError("unauthenticated", "Sign in to use this endpoint.");
+
+  const membership = (await listMemberships(user.id)).find(
+    (m) => m.workspace.id === workspaceId,
+  );
+  if (!membership) throw new ApiError("not_found", "No such workspace.");
+
+  const scope: WorkspaceScope = {
+    workspaceId: membership.workspace.id,
+    userId: user.id,
+    role: membership.role,
+  };
+  assertRole(scope.role, minimumRole);
+  return scope;
 }
 
 /**

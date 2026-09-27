@@ -18,7 +18,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   return handle(async () => {
-    const scope = await requireScope();
+    const scope = await requireScope("editor");
     const body = await readJson(request, createWorkflowSchema);
     const workflow = await createWorkflow(scope, body);
     return ok(describeWorkflow(workflow), 201);

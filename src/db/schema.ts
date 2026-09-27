@@ -158,6 +158,74 @@ export const workspaceMembers = pgTable(
   ],
 );
 
+/**
+ * An invitation to join a workspace — Phase 19B.
+ *
+ * **This is a new unauthenticated surface, and it is treated like the webhook trigger
+ * token** (D41): the token is minted from a CSPRNG, it expires, it is single use, and a
+ * holder of the wrong one learns nothing. It differs from the webhook token in one
+ * respect, deliberately: **only a SHA-256 hash of it is stored.** A webhook token has to
+ * be displayable for ever, because the URL is the feature; an invitation token is shown
+ * once, in one link, so there is no reason for the database to be able to hand a live
+ * invitation to whoever reads it. Re-inviting the same address rotates the token rather
+ * than revealing the old one.
+ *
+ * `email` is the address the invitation was *addressed to*, normalised to lower case.
+ * **It is matched against the verified email from the identity provider at accept time,
+ * never against a claim in the URL** — the link proves possession, the provider proves
+ * identity, and both are required.
+ *
+ * The three `*At` columns are the state machine, and it is deliberately append-only:
+ * an invitation is live when all three are null and it has not expired. Nothing is
+ * deleted, so a revoked or accepted invitation stays as the record that it happened.
+ *
+ * `role` can never be `owner`. Ownership comes from creating a workspace or from Phase
+ * 20's role management, not from a link — `issueInvitation` refuses it, and so does the
+ * route's schema.
+ */
+export const workspaceInvitations = pgTable(
+  "workspace_invitation",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    workspaceId: text("workspaceId")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    /** Lower-cased at every boundary. `ada@x.com` and `Ada@X.com` are one invitation. */
+    email: text("email").notNull(),
+    role: text("role").$type<WorkspaceRole>().notNull().default("editor"),
+    /**
+     * `sha256(token)`, hex. Unique, so the lookup is an indexed equality on a value the
+     * database never has the plaintext of. A leaked backup yields no usable links.
+     */
+    tokenHash: text("tokenHash").notNull().unique(),
+    invitedBy: text("invitedBy").references(() => users.id, { onDelete: "set null" }),
+    expiresAt: timestamp("expiresAt", { withTimezone: true }).notNull(),
+    acceptedAt: timestamp("acceptedAt", { withTimezone: true }),
+    /** Who accepted. Not necessarily findable from `email` later — an account can change it. */
+    acceptedBy: text("acceptedBy").references(() => users.id, { onDelete: "set null" }),
+    revokedAt: timestamp("revokedAt", { withTimezone: true }),
+    createdAt: timestamp("createdAt", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    /**
+     * **One live invitation per address per workspace, enforced by the database.**
+     *
+     * Partial, because the same address may be invited again after leaving, and every
+     * accepted or revoked row stays as history. `neon-http` has no transactions (D6), so
+     * this index is what makes re-inviting an atomic upsert that rotates the token
+     * instead of a read-then-write race that can leave two live links — the same
+     * argument `workspace_personal_idx` is built on.
+     */
+    uniqueIndex("workspace_invitation_live_idx")
+      .on(table.workspaceId, table.email)
+      .where(sql`${table.acceptedAt} is null and ${table.revokedAt} is null`),
+    // The invitations list: one workspace's, newest first.
+    index("workspace_invitation_workspace_idx").on(table.workspaceId, table.createdAt),
+  ],
+);
+
 /* ------------------------------------------------------------------ *
  * Phase 3 — workflows, runs, steps, credentials
  * ------------------------------------------------------------------ */
@@ -490,6 +558,7 @@ export const credentials = pgTable(
 
 export type Workspace = typeof workspaces.$inferSelect;
 export type WorkspaceMember = typeof workspaceMembers.$inferSelect;
+export type WorkspaceInvitation = typeof workspaceInvitations.$inferSelect;
 export type Workflow = typeof workflows.$inferSelect;
 export type WorkflowVersion = typeof workflowVersions.$inferSelect;
 export type Run = typeof runs.$inferSelect;

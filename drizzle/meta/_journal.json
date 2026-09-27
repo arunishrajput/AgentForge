@@ -50,6 +50,13 @@
       "when": 1790478230252,
       "tag": "0006_reflective_electro",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1790483833470,
+      "tag": "0007_slow_blue_shield",
+      "breakpoints": true
     }
   ]
 }

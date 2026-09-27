@@ -35,7 +35,7 @@ type Context = { params: Promise<{ id: string }> };
  */
 export async function POST(_request: Request, { params }: Context) {
   return handle(async () => {
-    const scope = await requireScope();
+    const scope = await requireScope("editor");
     const { id } = await params;
 
     const asked = await requestCancel({ runId: id, scope });

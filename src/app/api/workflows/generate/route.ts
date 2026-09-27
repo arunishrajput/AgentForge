@@ -21,7 +21,7 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(request: Request) {
   return handle(async () => {
-    const scope = await requireScope();
+    const scope = await requireScope("editor");
     const body = await readJson(request, generateRequestSchema);
 
     const provider = await resolveProviderOr422(scope);

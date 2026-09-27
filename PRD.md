@@ -112,7 +112,7 @@ mapped to the phase that delivers it. `BUILD_PLAN.md` is the contract; this is t
 | C4 | Retry and timeout configuration in the UI | 17 — **DONE** | S6, never built |
 | C5 | Workflow versioning, restore, visual diff | 18 — **DONE** | Post-Hackathon |
 | C6a | Workspaces: the data model and scoping | 19A — **DONE** | Post-Hackathon |
-| C6b | Membership: invitations and the switcher | 19B | Post-Hackathon |
+| C6b | Membership: invitations and the switcher | 19B — **DONE** | Post-Hackathon |
 | C7 | Roles, permissions, sharing | 20 | Post-Hackathon |
 | C8 | Credential vault, rotation, audit log | 21 | Post-Hackathon. Rotation was the sharpest known gap |
 | C9 | Observability, metrics, run analytics | 22 | Post-Hackathon |
@@ -155,6 +155,18 @@ answers 404 rather than 403 so the reply does not confirm it exists. A new accou
 personal workspace automatically. **Credentials belong to the workspace**, which is what makes a
 shared workflow runnable — and means connecting Google lets every member act as you within the
 scopes you granted, said plainly where the connection is made.
+
+**Membership.** A person can be in more than one workspace and a workspace can hold more than one
+person. Anybody may create a workspace and is its owner. An admin invites by email and gets **one
+link to deliver themselves** — there is no mail provider on a zero-cost budget, and the product says
+so rather than implying a message was sent. A link is single use, expires in seven days, works only
+for the address it names, and can be revoked. The header carries a switcher; a member may leave, and
+the last owner may not.
+
+**Roles mean something.** `viewer` reads, `editor` builds and runs, `admin` also invites and connects
+credentials, `owner` also removes owners. **Enforced server-side on every route**, not by hiding
+buttons — a viewer who crafts the request is refused with a 403 that names the role required.
+Per-workflow sharing, promoting an existing member and hiding refused controls in the UI are Phase 20.
 
 **Workflows.** Create, rename, delete. A workflow is a set of nodes and directed edges with
 per-node configuration. Save and load must round-trip losslessly — a saved workflow reloads

@@ -17,7 +17,7 @@ export async function GET() {
 
 export async function DELETE() {
   return handle(async () => {
-    const scope = await requireScope();
+    const scope = await requireScope("admin");
     return ok(await disconnectGoogle(scope));
   });
 }

@@ -37,11 +37,19 @@ export function Menu({
   label,
   items,
   className,
+  panelClassName,
   align = "start",
 }: {
   label: ReactNode;
   items: MenuItem[];
   className?: string;
+  /**
+   * Classes for the open panel, which sizes itself to its content and can therefore run
+   * off a narrow screen. The workspace switcher sits a third of the way across a 375 px
+   * header, so its panel needs a cap the account menu — anchored to the right edge —
+   * does not. Measured in a browser rather than guessed: it overflowed by 63 px.
+   */
+  panelClassName?: string;
   align?: "start" | "end";
 }) {
   const id = useId();
@@ -109,6 +117,7 @@ export function Menu({
           className={cn(
             "card-raised animate-pop absolute top-[calc(100%+0.5rem)] z-40 min-w-48 p-1.5",
             align === "end" ? "right-0" : "left-0",
+            panelClassName,
           )}
         >
           {items.map((item, index) => (

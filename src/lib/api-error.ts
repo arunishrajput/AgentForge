@@ -14,6 +14,16 @@
 
 export type ApiErrorCode =
   | "unauthenticated"
+  /**
+   * **Signed in, a member of this workspace, and not allowed to do this** — Phase 19B.
+   *
+   * It is a genuinely different answer from `not_found`, and the difference is the
+   * contract. D20 answers 404 for a resource in another workspace, because 403 there
+   * would confirm the id exists. This code is for the other case: the resource is in
+   * your own workspace and you can already see it, so the honest answer is that your
+   * role does not carry the action.
+   */
+  | "forbidden"
   | "not_found"
   | "invalid_request"
   | "invalid_graph"
@@ -22,6 +32,7 @@ export type ApiErrorCode =
 
 export const STATUS: Record<ApiErrorCode, number> = {
   unauthenticated: 401,
+  forbidden: 403,
   not_found: 404,
   invalid_request: 400,
   invalid_graph: 422,

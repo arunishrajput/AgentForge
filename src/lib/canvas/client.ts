@@ -7,6 +7,8 @@ import type { GraphProblem } from "@/lib/engine/validate";
 import type { DiscordStatus, GoogleStatus } from "@/lib/integrations/store";
 import type { NodeSummary } from "@/lib/nodes";
 import type { GraphDiff } from "@/lib/workflow/diff";
+import type { InvitableRole, InvitationSummary } from "@/lib/workspace/invitations";
+import type { describeMember, describeWorkspace } from "@/lib/workspace/store";
 import type { WorkflowGraph } from "@/lib/workflow/graph";
 import type { describeWorkflow } from "@/lib/workflow/store";
 import type { describeVersion } from "@/lib/workflow/versions";
@@ -35,6 +37,17 @@ export interface VersionComparison {
   from: WorkflowVersion & { graph: WorkflowGraph };
   to: WorkflowVersion & { graph: WorkflowGraph };
   diff: GraphDiff;
+}
+
+/** CONTRACT.md → "Workspaces and membership". Phase 19B. */
+export type WorkspaceSummary = ReturnType<typeof describeWorkspace>;
+export type WorkspaceMemberSummary = ReturnType<typeof describeMember>;
+export type { InvitationSummary, InvitableRole };
+
+/** The one response that carries a live invitation link. It is never fetched twice. */
+export interface IssuedInvitation {
+  invitation: InvitationSummary;
+  url: string;
 }
 
 export type { GraphDiff, NodeChange, NodeDiff, DiffSummary } from "@/lib/workflow/diff";
@@ -251,4 +264,57 @@ export const api = {
 
   disconnectGoogleIntegration: () =>
     request<GoogleStatus>("/api/integrations/google", { method: "DELETE" }),
+
+  /* ---------------------- workspaces (Phase 19B) ---------------------- */
+
+  listWorkspaces: () => request<WorkspaceSummary[]>("/api/workspaces"),
+
+  /** Creates it and switches to it — the response sets the active-workspace cookie. */
+  createWorkspace: (body: { name: string }) =>
+    request<WorkspaceSummary>("/api/workspaces", { method: "POST", body: JSON.stringify(body) }),
+
+  renameWorkspace: (id: string, body: { name: string }) =>
+    request<WorkspaceSummary>(`/api/workspaces/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+
+  /**
+   * Switch. The cookie is set on the response, so the caller must `router.refresh()`
+   * afterwards — every page is a server component and the workspace is resolved there.
+   */
+  switchWorkspace: (workspaceId: string) =>
+    request<WorkspaceSummary>("/api/workspaces/active", {
+      method: "POST",
+      body: JSON.stringify({ workspaceId }),
+    }),
+
+  listMembers: (id: string) => request<WorkspaceMemberSummary[]>(`/api/workspaces/${id}/members`),
+
+  /** Removes a member, or — aimed at your own id — leaves the workspace. */
+  removeMember: (id: string, userId: string) =>
+    request<{ removed: string }>(`/api/workspaces/${id}/members/${userId}`, { method: "DELETE" }),
+
+  listInvitations: (id: string) =>
+    request<InvitationSummary[]>(`/api/workspaces/${id}/invitations`),
+
+  /**
+   * Invite, or re-invite. **The `url` in the response is the only time the link exists** —
+   * only a hash of the token is stored, so it cannot be fetched again. Re-inviting the
+   * same address rotates the token and answers with the new link.
+   */
+  inviteToWorkspace: (id: string, body: { email: string; role: InvitableRole }) =>
+    request<IssuedInvitation>(`/api/workspaces/${id}/invitations`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  revokeInvitation: (id: string, invitationId: string) =>
+    request<InvitationSummary>(`/api/workspaces/${id}/invitations/${invitationId}`, {
+      method: "DELETE",
+    }),
+
+  /** Accept one. Switches to the workspace on success, by the same cookie mechanism. */
+  acceptInvitation: (token: string) =>
+    request<WorkspaceSummary>(`/api/invitations/${token}/accept`, { method: "POST" }),
 };

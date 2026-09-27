@@ -47,7 +47,7 @@ export async function GET(_request: Request, { params }: Context) {
  */
 export async function PATCH(request: Request, { params }: Context) {
   return handle(async () => {
-    const scope = await requireScope();
+    const scope = await requireScope("editor");
     const { id, number } = await params;
     const workflow = await getWorkflow(scope, id);
     const body = await readJson(request, versionLabelSchema);

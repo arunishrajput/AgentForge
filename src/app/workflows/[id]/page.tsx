@@ -3,11 +3,13 @@ import { notFound, redirect } from "next/navigation";
 
 import { auth } from "@/auth";
 import { Editor } from "@/components/canvas/editor";
+import { WrongWorkspace } from "@/components/workflows/wrong-workspace";
 import { ApiError } from "@/lib/api";
 import { describeRun, liveRun } from "@/lib/engine/run";
 import { describeNodes } from "@/lib/nodes";
 import { describeWorkflow, getWorkflow } from "@/lib/workflow/store";
-import { resolveScope } from "@/lib/workspace/store";
+import { readActiveWorkspaceId } from "@/lib/workspace/active";
+import { findMembershipForWorkflow, resolveScope } from "@/lib/workspace/store";
 
 export const dynamic = "force-dynamic";
 
@@ -34,7 +36,10 @@ export async function generateMetadata({
 
   try {
     const { id } = await params;
-    const scope = await resolveScope({ id: session.user.id, email: session.user.email });
+    const scope = await resolveScope(
+      { id: session.user.id, email: session.user.email },
+      await readActiveWorkspaceId(),
+    );
     const workflow = await getWorkflow(scope, id);
     return { title: workflow.name };
   } catch {
@@ -73,23 +78,51 @@ export default async function WorkflowPage({
   // guarded and is not — React renders it after this function has returned, so a
   // render error would sail straight past the catch and only an error boundary would
   // see it. Keeping the return outside makes the guard mean what it says.
-  let workflow: Awaited<ReturnType<typeof getWorkflow>>;
-  let inFlight: Awaited<ReturnType<typeof liveRun>>;
+  //
+  // One variable rather than three since Phase 19B, because the load now has two
+  // legitimate outcomes and a discriminated result is the only shape in which the
+  // compiler agrees that each branch has what it needs.
+  type Loaded =
+    | { kind: "ok"; workflow: Awaited<ReturnType<typeof getWorkflow>>; inFlight: Awaited<ReturnType<typeof liveRun>> }
+    | { kind: "elsewhere"; workspace: { id: string; name: string } };
+
+  let loaded: Loaded;
   try {
-    const scope = await resolveScope({ id: session.user.id, email: session.user.email });
-    workflow = await getWorkflow(scope, id);
-    inFlight = await liveRun(scope, workflow.id);
+    // The active workspace comes from the switcher's cookie (Phase 19B). A workflow in a
+    // workspace the cookie does not name is a 404 here, exactly as it is at the API —
+    // which is also what makes a stale cookie a harmless "not found" rather than a leak.
+    const scope = await resolveScope(
+      { id: session.user.id, email: session.user.email },
+      await readActiveWorkspaceId(),
+    );
+    const workflow = await getWorkflow(scope, id);
+    loaded = { kind: "ok", workflow, inFlight: await liveRun(scope, workflow.id) };
   } catch (error) {
-    // A workflow in another workspace is indistinguishable from one that does not exist.
-    if (error instanceof ApiError && error.code === "not_found") notFound();
-    throw error;
+    if (!(error instanceof ApiError) || error.code !== "not_found") throw error;
+
+    // **Before answering 404, ask whether it is in another of *their* workspaces** — Phase
+    // 19B. A shared workspace means links get pasted around, and the recipient is often
+    // looking at a different workspace than the sender was. `findMembershipForWorkflow`
+    // only ever names a workspace this user is already a member of, so a stranger's
+    // workflow still answers 404 and is still indistinguishable from one that never
+    // existed.
+    const elsewhere = await findMembershipForWorkflow(session.user.id, id);
+    if (!elsewhere) notFound();
+    loaded = {
+      kind: "elsewhere",
+      workspace: { id: elsewhere.workspace.id, name: elsewhere.workspace.name },
+    };
+  }
+
+  if (loaded.kind === "elsewhere") {
+    return <WrongWorkspace workflowId={id} workspace={loaded.workspace} />;
   }
 
   return (
     <Editor
-      workflow={describeWorkflow(workflow)}
+      workflow={describeWorkflow(loaded.workflow)}
       registry={describeNodes()}
-      liveRun={inFlight ? describeRun(inFlight.run, inFlight.steps) : null}
+      liveRun={loaded.inFlight ? describeRun(loaded.inFlight.run, loaded.inFlight.steps) : null}
     />
   );
 }

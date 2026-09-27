@@ -17,7 +17,7 @@ type Context = { params: Promise<{ id: string; number: string }> };
  */
 export async function POST(_request: Request, { params }: Context) {
   return handle(async () => {
-    const scope = await requireScope();
+    const scope = await requireScope("editor");
     const { id, number } = await params;
 
     const parsed = Number(number);

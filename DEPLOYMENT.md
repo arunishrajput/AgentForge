@@ -16,10 +16,10 @@ Every step is labelled **`AUTOMATED BY CLAUDE CODE`** or **`MANUAL HUMAN ACTION`
 | Field | Value |
 |---|---|
 | Service | `agentforge`, Cloud Run, `asia-southeast1` |
-| Revision | **`agentforge-00037-k7x`** — 100% of traffic (Phase 19A). Last known-good before it: `agentforge-00036-zm8`, then `agentforge-00035-vfd` (Phase 18) |
+| Revision | **`agentforge-00041-75x`** — 100% of traffic (Phase 19B). Last known-good before it: `agentforge-00040-7c4`, `agentforge-00039-qlr`, `agentforge-00038-cfp` (all Phase 19B), then `agentforge-00037-k7x` (Phase 19A) |
 | Scaling | `min-instances 1`, `max-instances 3`, 1 vCPU / 1 GiB, 3600 s timeout |
-| Database | Neon `super-mountain-39872886`, `aws-ap-southeast-1` — **11 tables**, migrations `0000`–`0006` applied |
-| Last verified | **2026-09-27, after Phase 19A** — 212 API checks passed / 13 failed (all the Gemini daily free-tier 429) / 4 skipped, `verify-durable.mjs` 7/7 including a Cloud Tasks scheduled run completing, `verify-schema.mjs` 6/6, and a real browser at 1440 px and 375 px with 0 console errors |
+| Database | Neon `super-mountain-39872886`, `aws-ap-southeast-1` — **12 tables**, migrations `0000`–`0007` applied. 9.5 MB of 0.5 GB |
+| Last verified | **2026-09-27, after Phase 19B** — 299 API checks passed / 11 failed (all the Gemini daily free-tier quota) / 4 skipped, of which **83 are Phase 19B's own**: two real accounts, one shared workspace, the whole invitation lifecycle and a viewer refused on seventeen mutating routes. `verify-durable.mjs` all-pass including a Cloud Tasks scheduled run completing, `verify-schema.mjs` 6/6, and a real browser at 1440 px and 375 px with 0 console errors |
 
 The service also answers on a legacy hashed URL. Do not use it — see *Deploy*.
 
@@ -637,7 +637,9 @@ five migrations were physically applied, so the next `db:migrate` would have tri
 ### An additive migration, and one that is not
 
 An **additive** migration — new table, new nullable column, new column with a default — can be
-applied while the previous revision is still serving, which is what Phases 17 and 18 did.
+applied while the previous revision is still serving, which is what Phases 17, 18 and 19B did.
+`0007` adds one table and alters nothing, so it went in before the deploy and the old revision, which
+knows nothing about `workspace_invitation`, kept serving throughout.
 
 A migration that **tightens** a constraint cannot. A `NOT NULL` column with no default makes every
 insert from the previous revision fail for the length of the deploy. Phase 19A is the worked
@@ -653,8 +655,17 @@ example, and the pattern to copy:
 | 6 | `scripts/verify-schema.mjs`, then the API and durable suites | |
 
 **Write the rollback by hand and keep it.** Drizzle has no down migrations. Phase 19A's is
-`drizzle/rollback_0005_0006.sql`; it is applied with a SQL client and it also removes the two ledger
-rows, so a later `db:migrate` re-applies rather than believing the work is already done.
+`drizzle/rollback_0005_0006.sql` and Phase 19B's is `drizzle/rollback_0007.sql`; each is applied with
+a SQL client and each also removes its ledger row, so a later `db:migrate` re-applies rather than
+believing the work is already done.
+
+**Rehearse anything the SQL cannot obviously be read as safe.** `0007` is one `CREATE TABLE`, which
+looks trivial and carries one real risk: its **partial** unique index is the conflict target of the
+upsert that issues an invitation, and Postgres will not *plan* `ON CONFLICT` without an index it can
+match — the same 42P10 failure that made every credential write a 500 before Phase 19A found it. So
+it was rehearsed on a throwaway schema first, and the ten checks included issuing, re-issuing,
+revoking and re-inviting through the real DDL. The permanent version of that proof is in
+`verify-api.mjs`, which exercises the same upsert against the deployed system every phase.
 
 > **There is one Neon database.** Local development and production share `super-mountain-39872886`
 > / `production` / `neondb`. A migration applied from a developer machine is **immediately live**.

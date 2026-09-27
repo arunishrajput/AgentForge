@@ -12,6 +12,7 @@
  * Every check prints PASS or FAIL and the script exits non-zero if any failed, so
  * "it deployed" and "it works" stay different claims (CLAUDE.md → deployment).
  */
+import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 
 import { neon } from "@neondatabase/serverless";
@@ -95,12 +96,26 @@ async function openStream(path, cookie) {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function api(method, path, body, cookie) {
+/**
+ * `workspaceId` sends an `af_workspace` cookie alongside the session — Phase 19B.
+ *
+ * **Set directly rather than by calling the switch endpoint first, on purpose.** This
+ * script has no cookie jar, so a `Set-Cookie` from `/api/workspaces/active` would be
+ * dropped and every later request would silently fall back to the personal workspace.
+ * Setting it by hand is also the stronger test: the cookie is unsigned, so the only thing
+ * keeping it honest is that the server re-validates it against membership on every
+ * request — which is exactly what these calls exercise.
+ */
+async function api(method, path, body, cookie, workspaceId) {
+  const cookies = [
+    ...(cookie ? [`${cookieName}=${cookie}`] : []),
+    ...(workspaceId ? [`af_workspace=${workspaceId}`] : []),
+  ];
   const response = await fetch(`${base}${path}`, {
     method,
     headers: {
       "content-type": "application/json",
-      ...(cookie ? { cookie: `${cookieName}=${cookie}` } : {}),
+      ...(cookies.length > 0 ? { cookie: cookies.join("; ") } : {}),
     },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
@@ -111,7 +126,7 @@ async function api(method, path, body, cookie) {
   } catch {
     json = { raw: text.slice(0, 400) };
   }
-  return { status: response.status, json };
+  return { status: response.status, json, setCookie: response.headers.getSetCookie?.() ?? [] };
 }
 
 const graph = {
@@ -2540,6 +2555,532 @@ try {
     await sql.query('delete from "session" where "sessionToken" = $1', [probeToken]).catch(() => {});
   }
 
+  // --- membership: invitations, roles and the switcher (Phase 19B) -----------
+  //
+  // **The checks this phase exists for**, and they need two real accounts rather than two
+  // cookies: the role is resolved from a membership row on the server, so anything less
+  // than a second `user` with a second session would be testing the test.
+  //
+  // The probe's id sorts last for the same reason the isolation probe's does — this
+  // script picks its main user with `order by id limit 1`, and a probe left behind by an
+  // interrupted run must never become the account a later run drives.
+  const MEMBER_USER_ID = "zzzz-membership-probe";
+  const MEMBER_EMAIL = "membership-probe@agentforge.invalid";
+  const memberToken = crypto.randomUUID() + crypto.randomUUID();
+  let memberWorkspaceId = null;
+  let createdWorkspaceId = null;
+
+  try {
+    await cleanUpProbe(MEMBER_USER_ID);
+    await sql.query('delete from "workspace_invitation" where "email" like $1', ["%@agentforge.invalid"]);
+
+    const [homeWorkspace] = await sql.query(
+      `select w."id", w."name" from "workspace" w
+       join "workspace_member" m on m."workspaceId" = w."id"
+       where m."userId" = $1 and m."role" = 'owner' and w."personal" limit 1`,
+      [user.id],
+    );
+    check("the main account owns a personal workspace to invite into", Boolean(homeWorkspace));
+
+    await sql.query('insert into "user" ("id", "name", "email") values ($1, $2, $3)', [
+      MEMBER_USER_ID,
+      "Membership Probe",
+      MEMBER_EMAIL,
+    ]);
+    const [memberHome] = await sql.query(
+      'insert into "workspace" ("id", "name", "createdBy", "personal") values (gen_random_uuid()::text, $1, $2, true) returning "id"',
+      ["Membership probe workspace", MEMBER_USER_ID],
+    );
+    memberWorkspaceId = memberHome.id;
+    await sql.query(
+      'insert into "workspace_member" ("workspaceId", "userId", "role") values ($1, $2, $3)',
+      [memberWorkspaceId, MEMBER_USER_ID, "owner"],
+    );
+    await sql.query(
+      'insert into "session" ("sessionToken", "userId", "expires") values ($1, $2, $3)',
+      [memberToken, MEMBER_USER_ID, new Date(Date.now() + 60 * 60 * 1000)],
+    );
+
+    // --- the switcher's list ------------------------------------------------
+    const myWorkspaces = await api("GET", "/api/workspaces", undefined, token);
+    check(
+      "the switcher lists this account's workspaces",
+      myWorkspaces.status === 200 &&
+        (myWorkspaces.json?.data ?? []).some((w) => w.id === homeWorkspace.id),
+      JSON.stringify(myWorkspaces.json).slice(0, 200),
+    );
+    check(
+      "the switcher's list carries no user ids",
+      !JSON.stringify(myWorkspaces.json).includes("createdBy"),
+      "createdBy reached the client",
+    );
+
+    const foreignSwitch = await api(
+      "POST",
+      "/api/workspaces/active",
+      { workspaceId: memberWorkspaceId },
+      token,
+    );
+    check(
+      "switching to a workspace you are not in answers 404, not 403",
+      foreignSwitch.status === 404,
+      `got ${foreignSwitch.status}`,
+    );
+
+    // --- issuing an invitation ----------------------------------------------
+    const invited = await api(
+      "POST",
+      `/api/workspaces/${homeWorkspace.id}/invitations`,
+      { email: `  ${MEMBER_EMAIL.toUpperCase()}  `, role: "viewer" },
+      token,
+    );
+    check("an owner can invite an address", invited.status === 201, JSON.stringify(invited.json).slice(0, 200));
+    const inviteUrl = invited.json?.data?.url ?? "";
+    const inviteToken = inviteUrl.split("/invite/")[1] ?? "";
+    check("the response carries one link, once", inviteToken.length >= 32, inviteUrl);
+    check(
+      "the invited address is normalised before it is stored",
+      invited.json?.data?.invitation?.email === MEMBER_EMAIL,
+      invited.json?.data?.invitation?.email,
+    );
+
+    // **The property hashing exists for.** If the token itself is anywhere in the row,
+    // a database leak hands over live invitations.
+    const [stored] = await sql.query(
+      'select "id", "tokenHash", "role", "expiresAt" from "workspace_invitation" where "email" = $1',
+      [MEMBER_EMAIL],
+    );
+    check(
+      "only a sha256 hash of the token is stored",
+      stored?.tokenHash === createHash("sha256").update(inviteToken).digest("hex"),
+      `stored ${stored?.tokenHash?.slice(0, 16)}…`,
+    );
+    check(
+      "the token itself appears in no column of the row",
+      !JSON.stringify(stored).includes(inviteToken),
+      "the plaintext token is in the database",
+    );
+    check(
+      "the invitation expires in about seven days",
+      Math.abs(new Date(stored.expiresAt).getTime() - (Date.now() + 7 * 864e5)) < 5 * 60_000,
+      String(stored?.expiresAt),
+    );
+
+    const listed = await api("GET", `/api/workspaces/${homeWorkspace.id}/invitations`, undefined, token);
+    check(
+      "the invitation is listed as live, with no token",
+      listed.status === 200 &&
+        listed.json.data.some((i) => i.email === MEMBER_EMAIL && i.state === "live") &&
+        !JSON.stringify(listed.json).includes("tokenHash"),
+      JSON.stringify(listed.json).slice(0, 200),
+    );
+
+    // --- the unauthenticated preview ----------------------------------------
+    const preview = await api("GET", `/api/invitations/${inviteToken}`);
+    check(
+      "a link holder with no session learns the workspace and the role",
+      preview.status === 200 &&
+        preview.json?.data?.workspace === homeWorkspace.name &&
+        preview.json?.data?.role === "viewer",
+      JSON.stringify(preview.json).slice(0, 200),
+    );
+    check(
+      "the preview leaks nothing else — no address, no id, no members",
+      !/email|@|"id"|member/i.test(JSON.stringify(preview.json)),
+      JSON.stringify(preview.json),
+    );
+
+    // Every wrong token answers identically, so the endpoint cannot sort real tokens from
+    // invented ones.
+    const wrongShape = await api("GET", "/api/invitations/short");
+    const wrongToken = await api("GET", `/api/invitations/${"A".repeat(43)}`);
+    check("a malformed token answers 404", wrongShape.status === 404);
+    check("a well-formed but unknown token answers 404", wrongToken.status === 404);
+    check(
+      "both wrong tokens answer with the same message as each other",
+      wrongShape.json?.error?.message === wrongToken.json?.error?.message,
+      `${wrongShape.json?.error?.message} vs ${wrongToken.json?.error?.message}`,
+    );
+
+    const previewPage = await page(`/invite/${inviteToken}`);
+    check(
+      "the invite page renders for a signed-out holder and names the workspace",
+      previewPage.status === 200 && previewPage.html.includes(homeWorkspace.name),
+      `got ${previewPage.status}`,
+    );
+    const deadPage = await page(`/invite/${"B".repeat(43)}`);
+    check(
+      "the invite page refuses an unknown link",
+      deadPage.status === 200 && deadPage.html.includes("not valid"),
+      `got ${deadPage.status}`,
+    );
+    check(
+      "and tells a signed-out holder nothing about any workspace",
+      !deadPage.html.includes(homeWorkspace.name),
+      "a workspace name appeared on the page for an invalid token",
+    );
+
+    // --- accepting -----------------------------------------------------------
+    //
+    // The wrong account first. The main user holds the link but is not who it was sent
+    // to, which is the whole reason possession of a token is not enough.
+    //
+    // The count is read before and after rather than asserted to be 1: a workspace that
+    // already has other members is a legitimate state, and a check that only passes on a
+    // pristine database is a check that will be disabled the first time it is wrong.
+    const [{ n: membersBeforeRefusal }] = await sql.query(
+      'select count(*)::int as n from "workspace_member" where "workspaceId" = $1',
+      [homeWorkspace.id],
+    );
+    const wrongAccount = await api("POST", `/api/invitations/${inviteToken}/accept`, {}, token);
+    check(
+      "the wrong signed-in account cannot accept, even holding the link",
+      wrongAccount.status === 403 && wrongAccount.json?.error?.code === "forbidden",
+      `got ${wrongAccount.status} ${JSON.stringify(wrongAccount.json).slice(0, 160)}`,
+    );
+    const [{ n: membersAfterRefusal }] = await sql.query(
+      'select count(*)::int as n from "workspace_member" where "workspaceId" = $1',
+      [homeWorkspace.id],
+    );
+    check(
+      "the refused accept created no membership",
+      membersAfterRefusal === membersBeforeRefusal,
+      `${membersBeforeRefusal} → ${membersAfterRefusal} members`,
+    );
+
+    const anonymousAccept = await api("POST", `/api/invitations/${inviteToken}/accept`, {});
+    check("accepting with no session is rejected", anonymousAccept.status === 401);
+
+    const accepted = await api("POST", `/api/invitations/${inviteToken}/accept`, {}, memberToken);
+    check(
+      "the invited account accepts and lands in the workspace",
+      accepted.status === 200 && accepted.json?.data?.id === homeWorkspace.id,
+      JSON.stringify(accepted.json).slice(0, 200),
+    );
+    check(
+      "accepting sets the active-workspace cookie",
+      accepted.setCookie.some((c) => c.startsWith("af_workspace=") && c.includes("HttpOnly")),
+      accepted.setCookie.join(" | "),
+    );
+    const [membership] = await sql.query(
+      'select "role" from "workspace_member" where "workspaceId" = $1 and "userId" = $2',
+      [homeWorkspace.id, MEMBER_USER_ID],
+    );
+    check(
+      "the membership was written with the role the invitation carried",
+      membership?.role === "viewer",
+      `role is ${membership?.role}`,
+    );
+
+    const secondUse = await api("POST", `/api/invitations/${inviteToken}/accept`, {}, memberToken);
+    check(
+      "the link is single use — a second accept is refused",
+      secondUse.status === 409,
+      `got ${secondUse.status} ${JSON.stringify(secondUse.json).slice(0, 160)}`,
+    );
+
+    // --- what a viewer can and cannot do ------------------------------------
+    //
+    // Every one of these is the same account, in the same workspace, with the same
+    // session. The only thing deciding the answer is the role — which is what Phase 19A
+    // wrote and did not enforce.
+    const sharedList = await api("GET", "/api/workflows", undefined, memberToken, homeWorkspace.id);
+    check(
+      "a viewer SEES the workspace's workflows — sharing actually works",
+      sharedList.status === 200 && sharedList.json.data.some((w) => w.id === workflowId),
+      JSON.stringify(sharedList.json).slice(0, 200),
+    );
+
+    const [{ name: nameBefore }] = await sql.query('select "name" from "workflow" where "id" = $1', [workflowId]);
+    const runsBefore = await sql.query('select count(*)::int as n from "run" where "workflowId" = $1', [workflowId]);
+
+    const refusals = [
+      ["create a workflow", "POST", "/api/workflows", { name: "viewer made this" }],
+      ["edit a workflow", "PATCH", `/api/workflows/${workflowId}`, { name: "viewer renamed this" }],
+      ["delete a workflow", "DELETE", `/api/workflows/${workflowId}`, undefined],
+      ["run a workflow", "POST", `/api/workflows/${workflowId}/runs`, { input: null, mode: "sync" }],
+      ["generate a workflow", "POST", "/api/workflows/generate", { prompt: "do something" }],
+      ["label a version", "PATCH", `/api/workflows/${workflowId}/versions/1`, { label: "viewer" }],
+      ["restore a version", "POST", `/api/workflows/${workflowId}/versions/1/restore`, {}],
+      ["store a provider key", "PUT", "/api/settings/provider", { apiKey: "AIzaNotARealKey" }],
+      ["delete the provider key", "DELETE", "/api/settings/provider", undefined],
+      ["list provider models", "GET", "/api/settings/provider/models", undefined],
+      ["store a Discord webhook", "PUT", "/api/integrations/discord", { webhookUrl: "https://discord.com/api/webhooks/1/x" }],
+      ["disconnect Discord", "DELETE", "/api/integrations/discord", undefined],
+      ["disconnect Google", "DELETE", "/api/integrations/google", undefined],
+      ["rename the workspace", "PATCH", `/api/workspaces/${homeWorkspace.id}`, { name: "viewer renamed it" }],
+      ["invite somebody", "POST", `/api/workspaces/${homeWorkspace.id}/invitations`, { email: "eve@agentforge.invalid" }],
+      ["list the invitations", "GET", `/api/workspaces/${homeWorkspace.id}/invitations`, undefined],
+      ["remove another member", "DELETE", `/api/workspaces/${homeWorkspace.id}/members/${user.id}`, undefined],
+    ];
+
+    for (const [what, method, path, body] of refusals) {
+      const response = await api(method, path, body, memberToken, homeWorkspace.id);
+      check(
+        `a viewer cannot ${what}`,
+        response.status === 403 && response.json?.error?.code === "forbidden",
+        `got ${response.status} ${JSON.stringify(response.json).slice(0, 140)}`,
+      );
+    }
+
+    // Every refusal above must have refused *before* writing. A route that wrote and then
+    // checked would pass all seventeen.
+    const [{ name: nameAfter }] = await sql.query('select "name" from "workflow" where "id" = $1', [workflowId]);
+    const runsAfter = await sql.query('select count(*)::int as n from "run" where "workflowId" = $1', [workflowId]);
+    check("nothing a viewer was refused changed the workflow", nameAfter === nameBefore, `${nameBefore} → ${nameAfter}`);
+    check("nothing a viewer was refused started a run", runsAfter[0].n === runsBefore[0].n);
+    const [{ n: viewerWorkflows }] = await sql.query(
+      'select count(*)::int as n from "workflow" where "name" like $1',
+      ["viewer%"],
+    );
+    check("no workflow was created by a refused request", viewerWorkflows === 0, `${viewerWorkflows} exist`);
+
+    const viewerReads = [
+      ["read a workflow", `/api/workflows/${workflowId}`],
+      ["list its runs", `/api/workflows/${workflowId}/runs`],
+      ["list its versions", `/api/workflows/${workflowId}/versions`],
+      ["read the provider status", "/api/settings/provider"],
+      ["read the members list", `/api/workspaces/${homeWorkspace.id}/members`],
+    ];
+    for (const [what, path] of viewerReads) {
+      const response = await api("GET", path, undefined, memberToken, homeWorkspace.id);
+      check(`a viewer can still ${what}`, response.status === 200, `got ${response.status}`);
+    }
+
+    const members = await api("GET", `/api/workspaces/${homeWorkspace.id}/members`, undefined, memberToken, homeWorkspace.id);
+    check(
+      "the members list names both accounts and marks which one is you",
+      members.json.data.some((m) => m.userId === user.id && m.role === "owner" && !m.you) &&
+        members.json.data.some((m) => m.userId === MEMBER_USER_ID && m.role === "viewer" && m.you) &&
+        members.json.data.filter((m) => m.you).length === 1,
+      JSON.stringify(members.json).slice(0, 300),
+    );
+
+    // **The credential consequence, asserted rather than only documented.** A member of a
+    // workspace can use its stored credentials — which is why the settings page says so.
+    const viewerProvider = await api("GET", "/api/settings/provider", undefined, memberToken, homeWorkspace.id);
+    check(
+      "a member sees that the workspace has a provider key configured",
+      viewerProvider.status === 200 && viewerProvider.json?.data?.configured === true,
+      JSON.stringify(viewerProvider.json).slice(0, 160),
+    );
+    check(
+      "and still cannot read any part of it",
+      !/AIza|apiKey|ciphertext/.test(JSON.stringify(viewerProvider.json)),
+      JSON.stringify(viewerProvider.json).slice(0, 200),
+    );
+
+    // --- the cookie is a preference, never a permission ---------------------
+    const forged = await api("GET", "/api/workflows", undefined, memberToken, "not-a-real-workspace-id");
+    check(
+      "a cookie naming a workspace that does not exist falls back, it does not fail",
+      forged.status === 200 && !forged.json.data.some((w) => w.id === workflowId),
+      JSON.stringify(forged.json).slice(0, 160),
+    );
+    const stolen = await api("GET", "/api/workflows", undefined, token, memberWorkspaceId);
+    check(
+      "a cookie naming somebody else's workspace is ignored, not honoured",
+      stolen.status === 200 && stolen.json.data.some((w) => w.id === workflowId),
+      "the main account was scoped to a workspace it is not a member of",
+    );
+
+    // --- revoked and expired ------------------------------------------------
+    const doomed = await api(
+      "POST",
+      `/api/workspaces/${homeWorkspace.id}/invitations`,
+      { email: "revoked@agentforge.invalid", role: "editor" },
+      token,
+    );
+    const doomedToken = (doomed.json?.data?.url ?? "").split("/invite/")[1] ?? "";
+    const revoked = await api(
+      "DELETE",
+      `/api/workspaces/${homeWorkspace.id}/invitations/${doomed.json?.data?.invitation?.id}`,
+      undefined,
+      token,
+    );
+    check("an invitation can be revoked", revoked.status === 200 && revoked.json?.data?.state === "revoked");
+    const revokedPreview = await api("GET", `/api/invitations/${doomedToken}`);
+    check("a revoked link previews as invalid", revokedPreview.status === 404);
+    // **The property the four identical 404s exist for**, asserted on the page rather
+    // than only on the API: a revoked link and a token that never existed must render the
+    // same screen. Compared with the token itself masked, because Next embeds the route's
+    // own parameters in the flight payload.
+    const mask = (html, tok) => html.replaceAll(tok, "TOKEN");
+    const revokedPage = await page(`/invite/${doomedToken}`);
+    const unknownPage = await page(`/invite/${"C".repeat(43)}`);
+    check(
+      "a revoked link and an invented one render the identical page",
+      mask(revokedPage.html, doomedToken) === mask(unknownPage.html, "C".repeat(43)),
+      "the page distinguishes a revoked invitation from a nonexistent one",
+    );
+
+    const revokedAccept = await api("POST", `/api/invitations/${doomedToken}/accept`, {}, memberToken);
+    check(
+      "a revoked link cannot be accepted, and says so rather than reporting the wrong email",
+      revokedAccept.status === 409 && /revoked/i.test(revokedAccept.json?.error?.message ?? ""),
+      `got ${revokedAccept.status} ${JSON.stringify(revokedAccept.json).slice(0, 160)}`,
+    );
+    const revokeAgain = await api(
+      "DELETE",
+      `/api/workspaces/${homeWorkspace.id}/invitations/${doomed.json?.data?.invitation?.id}`,
+      undefined,
+      token,
+    );
+    check("revoking twice answers 404 rather than pretending to work", revokeAgain.status === 404);
+
+    // Expiry cannot be waited out, so the row is written expired. The state machine is
+    // read from the columns, so this is the same code path a week-old link takes.
+    const expiredToken = "e".repeat(43);
+    // `id` is supplied explicitly: the column's default lives in application code
+    // (`$defaultFn`), not in the database, so a direct insert has to mint one.
+    await sql.query(
+      `insert into "workspace_invitation" ("id", "workspaceId", "email", "role", "tokenHash", "expiresAt")
+       values (gen_random_uuid()::text, $1, $2, 'editor', $3, now() - interval '1 day')`,
+      [homeWorkspace.id, "expired@agentforge.invalid", createHash("sha256").update(expiredToken).digest("hex")],
+    );
+    const expiredPreview = await api("GET", `/api/invitations/${expiredToken}`);
+    check("an expired link previews as invalid", expiredPreview.status === 404);
+    const expiredAccept = await api("POST", `/api/invitations/${expiredToken}/accept`, {}, memberToken);
+    check(
+      "an expired link cannot be accepted",
+      expiredAccept.status === 409 && /expired/i.test(expiredAccept.json?.error?.message ?? ""),
+      `got ${expiredAccept.status} ${JSON.stringify(expiredAccept.json).slice(0, 160)}`,
+    );
+
+    // Re-inviting rotates the token rather than making a second live invitation.
+    const first = await api("POST", `/api/workspaces/${homeWorkspace.id}/invitations`, { email: "again@agentforge.invalid" }, token);
+    const second = await api("POST", `/api/workspaces/${homeWorkspace.id}/invitations`, { email: "again@agentforge.invalid", role: "viewer" }, token);
+    check("re-inviting the same address succeeds", second.status === 201);
+    check(
+      "re-inviting rotates the token",
+      second.json?.data?.url !== first.json?.data?.url,
+      "the same link came back twice",
+    );
+    check(
+      "re-inviting updates the one row rather than adding another",
+      second.json?.data?.invitation?.id === first.json?.data?.invitation?.id &&
+        second.json?.data?.invitation?.role === "viewer",
+      `${first.json?.data?.invitation?.id} vs ${second.json?.data?.invitation?.id}`,
+    );
+    const deadLink = (first.json?.data?.url ?? "").split("/invite/")[1] ?? "";
+    check("the previous link stops working", (await api("GET", `/api/invitations/${deadLink}`)).status === 404);
+    const [{ n: liveForAddress }] = await sql.query(
+      `select count(*)::int as n from "workspace_invitation"
+       where "email" = $1 and "acceptedAt" is null and "revokedAt" is null`,
+      ["again@agentforge.invalid"],
+    );
+    check("there is exactly one live invitation per address", liveForAddress === 1, `${liveForAddress} live`);
+
+    const alreadyIn = await api(
+      "POST",
+      `/api/workspaces/${homeWorkspace.id}/invitations`,
+      { email: MEMBER_EMAIL },
+      token,
+    );
+    check(
+      "inviting somebody who is already a member is refused",
+      alreadyIn.status === 409,
+      `got ${alreadyIn.status}`,
+    );
+
+    const badAddress = await api(
+      "POST",
+      `/api/workspaces/${homeWorkspace.id}/invitations`,
+      { email: "not-an-address" },
+      token,
+    );
+    check("an address that is not one is refused", badAddress.status === 400);
+    const asOwner = await api(
+      "POST",
+      `/api/workspaces/${homeWorkspace.id}/invitations`,
+      { email: "owner@agentforge.invalid", role: "owner" },
+      token,
+    );
+    check("an invitation cannot hand out ownership", asOwner.status === 400, `got ${asOwner.status}`);
+
+    // --- renaming, and a second workspace -----------------------------------
+    const renamed = await api("PATCH", `/api/workspaces/${homeWorkspace.id}`, { name: "Renamed by verify" }, token);
+    check("an owner can rename the workspace", renamed.status === 200 && renamed.json?.data?.name === "Renamed by verify");
+    await api("PATCH", `/api/workspaces/${homeWorkspace.id}`, { name: homeWorkspace.name }, token);
+
+    const created = await api("POST", "/api/workspaces", { name: "Verify probe workspace" }, token);
+    check("a new workspace can be created", created.status === 201 && created.json?.data?.role === "owner");
+    createdWorkspaceId = created.json?.data?.id ?? null;
+    check(
+      "creating a workspace switches to it",
+      created.setCookie.some((c) => c.startsWith(`af_workspace=${createdWorkspaceId}`)),
+      created.setCookie.join(" | "),
+    );
+    check(
+      "a new workspace is not personal",
+      created.json?.data?.personal === false,
+      JSON.stringify(created.json?.data),
+    );
+
+    if (createdWorkspaceId) {
+      const emptyList = await api("GET", "/api/workflows", undefined, token, createdWorkspaceId);
+      check(
+        "a new workspace starts empty",
+        emptyList.status === 200 && emptyList.json.data.length === 0,
+        `${emptyList.json?.data?.length} workflows`,
+      );
+      const noKey = await api("GET", "/api/settings/provider", undefined, token, createdWorkspaceId);
+      check(
+        "a new workspace has none of the other workspace's credentials",
+        noKey.status === 200 && noKey.json?.data?.configured === false,
+        JSON.stringify(noKey.json).slice(0, 160),
+      );
+      const stillThere = await api("GET", "/api/settings/provider", undefined, token, homeWorkspace.id);
+      check(
+        "and switching back finds the key again",
+        stillThere.json?.data?.configured === true,
+        "the credential did not survive a switch",
+      );
+    }
+
+    // --- removal, leaving, and the last owner -------------------------------
+    const lastOwner = await api(
+      "DELETE",
+      `/api/workspaces/${homeWorkspace.id}/members/${user.id}`,
+      undefined,
+      token,
+      homeWorkspace.id,
+    );
+    check(
+      "the only owner cannot leave — the workspace would be unadministrable",
+      lastOwner.status === 409,
+      `got ${lastOwner.status} ${JSON.stringify(lastOwner.json).slice(0, 160)}`,
+    );
+
+    const removed = await api(
+      "DELETE",
+      `/api/workspaces/${homeWorkspace.id}/members/${MEMBER_USER_ID}`,
+      undefined,
+      token,
+      homeWorkspace.id,
+    );
+    check("an owner can remove a member", removed.status === 200, `got ${removed.status}`);
+
+    // **The test the whole cookie design rests on.** The removed account's cookie still
+    // names the workspace it was removed from.
+    const afterRemoval = await api("GET", "/api/workflows", undefined, memberToken, homeWorkspace.id);
+    check(
+      "a removed member's cookie stops working immediately",
+      afterRemoval.status === 200 && !afterRemoval.json.data.some((w) => w.id === workflowId),
+      "a removed member still read the workspace's workflows",
+    );
+    const afterRemovalRead = await api("GET", `/api/workflows/${workflowId}`, undefined, memberToken, homeWorkspace.id);
+    check("and its workflows answer 404 again", afterRemovalRead.status === 404, `got ${afterRemovalRead.status}`);
+  } finally {
+    if (createdWorkspaceId) {
+      await sql.query('delete from "workspace" where "id" = $1', [createdWorkspaceId]).catch(() => {});
+    }
+    await sql.query('delete from "workspace_invitation" where "email" like $1', ["%@agentforge.invalid"]).catch(() => {});
+    await sql.query('delete from "workspace_member" where "userId" = $1', [MEMBER_USER_ID]).catch(() => {});
+    await cleanUpProbe(MEMBER_USER_ID);
+    await sql.query('delete from "session" where "sessionToken" = $1', [memberToken]).catch(() => {});
+  }
+
   // --- the migration's own invariants ---------------------------------------
   //
   // Asserted against the live database rather than against the migration file, because
@@ -2575,6 +3116,27 @@ try {
     "no workflow is stranded in a workspace with no members",
     orphanedByMembership === 0,
     `${orphanedByMembership} stranded`,
+  );
+
+  // Phase 19B's own invariant. Every stored token is a 32-byte hex digest and nothing
+  // else — a row holding anything shorter would mean a plaintext token somewhere.
+  const [{ n: badHashes }] = await sql.query(
+    `select count(*)::int as n from "workspace_invitation"
+     where "tokenHash" !~ '^[0-9a-f]{64}$'`,
+  );
+  check("every invitation stores a 64-character hex hash", badHashes === 0, `${badHashes} do not`);
+
+  const [{ n: doubleLive }] = await sql.query(
+    `select count(*)::int as n from (
+       select "workspaceId", "email" from "workspace_invitation"
+       where "acceptedAt" is null and "revokedAt" is null
+       group by 1, 2 having count(*) > 1
+     ) duplicates`,
+  );
+  check(
+    "no address has two live invitations to one workspace",
+    doubleLive === 0,
+    `${doubleLive} address(es) do`,
   );
 
   // --- delete ---------------------------------------------------------------

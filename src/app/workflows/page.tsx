@@ -31,7 +31,8 @@ export const metadata: Metadata = { title: "Workflows" };
  * is hydration error #418.
  */
 export default async function WorkflowsPage() {
-  const { email, scope, membership } = await requirePageSession();
+  const { email, scope, membership, memberships } = await requirePageSession();
+  const workspace = describeWorkspace(membership, scope.userId);
   const workflows = (await listWorkflows(scope)).map(describeWorkflow);
   const cards = workflows.map((workflow) =>
     toWorkflowCard(workflow, (type) => {
@@ -42,7 +43,12 @@ export default async function WorkflowsPage() {
 
   return (
     <>
-      <AppHeader email={email} workspace={describeWorkspace(membership)} active="workflows" />
+      <AppHeader
+        email={email}
+        workspace={workspace}
+        workspaces={memberships.map((m) => describeWorkspace(m, scope.userId))}
+        active="workflows"
+      />
 
       <main id="main" className="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-10">
         <div className="animate-rise mb-6 flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
@@ -51,7 +57,7 @@ export default async function WorkflowsPage() {
             <p className="text-muted mt-1 text-sm">
               {cards.length === 0
                 ? "Describe one below, and it is built, validated and saved before you see it."
-                : `${cards.length} workflow${cards.length === 1 ? "" : "s"} in ${membership.workspace.personal ? "your workspace" : membership.workspace.name}.`}
+                : `${cards.length} workflow${cards.length === 1 ? "" : "s"} in ${workspace.own ? "your workspace" : workspace.name}.`}
             </p>
           </div>
           <NewWorkflowButton />
