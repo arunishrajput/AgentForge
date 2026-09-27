@@ -223,9 +223,13 @@ Both are recorded as unimplemented fallbacks in `DEPLOYMENT.md`.
 - **Cold starts.** With `min-instances=0`, the first request after idle pays container start.
   Mitigation: run `min-instances=1` during the hackathon, funded by the $300 credit, and drop to 0
   afterwards. `DEMO.md` also warms the service before the demo
-- **In-flight runs die on redeploy.** Cloud Run replaces revisions; an executing workflow in the
-  old revision is lost. Accepted: no queue, no worker, no Redis. A run interrupted this way shows
-  as failed rather than silently stalling
+- ~~**In-flight runs die on redeploy.**~~ **Closed in Phase 17.** Cloud Run still replaces
+  revisions and still kills the container mid-run — what changed is what happens next. A
+  **durable** run is a Cloud Tasks task, so a delivery that dies is redelivered and the engine
+  resumes from the cursor its predecessor left. A **synchronous** run still dies, deliberately:
+  `POST /runs` answers with the finished run, which is what the canvas and every script read, and
+  that shape cannot survive a redeploy by definition. The sweeper knows the difference and only
+  fails the ones nothing is coming back for — see *Execution engine design*
 - **CPU is billed while an SSE stream is open.** Streams are therefore opened only while a run is
   active and closed on completion, never held open idly
 
@@ -377,33 +381,86 @@ the `/design` gallery, so every figure a reader sees on that page is the figure 
 
 ## Execution engine design
 
-In-process, synchronous within a request, no queue.
+Sequential, resumable, and indifferent to which process is running it.
 
-1. A trigger creates a `run` row in `queued`, then transitions to `running`
-2. Resolve execution order from the workflow's edges — topological, with cycle rejection except
-   where a node is an explicit loop construct
-3. For each node: write a step record, resolve its config, call the registry's execute function
-   with upstream output, record status / output / error / timing, emit an event
-4. Branch nodes evaluate a condition and mark untaken paths skipped
-5. Loop nodes re-enter a bounded subgraph with a hard iteration cap
-6. A node failure fails the run, with the error attached to that step
-7. The run ends `succeeded`, `failed`, or `cancelled`
+1. A trigger creates a `run` row in **`queued`** — a status Chapter 1 reserved and never wrote
+2. A worker **claims** the run, which moves it to `running`. The claim is a compare-and-set on the
+   lease; see *Leases* below
+3. Resolve execution order from the workflow's edges as it runs — a work list, not a static
+   topological sort, because branch and loop outputs mean the order is only known as it goes. A
+   topological pass is still used for *validation*, to reject any cycle that does not close
+   through a loop node
+4. For each node: write a step record, resolve its config, call the registry's execute function
+   with upstream output — **applying that node's retry and timeout policy** — record status /
+   output / error / timing, emit an event
+5. **Checkpoint.** One `UPDATE ... RETURNING` writes the frontier, extends the lease, and reads
+   back whether a cancellation was requested. One statement, because on Neon's free tier a
+   per-step poll for cancellation would double the cost of every run in the product
+6. Branch nodes evaluate a condition and mark untaken paths skipped
+7. Loop nodes re-enter a bounded subgraph with a hard iteration cap
+8. A node failure fails the run, with the error attached to that step
+9. The run ends `succeeded`, `failed`, or `cancelled` — or the engine **stops without writing a
+   status**, because it lost the lease and the run is somebody else's now
 
-Deliberately simplified, and what each costs:
+### Two modes, and the only thing that separates them
+
+| Mode | Who executes it | Survives a redeploy | Why it exists |
+|---|---|---|---|
+| `sync` | the request that started it | **No** | `POST /runs` answers with the finished run and every step. The canvas's Run button, `DEMO.md` and every verification script read that shape, and a request that returns before the run is over cannot have it |
+| `durable` | a Cloud Tasks delivery | **Yes** | Nobody is watching a scheduled run at 03:00, and nobody will press Run again |
+
+Manual runs default to `sync`; the canvas offers "Queue a run" for the other. **Scheduled runs are
+always durable**, which is also what let the cron tick stop executing its runs inline — it now only
+enqueues, so `MAX_FIRES_PER_TICK` went from 3 to 25.
+
+### Leases — the property that makes at-least-once delivery safe
+
+**Cloud Tasks delivers at least once.** A delivery whose HTTP request fails is retried, and "fails"
+includes a container that finished the work and died before answering. Without an interlock, the
+observable result of durable execution would be a workflow that posts two Discord messages — worse
+than the problem durability was added to solve.
+
+So a delivery may only execute a run it **claimed**, and a claim is a conditional
+`UPDATE ... RETURNING` against `leaseExpiresAt`. `neon-http` has no transactions (D6), so that is
+the only atomic primitive available — and it is enough, exactly as it was for the cron tick's
+schedule claim (D42). Two containers racing one task: one update matches a row, the other matches
+none, and the loser does nothing. Every comparison uses the **database's** clock, never a
+container's, because under `max-instances 3` there are three of them.
+
+The lease is 180 s against the engine's 120 s attempt deadline, so it cannot lapse while a
+legitimate attempt is still inside its own budget.
+
+### Resuming
+
+The frontier is a **cursor** on the run row: the outstanding work list and the per-node execution
+counts. Node **outputs are not in it** — they are already one per `run_step` row, so a queue entry
+names the `seq` whose output feeds it and the engine reads them back on resume. The cursor's size
+therefore depends on the shape of the graph and never on the size of the data flowing through it,
+which matters twice over: it is written once per step on a metered database, and Cloud Tasks bills
+per 32 KB of task payload.
+
+The deadline applies to **each attempt**, not to the run's whole life. The alternative is a run
+that can never finish because its first attempt spent the clock.
+
+### The sweeper knows which runs are actually lost
+
+Chapter 1's `reapStaleRuns` failed every `running` run whose heartbeat had gone quiet, because a
+quiet run *was* a lost run. Sweeping that indiscriminately now would destroy the durability this
+phase adds — a durable run between deliveries looks exactly like an abandoned one. So
+`sweepAbandonedRuns` fails only what nothing is coming back for: a `sync` run, a durable run whose
+deliveries are spent, or a durable run that was never delivered at all because its enqueue failed.
+
+Still deliberately simplified, and what each costs:
 
 | Simplification | Cost |
 |---|---|
-| No queue, in-process execution | Runs die on redeploy or instance recycle. No retry-after-crash |
 | Runs inside a request | Bounded by Cloud Run's 60-minute timeout |
 | No parallel node execution | A wide DAG runs slower than it could |
 | No join semantics — a node with several incoming edges runs when the first one reaches it | A diamond's merge point runs twice, once per arriving branch, rather than waiting and merging |
-| No partial resume | A failed run is re-run from the start |
+| Cancellation lands at a step boundary | A node already talking to Gmail is not interrupted. A request in flight cannot be un-sent, and pretending otherwise would be worse than saying so in the UI |
+| A synchronous run still dies on redeploy | Inherent to answering with the finished run. Durable mode is the escape hatch, and the sweeper tells the two apart |
 | Bounded loops only | No unbounded `while`. Deliberate — it is also a safety property |
 
-**Implemented in Phase 3 as a work list, not a static topological sort.** Branch and loop outputs
-mean the order is only known as the run proceeds: start at the trigger, execute, follow the
-outgoing edges matching the handle the node left through, repeat. A topological pass is still used
-for validation — to reject any cycle that does not close through a loop node.
 
 State machine, bounds and record shapes: `CONTRACT.md` → *Execution state machine*.
 
@@ -592,34 +649,62 @@ Event shapes, the follow rule, and the headers: `CONTRACT.md` → *SSE event mes
 
 ---
 
-## Queue — deliberately none
+## Queue — Cloud Tasks for durability, in-process for everything else
 
-No Redis, no BullMQ, no worker service. The engine runs in the web container.
+**This section said "deliberately none" until Phase 17.** The old reasoning is kept below because it
+was correct and because what changed was the *product*, not the analysis.
 
-Justification: the MVP's runs are short and user-initiated. A queue would add a service, a
-dependency, a failure mode, and deploy complexity to buy durability the demo does not need.
+> **Superseded, Phase 17.** The original justification read: "the MVP's runs are short and
+> user-initiated. A queue would add a service, a dependency, a failure mode, and deploy complexity
+> to buy durability the demo does not need." Every clause was true of a hackathon demo. Two stopped
+> being true of a product: a **scheduled** run is not user-initiated and has nobody to press Run
+> again, and Chapter 1's carried risk "in-flight runs die on redeploy" is not something to ask a
+> real user to live with.
+>
+> What made it affordable is that **Cloud Tasks costs none of the four things that were being
+> avoided.** No service — the worker is a route in this same container. No dependency —
+> `@google-cloud/tasks` brings gRPC, so the adapter is one authenticated `fetch` against the REST
+> API, and the runtime dependency list is still the Phase 4 one. No deploy complexity — a queue and
+> one IAM binding, created once. And free: 1,000,000 operations a month against roughly three per
+> run.
 
-**Schedule triggers do not use an in-process timer.** Cloud Run scales to zero, so `setInterval`
-simply does not fire. Instead **Cloud Scheduler** — Google-managed cron, free tier covers it —
+**Still no Redis, no BullMQ and no worker service.** The engine runs in the web container either
+way; the queue decides *which request* runs it.
+
+- **Durable runs** go through Cloud Tasks to `POST /api/runs/dispatch`. The task carries a run id
+  and that run's dispatch token — never a payload, because Cloud Tasks bills per 32 KB chunk and
+  the graph is already in Postgres.
+- **Synchronous runs** are executed by the request that started them, as before.
+- **Not configured is a supported state.** There is no metadata server on a developer machine and
+  no queue in CI, so `enqueueRun` reports that and the caller executes in-process instead — still
+  leased, still checkpointed, still resumable, just not redeliverable. The hazard is that the
+  *deployed* service could do the same silently, so `GET /api/health` reports the queue's
+  configuration and the deployed verification asserts it.
+
+**Schedule triggers still do not use an in-process timer.** Cloud Run scales to zero, so
+`setInterval` simply does not fire. **Cloud Scheduler** — Google-managed cron, free tier covers it —
 calls `POST /api/cron/tick` guarded by a `CRON_SECRET`, and that handler fires whatever schedules
-are due. Same Google project, no extra infrastructure. **Built and verified in Phase 8.**
+are due. Built and verified in Phase 8; unchanged in shape.
 
-Two consequences of having no queue show up here, and both are handled rather than hoped away:
+What Phase 17 changed about the tick:
 
-- The tick runs its due workflows **synchronously, in its own request**, so it is bounded to 3 per
-  tick against the job's 540 s attempt deadline. Anything still due stays due for the next tick.
-- A duplicate tick — a Scheduler retry, or two containers under `max-instances 3` — would otherwise
-  fire a slot twice. The tick **claims** each schedule with a compare-and-set update before running
-  it, which is the only atomic primitive `neon-http` offers (D42 in `PROGRESS.md`).
+- It **enqueues** rather than executes. The old bound of 3 schedules per tick existed because the
+  tick held its request open for the sum of its runs against Cloud Scheduler's 540 s attempt
+  deadline. Enqueueing costs one call each, so the bound is now 25 and is about database writes
+  rather than about the engine.
+- It is the **sweeper's only scheduled caller**, across every owner. `listRuns` sweeps only the
+  owner asking, so a run abandoned by a user who never comes back would otherwise stay `running`
+  for ever on nobody looking at it.
+- A duplicate tick is still safe by **claiming** each schedule with a compare-and-set before firing
+  it (D42) — which is the same primitive the run lease uses, for the same reason.
 
 **The tick interval is a database-cost decision, not a latency one.** Neon's free plan allows 100
 CU-hours a month and its 5-minute autosuspend cannot be disabled, so a tick more frequent than about
 6 minutes pins the compute awake permanently and exceeds the allowance. The job runs every 15
 minutes; the arithmetic is in `DEPLOYMENT.md`.
 
-Revisit only if a genuine need appears, and flag it as a material change.
+Revisit the choice of queue only if a genuine need appears, and flag it as a material change.
 
----
 
 ## Auth
 
@@ -728,7 +813,7 @@ in a step log.
 | A1 | Cloud Run + Neon, not Railway or AWS | **BINDING** | Only genuinely free option through judging; reuses the required Google project; fastest deploy loop |
 | A2 | Single container, UI + API together | **BINDING** | Cloud Run's unit is one container. Two services would double cost and setup for no demo value |
 | A3 | Node registry in Phase 3, not Phase 8 | **BINDING** | The agent's tool surface *is* the registry; the original order inverted the dependency |
-| A4 | No queue; in-process executor | **BINDING** | Fewer moving parts. Cost: runs die on redeploy |
+| A4 | ~~No queue; in-process executor~~ → **Cloud Tasks for durable runs, in-process for synchronous ones** | **SUPERSEDED at Phase 17.** The in-process path is retained, not replaced | The original rationale — "fewer moving parts, and the MVP's runs are short and user-initiated" — was right for a hackathon and wrong for a product: a scheduled run at 03:00 has nobody to press Run again. Cloud Tasks adds **no service and no dependency** (one authenticated `fetch`, free tier 1,000,000 ops/month), which is why this was affordable inside the zero-cost ceiling where Redis and a worker were not. See *Queue — Cloud Tasks for durability* |
 | A5 | Cloud Scheduler for cron | **BINDING** | Scale-to-zero makes in-process timers non-functional |
 | A6 | SSE, not WebSocket | Binding at Phase 5 | No affinity config, native reconnect, one-directional suffices |
 | A7 | Gemini only, behind a provider-agnostic adapter | **BINDING** for MVP | Only available key. Second provider is `PRD.md` S1 |
@@ -749,8 +834,9 @@ in a step log.
 
 | Simplified | Cost | Recovery path |
 |---|---|---|
-| No queue or worker | Runs die on redeploy; no crash retry | Add BullMQ + a second service post-hackathon |
-| No partial run resume | A failed run restarts from the beginning | Step records already hold enough state to resume later |
+| ~~No queue or worker~~ | **DONE in Phase 17** — Cloud Tasks, no second service and no dependency | — |
+| ~~No partial run resume~~ | **DONE in Phase 17.** The recovery path this table predicted is what was built: "step records already hold enough state to resume later" turned out to be exactly true, and the cursor stores only the frontier because the outputs were already there | — |
+| A node with several incoming edges has no join semantics | A diamond's merge point runs once per arriving branch | Still open. The cursor makes it expressible — a queue entry could carry several `fromSeq` — but nothing asks for it yet |
 | Single LLM provider wired | "Provider-agnostic" is architectural, not shown | Adapter exists; add a key and a config entry |
 | No credential KMS | Encryption key lives in the environment | Move to Secret Manager / KMS post-hackathon |
 | No workflow versioning | Editing a workflow changes what past runs referenced | Run steps snapshot their own config |

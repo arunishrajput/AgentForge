@@ -936,6 +936,27 @@ mid-run and confirm recovery. Cancel a run and confirm it stops.
 **Completion criteria.** A run survives a redeploy on the deployed environment. Verified, not
 asserted.
 
+> **DONE, 2026-09-27 — and one validation step turned out to rest on a false premise.**
+>
+> "Deploy mid-run, confirm it completes" **passes trivially**: Cloud Run *drains*. A new revision
+> taking 100% of traffic does not kill the old one's in-flight requests, and — tested directly —
+> neither does **deleting the serving revision**, where the run finished on a revision that no
+> longer existed. Chapter 1's carried risk "in-flight runs die on redeploy" was substantially
+> wrong.
+>
+> "Kill an instance mid-run" therefore **cannot be done from outside** on Cloud Run. The resume
+> path is verified instead by delivering the retry the queue would deliver: a run is put into the
+> state a dead worker leaves and `POST /api/runs/dispatch` is called exactly as Cloud Tasks would.
+> It resumed, `attempt` went to 2, and the already-completed steps kept their original timestamps.
+>
+> **The phase is still worth what it cost**, for the reasons the premise obscured: durability
+> covers a crash, an OOM kill and an exhausted retry — the cases that *do* lose a run — and it is
+> what let the cron tick stop executing its runs inline (`MAX_FIRES_PER_TICK` 3 → 25). It also
+> bought resumability, cancellation and per-node retry, which were never about redeploys.
+>
+> Seven deployed checks in `scripts/verify-durable.mjs`; the measured figures are in
+> `PROGRESS.md` → *Last Updated*.
+
 **Documentation updates.** `ARCHITECTURE.md` (the no-queue decision is superseded — record why),
 `CONTRACT.md`, `DEPLOYMENT.md`, `PROGRESS.md`.
 

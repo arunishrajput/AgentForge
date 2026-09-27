@@ -151,7 +151,7 @@ function EditorInner({
 
   const { run, live, watch, stop: stopStream, setRun } = useRunStream(workflow.id, liveRun);
   const [triggerInput, setTriggerInput] = useState("");
-  const [busy, setBusy] = useState<null | "saving" | "running">(null);
+  const [busy, setBusy] = useState<null | "saving" | "running" | "queueing" | "stopping">(null);
 
   const { fitView, screenToFlowPosition } = useReactFlow();
   const wrapper = useRef<HTMLDivElement>(null);
@@ -426,13 +426,21 @@ function EditorInner({
   }, [edges, name, nodes, saved.name, toast, workflow.id]);
 
   /**
+   * Everything both Run buttons do before they diverge: save what is unsaved, refuse a
+   * graph that cannot run, parse the trigger input, clear the previous run and open the
+   * stream.
+   *
+   * Extracted in Phase 17 rather than copied, because the two paths differ in exactly one
+   * thing — whether the POST waits for the run — and duplicating thirty lines around that
+   * one difference is how the two drift apart.
+   *
    * Running always runs what is *stored*, so unsaved edits are saved first. The
    * alternative — running a graph the server has not seen — makes the run history
    * describe a workflow that never existed.
    */
-  const start = useCallback(async () => {
+  const prepare = useCallback(async (): Promise<{ input: unknown } | null> => {
     const current = dirty ? await save() : saved;
-    if (!current) return;
+    if (!current) return null;
 
     if (!current.runnable) {
       toast({
@@ -442,7 +450,7 @@ function EditorInner({
       });
       setInspectorCollapsed(false);
       setInspectorOpen(true);
-      return;
+      return null;
     }
 
     let input: unknown = null;
@@ -451,11 +459,10 @@ function EditorInner({
         input = JSON.parse(triggerInput);
       } catch {
         toast({ tone: "bad", title: "Trigger input is not valid JSON" });
-        return;
+        return null;
       }
     }
 
-    setBusy("running");
     setSelectedId(null);
     setNodes((all) => all.map((node) => ({ ...node, selected: false })));
     // Clear the previous run first. The stream's first snapshot is a few hundred
@@ -464,10 +471,21 @@ function EditorInner({
     setRun(null);
 
     // The stream opens *before* the run is triggered. It has to: `POST /runs` is
-    // synchronous and does not return until the run is over, so a client that waited
-    // for a run id would have nothing left to watch. The stream works out which run is
-    // the new one by itself (D28).
+    // synchronous and does not return until the run is over, so a client that waited for
+    // a run id would have nothing left to watch. The stream works out which run is the
+    // new one by itself (D28) — which is also why a *durable* run needed no new client
+    // protocol: it is the same "watch a run this browser did not start" path.
     watch();
+
+    return { input };
+  }, [dirty, save, saved, setInspectorCollapsed, setNodes, setRun, toast, triggerInput, watch]);
+
+  const start = useCallback(async () => {
+    const prepared = await prepare();
+    if (!prepared) return;
+    const { input } = prepared;
+
+    setBusy("running");
 
     try {
       // Authoritative, and it also covers the case where the stream never connected.
@@ -535,26 +553,121 @@ function EditorInner({
     // The array is no longer over-broad: every other entry here was verified to be
     // required by removing it and watching `exhaustive-deps` ask for it back.
   }, [
-    dirty,
     names,
+    prepare,
     registry,
-    save,
-    saved,
-    setInspectorCollapsed,
-    setNodes,
     setRun,
     // oxlint-disable-next-line react/memo-dependencies
     stopStream,
     toast,
-    triggerInput,
-    watch,
     workflow.id,
   ]);
+
+  /**
+   * The durable path. It differs from `start` in one line — `runWorkflowDurably` answers
+   * as soon as the run is on the queue rather than when it is over — and in one omission:
+   * **the stream is deliberately left open.** `start` closes it in its `finally` because
+   * the run is finished by then; here the run has not begun, and closing the stream is
+   * exactly how a queued run would become invisible on the canvas. That is the Phase 12
+   * defect (D59) in a new place, so it is worth saying out loud rather than leaving as an
+   * absent line of code.
+   */
+  const startDurable = useCallback(async () => {
+    const prepared = await prepare();
+    if (!prepared) return;
+
+    setBusy("queueing");
+
+    try {
+      const queued = await api.runWorkflowDurably(workflow.id, prepared.input);
+      setRun(queued);
+
+      toast(
+        queued.status === "queued"
+          ? {
+              tone: "ok",
+              title: "Queued",
+              detail:
+                "This run is on the queue. It survives a redeploy or a restart, and it streams here as it goes.",
+            }
+          : {
+              // The fallback in `startDurableRun`: no queue was reachable, so it ran in
+              // the request instead. Saying so matters — the user asked for durability
+              // and did not get it.
+              tone: "warn",
+              title: "Ran without the queue",
+              detail:
+                "The queue was not available, so this ran immediately instead. It would not have survived a restart.",
+              duration: null,
+            },
+      );
+    } catch (error) {
+      stopStream();
+      toast({
+        tone: "bad",
+        title: "The run could not be queued",
+        detail: error instanceof ApiRequestError ? error.message : undefined,
+        duration: null,
+      });
+    } finally {
+      setBusy(null);
+    }
+  }, [
+    prepare,
+    setRun,
+    // oxlint-disable-next-line react/memo-dependencies
+    stopStream,
+    toast,
+    workflow.id,
+  ]);
+
+  /**
+   * Stop a run. Honest about what it can promise: a node already talking to Gmail is not
+   * interrupted, because a request in flight cannot be recalled. So the toast says "the
+   * step that is running will finish first" rather than "cancelled", unless the server
+   * came back saying it really did cancel it — which happens when nothing had started it
+   * yet (`api/runs/[id]/cancel`).
+   */
+  const stopRun = useCallback(async () => {
+    if (!run) return;
+
+    setBusy("stopping");
+    try {
+      const updated = await api.cancelRun(run.id);
+      setRun(updated);
+
+      toast(
+        updated.status === "cancelled"
+          ? { tone: "ok", title: "Run cancelled" }
+          : {
+              tone: "warn",
+              title: "Stopping the run",
+              detail:
+                "No further nodes will start. The one that is running finishes first — a request already sent cannot be recalled.",
+            },
+      );
+    } catch (error) {
+      toast({
+        tone: "bad",
+        title: "The run could not be stopped",
+        detail: error instanceof ApiRequestError ? error.message : undefined,
+      });
+    } finally {
+      setBusy(null);
+    }
+  }, [run, setRun, toast]);
 
   const canvasValue = useMemo(
     () => ({ registry, runStates, entryOrder }),
     [entryOrder, registry, runStates],
   );
+
+  /**
+   * A run nothing has finished yet. `queued` counts: a durable run sits there until a
+   * delivery claims it, and that is precisely the window in which Stop is most useful and
+   * cheapest — nothing has executed, so cancelling costs nothing and undoes everything.
+   */
+  const inFlight = run !== null && (run.status === "queued" || run.status === "running");
 
   const status =
     busy === "saving"
@@ -646,6 +759,20 @@ function EditorInner({
             >
               Save
             </button>
+
+            {/* Only while there is something to stop. A permanent, mostly-disabled Stop
+                would sit in the tab order offering nothing for the whole time a person is
+                building a workflow, which is almost all of the time. */}
+            {inFlight && (
+              <button
+                type="button"
+                onClick={stopRun}
+                aria-busy={busy === "stopping"}
+                className="btn btn-danger shrink-0"
+              >
+                {run.cancelRequested ? "Stopping…" : "Stop"}
+              </button>
+            )}
 
             <button
               type="button"
@@ -766,6 +893,9 @@ function EditorInner({
             names={names}
             triggerInput={triggerInput}
             onChangeTriggerInput={setTriggerInput}
+            queueing={busy === "queueing"}
+            canRun={busy === null && !inFlight}
+            onRunDurably={startDurable}
             onChangeNode={changeNode}
             onDeleteNode={deleteNode}
             onSelectNode={selectNode}

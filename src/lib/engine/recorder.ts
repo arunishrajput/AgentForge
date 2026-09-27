@@ -1,9 +1,10 @@
-import { and, eq, lt } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import { db } from "@/db";
-import { runs, runSteps } from "@/db/schema";
+import { runSteps } from "@/db/schema";
 
-import type { RunRecorder, StepRecord } from "./types";
+import { checkpointRun } from "./lease";
+import type { Checkpoint, RunRecorder, StepRecord } from "./types";
 
 /**
  * The database-backed recorder. The only module in the engine that imports `@/db`,
@@ -12,15 +13,13 @@ import type { RunRecorder, StepRecord } from "./types";
  *
  * Writes are one statement each — `drizzle-orm/neon-http` has no transactions
  * (D6). That is sound here because a step record is independently meaningful: a
- * run cut short mid-write loses at most the tail of its history, and
- * `reapStaleRuns` marks the run failed regardless. Re-checked deliberately this
- * phase rather than assumed.
+ * run cut short mid-write loses at most the tail of its history. In Chapter 1 that
+ * history was all a cut-short run left behind; from Phase 17 the step rows are also
+ * where a *resumed* run reads its predecessor's outputs from (`cursor.ts`), which
+ * makes the independence of each row load-bearing rather than merely convenient.
  */
 
-/** How long a `running` run may go without a heartbeat before it is presumed dead. */
-export const STALE_RUN_MS = 5 * 60_000;
-
-export function dbRecorder(runId: string): RunRecorder {
+export function dbRecorder(runId: string, leaseOwner: string): RunRecorder {
   /**
    * Every write for this run goes through one chain.
    *
@@ -87,32 +86,21 @@ export function dbRecorder(runId: string): RunRecorder {
       // still in the step record the engine returns, and `stepFinished` writes it.
       void queue(() => writeLogs(step)).catch(() => {});
     },
-    heartbeat: () =>
-      queue(async () => {
-        await db().update(runs).set({ heartbeatAt: new Date() }).where(eq(runs.id, runId));
-      }),
+    /**
+     * Serialised on the same chain as the step writes, which is what guarantees the
+     * cursor is never written *ahead* of the step it describes. A cursor that named
+     * outstanding work whose step row had not landed yet would, on a redelivery,
+     * resume from a `fromSeq` with no output behind it.
+     *
+     * A checkpoint that cannot be written is reported as a lost lease rather than
+     * swallowed. That is the conservative reading: the engine stops, and either a
+     * redelivery resumes the run or the sweeper closes it — where carrying on would
+     * mean executing a run whose progress nothing is recording.
+     */
+    checkpoint: (cursor): Promise<Checkpoint> =>
+      queue(() => checkpointRun({ runId, owner: leaseOwner, cursor })).catch(() => ({
+        cancelRequested: false,
+        leaseHeld: false,
+      })),
   };
-}
-
-/**
- * Fails runs whose engine died — a redeploy, an instance recycle, a crash. Without
- * this a run sits in `running` for ever, which ARCHITECTURE.md rules out. Called
- * before listing or starting runs rather than on a timer, because Cloud Run scales
- * to zero and a timer would simply not fire.
- */
-export async function reapStaleRuns(ownerId: string): Promise<number> {
-  const cutoff = new Date(Date.now() - STALE_RUN_MS);
-  const reaped = await db()
-    .update(runs)
-    .set({
-      status: "failed",
-      error: "Run was interrupted before it finished — the server restarted or the request was cut short.",
-      finishedAt: new Date(),
-    })
-    .where(
-      and(eq(runs.ownerId, ownerId), eq(runs.status, "running"), lt(runs.heartbeatAt, cutoff)),
-    )
-    .returning({ id: runs.id });
-
-  return reaped.length;
 }

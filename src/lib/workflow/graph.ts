@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { nodePolicySchema } from "@/lib/engine/policy";
+
 /**
  * The workflow graph — CONTRACT.md → "Workflow / node / edge JSON".
  *
@@ -32,6 +34,14 @@ export const positionSchema = z.object({
  *
  * `config` is deliberately unknown at this layer: each node definition owns its
  * own config schema and parses it at execution time.
+ *
+ * `policy` is retry and timeout (Phase 17, `PRD.md` C4). It is a sibling of `config`
+ * rather than part of it because it is a property of *running* a node, not of what
+ * the node does — see `lib/engine/policy.ts`. Absent means the default: one attempt,
+ * no timeout beyond the run's own deadline. Every graph saved before Phase 17 has no
+ * `policy` on any node, which is why it must stay optional rather than gain a
+ * default here: `fromFlow(toFlow(graph))` has to stay deeply equal to `graph`, and a
+ * schema default would silently add a key the canvas never wrote.
  */
 export const workflowNodeSchema = z.object({
   id: z.string().min(1).max(128),
@@ -39,6 +49,7 @@ export const workflowNodeSchema = z.object({
   label: z.string().max(200).optional(),
   position: positionSchema,
   config: z.record(z.string(), z.unknown()).default({}),
+  policy: nodePolicySchema.optional(),
 });
 
 /**

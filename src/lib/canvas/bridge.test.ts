@@ -160,3 +160,65 @@ test("a real difference is still a difference", () => {
   };
   assert.equal(graphsEqual(relabelled, graph), false);
 });
+
+/* ------------------------------------------------------------------ *
+ * Phase 17 — the per-node retry and timeout policy
+ * ------------------------------------------------------------------ */
+
+test("a node's policy survives the canvas round-trip", () => {
+  // Without this the canvas would drop the policy on every save, which is the worst kind
+  // of loss: the run still works, just without the retries somebody configured.
+  const original: WorkflowGraph = {
+    version: GRAPH_VERSION,
+    nodes: [
+      {
+        id: "call",
+        type: "integration.http",
+        position: { x: 0, y: 0 },
+        config: { url: "https://example.com" },
+        policy: { retries: 2, backoffMs: 1000, timeoutMs: 20_000 },
+      },
+    ],
+    edges: [],
+  };
+
+  const { nodes, edges } = toFlow(original);
+  assert.deepEqual(fromFlow(nodes, edges), original);
+});
+
+test("a node with no policy round-trips without gaining one", () => {
+  // Every workflow saved before Phase 17 is this case. A `policy: undefined` key would
+  // make a freshly loaded graph structurally different from the stored one, and the
+  // canvas would show it as unsaved the instant it loaded.
+  const original: WorkflowGraph = {
+    version: GRAPH_VERSION,
+    nodes: [{ id: "a", type: "core.log", position: { x: 0, y: 0 }, config: {} }],
+    edges: [],
+  };
+
+  const { nodes, edges } = toFlow(original);
+  const back = fromFlow(nodes, edges);
+  assert.deepEqual(back, original);
+  assert.equal("policy" in back.nodes[0], false);
+  assert.equal(graphsEqual(back, original), true);
+});
+
+test("adding a policy makes the graph dirty, and removing it makes it clean again", () => {
+  const clean: WorkflowGraph = {
+    version: GRAPH_VERSION,
+    nodes: [{ id: "a", type: "core.log", position: { x: 0, y: 0 }, config: {} }],
+    edges: [],
+  };
+  const withPolicy: WorkflowGraph = {
+    ...clean,
+    nodes: [{ ...clean.nodes[0], policy: { retries: 1, backoffMs: 500 } }],
+  };
+
+  assert.equal(graphsEqual(clean, withPolicy), false);
+
+  // And the reverse: a policy set and then cleared leaves a graph equal to the original,
+  // so "Reset to default" in the inspector genuinely returns the node to unsaved-clean.
+  const flowed = toFlow(withPolicy);
+  for (const node of flowed.nodes) node.data.policy = undefined;
+  assert.equal(graphsEqual(clean, fromFlow(flowed.nodes, flowed.edges)), true);
+});

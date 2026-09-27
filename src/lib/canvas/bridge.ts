@@ -1,5 +1,6 @@
 import type { Edge as FlowEdge, Node as FlowNode } from "@xyflow/react";
 
+import type { NodePolicy } from "@/lib/engine/policy";
 import {
   GRAPH_VERSION,
   type WorkflowEdge,
@@ -34,6 +35,14 @@ export interface CanvasNodeData extends Record<string, unknown> {
   nodeType: string;
   label?: string;
   config: Record<string, unknown>;
+  /**
+   * Retry and timeout (Phase 17). Persisted, so it belongs here rather than in context —
+   * and it follows `label`'s rule exactly: **absent stays absent.** A node that has never
+   * been given a policy must round-trip without gaining a key, or every existing workflow
+   * would come back from the canvas structurally different from what was stored and show
+   * as unsaved the moment it loaded.
+   */
+  policy?: NodePolicy;
 }
 
 export type CanvasNode = FlowNode<CanvasNodeData, typeof CANVAS_NODE_TYPE>;
@@ -48,6 +57,7 @@ export function toFlowNode(node: WorkflowNode): CanvasNode {
       nodeType: node.type,
       ...(node.label === undefined ? {} : { label: node.label }),
       config: node.config ?? {},
+      ...(node.policy === undefined ? {} : { policy: node.policy }),
     },
   };
 }
@@ -71,8 +81,8 @@ export function toFlow(graph: WorkflowGraph): { nodes: CanvasNode[]; edges: Canv
 /**
  * Canvas state back to a storable graph.
  *
- * `label` is omitted rather than written as `undefined`: the stored graph is
- * compared structurally after a Postgres `jsonb` round trip, and an explicit
+ * `label` and `policy` are omitted rather than written as `undefined`: the stored
+ * graph is compared structurally after a Postgres `jsonb` round trip, and an explicit
  * `undefined` disappears through JSON while an absent key stays absent.
  */
 export function fromFlow(nodes: CanvasNode[], edges: CanvasEdge[]): WorkflowGraph {
@@ -84,6 +94,7 @@ export function fromFlow(nodes: CanvasNode[], edges: CanvasEdge[]): WorkflowGrap
       ...(node.data.label === undefined ? {} : { label: node.data.label }),
       position: { x: node.position.x, y: node.position.y },
       config: node.data.config ?? {},
+      ...(node.data.policy === undefined ? {} : { policy: node.data.policy }),
     })),
     edges: edges.map((edge) => ({
       id: edge.id,

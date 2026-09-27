@@ -42,7 +42,7 @@ live in `.env` locally (never committed) and on the Cloud Run service in product
 | `GOOGLE_CLIENT_SECRET` | Google OAuth client secret | Secret |
 | `ENCRYPTION_KEY` | AES-256-GCM key for credentials at rest | 32 bytes, base64. **Rotating this makes every stored credential unreadable** |
 | `APP_BASE_URL` | Public base URL | Used to build webhook URLs shown to the user. Same value as `AUTH_URL`, no trailing slash |
-| `CRON_SECRET` | Shared secret for `POST /api/cron/tick` | Cloud Scheduler sends it; the route rejects anything else |
+| `CRON_SECRET` | Shared secret for the **machine endpoints** — `POST /api/cron/tick` and `POST /api/runs/dispatch` | Cloud Scheduler sends it for the tick; Cloud Tasks sends it in the task's headers for a dispatch. **One secret for both, deliberately** (Phase 17): the dispatch route's real authorisation is the run's own 192-bit `dispatchToken`, so this is the outer gate rather than the thing that grants anything. A leaked `CRON_SECRET` lets someone fire due schedules — which was already true — and lets them re-dispatch only runs whose per-run token they also hold |
 | `NODE_ENV` | `development` \| `production` | — |
 
 ### Runtime — optional
@@ -51,6 +51,9 @@ live in `.env` locally (never committed) and on the Cloud Run service in product
 |---|---|---|
 | `DISCORD_WEBHOOK_URL` | Demo Discord webhook for `#agentforge-demo` | Added Phase 0 (M6). Dev/demo convenience only — the product path is a user-supplied webhook stored encrypted. **Anyone holding it can post to the channel; treat as a secret** |
 | `GOOGLE_GENERATIVE_AI_API_KEY` | Server-side Gemini key | Development and demo fallback only. **Users normally supply their own key in-app**; this is not a substitute for that feature. This is the exact name `@ai-sdk/google` reads by default — verified Phase 0 |
+| `TASKS_QUEUE` | Cloud Tasks queue name for durable runs (Phase 17) | **Unset means durable runs execute in-process instead** — correct locally and in CI, and a silent no-op in production, which is why `GET /api/health` reports `queue.configured`. Set to `agentforge-runs` on the service |
+| `TASKS_LOCATION` | The queue's region | Falls back to `GCP_REGION`. A queue in another region would be a deliberate act; there is no reason to state the common case twice |
+| `TASKS_PROJECT` | The queue's project | Falls back to the metadata server's `project/project-id`, which cannot be wrong in the way a copied variable can. Set it only when the queue lives outside this project |
 
 ### Deploy-time only — not read by the app
 
@@ -87,7 +90,8 @@ workflows".
       "type": "core.set",             // must name a registry entry
       "label": "Build the payload",   // optional display override
       "position": { "x": 240, "y": 0 },
-      "config": { "fields": { "subject": "{{input.topic}}" } }
+      "config": { "fields": { "subject": "{{input.topic}}" } },
+      "policy": { "retries": 2, "backoffMs": 500, "timeoutMs": 20000 }  // optional, Phase 17
     }
   ],
   "edges": [
@@ -107,6 +111,12 @@ workflows".
   `"loop"`/`"done"` on a loop. It must name one of the source node's declared outputs
 - **`config` is opaque here.** Each node definition owns its own config schema and parses it at
   execution time
+- **`policy` is retry and timeout** (Phase 17, `PRD.md` C4) — a *sibling* of `config`, because it is
+  a property of running a node rather than of what the node does. **Optional, and absent stays
+  absent**: every graph saved before Phase 17 has no `policy` on any node, and a schema default
+  here would make a freshly loaded graph structurally different from the stored one. Bounds are
+  enforced by the schema and are safety properties, not preferences — `retries` 0–3, `backoffMs`
+  0–10 000, `timeoutMs` 1 000–60 000 — because a *model* writes these graphs too
 - Limits: 100 nodes, 200 edges per workflow
 - **Postgres `jsonb` normalises object key order.** A graph read back is deeply equal to what was
   written but not byte-identical. Nothing may depend on key order
@@ -235,7 +245,13 @@ Tables in `src/db/schema.ts`; wire shapes from `describeRun` in `src/lib/engine/
 | `trigger` | `manual` \| `webhook` \| `schedule` \| `agent` |
 | `input`, `output`, `error` | trigger payload, last node's output, failure message |
 | `startedAt`, `finishedAt` | `finishedAt` is null until terminal |
-| `heartbeatAt` | bumped after every step. **This is what makes an interrupted run observable** |
+| `heartbeatAt` | bumped at every checkpoint. **This is what makes an interrupted run observable** |
+| `mode` | `sync` \| `durable` (Phase 17). **The only thing that distinguishes "interrupted, lost" from "interrupted, will resume"**, and therefore the only thing that tells the sweeper whether failing a run is correct or a lie |
+| `cursor` | the frontier to resume from — `{ queue, executions, seq }`. Node outputs are **not** in it; a queue entry names the `seq` whose output feeds it, so the cursor's size never depends on payload size |
+| `attempt` | deliveries that reached a worker. Incremented by the **claim**, not by the enqueue. Above 1 means the run resumed |
+| `leaseOwner`, `leaseExpiresAt` | who is executing it and until when. **The correctness columns**: Cloud Tasks is at-least-once, so without them a redelivery would run a workflow twice |
+| `cancelRequestedAt` | a stop was asked for. The engine reads it at its next checkpoint |
+| `dispatchToken` | 192 bits of CSPRNG. The task carries it and `POST /api/runs/dispatch` demands it, so that route can only ever resume a run that already exists. Never returned to a client |
 
 ### `run_step`
 
@@ -273,14 +289,24 @@ step:  running ──▶ succeeded                     both terminal
        skipped                                   entered directly, terminal
 ```
 
-- A run is created directly in `running` by `startRun`; `queued` exists for a future queue and is
-  not currently written
-- **A run may never be observable as permanently `running`.** Execution is in-process, so a Cloud
-  Run redeploy kills a run mid-flight and nothing would move it on. `reapStaleRuns` fails any
-  `running` run whose `heartbeatAt` is older than `STALE_RUN_MS` (5 minutes). It is called before
-  listing runs and before starting one — not on a timer, because Cloud Run scales to zero and a
-  timer would never fire
-- A node failure fails the run and stops execution. There is no partial resume and no retry
+- **A run is created in `queued` and claimed into `running`** (Phase 17). `queued` was reserved for
+  a future queue in Chapter 1 and never written; it is written now, and it means the run exists and
+  nothing is executing it yet
+- **A run may never be observable as permanently `running`.** Unchanged as a property; what changed
+  is that satisfying it is no longer the same as losing the run. `sweepAbandonedRuns` fails only
+  what nothing is coming back for — a `sync` run, a durable run whose deliveries are spent, or a
+  durable run that was never delivered. A durable run *between deliveries* is left alone, and
+  failing it would be the bug. Still called before listing runs rather than on a timer, because
+  Cloud Run scales to zero; the cron tick also calls it across every owner
+- **A node failure fails the run and stops execution** — but a node may now be **retried** first,
+  under its own `policy`. A config failure is never retried: it is a property of the graph and
+  cannot change between attempts
+- **A run can be resumed.** A durable run whose lease lapsed is redelivered, claims the lapsed
+  lease, and carries on from its `cursor`. Completed steps are not re-executed
+- **Cancellation lands at a step boundary.** `POST /api/runs/:id/cancel` records the request; the
+  engine acts on it at its next checkpoint. A node already in flight is not interrupted
+- **An engine that loses its lease writes nothing** — no status and no cursor. Another worker owns
+  the run and is mid-flight; stamping `failed` over it would report a lie
 
 ### Bounds — safety properties, not tuning knobs
 
@@ -288,8 +314,13 @@ step:  running ──▶ succeeded                     both terminal
 |---|---|---|
 | `MAX_NODE_EXECUTIONS` | 30 | One node may not run more times than this in a run |
 | `MAX_STEPS` | 200 | Total steps in a run |
-| `DEFAULT_DEADLINE_MS` | 120 000 | Wall clock, well under Cloud Run's request timeout |
+| `DEFAULT_DEADLINE_MS` | 120 000 | Wall clock **per attempt**, well under Cloud Run's request timeout. Per attempt rather than per run, or a resumed run could never finish because its first attempt spent the clock |
 | `HARD_MAX_ITERATIONS` | 25 | A loop node's `maxIterations` cannot be configured above this |
+| `LEASE_MS` | 180 000 | A claim's lifetime. **Above `DEFAULT_DEADLINE_MS` by design**, so a lease cannot lapse while a legitimate attempt is still inside its own budget |
+| `SWEEP_GRACE_MS` | 120 000 | How long after a lease lapses before a run is declared abandoned. The queue's backoff is 5 s doubling to 60 s, so sweeping immediately would race a redelivery that was about to succeed |
+| `MAX_DELIVERIES` | 5 | Deliveries a durable run may receive. Matches the queue's `maxAttempts`, so a queue recreated with the wrong flags cannot turn a poison run into an unbounded loop |
+| `MAX_RETRIES` | 3 | A node's `policy.retries` ceiling |
+| `DISPATCH_DEADLINE_SECONDS` | 300 | How long Cloud Tasks waits for the worker. **Above the engine's 120 s**, or the queue would abandon and redeliver a run that was still legitimately executing |
 
 The loop cap and the per-node execution cap are **independent**: a malformed graph that defeats one
 still hits the other. No workflow — including one an agent generates — can request an unbounded
@@ -326,16 +357,19 @@ loop.
 | `GET /api/workflows/:id` | — | The workflow |
 | `PATCH /api/workflows/:id` | `{ name?, description?, graph? }` | The workflow |
 | `DELETE /api/workflows/:id` | — | `{ deleted: id }` |
-| `POST /api/workflows/:id/runs` | `{ input? }` | 201, **the finished run with every step** |
+| `POST /api/workflows/:id/runs` | `{ input?, mode? }` | `mode` defaults to `sync` → **201, the finished run with every step**. `mode: "durable"` → **202**, a `queued` run with no steps; it is executed by a Cloud Tasks delivery and watched over the stream. A durable request that could not reach the queue falls back to executing in-process and answers **201**, so the status code says which happened without a flag to interpret |
 | `GET /api/workflows/:id/runs` | — | Run list for that workflow |
 | `GET /api/runs?workflowId=` | — | Run list |
 | `GET /api/runs/:id` | — | The run with its steps |
+| `POST /api/runs/:id/cancel` | — | The run as it now stands. `cancelled` if nothing was executing it; otherwise still `running` with `cancelRequested: true` and the engine stopping at its next step boundary. Idempotent by construction |
 | `GET /api/workflows/:id/stream` | — | **SSE.** The workflow's current run, live. `?runId=` pins one |
 | `POST /api/webhook/:token` | any JSON object | 201, the finished run. **No session** — see *Trigger shapes* |
 | `POST /api/cron/tick` | — | The tick outcome. **No session**, `CRON_SECRET` required |
+| `POST /api/runs/dispatch` | `{ runId, token }` | **No session** (Phase 17). `CRON_SECRET` **and** the run's own `dispatchToken` both required. Executes or resumes that one run. **Always 200 on a delivery it declines** — a 4xx/5xx tells Cloud Tasks to retry, and every declined case (already finished, already claimed, forged token, deliveries exhausted) is one where retrying is pointless or harmful; the body says which |
 
-Every route above requires a session and is owner-scoped, **except the last two**, which are
-machine endpoints and are specified under *Trigger shapes*.
+Every route above requires a session and is owner-scoped, **except the last three**, which are
+machine endpoints. The tick and the webhook are specified under *Trigger shapes*; the dispatcher is
+specified below.
 
 A workflow is returned as `{ id, name, description, graph, runnable, problems, webhookUrl,
 scheduleCron, scheduleNextAt, scheduleLastFiredAt, createdAt, updatedAt }`. `runnable` and
@@ -343,10 +377,36 @@ scheduleCron, scheduleNextAt, scheduleLastFiredAt, createdAt, updatedAt }`. `run
 failed. `webhookUrl` is null unless the **stored** graph holds a webhook trigger, and the three
 `schedule*` fields are null unless it holds a schedule trigger (Phase 8).
 
-**`POST /runs` is synchronous.** Execution is in-process, so the request stays open until the run
-finishes, and its response is the authoritative final state. Watching a run live is a *separate*
-concern — `GET /api/workflows/:id/stream`, below. The client opens that stream before it POSTs,
-because a request that does not return until the run is over cannot also tell you a run id to watch.
+**`POST /runs` is synchronous by default.** The request stays open until the run finishes, and its
+response is the authoritative final state. Watching a run live is a *separate* concern —
+`GET /api/workflows/:id/stream`, below. The client opens that stream before it POSTs, because a
+request that does not return until the run is over cannot also tell you a run id to watch.
+
+**`mode: "durable"` needed no new client protocol, and that is not a coincidence.** It answers 202
+with a run id and no steps, which is exactly the situation the stream was already built for: a run
+started by somebody else's request, which the browser follows by *workflow* rather than by a run id
+it could not have known (D28). The Run button and the Queue button therefore differ in one line.
+
+### `POST /api/runs/dispatch` — the third route with no session
+
+Two independent things must hold, and only the second one actually authorises anything:
+
+1. **The shared `CRON_SECRET`**, compared in constant time, carried in the task's headers — the same
+   trust boundary Phase 8 accepted when Cloud Scheduler began carrying this secret for the tick.
+2. **The run's own `dispatchToken`.** It names one run, so the most a holder can do is cause a run
+   its owner already started to be resumed. It cannot start an arbitrary workflow, and it cannot
+   start anything at all. The **lease** then makes even that harmless: a redelivery of a run
+   somebody else is executing fails to claim it and does nothing.
+
+The token's shape is checked before the database is touched, so a scan cannot become a stream of
+queries — the same rule the webhook receiver follows.
+
+**Why an OIDC token is not also demanded.** Cloud Tasks can sign a delivery with one, but this
+service is `--allow-unauthenticated` — it has to be, it serves the app — so Cloud Run would not
+check it and the app would have to verify the JWT itself against Google's rotating JWKS. That is a
+meaningful amount of security-critical code sitting *outside* the per-run token that is already the
+narrow thing here. If the worker is ever split onto a private endpoint, OIDC becomes the right
+answer.
 
 A client disconnecting does **not** kill a run: verified against Cloud Run by aborting a `POST
 /runs` mid-flight and finding the run had still completed. So a mid-run reload recovers a run that
@@ -382,9 +442,16 @@ Reading rows also makes "connect mid-run", "reconnect" and "reload the page" one
 |---|---|---|
 | `snapshot` | the whole run, `steps` included — the same shape `GET /api/runs/:id` returns | The first time this stream sees a run, and whenever the run it is following changes |
 | `step` | `{ runId, step }` | A step appeared or changed: started, finished, branched, failed, or grew a log line |
-| `run` | `{ runId, status, output, error, finishedAt, durationMs }` — never `steps` | The run's own fields changed |
+| `run` | `{ runId, status, attempt, cancelRequested, output, error, finishedAt, durationMs }` — never `steps` | The run's own fields changed |
 | `done` | `{ runId, reason }` — `finished` \| `idle` \| `timeout` | The stream is over. **The client closes the `EventSource` on any reason** |
 | `stream_error` | `{ message }` | The stream cannot continue. Named `stream_error` because an event named `error` arrives on an `EventSource` indistinguishably from a transport failure |
+
+`attempt` and `cancelRequested` joined the patch in Phase 17, and they are in the run's
+*fingerprint* too, because both are events worth reporting while the status is unchanged: a run that
+resumed is still `running`, and so is a run that has just been asked to stop. Without them the
+canvas would show "Running" through both and look like it had ignored the Stop button. A `snapshot`
+also carries `mode`, which a client cannot infer and which is the one property of a run that only
+matters once the server restarts.
 
 Comment frames (`: ping`) are keepalives and carry no meaning. `data` is always one line —
 `JSON.stringify` escapes every newline, and a raw newline would end the frame early.
@@ -427,6 +494,31 @@ than when its node finishes. It is not awaited, because `context.log` is synchro
 of a run's writes are therefore serialised on one chain in `dbRecorder`, or a late log write could
 land after the finished step and silently drop a line. Without this a log only becomes visible when
 its node ends — which for an agent node is precisely when it stops being interesting.
+
+### `checkpoint` — Phase 17 replaced `heartbeat`
+
+```ts
+checkpoint: (cursor: RunCursor) => Promise<{ cancelRequested: boolean; leaseHeld: boolean }>
+```
+
+`heartbeat()` bumped a timestamp and returned nothing. `checkpoint` does three things in **one**
+`UPDATE ... RETURNING`: it writes the frontier, extends the lease, and reports what the run row now
+says. One statement is the design, not an optimisation — on Neon's free tier a separate per-step
+poll for cancellation would double the write cost of every run in the product, and `RETURNING` makes
+the answer free.
+
+Both returned fields can stop the engine, and the order matters:
+
+- `leaseHeld: false` — a redelivery claimed the lapsed lease. The engine stops **writing nothing**:
+  no status, no cursor. It wins over `cancelRequested`, because an engine with no lease has no
+  standing to finish the run as anything.
+- `cancelRequested: true` — the run ends `cancelled`, keeping its cursor so its progress stays
+  legible, and **without** backfilling `skipped` steps: a skipped step means "the run reached its end
+  and this was never on the path", and a cancelled run has not reached its end.
+
+It is serialised on the same chain as the step writes, which is what guarantees a cursor is never
+written *ahead* of the step it describes — a cursor naming outstanding work whose step row had not
+landed would resume from a `fromSeq` with no output behind it.
 
 ## Agent tool-call schema — **DEFINED**
 

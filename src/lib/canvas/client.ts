@@ -50,7 +50,8 @@ export interface GenerationErrorDetails {
  * streamed step and a fetched step cannot drift into two different shapes.
  */
 export type { StreamRun as Run, StreamStep as RunStep } from "@/lib/engine/stream";
-export type { RunStatus, StepStatus } from "@/lib/engine/types";
+export type { RunMode, RunStatus, StepStatus } from "@/lib/engine/types";
+export type { NodePolicy } from "@/lib/engine/policy";
 
 export class ApiRequestError extends Error {
   readonly code: ApiErrorCode | "network";
@@ -129,8 +130,27 @@ export const api = {
   runWorkflow: (id: string, input?: unknown) =>
     request<StreamRun>(`/api/workflows/${id}/runs`, {
       method: "POST",
-      body: JSON.stringify({ input: input ?? null }),
+      body: JSON.stringify({ input: input ?? null, mode: "sync" }),
     }),
+
+  /**
+   * Durable: answers as soon as the run is on the queue, with a `queued` run and no
+   * steps. The caller watches it over the SSE stream — the same path a webhook-triggered
+   * run already used, which is why durable mode needed no new client protocol (D28).
+   */
+  runWorkflowDurably: (id: string, input?: unknown) =>
+    request<StreamRun>(`/api/workflows/${id}/runs`, {
+      method: "POST",
+      body: JSON.stringify({ input: input ?? null, mode: "durable" }),
+    }),
+
+  /**
+   * Ask a run to stop. Returns the run as it stands, which is how the caller learns which
+   * of the two outcomes it got: `cancelled` already (nothing was executing it) or still
+   * `running` with `cancelRequested` (a worker will stop at its next step boundary).
+   */
+  cancelRun: (runId: string) =>
+    request<StreamRun>(`/api/runs/${runId}/cancel`, { method: "POST" }),
 
   listRuns: (workflowId: string) => request<StreamRun[]>(`/api/workflows/${workflowId}/runs`),
 

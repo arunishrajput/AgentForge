@@ -65,6 +65,7 @@ across `/clear` boundaries this is how duplicate infrastructure gets created.
 | "AgentForge Web" (`733000675212-…ntm7`) | OAuth 2.0 Client | Google Cloud | Google sign-in | Phase 0 manual, updated Phase 2 manual | No — console only |
 | `agentforge` / `production` / `neondb` | Postgres project/branch | Neon | All persistence | Phase 0 | Partly — console for creation |
 | `agentforge-cron` | Cloud Scheduler job | Google Cloud | Fires due schedule triggers, every 15 min | Phase 8 | Yes |
+| `agentforge-runs` | Cloud Tasks queue | Google Cloud | Carries durable runs to `POST /api/runs/dispatch` | **Phase 17 — EXISTS**, `asia-southeast1` | Yes |
 | Gemini API key | Credential | Google AI Studio | LLM calls | Phase 0 manual | No |
 | Discord webhook URL | Credential | Discord | Demo output target | Phase 0 manual | No |
 | `AgentForge` | Git repository | GitHub | Source + persistent memory | Bootstrap | Yes |
@@ -115,6 +116,8 @@ GOOGLE_CLIENT_ID: "<client id>"
 GOOGLE_CLIENT_SECRET: "<client secret>"
 ENCRYPTION_KEY: "<secret>"
 CRON_SECRET: "<secret>"
+TASKS_QUEUE: "agentforge-runs"
+TASKS_LOCATION: "asia-southeast1"
 EOF
 
 gcloud run services update agentforge --region "$GCP_REGION" \
@@ -125,6 +128,19 @@ rm -f "$SCRATCH/run-env.yaml"
 
 On the **first** deploy these go on `gcloud run deploy` itself with the same flag — see *Deploy*.
 A revision that boots without them exits 1 by design (`PROGRESS.md` → *Decisions*, D7), so the deploy fails.
+
+**To add or change one variable, use `--update-env-vars` instead — it merges.** That is how Phase 17
+added the two `TASKS_*` values without restating the other nine, and without handling their values at
+all:
+
+```bash
+gcloud run deploy agentforge --source . --region "$GCP_REGION" \
+  --update-env-vars TASKS_QUEUE=agentforge-runs,TASKS_LOCATION=asia-southeast1
+```
+
+It is safe for these two because neither value contains a `,` or an `=`. **Secrets still go in a
+file** — the flag treats both characters as delimiters and would put the value in shell history and
+the process list.
 
 `--env-vars-file` **replaces** the entire set rather than merging, so the file must always list
 every variable. Confirm the names landed without printing any value:
@@ -692,6 +708,74 @@ gcloud scheduler jobs pause agentforge-cron --location asia-southeast1
 
 ---
 
+## Cloud Tasks queue — **CREATED AND VERIFIED** (Phase 17)
+
+Carries durable runs. `ARCHITECTURE.md` → *Queue* is why it exists; this is how it was made.
+
+```bash
+gcloud services enable cloudtasks.googleapis.com
+
+gcloud tasks queues create agentforge-runs \
+  --location "$GCP_REGION" \
+  --max-attempts 5 \
+  --min-backoff 5s \
+  --max-backoff 60s \
+  --max-doublings 2 \
+  --max-concurrent-dispatches 3 \
+  --max-dispatches-per-second 5
+
+# The service account the Cloud Run service already runs as.
+gcloud projects add-iam-policy-binding "$GCP_PROJECT_ID" \
+  --member "serviceAccount:733000675212-compute@developer.gserviceaccount.com" \
+  --role roles/cloudtasks.enqueuer --condition=None
+```
+
+Every flag is a decision, not a default:
+
+| Flag | Value | Why |
+|---|---|---|
+| `--max-attempts` | 5 | Matches `MAX_DELIVERIES` in `lib/engine/lease.ts`. The app fails the run on the fifth delivery rather than leaving it to the sweeper, and the two numbers agreeing is what keeps a poison run from looping |
+| `--min-backoff` / `--max-backoff` | 5 s / 60 s | A redeploy takes about two minutes, so a redelivery should arrive comfortably inside `SWEEP_GRACE_MS` (120 s) and not hammer a service that is still starting |
+| `--max-concurrent-dispatches` | 3 | Matches `--max-instances 3`. **This is a Neon decision, not a Cloud Run one**: every concurrent run spends from the same 100 CU-hours |
+| `--max-dispatches-per-second` | 5 | Nothing needs more, and a burst of durable runs waking Neon is the cost that matters |
+
+Then the two variables on the service. `--update-env-vars` **merges**, unlike `--env-vars-file`,
+which replaces the whole set — so this adds two without restating the other nine:
+
+```bash
+gcloud run deploy agentforge --source . --region "$GCP_REGION" \
+  --update-env-vars TASKS_QUEUE=agentforge-runs,TASKS_LOCATION=asia-southeast1
+```
+
+`TASKS_PROJECT` is deliberately **not** set: `queueConfig()` reads the project from the metadata
+server, which cannot be wrong in the way a copied variable can.
+
+### Verifying it
+
+**`/api/health` reports the queue, and that is the check that matters.** Durable execution degrades
+silently by design — with no queue configured, `enqueueRun` falls back to executing in-process,
+which is correct locally and a no-op in production that nothing would otherwise report:
+
+```bash
+curl -fsS "$APP_BASE_URL/api/health" | python3 -m json.tool
+# "queue": { "configured": true, "project": "...", "location": "...", "queue": "agentforge-runs" }
+```
+
+`configured: false` on the deployed service means Phase 17 is not actually doing anything.
+
+```bash
+gcloud tasks queues describe agentforge-runs --location "$GCP_REGION"   # state: RUNNING
+gcloud run services logs read agentforge --region "$GCP_REGION" --limit 30 | grep dispatch
+# [dispatch] run=<id> retry=0 status=succeeded
+```
+
+### After judging ends
+
+Nothing to pause — an empty queue costs nothing, and Cloud Tasks bills per operation rather than per
+hour. Leave it.
+
+---
+
 ## Free-tier headroom — **MEASURED in Phase 13, 2026-09-26**
 
 Chapter 2 restored four things into scope — teams, versioning, observability, a credential vault —
@@ -743,6 +827,11 @@ with 1 user, 1 workflow, 1 run, 6 run steps and 3 credentials — storage is now
 > verified; the *balance* is not. Do not let Phase 19 or 22 start without reading it.
 
 ### Cloud Tasks — Phase 17's dependency, and it is fine
+
+> **BUILT, Phase 17.** The queue exists and is `RUNNING`. Everything the estimate below predicted
+> held: the task carries a run id rather than a payload, so one run is two operations, and the
+> runtime dependency list is unchanged because the adapter is one authenticated `fetch` rather than
+> `@google-cloud/tasks` and its gRPC stack. Creation and IAM are under *Cloud Tasks queue* below.
 
 $0.40 per million operations after the first **1,000,000 per month free**. A billable operation is
 **an API call or a push delivery attempt**, chunked at **32 KB**.

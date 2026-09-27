@@ -14,7 +14,7 @@ Phases 0–12 built and shipped a hackathon MVP. It was submitted on 2026-09-26
 (<https://www.youtube.com/watch?v=Suc4RV9LnLs>), and that chapter is done and not reopened.
 
 **Chapter 2 turns the MVP into a real, professional, open-source product.** Thirteen phases,
-13 → 25, defined in `BUILD_PLAN.md`. **Nothing in Chapter 2 has been started.**
+13 → 25, defined in `BUILD_PLAN.md`. **Phases 13–17 are done.**
 
 **The live system still works and must keep working:**
 **https://agentforge-733000675212.asia-southeast1.run.app** — revision `agentforge-00021-v4s`.
@@ -40,49 +40,58 @@ budget. **Phase 13 must measure the real headroom before Phases 19 and 22 design
 
 ## Current Phase
 
-## ▶ NEXT: PHASE 17 — Durable execution
+## ▶ NEXT: PHASE 18 — Workflow versioning and diffing
 
-**Phase 16 is COMPLETE (2026-09-27).** Full definition of Phase 17 in `BUILD_PLAN.md`.
-Read `ARCHITECTURE.md` and `DEPLOYMENT.md` before touching the queue, and `CONTRACT.md` before
-the run/step shapes.
+**Phase 17 is COMPLETE (2026-09-27).** Full definition of Phase 18 in `BUILD_PLAN.md`.
+Read `CONTRACT.md` before the run/step or graph shapes, and `ARCHITECTURE.md` before adding a
+component.
 
-**What Phase 16 leaves you:**
+**What Phase 17 leaves you:**
 
-- **The canvas is rebuilt and the layout problem is solved by rails, not by smaller cards.**
-  Each side panel collapses to a **40px rail** that still names itself and still reports
-  `aria-expanded`. Measured on the deployed revision at 1440px: canvas **880 → 1360px**, fitView
-  **0.52 → 0.81**, node card drawn **117 → 182px**. Chapter 1's baseline was 0.39 and **88px**, so
-  a node is now **just over twice** the size it was. At 1920px with both panels *open* you get the
-  same 182px. The preference is per-panel and persisted
-- **`Panel` (`components/canvas/panel.tsx`) is the shell both side panels wear.** Two breakpoints,
-  two behaviours, no viewport measurement anywhere — CSS decides. Below `lg` a panel is a drawer
-  driven by `open`; at `lg` and up it is a column driven by `collapsed`. Do not add a JS width
-  check; there is nothing to mismatch on the server render today
-- **`useCollapsed` uses `useSyncExternalStore`, deliberately.** `localStorage` read in a
-  `useState` initialiser is a hydration mismatch and read in an effect is a cascading render that
-  `react/set-state-in-effect` rejects. Every access is guarded and there is an in-memory fallback,
-  so a blocked store leaves a working button rather than a dead one
-- **Status is a tested table, not class strings in a component.** `lib/canvas/status.ts` carries
-  five looks on **five channels** — word, shape, outline, surface, motion — and `status.test.ts`
-  asserts they stay distinct. `nodeStatusLook(status, agent)` renames a running **agent** to
-  "Thinking". Run status is a separate five-entry table because a run can be `queued` or
-  `cancelled` and a step cannot
-- **Node icons are type-first with a category fallback** (`components/canvas/node-icon.tsx`). A
-  node type added later with no entry draws its category's icon and nothing breaks — the registry
-  stays the spine. `palette-search.test.ts` asserts every registry category has a look of its own
-- **The palette searches with the command palette's ranking**, reused from `lib/ui/command.ts`. No
-  second search algorithm, and no node type named in the palette
-- **The three surviving Chapter 1 "smudges" are gone.** `bg-warn/10 ring-warn/30 ring-1` was still
-  in the inspector in three places; all three are `Notice` now. That idiom is dead product-wide
-- **The canvas now has exactly one `h1`** (visually hidden, the workflow's name) and a real
-  `generateMetadata`, so the tab says the workflow rather than "AgentForge"
-- **The repo carries no canvas screenshot**, so the phase's "screenshots refreshed" was a no-op.
-  The README's only image is the mascot SVG. **Phase 24 owns the repo's front door** — if a canvas
-  hero image is wanted, decide it there rather than bolting one on now
+- **Runs are durable, and the mechanism is a lease.** `POST /runs` takes `mode`: `sync` (default,
+  unchanged — answers with the finished run) or `durable` (202, a `queued` run executed by a Cloud
+  Tasks delivery). **Scheduled runs are always durable.** The correctness core is
+  `lib/engine/lease.ts`: Cloud Tasks is at-least-once, so every delivery must **claim** the run by
+  compare-and-set against `leaseExpiresAt` before executing it. Without that, a redelivery posts
+  two Discord messages
+- **`LEASE_MS` (180 s) is deliberately above `DEFAULT_DEADLINE_MS` (120 s).** That ordering is what
+  closes the double-execution window: a worker that is still alive cannot have a lapsed lease,
+  because the lease outlives the longest attempt. **Do not raise the engine deadline without
+  raising the lease** — and `STREAM_MAX_MS` (150 s) is a third number in the same family
+- **The cursor is the frontier, and it is small on purpose** (`lib/engine/cursor.ts`). It carries
+  the outstanding work list and the per-node execution counts — **not** node outputs, which are
+  already one per `run_step` row. A queue entry names the `seq` whose output feeds it. So the
+  cursor's size depends on the graph's shape and never on the data flowing through it, which
+  matters twice: it is written once per step on a metered database, and Cloud Tasks bills per 32 KB
+  of task payload
+- **`heartbeat()` became `checkpoint(cursor)`** and now does three things in one
+  `UPDATE ... RETURNING`: write the frontier, extend the lease, report back. It can stop the engine
+  two ways, and `leaseHeld: false` **wins over** `cancelRequested` — an engine with no lease has no
+  standing to finish the run as anything, so it writes **no status and no cursor**
+- **`reapStaleRuns` is gone**, replaced by `sweepAbandonedRuns`. The difference is the whole phase:
+  it fails a `sync` run, a durable run whose deliveries are spent, and a durable run that was never
+  delivered — and **leaves alone** a durable run between deliveries, which looks identical. Getting
+  that wrong destroys the durability silently, so it has its own deployed check (`verify-durable`
+  check 7)
+- **Per-node retry and timeout** (`PRD.md` C4, Chapter 1's unbuilt S6) live on the graph node as
+  `policy`, a **sibling of `config`** — a property of *running* a node, not of what it does.
+  Optional, and **absent stays absent**, or every pre-Phase-17 workflow would show as unsaved the
+  moment it loaded. A config failure is never retried
+- **No new runtime dependency.** The Cloud Tasks adapter is one authenticated `fetch` against the
+  REST API with a token from the metadata server; `@google-cloud/tasks` brings gRPC. The runtime
+  dependency list is **still the Phase 4 one**
+- **`scripts/verify-durable.mjs` is the deployed proof** — 7 checks, ~6 minutes, and it is what a
+  later phase should re-run after touching the engine. `all --interrupt` additionally deletes the
+  serving revision mid-run
 
-**Do not start Phase 18 in the same session.** One phase per session still holds; `/clear` between.
+**Two things measured here that contradict what this file used to say — read *Known Issues*:**
+Cloud Run **drains** in-flight requests (a redeploy does *not* kill a run, and neither does
+deleting the serving revision), and a Cloud Tasks queue reporting `PAUSED` **still dispatches**.
+
+**Do not start Phase 19 in the same session.** One phase per session still holds; `/clear` between.
 
 ---
+
 
 ## Completed Phases
 
@@ -110,8 +119,8 @@ the run/step shapes.
 | **14** — Toybox design system | **COMPLETE** — deployed and verified in a real browser, 2026-09-26 |
 | **15** — UI rebuild I: the shell | **COMPLETE** — deployed and verified in a real browser at 1920 / 1440 / 1024 / 375 px, 2026-09-26 |
 | **16** — UI rebuild II: the canvas | **COMPLETE** — deployed and verified in a real browser at 1920 / 1440 / 375 px, 2026-09-27 |
-| **17** — durable execution | **NOT STARTED ← next** |
-| **18** — workflow versioning and diffing | NOT STARTED |
+| **17** — durable execution | **COMPLETE** — verified on the deployed URL by `verify-durable.mjs` (7 checks, all passing) and in a real browser, 2026-09-27 |
+| **18** — workflow versioning and diffing | **NOT STARTED ← next** |
 | **19** — workspaces and membership | NOT STARTED |
 | **20** — roles, permissions and sharing | NOT STARTED |
 | **21** — credential vault and rotation | NOT STARTED |
@@ -130,10 +139,10 @@ the run/step shapes.
 | **Canonical URL** | **`https://agentforge-733000675212.asia-southeast1.run.app`** |
 | Legacy URL | `https://agentforge-i5d2u66boa-as.a.run.app` — works, do not publish it |
 | Service | `agentforge` on Cloud Run, `asia-southeast1` |
-| Revision | **`agentforge-00030-gv2`** — ready, **`latestRevision: True`**, 100% of traffic (Phase 16). Previous good revisions: `agentforge-00029-8t7` (Phase 15), `agentforge-00026-fqj` (Phase 14), `agentforge-00023-xf4`. Rollback was tested against `agentforge-00020-rcr` |
+| Revision | **`agentforge-00034-54v`** — ready, **`latestRevision: True`**, 100% of traffic (Phase 17). Previous good revisions: `agentforge-00031-74z` (Phase 17's first), `agentforge-00030-gv2` (Phase 16), `agentforge-00029-8t7` (Phase 15). **`00032` and `00033` were deliberately deleted** during Phase 17's verification, testing whether deleting a serving revision kills its in-flight request — it does not. Rollback was tested against `agentforge-00020-rcr` |
 | Scaling | `min-instances 1`, `max-instances 3`, 1 vCPU / 1 GiB, 3600 s timeout, port 8080 |
-| Env vars set | `NODE_ENV` `AUTH_URL` `APP_BASE_URL` `DATABASE_URL` `AUTH_SECRET` `GOOGLE_CLIENT_ID` `GOOGLE_CLIENT_SECRET` `ENCRYPTION_KEY` `CRON_SECRET` — **still 9, re-counted on `agentforge-00030-gv2`. Phases 9–16 added none** (`SMOKE_SPREADSHEET_ID` is a local test variable, never on the service): the Google integration flow reuses `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `APP_BASE_URL`, and every third-party credential is a `credential` row rather than an environment variable. No Gemini key on the service: the product path is the user's own key |
-| Database | Neon `super-mountain-39872886` — **8 tables**, migrations `0000` + `0001` + `0002_wooden_morlocks` applied. **Phases 14, 15 and 16 needed no migration** — none of them touches data. **Phases 9, 10 and 11 needed none either**: two new credential kinds are rows in the existing `credential` table, which is what `(ownerId, kind, label)` was for |
+| Env vars set | `NODE_ENV` `AUTH_URL` `APP_BASE_URL` `DATABASE_URL` `AUTH_SECRET` `GOOGLE_CLIENT_ID` `GOOGLE_CLIENT_SECRET` `ENCRYPTION_KEY` `CRON_SECRET` `TASKS_QUEUE` `TASKS_LOCATION` — **11 now. Phase 17 added the last two** (`TASKS_PROJECT` is deliberately unset; the project comes from the metadata server, which cannot be wrong the way a copied variable can). They were added with `--update-env-vars`, which **merges**, rather than `--env-vars-file`, which replaces the whole set — so the other nine were never handled. Phases 9–16 added none (`SMOKE_SPREADSHEET_ID` is a local test variable, never on the service): the Google integration flow reuses `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `APP_BASE_URL`, and every third-party credential is a `credential` row rather than an environment variable. No Gemini key on the service: the product path is the user's own key |
+| Database | Neon `super-mountain-39872886` — **8 tables**, migrations `0000` + `0001` + `0002_wooden_morlocks` + **`0003_omniscient_norman_osborn`** applied. **Phase 17's migration adds 7 columns and 1 index to `run`** (`mode` `cursor` `attempt` `leaseOwner` `leaseExpiresAt` `cancelRequestedAt` `dispatchToken`) and is **purely additive with defaults**, so the previous revision kept serving against it while it was applied — verified in `information_schema`. **Phases 14, 15 and 16 needed no migration** — none of them touches data. **Phases 9, 10 and 11 needed none either**: two new credential kinds are rows in the existing `credential` table, which is what `(ownerId, kind, label)` was for |
 | Routes | `/` `/dashboard`→`/workflows` `/workflows` `/workflows/[id]` `/settings` **`/design`** + **17** API routes. **Phase 16 added no route and no API** — it rebuilt what `/workflows/[id]` renders, and added a `generateMetadata` to that page so the tab carries the workflow's name. Phase 15 added none either. **Phase 14 added `/design`** — the design-system gallery, **public (no session) and prerendered static**, which is deliberate: it is the page to link a contributor to and it holds nothing belonging to any account |
 | Latency | **Warm**: health ~190 ms India → Singapore, database 7–11 ms. A 6-node demo-path run **4.2–7.5 s** end to end across five consecutive walks (Phase 13; it was 3.1–4.8 s in Chapter 1 when the model answered first time, and **94.5 s** when it did not — that second case is what Phase 13 removed). Generation 2.7–3.5 s. **Cold (Neon suspended)**: health **1.14 s, of which 739 ms is the database wake** — re-measured 2026-09-26 at 917 ms for a first query, 103 ms on the next. Cloud Run itself is never cold at `min-instances 1` |
 | Last verified | **2026-09-27, after Phase 16.** On **`agentforge-00030-gv2`**: a **real browser** against the deployed URL. The canvas renders its **6 nodes and 6 edges** with **0 console errors or warnings**, exactly one `h1`, and **no horizontal overflow** at 1920 / 1440 / 375 px. React Flow reports `react-flow light` (the Chapter 1 `colorMode="dark"` is gone) and edges draw at **2px with an arrowhead marker**. Collapsing both panels took the canvas **880 → 1360px** and fitView **0.524 → 0.810**, drawing a node card at **182px** against Chapter 1's 88px; the refit fires automatically. Palette search returned exactly **one** node each for `gmail`, `discord`, `core.set` and `branch`. A run was started from the browser with a JSON trigger payload, streamed per-node status live, and rendered all five status treatments; at 375px the drawers open over the canvas at 304px with the minimap correctly hidden. `verify-api.mjs` against the deployed URL: **153 passed / 13 failed / 4 skipped** — **identical to Phase 15 and Phase 14**, and every one of the 13 is the Gemini daily free-tier 429 on all three models in the chain. **The non-model engine checks all pass on deployed, including `the streamed run succeeded` and an HTTP node calling a real public API** — that is the full-workflow-end-to-end requirement, met independently of model quota. Local: `npm run check` **448 passing** (was 406), coverage **88.99 / 91.46 / 82.03** (was 88.33 / 91.21 / 81.30). **Re-run `smoke.mjs` and `verify-api.mjs` on a fresh quota day to close the 13** |
@@ -231,6 +240,12 @@ Carried forward from every phase. These are the decisions later sessions must no
 | **D74** | **A panel's two breakpoint behaviours are decided by CSS, never by a measured viewport** | Below `lg` a panel is a drawer driven by `open`; at `lg` and up it is a column driven by `collapsed`. Neither reads a width in JavaScript, so there is nothing to mismatch between the server render and the browser, and the closed drawer stays out of the tab order via `visibility` rather than `display` so it can still slide. The preference itself reaches React through `useSyncExternalStore`: reading `localStorage` in a `useState` initialiser is a hydration mismatch, and reading it in an effect is the cascading render `react/set-state-in-effect` rejects. Guarded on every access with an in-memory fallback, so a blocked store leaves a working button rather than a dead one |
 | **D75** | **Node status is a tested table carrying five channels, only one of which is hue** | `BUILD_PLAN.md` Phase 16 asks for five states "visually distinct at a glance and without relying on colour alone", which is exactly the requirement that decays silently as five hand-written class strings drift together. `lib/canvas/status.ts` carries word, shape, outline, surface and motion, and `status.test.ts` asserts the distinctness rather than the specific glyphs — a later phase may change a character, not make two states look alike. A running **agent** says "Thinking" where every other node says "Running", because the phase asks for status as character and the distinction costs one word. Run status is a **separate** five-entry table: a run can be `queued` or `cancelled`, and mapping `cancelled` onto the step vocabulary would have rendered it "Skipped", which is a different statement about what happened |
 | **D76** | **The fuzzy tier of the shared ranking applies to a title alone** | The node palette reuses the command palette's ranking (`lib/ui/command.ts`) rather than growing a second search, because two search boxes in one product that disagree is worse than either being imperfect. Offering each node's *description* as a subtitle then exposed a real flaw: a subsequence match means something against a short name and nothing against a sentence, and searching `gmail` matched **7 of 15** nodes — "Schedule trigger", "Loop", "LLM" — because every one of those descriptions contains g…m…a…i…l in order. Substring and word-start matching on a subtitle stay; only the fuzzy tier is withdrawn from it. `gmail` now returns **1**. The fix is in the shared module, so the ⌘K palette gets it too |
+| **D77** | **Durable execution is Cloud Tasks, and `mode` is per run rather than global** | `sync` is kept, not replaced: `POST /runs` answering with the finished run is what the canvas's Run button, `DEMO.md` and every verification script read, and a request that returns before the run is over cannot have that shape. So durability is a second mode beside it — manual runs default to `sync`, the canvas offers "Queue a run", and **scheduled runs are always durable**, which is the case with nobody watching and nobody to press Run again. A4 in `ARCHITECTURE.md` is superseded, not deleted: its rationale ("a queue would add a service, a dependency, a failure mode") was right, and Cloud Tasks costs **none of the three** — the worker is a route in this container, the adapter is one `fetch`, and the free tier is 1,000,000 ops/month against ~3 per run |
+| **D78** | **The lease, not the queue, is what makes durability safe** | Cloud Tasks delivers **at least once**: a delivery whose HTTP request fails is retried, and "fails" includes a container that finished the work and died before answering. Without an interlock the observable result of this phase would be a workflow that posts two Discord messages — worse than the problem it was added to solve. So every delivery must **claim** the run by compare-and-set against `leaseExpiresAt`, which is the same atomic primitive the cron tick's schedule claim already used (D42) and the only one `neon-http` offers. **`LEASE_MS` (180 s) is above `DEFAULT_DEADLINE_MS` (120 s) deliberately** — that ordering is what closes the window, because a worker still inside its own budget cannot have a lapsed lease. Raising one without the other reopens it |
+| **D79** | **The cursor stores the frontier, never the outputs** | Node outputs are already persisted one per `run_step` row, so putting them in the cursor would write an HTTP node's whole response body into the run row **once per step** on a metered database. A queue entry names the `seq` whose output feeds it and `rehydrate` reads them back. The cursor's size therefore depends on the graph's shape and never on the data — which is also why a Cloud Tasks task carries a run **id** and not a payload, since it bills per 32 KB chunk |
+| **D80** | **`heartbeat()` became `checkpoint(cursor)`: one statement writes progress, extends the lease and reports back** | Three separate writes per step — heartbeat, cursor, cancellation poll — would roughly triple the per-step database cost of every run in the product, against ~39 spare CU-hours a month. One `UPDATE ... RETURNING` does all three and the answer is free. It can stop the engine two ways, and **`leaseHeld: false` wins over `cancelRequested`**: an engine with no lease has no standing to finish the run as anything, so it writes no status and no cursor and lets the new owner carry on |
+| **D81** | **Retry and timeout are a `policy` sibling of `config`, not fields inside it** | They are properties of *running* a node, not of what the node does. Inside `config` they would mean adding two fields to fifteen schemas, teaching the generator about them fifteen times, and handing the agent two more parameters to get wrong on every tool call. **Optional, and absent stays absent** — a schema default would make every pre-Phase-17 workflow structurally different from its stored form and show as unsaved the instant it loaded. Every bound is enforced by the schema rather than by a comment, because a **model** writes these graphs too (`maxIterations: 1`, D57, is the standing example) |
+| **D82** | **The dispatch route is guarded by `CRON_SECRET` *plus* a per-run token, and not by OIDC** | Cloud Tasks can sign a delivery with an OIDC token, but this service must stay `--allow-unauthenticated` to serve the app, so Cloud Run would not check it and the app would have to verify the JWT against Google's rotating JWKS — a meaningful amount of security-critical code sitting **outside** the thing that is already narrow. The run's `dispatchToken` is 192 bits of CSPRNG scoped to **one run**, so the most a holder can do is cause a run its owner already started to be resumed; it cannot start an arbitrary workflow. The lease then makes even that harmless. If the worker is ever split onto a private endpoint, OIDC becomes the right answer |
 
 ---
 
@@ -254,6 +269,8 @@ Carried forward from every phase. These are the decisions later sessions must no
 
 | Issue | Impact | Action |
 |---|---|---|
+| **Cloud Run DRAINS in-flight requests. A redeploy does not kill a running run — and neither does deleting the serving revision** | Corrects a risk this project carried from Chapter 1 to Phase 17 | **Measured twice in Phase 17, both times the opposite of what was assumed.** A durable run was interrupted by (a) a new revision taking 100% of traffic and (b) **deleting the revision that was serving it**. Both times the run carried on and completed **on the old revision**, `attempt` never left 1 — the second one finished on a revision that no longer existed. So "in-flight runs die on redeploy" was substantially wrong: a run dies on a **crash, an OOM kill, or the request timeout**, not on an ordinary deploy. Phase 17 is still worth it — durability covers the cases that *do* kill a run, and it is what let the cron tick go from 3 schedules per tick to 25 — but **do not repeat the old claim.** The practical consequence: a container cannot be killed on demand from outside, so the resume path is verified by delivering the retry the queue would deliver (`verify-durable` check 3b) |
+| **A Cloud Tasks queue reporting `PAUSED` still dispatches** | Any test that tries to hold a task in the queue | **Measured in Phase 17.** `gcloud tasks queues pause` was issued, `describe` was polled until it returned `state: PAUSED`, and a task created immediately afterwards was **still delivered inside a second**. Pausing is not a lever a test can rely on. `verify-durable` check 4 therefore asserts the invariant that holds either way — "cancelling stops it and no further node runs" — and check 4b constructs the unclaimed state directly instead of racing for it |
 | **A model's health flips on a timescale of MINUTES, and the text and tool-calling paths fail independently** | Every model choice, every fallback chain | The single most useful thing Phase 13 learned. Three probe passes minutes apart: `gemini-3.6-flash` went healthy → healthy → 503; `gemini-3.5-flash-lite` went healthy → timeout → timeout; `gemini-3.1-flash-lite` timed out on tool-calling twice and then worked. **Only `gemini-3-flash-preview` was healthy on both paths in all three.** Never conclude a model is good from one call, and never conclude a model that answers prose can call tools. `npm run probe:models` checks both paths and is the only honest way to pick a chain |
 | **The default model is a `-preview` model** | If Google retires it | Accepted deliberately in Phase 13: it was the only model measurably reliable on the tool-calling path, and the alternative was keeping a default that timed out on 2 of 3 probes. **The mitigations are already in place** — a 404 opens its breaker immediately and the chain falls through to `gemini-3.6-flash`, and `npm run probe:models` re-derives the ranking in about a minute. Re-probe if agent steps start failing |
 | ~~Coverage thresholds will bite the UI rewrite~~ | Was: Phases 14–16 | **WRONG, and measured in Phase 14.** Coverage went **UP** — 87.19 → **87.81** lines, 90.46 → **90.56** branches, 78.10 → **79.71** functions — while adding 12 `.tsx` files. Two reasons: **`.tsx` files never appear in the coverage report at all** (Node's coverage counts only modules a test actually loads, and no test loads a React component), and the new `.ts` modules (`cn`, `contrast`, `palette`, `illustrations-static`) are all tested. The thresholds were not touched. **The real gate to watch in Phases 15–16 is the contrast gate, not coverage** |
@@ -308,12 +325,12 @@ Carried risks, recorded so they are not rediscovered:
 
 | Risk | Where it bites | Mitigation |
 |---|---|---|
-| In-flight runs die on redeploy — no queue | Any deploy during a run | Do not deploy on demo day. **Now handled gracefully:** `reapStaleRuns` moves an abandoned run to `failed` within 5 minutes |
+| ~~In-flight runs die on redeploy — no queue~~ | Was: any deploy during a run | **CLOSED in Phase 17, and the premise was wrong twice over.** Cloud Run *drains*, so a redeploy does not kill a run at all (see *Known Issues*), and for the cases that genuinely do — a crash, an OOM kill — a **durable** run is redelivered by Cloud Tasks and resumes from its cursor. `reapStaleRuns` is gone; `sweepAbandonedRuns` fails only what nothing is coming back for |
 | Only one LLM provider available | `PRD.md` C10 / S1 | Provider-agnostic adapter; model selection across Gemini tiers |
 | Auth.js v5 is a beta | All phases | Pinned to exact `5.0.0-beta.32`; never track the `beta` tag |
 | Rotating `ENCRYPTION_KEY` destroys all stored credentials | Any time | Never rotate it |
 | Neon autosuspends independently of Cloud Run | Demo beat 1 | 9–32 ms warm, ~700 ms after ~6 min idle. `min-instances=1` does nothing for Neon — warm the database separately right before the demo |
-| A long run could outlive the request | Phases 6–9, when nodes call LLMs and APIs | Engine deadline is 120 s against Cloud Run's 3600 s. Raise deliberately if an agent node needs it — **and raise `STREAM_MAX_MS` (150 s) with it**, or the watcher closes before the run does |
+| A long run could outlive the request | Phases 6–9, when nodes call LLMs and APIs | Engine deadline is 120 s against Cloud Run's 3600 s. Raise deliberately if an agent node needs it — **and raise `STREAM_MAX_MS` (150 s) and `LEASE_MS` (180 s) with it.** Phase 17 made that a three-number family: the stream must outlive the run or the watcher closes first, and the **lease must outlive the attempt** or a live worker can lose its lease to a redelivery and the same node executes twice (D78) |
 | A stream polls Neon twice every 300 ms | Cost, if many streams are open at once | Only while a run is being watched, and a stream closes itself. Revisit only if it shows up in Neon's compute hours |
 
 ---
@@ -414,7 +431,9 @@ hours).
 | Discord server / channel / webhook | Discord | "AgentForge" · `#agentforge-demo` | **VERIFIED** |
 | **"AgentForge Demo Log" spreadsheet** | Google Sheets | id **`1iz8vjkGNvPQ1q1vpDvaWnQZ6648BNYHYauVXHHY2IBo`**, owned by `arunishrajput7@gmail.com`, tab `Sheet1`, headers `Received · From · Summary · Urgency` | **CREATED Phase 11** — through the app's own stored Google credential, because the previous sheet's id was recorded nowhere and the `spreadsheets` scope cannot search Drive. **This is `DEMO.md` Beat 8's second payoff — do not delete it** |
 | **`agentforge-cron` Scheduler job** | Google Cloud | `asia-southeast1`, `*/15 * * * *` UTC, attempt deadline 540 s | **`ENABLED`, re-confirmed Phase 13.** It commits ~61 of Neon's 100 CU-hours/month — the arithmetic is verified in `DEPLOYMENT.md` → *Free-tier headroom*. Do not shorten the tick |
-| Cloud Tasks API | Google Cloud | `cloudtasks.googleapis.com` | **NOT ENABLED.** Phase 17 enables it. Free tier verified: 1,000,000 ops/month per billing account |
+| Cloud Tasks API | Google Cloud | `cloudtasks.googleapis.com` | **ENABLED Phase 17.** Free tier verified: 1,000,000 ops/month per billing account |
+| **`agentforge-runs` Cloud Tasks queue** | Google Cloud | `asia-southeast1`, state `RUNNING` | **CREATED Phase 17.** `maxAttempts 5` (mirrors `MAX_DELIVERIES` in `lease.ts`), backoff 5 s → 60 s, `maxConcurrentDispatches 3` — which is a **Neon** decision, not a Cloud Run one, since every concurrent run spends from the same 100 CU-hours. Measured: a task is delivered in **under a second**. Nothing to pause when idle; it bills per operation, not per hour |
+| **`roles/cloudtasks.enqueuer`** | Google Cloud IAM | on `733000675212-compute@developer.gserviceaccount.com` | **GRANTED Phase 17.** The service account Cloud Run already runs as. Without it `enqueueRun` gets a 403 and every durable run silently falls back to in-process — which is why `/api/health` reports `queue.configured` |
 | Secret Manager API | Google Cloud | `secretmanager.googleapis.com` | **NOT ENABLED.** Phase 21 enables it. Free tier verified: 6 versions, 10,000 access ops, **only 3 rotation notifications**/month |
 
 **One Neon database serves both local and production.** Migrations applied locally are already
@@ -430,6 +449,11 @@ All 15 contract variables have values; `.env.example` mirrors `CONTRACT.md`.
 `@auth/drizzle-adapter` 1.11.3 · `drizzle-orm` 0.45.3 · `drizzle-kit` 0.31.11 ·
 `@neondatabase/serverless` 1.1.0 · `zod` 4.6.5 · `@xyflow/react` 12.12.0 ·
 `tailwindcss` 4.3.3 · `typescript` 7.0.2
+
+**Phase 17 added nothing.** The Cloud Tasks adapter is one authenticated `fetch` against the REST
+API with a token from the metadata server; `@google-cloud/tasks` would have brought gRPC and its
+generated protobufs. The runtime dependency list is **still the Phase 4 one**, a sixth phase
+running.
 
 **Phase 13 added exactly one devDependency: `oxlint` 1.85.0** — the first change to this list since
 Phase 4, and a dev dependency only, so the runtime image is untouched. It was measured against the
@@ -456,6 +480,21 @@ Node's built-in runner, now with coverage thresholds that fail the build.
 npm run check          # lint + typecheck + test with coverage thresholds. Same four gates as CI
 npm run probe:models   # which Gemini models actually answer, on BOTH paths. ~1 min, real calls
 ```
+
+**Durable execution, against the deployed service** — ~6 minutes, 7 checks, added in Phase 17:
+
+```bash
+APP_BASE_URL="https://agentforge-733000675212.asia-southeast1.run.app" \
+  node --env-file=.env scripts/verify-durable.mjs all
+```
+
+It creates its own workflow through the API, runs it durably, resumes it, cancels it twice, fires
+the scheduled path, and constructs four abandoned runs to check the sweeper's mode-aware decision.
+`--interrupt` additionally deletes the serving revision mid-run. `cleanup` removes the fixture.
+**Re-run it after touching the engine, the queue or the lease** — none of those are reachable by a
+unit test, because they are properties of Postgres and Cloud Tasks rather than of the code.
+
+Note `APP_BASE_URL` must be overridden: `.env` points at `localhost:3000` for development.
 
 `npm run check` is what CI runs, so a green local run means a green pipeline. `probe:models` needs a
 key: `GEMINI_API_KEY=$(gcloud services api-keys get-key-string <key> --format='value(keyString)')` —
@@ -597,6 +636,43 @@ still documents a path known to work end to end, which is a useful smoke referen
 
 ## Recent Changes
 
+**2026-09-27 — Phase 17 complete. Runs are durable, resumable and cancellable, and two
+long-standing assumptions turned out to be wrong**
+
+- **Durable execution through Cloud Tasks, with no new runtime dependency.** `POST /runs` takes
+  `mode`: `sync` (unchanged, answers with the finished run) or `durable` (202, a `queued` run
+  executed by a delivery). Scheduled runs are always durable, which is what let the cron tick stop
+  executing its runs inline — `MAX_FIRES_PER_TICK` went **3 → 25** (D77)
+- **The lease is the correctness core, not the queue** (D78). Cloud Tasks is at-least-once, so
+  every delivery claims the run by compare-and-set before executing it. **`LEASE_MS` (180 s) sits
+  deliberately above `DEFAULT_DEADLINE_MS` (120 s)**: that ordering is what stops a live worker
+  losing its lease to a redelivery and running the same node twice
+- **Resumption is a cursor that holds the frontier and not the outputs** (D79). Outputs are already
+  one per `run_step` row, so a queue entry names the `seq` that feeds it — the cursor's size tracks
+  the graph's shape, never the data. Verified on the deployed system: a redelivery took `attempt` to
+  2 and the four already-completed steps **kept their original timestamps**
+- **`heartbeat()` became `checkpoint(cursor)`** — one `UPDATE ... RETURNING` writes the frontier,
+  extends the lease and reports back, because three writes per step would roughly triple the cost of
+  every run against ~39 spare CU-hours (D80)
+- **`reapStaleRuns` → `sweepAbandonedRuns`**, and the difference is the phase. It fails a `sync`
+  run, a durable run whose deliveries are spent, and one never delivered — and **leaves alone** a
+  durable run between deliveries, which looks identical. All four asserted on the deployed database
+- **Per-node retry and timeout** (`PRD.md` C4, Chapter 1's unbuilt S6) as a `policy` sibling of
+  `config`, absent-stays-absent so no existing workflow changed shape (D81). Proven at runtime: a
+  2 s timeout on a 10 s delay failed in **4.5 s** — 2000 + 300 backoff + 2000 — logged as
+  `This node's 2000ms timeout elapsed`, retried exactly once
+- **A cancellation path**, honest about its granularity: no further node starts, and the one in
+  flight finishes, because a request already sent cannot be recalled. The UI says exactly that
+- **`POST /api/runs/dispatch`**, the third session-less route, guarded by `CRON_SECRET` **and** a
+  192-bit per-run token, and deliberately **not** by OIDC (D82). All four guards checked against
+  the deployed service; a declined delivery answers 200 so the queue does not retry it
+- **Two measured findings that contradict this file's previous claims**, both now in *Known
+  Issues*: **Cloud Run drains** — a redeploy does *not* kill a run, and neither does deleting the
+  serving revision, which was tested and the run finished on a revision that no longer existed —
+  and a Cloud Tasks queue reporting **`PAUSED` still dispatches**
+- **`scripts/verify-durable.mjs`** — 7 deployed checks over the parts no unit test can reach, since
+  they are properties of Postgres and Cloud Tasks rather than of the code
+
 **2026-09-27 — Phase 16 complete. The canvas is rebuilt, and the layout problem is measured shut**
 
 - **The 880px canvas is gone.** Each side panel collapses to a **40px rail**, taking the canvas at
@@ -700,150 +776,34 @@ still documents a path known to work end to end, which is a useful smoke referen
 - **Coverage went up**, 87.19 → 87.81 / 90.46 → 90.56 / 78.10 → 79.71, disproving the Chapter 1
   prediction that this phase would break the function threshold
 
-**2026-09-26 — Phase 13 complete. Chapter 2 has started, and the project has CI for the first time**
-
-- **The 91.9 s agent step is closed, with numbers on both sides.** `scripts/probe-models.mjs`
-  reproduced it rather than reasoning about it: `gemini-3.5-flash-lite` answers *text* and **times
-  out on tool-calling**, which is exactly why `ai.llm` took 1.4 s and `ai.agent` took 91.9 s in the
-  same Phase 12 run. Three passes over 15 models found **only `gemini-3-flash-preview` healthy on
-  both paths every time**. Fixed in the adapter (A14): a timed-out attempt is never retried on the
-  same model, a 12 s per-attempt cap sits inside a 30 s chain ceiling, and a per-model circuit
-  breaker reorders the chain. **Before: 94.6 / 94.5 s. After: 4.2 / 4.5 / 6.0 / 7.5 / 4.6 s**
-- **The breaker reorders, it never removes.** The worst case of a wrong health reading is a
-  suboptimal order, never a refusal to call a model that would have worked
-- **Model health is surfaced** on `GET /api/settings/provider` instead of one buried warning line.
-  Verified live: it caught `gemini-3.6-flash` degraded on a real 503 and a 404 opening a breaker
-  immediately
-- **Four free-tier figures replaced with measured ones**, and two of them changed later phases.
-  Cloud Tasks bills per 32 KB chunk, so **Phase 17 must enqueue a run id, not a payload**. Secret
-  Manager allows **only 3 free rotation notifications a month**, so **Phase 21 must not subscribe to
-  them** — that would be this project's first non-zero line. Cloud Logging measured at **6.34 MB /
-  30 days, 0.0118%** of its allowance. Neon remains the binding constraint at ~39 spare CU-hours
-- **CI exists**: lint · typecheck · test+coverage · build, green in 53 s on PR #1 and on `main`
-- **`oxlint` over ESLint** (A15) — **2 packages against 305**, measured, for the same reason this
-  project has no `ai` SDK and no test framework
-- **297 → 346 tests**, with coverage thresholds that fail the build (87.19 / 90.46 / 78.10)
-- **Three real defects the work surfaced**, none of them the one the phase was scoped around:
-  zero-width spaces hidden in `cron.ts` comments; JSX built inside a `try/catch` in the workflow
-  page, which looked guarded and was not; and a rate-limited model probe reported as *"this key
-  cannot use this model"*, which sends a user to change a setting that was correct
-- **Model rotated** in the stored credential: `gemini-3.5-flash-lite` → `gemini-3-flash-preview`
-- **One `UNKNOWN — VERIFY` remains**: Neon CU-hours *consumed*. See *Manual Actions Pending* → M9
-
-
-**2026-09-26 — SUBMITTED, and the rubric turned out to be a different one**
-
-- **Submitted:** https://devpost.com/software/agentforge-kz832x. Verified on the public page rather than assumed:
-  seven story headings, video embedded in the gallery, repo and live links both present and working
-- **`UNKNOWN — VERIFY` on the category/rubric, carried since Phase 0, is RESOLVED.** One track, no
-  sub-categories, top prize **"Impact Champion"**. **Round 1 marks the PPT and pitch video**, not the
-  deployed software: problem validation, affected users, innovative and feasible solution, real-world
-  impact. Every phase to date assumed "best working product". Recorded in `CLAUDE.md` → *Context*
-- **New known issue:** the deck is mis-aimed for that rubric — asserts rather than validates the
-  problem, names no user segment, and spends its impact slide on engineering proof
-
-**2026-09-26 — pitch video published, submission copy reshaped**
-
-- **Pitch video live:** https://www.youtube.com/watch?v=Suc4RV9LnLs — 4:00, 1920×1080, narrated deck.
-  Source assets are in `presentation/`, which is **gitignored** (14 MB video, and the slides show
-  the demo account): `AgentForge-Pitch.mp4`, `AgentForge-Presentation.pdf`, `slides/*.png`,
-  `deck.html` (re-renderable), `narration.json`/`.txt`, `youtube.md` (title, description, chapters)
-- **Voiceover is Amazon Polly**, generative engine, voice `Matthew`, `us-east-1`, ~4.1k characters
-  (~$0.12). Audio normalised to −14 LUFS / −1.5 dBTP for YouTube
-- **Slides 4 and 5 are real screenshots of the deployed app**, captured through a minted session
-  (revoked afterwards), not mockups. Slide 5 is a genuine run in flight
-- **`SUBMISSION.md` restructured** around Devpost's seven `About the project` headings, between
-  paste markers, with a `Supporting reference` section for the side fields
-- **Team-size and timebox phrasing removed** from every outward- and inward-facing file at the
-  user's request, rewritten rather than deleted so the constraints still explain the decisions they
-  drove. `CLAUDE.md` *Core constraints* now reads "a fixed hackathon timebox"
-- At the time of this entry the category was still blank; it was **resolved later the same day** —
-  see the entry above. Fallback B is still un-recorded
-
-**2026-09-26 — Phase 12 complete, the project is submittable**
-
-- **Rehearsed `DEMO.md` in a real browser for the first time, and three of the eight beats did not
-  survive it.** Deployed as `agentforge-00021-v4s`
-- **Beat 6 was broken in the product**: a webhook-triggered run was **invisible** on an idle canvas,
-  because the page only opened a stream if it happened to load mid-run or the user pressed Run.
-  Measured: no status change across 9 s while a run completed behind it. **178 API checks and ten
-  clean smoke walks all passed over it** — `smoke.mjs` opens its own stream and fires 400 ms later,
-  so it proves the server streams, never that the canvas is still listening 25 s after it loaded (D59)
-- **Beat 5 was impossible as written**: it fired a `$WEBHOOK_URL` exported before the demo, for a
-  workflow that is generated *during* the demo and mints its token at creation (D41). The failure
-  mode is the nastiest available — **201, a real run on the wrong workflow, and a dead canvas**.
-  Now `scripts/demo-fire.mjs` (D58)
-- **Beat 4 edited the wrong node**: the generated Sheets node is born empty by design, so pasting the
-  spreadsheet id is the beat that *has* to happen. Rehearsing it produced the predicted failure
-  verbatim — *"This node has no spreadsheet yet."*
-- **42% of generated workflows carried an agent budget that guaranteed their own failure.**
-  `maxIterations: 1` — schema-valid, graph-valid, fatal the moment the agent calls a tool. **5 of 12
-  before, 0 of 12 after** (D57). Fixed in the prompt *and* guaranteed in `assembleGraph`
-- **Generated trigger fields vary run to run**: 8 of 20 walks declared a field a fixed payload would
-  not send, which is a 400 before the run starts. The payload is now fitted to the graph (D58)
-- **Rollback tested at last** — the oldest open item in this file. ~15 s each way, demo path clean on
-  the rolled-back revision
-- **Beat 3's legibility is a geometry problem, not a code one**: 0.39 zoom / 88 px node at 1440,
-  0.67 / 150 px at 1920. **Presenting at 1920 is worth 55% on its own**; `fitView` padding 0.3 → 0.18
-  is the other 10%
-- **Doc reconciliation found real drift**: `ARCHITECTURE.md` and `README.md` still claimed the Vercel
-  AI SDK was adopted (dropped at Phase 6, D32 wrongly said the table was fixed); `DEPLOYMENT.md` said
-  "33 checks" when it has been 178 since Phase 3; a resolved `UNKNOWN — VERIFY` had been recorded in
-  one doc and left open in two others
-- **Secret scan clean** across the working tree *and* every commit in history
-- New: `scripts/seed-demo.mjs`, `scripts/demo-fire.mjs`, `scripts/demo-payload.mjs`, `SUBMISSION.md`.
-  **No node, no dependency, no environment variable, no migration** — the registry claim holds a
-  sixth time
-
-
-Older entries pruned — **4 earlier Chapter 1 entries** are in git history (`git log --oneline`). This file is a status board, not a diary.
+Older entries pruned — **Phases 12 and 13, plus 4 earlier Chapter 1 entries**, are in git history (`git log --oneline`). This file is a status board, not a diary. Their *decisions* are not lost: every one that still binds is in *Decisions* above, and every trap learned is in *Known Issues*.
 
 ## Last Updated
 
-**2026-09-27** — **Phase 16 complete.** Revision `agentforge-00030-gv2` live and verified in a
-**real browser** on the deployed URL at **1920 / 1440 / 375 px**: the canvas renders its 6 nodes
-and 6 edges with **0 console errors or warnings**, exactly one `h1`, and no horizontal overflow at
-any width. Collapsing both panels took the canvas **880 → 1360px** and the node card **117 →
-182px**; palette search returned exactly one node for each of four queries; a run was started from
-the browser with a JSON payload and streamed per-node status live through all five status
-treatments. `npm run check` **448 passing**, coverage **88.99 / 91.46 / 82.03**. `verify-api.mjs`
-**153 / 13 / 4**, **identical to Phases 14 and 15**, and all 13 failures are the Gemini **daily**
-free-tier 429 on every model in the chain — the non-model engine checks all pass on deployed,
-including `the streamed run succeeded` and an HTTP node calling a real public API. **Re-run
-`smoke.mjs` and `verify-api.mjs` on a fresh quota day to close them.**
+**2026-09-27** — **Phase 17 complete.** Revision `agentforge-00034-54v` live, `/api/health` reporting
+`queue.configured: true` for `agentforge-runs` in `asia-southeast1`.
 
-**The canvas is now the only screen still in its Chapter 1 shape**, which is exactly what Phase 16
-is for.
+**Verified on the deployed system, not asserted.** `scripts/verify-durable.mjs all` — **7 checks,
+all passing**: a durable run is accepted 202/`queued` with no steps; Cloud Tasks delivers it and it
+completes with **every node run exactly once** and the lease released; **a redelivery resumes from
+the cursor**, taking `attempt` to 2 while the 4 already-completed steps keep their original
+timestamps; cancelling stops a run with no further node running, both while queued and while
+running; the scheduled path queues rather than executes and reports its sweep; and the sweeper's
+four-way decision is correct on constructed abandoned runs — `sync` failed, durable-with-deliveries-
+remaining **left alone**, durable-spent failed, durable-never-delivered failed.
 
-**2026-09-26** — **Phase 14 complete.** Revision `agentforge-00026-fqj` live and verified in a
-**real browser**: Toybox is the product's look, the gallery is public at **`/design`**, and the
-landing page, workflow list, settings, canvas and 404 all render coherently with **0 console
-errors**. `npm test` **369 passing**, coverage **87.81 / 90.56 / 79.71**. `verify-api.mjs`
-**153 / 13 / 4** — all 13 failures are the Gemini **daily** free-tier 429, which was already
-exhausted before this session began, and Phase 14 touched no engine, model, generation or API code.
-**Re-run `smoke.mjs` and `verify-api.mjs` on a fresh quota day to close them.**
+**Verified in a real browser** at 1440 px on the deployed URL, **0 console errors**: "Queue a run"
+returns a queued run that **streams live onto the canvas** (steps grew 4 → 5 with statuses
+transitioning), the run panel shows the `⇄ Durable` chip, the toolbar's **Stop** button appears only
+while a run is in flight, relabels itself `Stopping…`, and froze the step count at 6 before the run
+ended `Cancelled`. The inspector's **Retry and timeout** section appears on an action node and not
+on a trigger, its Backoff field appears only once retries are chosen, its worst-case line computes
+correctly, and the saved policy landed on exactly one node with the key **absent** on the other
+nine. Per-node timeout proven at runtime: 4.5 s for a 2 s timeout plus one 300 ms retry.
 
-**2026-09-26** — **Phase 13 complete.** Revision `agentforge-00023-xf4` verified:
-`verify-api.mjs` **ALL CHECKS PASSED (169 / 0 failed / 4 skipped)**, `smoke.mjs --loop 5` **5
-consecutive clean walks**, `npm test` **346 passing**, coverage **87.19 / 90.46 / 78.10**, and
-**CI green on PR #1 and on `main`** — the first CI this project has ever had.
+`npm run check` **512 passing** (448 before this phase), coverage **87.82 / 91.89 / 80.00** against
+thresholds 85 / 88 / 76. Migration `0003_omniscient_norman_osborn` applied and confirmed in
+`information_schema`; it is purely additive, so the previous revision kept serving throughout.
 
-The headline defect carried out of Chapter 1 is **closed with a measured before/after**: a 6-node
-run including the agent node went from **94.5 s to a 7.5 s worst case** over five walks. The cause
-was not what the log said. `ai.agent` and `ai.llm` were using the same model, and that model
-answered text in 1.4 s while its *tool-calling* path timed out — a distinction no amount of reading
-the code would have produced, and one `scripts/probe-models.mjs` now checks on demand.
-
-Every free-tier figure Chapter 2 was designed on is now a measured number with a date, and two of
-them changed later phases' designs. **One is still open** — Neon's *consumed* CU-hours, M9, which
-needs a browser sign-in.
-
-
-**2026-09-26 — Chapter 1 closed.** Phase 12 finished it: revision `agentforge-00021-v4s`,
-**10 consecutive clean walks** of the full demo path, `verify-api.mjs` **176 / 0 / 2**, a browser
-rehearsal of all eight beats, and the first **tested rollback**. Rehearsing in a browser found three
-beats that could not have worked as written, one of them a product bug both suites passed over — a
-webhook-triggered run invisible on an idle canvas (D59). The project was then **submitted**
-(<https://devpost.com/software/agentforge-kz832x>) with the **pitch video published**
-(<https://www.youtube.com/watch?v=Suc4RV9LnLs>). Detail for all of it is in git history; the deck's
-fit to the Round 1 rubric is in *Known Issues*, marked CLOSED because the hackathon is over.
+**Verification fixtures cleaned up**: the fixture workflow deleted through the API, its runs
+cascaded, the minted sessions revoked, 0 non-terminal runs left in the database.

@@ -101,10 +101,10 @@ mapped to the phase that delivers it. `BUILD_PLAN.md` is the contract; this is t
 
 | # | Capability | Phase | Was |
 |---|---|---|---|
-| C1 | Playful light-first design system (Toybox) | 14 | Not conceived — Chapter 1 shipped dark |
-| C2 | Full UI rebuild, shell and canvas | 15–16 | MVP styling only |
-| C3 | Durable execution, resumable runs, a real queue | 17 | Carried risk: "in-flight runs die on redeploy" |
-| C4 | Retry and timeout configuration in the UI | 17 | S6, never built |
+| C1 | Playful light-first design system (Toybox) | 14 — **DONE** | Not conceived — Chapter 1 shipped dark |
+| C2 | Full UI rebuild, shell and canvas | 15–16 — **DONE** | MVP styling only |
+| C3 | Durable execution, resumable runs, a real queue | 17 — **DONE** | Carried risk: "in-flight runs die on redeploy" |
+| C4 | Retry and timeout configuration in the UI | 17 — **DONE** | S6, never built |
 | C5 | Workflow versioning, restore, visual diff | 18 | Post-Hackathon |
 | C6 | Workspaces, membership, invitations | 19 | Post-Hackathon |
 | C7 | Roles, permissions, sharing | 20 | Post-Hackathon |

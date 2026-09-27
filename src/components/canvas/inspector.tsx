@@ -10,6 +10,7 @@ import type { GraphProblem, NodeSummary, Run, Workflow } from "@/lib/canvas/clie
 import { ConfigForm } from "./config-form";
 import { NodeIcon } from "./node-icon";
 import { Panel } from "./panel";
+import { PolicyForm } from "./policy-form";
 import { RunPanel } from "./run-panel";
 import { TriggerPanel } from "./trigger-panel";
 
@@ -53,6 +54,9 @@ export function Inspector({
   names,
   triggerInput,
   onChangeTriggerInput,
+  queueing,
+  canRun,
+  onRunDurably,
   onChangeNode,
   onDeleteNode,
   onSelectNode,
@@ -76,6 +80,11 @@ export function Inspector({
   names: Map<string, string>;
   triggerInput: string;
   onChangeTriggerInput: (value: string) => void;
+  /** A durable run is being queued right now. */
+  queueing: boolean;
+  /** Nothing is busy and no run is in flight, so starting one is possible. */
+  canRun: boolean;
+  onRunDurably: () => void;
   onChangeNode: (id: string, data: Partial<CanvasNode["data"]>) => void;
   onDeleteNode: (id: string) => void;
   onSelectNode: (id: string) => void;
@@ -120,6 +129,9 @@ export function Inspector({
           names={names}
           triggerInput={triggerInput}
           onChangeTriggerInput={onChangeTriggerInput}
+          queueing={queueing}
+          canRun={canRun}
+          onRunDurably={onRunDurably}
           onSelectNode={onSelectNode}
         />
       )}
@@ -209,6 +221,22 @@ function NodeInspector({
         {/* A trigger's URL and its next due time are workflow state, not node config,
             so they sit below the form rather than inside it. */}
         <TriggerPanel node={node} workflow={workflow} dirty={dirty} />
+
+        {/* Retry and timeout are properties of *running* a node, so they sit below its
+            configuration behind a rule of their own rather than inside the config form.
+            Hidden on a trigger: a trigger turns a payload into an output and cannot fail
+            in a way a second attempt would fix, so offering retries there would be an
+            option that does nothing. */}
+        {definition && definition.kind !== "trigger" && (
+          <>
+            <hr className="border-line-soft" />
+            <PolicyForm
+              key={node.id}
+              policy={node.data.policy}
+              onChange={(policy) => onChange(node.id, { policy })}
+            />
+          </>
+        )}
       </div>
 
       <footer className="border-line shrink-0 border-t-2 px-3 py-2.5">
@@ -231,6 +259,9 @@ function WorkflowInspector({
   names,
   triggerInput,
   onChangeTriggerInput,
+  queueing,
+  canRun,
+  onRunDurably,
   onSelectNode,
 }: {
   problems: GraphProblem[];
@@ -239,6 +270,9 @@ function WorkflowInspector({
   names: Map<string, string>;
   triggerInput: string;
   onChangeTriggerInput: (value: string) => void;
+  queueing: boolean;
+  canRun: boolean;
+  onRunDurably: () => void;
   onSelectNode: (id: string) => void;
 }) {
   return (
@@ -260,6 +294,13 @@ function WorkflowInspector({
           the canvas has to be able to supply one. */}
       <TriggerInput value={triggerInput} onChange={onChangeTriggerInput} />
 
+      {/* Durable running lives here rather than in the toolbar, and the reason is the
+          explanation. "Run" and "Run in the background" are indistinguishable as two
+          adjacent buttons — the difference is what happens when the server restarts, which
+          is not something a label conveys — and the toolbar at 375 px has no room for a
+          sentence. Here there is room, so the affordance and its meaning arrive together. */}
+      <DurableRun queueing={queueing} canRun={canRun} onRun={onRunDurably} />
+
       {run ? (
         <RunPanel run={run} live={live} names={names} onSelectNode={onSelectNode} />
       ) : (
@@ -271,6 +312,43 @@ function WorkflowInspector({
         )
       )}
     </div>
+  );
+}
+
+/**
+ * The durable-run affordance.
+ *
+ * Deliberately the quiet register (`DESIGN.md`): this is a considered choice made while
+ * reading, not the primary action. The primary Run button stays in the toolbar and stays
+ * loud.
+ */
+function DurableRun({
+  queueing,
+  canRun,
+  onRun,
+}: {
+  queueing: boolean;
+  canRun: boolean;
+  onRun: () => void;
+}) {
+  return (
+    <section className="space-y-2">
+      <h3 className="eyebrow">Run in the background</h3>
+      <p className="text-muted text-2xs leading-relaxed">
+        Hands the run to a queue instead of this request. It keeps going if the server
+        restarts or is redeployed mid-run, and picks up from the last step it finished.
+        Scheduled runs always work this way.
+      </p>
+      <button
+        type="button"
+        onClick={onRun}
+        aria-busy={queueing}
+        disabled={!canRun && !queueing}
+        className="btn btn-quiet w-full"
+      >
+        {queueing ? "Queueing…" : "Queue a run"}
+      </button>
+    </section>
   );
 }
 

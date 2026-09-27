@@ -51,31 +51,63 @@ export function RunPanel({
 }) {
   const look = runStatusLook(run.status);
   const steps = run.steps ?? [];
+  const unfinished = run.status === "queued" || run.status === "running";
 
   return (
     <section className="space-y-3">
-      <div className="card flex items-center gap-2 p-2.5">
+      <div className="card flex flex-wrap items-center gap-x-2 gap-y-1.5 p-2.5">
         <span key={run.status} className={cn("chip shrink-0", look.tone, look.motion)}>
           {look.dots ? <BobbingDots /> : <span aria-hidden="true">{look.glyph}</span>}
-          {look.label}
+          {/* A stop that has been asked for but not yet reached is neither "Running" nor
+              "Cancelled", and saying "Running" is what makes a Stop button look ignored.
+              The engine acts on it at the next step boundary, so this is literally true. */}
+          {unfinished && run.cancelRequested ? "Stopping" : look.label}
         </span>
+
+        {/* Durability is invisible otherwise, and it is the one property of a run that
+            a person cannot infer from watching it — right up until the server restarts. */}
+        {run.mode === "durable" && (
+          <span className="chip text-muted shrink-0" title="Queued: survives a restart">
+            <span aria-hidden="true">⇄</span>
+            Durable
+          </span>
+        )}
+
+        {/* Above one delivery means this run was interrupted and carried on. Worth stating
+            plainly: a run that took 40 seconds because it resumed twice is a different
+            story from one that took 40 seconds of work. */}
+        {run.attempt > 1 && (
+          <span className="chip text-muted shrink-0">
+            <span aria-hidden="true">↻</span>
+            Resumed {run.attempt - 1}×
+          </span>
+        )}
 
         <span className="text-muted ml-auto shrink-0 font-mono text-2xs">
           {run.durationMs !== null
             ? formatDuration(run.durationMs)
             : live
               ? "streaming"
-              : "in flight"}
+              : run.status === "queued"
+                ? "waiting"
+                : "in flight"}
         </span>
       </div>
 
-      {run.error && <Notice tone="bad" title="The run failed">{run.error}</Notice>}
+      {run.error &&
+        (run.status === "cancelled" ? (
+          <Notice tone="warn" title="The run was cancelled">{run.error}</Notice>
+        ) : (
+          <Notice tone="bad" title="The run failed">{run.error}</Notice>
+        ))}
 
       {steps.length === 0 ? (
         <p className="text-muted text-xs leading-relaxed">
-          {run.status === "running"
-            ? "Waiting for the first node to report."
-            : "This run recorded no steps."}
+          {run.status === "queued"
+            ? "On the queue. A worker will pick this up in a moment, and every step will appear here as it happens."
+            : run.status === "running"
+              ? "Waiting for the first node to report."
+              : "This run recorded no steps."}
         </p>
       ) : (
         <ol className="space-y-1.5">

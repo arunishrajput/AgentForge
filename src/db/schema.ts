@@ -11,7 +11,8 @@ import {
 } from "drizzle-orm/pg-core";
 import type { AdapterAccountType } from "next-auth/adapters";
 
-import type { RunStatus, StepStatus, TriggerKind } from "@/lib/engine/types";
+import type { RunCursor } from "@/lib/engine/cursor";
+import type { RunMode, RunStatus, StepStatus, TriggerKind } from "@/lib/engine/types";
 import type { StepLog } from "@/lib/nodes/types";
 import type { WorkflowGraph } from "@/lib/workflow/graph";
 
@@ -133,10 +134,32 @@ export const workflows = pgTable(
  * `ownerId` is denormalised from the workflow so every run query is owner-scoped
  * without a join, and so a run survives as a record of what happened.
  *
- * `heartbeatAt` is what makes an interrupted run observable. Execution is
- * in-process, so a Cloud Run redeploy kills a run mid-flight; nothing would ever
- * move it out of `running`. `reapStaleRuns` fails anything whose heartbeat has
- * gone quiet (ARCHITECTURE.md → "Execution engine design").
+ * `heartbeatAt` is what makes an interrupted run observable: nothing else would ever
+ * move an abandoned run out of `running` (ARCHITECTURE.md → "Execution engine
+ * design").
+ *
+ * **Phase 17 added the seven columns below `heartbeatAt`, and they are one mechanism,
+ * not seven features.** Together they answer: may this run be picked up again, by
+ * whom, from where, and should it stop?
+ *
+ *   mode               `sync` cannot be redelivered; `durable` can. This is the only
+ *                      thing that distinguishes "interrupted, lost" from
+ *                      "interrupted, will resume", and therefore the only thing that
+ *                      tells the sweeper whether failing a run is correct or a lie
+ *   cursor             the frontier to carry on from (`lib/engine/cursor.ts`)
+ *   attempt            deliveries so far, so a run that kills its container cannot
+ *                      loop for ever at the queue's expense
+ *   leaseOwner         who is executing it right now
+ *   leaseExpiresAt     until when. **This is the correctness column.** Cloud Tasks is
+ *                      at-least-once, so without a lease a redelivery would run a
+ *                      workflow twice and post two Discord messages. A claim is a
+ *                      compare-and-set against this, which is the only atomic
+ *                      primitive `neon-http` offers (D42's shape, reused)
+ *   cancelRequestedAt  somebody asked it to stop; the engine sees it at its next
+ *                      checkpoint
+ *   dispatchToken      192 bits of CSPRNG. The task carries it and the dispatch route
+ *                      demands it, so that endpoint can only ever resume a run that
+ *                      already exists — never start an arbitrary one
  */
 export const runs = pgTable(
   "run",
@@ -158,11 +181,21 @@ export const runs = pgTable(
     startedAt: timestamp("startedAt", { withTimezone: true }).notNull().defaultNow(),
     finishedAt: timestamp("finishedAt", { withTimezone: true }),
     heartbeatAt: timestamp("heartbeatAt", { withTimezone: true }).notNull().defaultNow(),
+    mode: text("mode").$type<RunMode>().notNull().default("sync"),
+    cursor: jsonb("cursor").$type<RunCursor>(),
+    attempt: integer("attempt").notNull().default(0),
+    leaseOwner: text("leaseOwner"),
+    leaseExpiresAt: timestamp("leaseExpiresAt", { withTimezone: true }),
+    cancelRequestedAt: timestamp("cancelRequestedAt", { withTimezone: true }),
+    dispatchToken: text("dispatchToken"),
   },
   (table) => [
     index("run_owner_idx").on(table.ownerId, table.startedAt),
     index("run_workflow_idx").on(table.workflowId, table.startedAt),
     index("run_status_idx").on(table.status, table.heartbeatAt),
+    // The sweeper's query: unfinished runs whose lease has lapsed. Partial would be
+    // tighter still, but Drizzle's `index()` has no `where` and the table is small.
+    index("run_lease_idx").on(table.status, table.leaseExpiresAt),
   ],
 );
 

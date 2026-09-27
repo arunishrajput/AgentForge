@@ -2,7 +2,8 @@ import { and, eq, isNotNull, lte } from "drizzle-orm";
 
 import { db } from "@/db";
 import { workflows, type Workflow } from "@/db/schema";
-import { startRun } from "@/lib/engine/run";
+import { sweepAbandonedRuns } from "@/lib/engine/lease";
+import { startDurableRun } from "@/lib/engine/run";
 
 import { nextTimeFor } from "./cron";
 import { scheduleCron } from "./schedule";
@@ -12,21 +13,26 @@ import { cronSecretMatches } from "./secret";
  * Firing due schedules — CONTRACT.md → "Trigger shapes".
  *
  * Cloud Run has no timers and scales to zero, so "every day at 09:00" is Cloud
- * Scheduler POSTing this and nothing else (ARCHITECTURE.md → "Queue — deliberately
- * none"). The route is the transport; the rules are here so they can be reasoned
+ * Scheduler POSTing this and nothing else (ARCHITECTURE.md → "Execution engine
+ * design"). The route is the transport; the rules are here so they can be reasoned
  * about without a cron job.
  */
 
 /**
  * How many due workflows one tick will fire.
  *
- * Bounded because runs are synchronous and in-process: the tick holds the request
- * open for the sum of its runs, and Cloud Scheduler abandons and retries an attempt
- * that outlives its deadline. Three runs at the engine's 120 s ceiling is 360 s,
- * inside the 540 s attempt deadline the job is created with. Anything still due is
- * picked up by the next tick — `scheduleNextAt` is in the past, so it stays due.
+ * **Phase 17 raised this from 3 to 25, and the reason is the whole point of the phase.**
+ * The old bound existed because the tick *executed* its runs: it held the request open
+ * for the sum of them, and Cloud Scheduler abandons an attempt that outlives its
+ * deadline, so three runs at the engine's 120 s ceiling was 360 s against a 540 s
+ * deadline. The tick now only *enqueues*, which costs one Cloud Tasks call each, so the
+ * bound is no longer about the engine at all — it is about not spending an unbounded
+ * number of database writes and queue operations in one request.
+ *
+ * Anything still due stays due: `scheduleNextAt` is in the past, so the next tick picks
+ * it up.
  */
-export const MAX_FIRES_PER_TICK = 3;
+export const MAX_FIRES_PER_TICK = 25;
 
 /** Re-exported so the route has one import; the implementation is in `./secret`. */
 export { cronSecretMatches };
@@ -34,11 +40,20 @@ export { cronSecretMatches };
 export interface TickOutcome {
   checkedAt: string;
   due: number;
-  fired: { workflowId: string; runId: string; status: string; scheduledFor: string }[];
+  fired: {
+    workflowId: string;
+    runId: string;
+    status: string;
+    scheduledFor: string;
+    /** False when the queue was unavailable and the tick executed the run itself. */
+    queued: boolean;
+  }[];
   /** Claimed by another tick between the select and the update. */
   skipped: string[];
   /** Due, but the schedule trigger has since gone or stopped parsing. */
   cleared: string[];
+  /** Abandoned runs closed by this tick. The sweeper's only scheduled caller. */
+  swept: number;
 }
 
 /**
@@ -89,6 +104,10 @@ export async function runDueSchedules(options: { now?: Date; signal?: AbortSigna
     fired: [],
     skipped: [],
     cleared: [],
+    // Across every owner, which no other caller does: `listRuns` sweeps only the owner
+    // asking, so a run abandoned by a user who never comes back would otherwise stay
+    // `running` for ever on nobody looking at it.
+    swept: await sweepAbandonedRuns(),
   };
 
   for (const workflow of due) {
@@ -109,7 +128,12 @@ export async function runDueSchedules(options: { now?: Date; signal?: AbortSigna
       continue;
     }
 
-    const { run } = await startRun({
+    /**
+     * Durable, always. A scheduled run is the case with nobody watching and nobody to
+     * retry it by hand, which is exactly what durability is for — and it is why the tick
+     * no longer holds its request open for the runs it fires.
+     */
+    const { run, queued } = await startDurableRun({
       ownerId: workflow.ownerId,
       workflow,
       trigger: "schedule",
@@ -126,6 +150,7 @@ export async function runDueSchedules(options: { now?: Date; signal?: AbortSigna
       runId: run.id,
       status: run.status,
       scheduledFor: scheduledFor.toISOString(),
+      queued,
     });
   }
 

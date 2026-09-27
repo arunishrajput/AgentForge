@@ -1,5 +1,7 @@
 import type { StepLog } from "@/lib/nodes/types";
 
+import type { RunCursor } from "./cursor";
+
 /**
  * The execution state machine — CONTRACT.md → "Execution state machine".
  *
@@ -7,13 +9,37 @@ import type { StepLog } from "@/lib/nodes/types";
  *   step:  running → succeeded | failed                          (both terminal)
  *          skipped is entered directly and is terminal
  *
- * A run interrupted mid-flight — the engine is in-process, so a Cloud Run redeploy
- * kills it — is left `running` with a stale `heartbeatAt`. `reapStaleRuns` moves it
- * to `failed`. Nothing may observe a run as permanently `running`
- * (ARCHITECTURE.md → "Execution engine design").
+ * `queued` was reserved for a future queue in Chapter 1 and never written. **Phase 17
+ * writes it**: a durable run is created `queued`, a Cloud Tasks delivery claims it and
+ * moves it to `running`.
+ *
+ * A run interrupted mid-flight is left `running` with a lapsed lease. What happens next
+ * depends on its `mode`, and this is the whole of Phase 17 in three lines:
+ *
+ *   sync     nothing will come back for it. The sweeper fails it.
+ *   durable  Cloud Tasks saw the delivery fail and redelivers. The next worker claims
+ *            the lapsed lease and resumes from the cursor. Only when the queue gives
+ *            up does the sweeper fail it.
+ *
+ * Nothing may observe a run as permanently `running` (ARCHITECTURE.md → "Execution
+ * engine design"). That property is unchanged; what changed is that satisfying it is
+ * no longer the same as losing the run.
  */
 export const RUN_STATUSES = ["queued", "running", "succeeded", "failed", "cancelled"] as const;
 export type RunStatus = (typeof RUN_STATUSES)[number];
+
+/**
+ * How a run is executed, and therefore what happens when it is interrupted.
+ *
+ * `sync` is Chapter 1's path, kept deliberately: the request holds open until the run
+ * finishes and returns its final state, which is what makes `POST /runs` answer with a
+ * completed run and what every script and the canvas's Run button rely on. It is the
+ * right shape for a run somebody is watching, and it cannot survive a redeploy.
+ *
+ * `durable` costs a queue round trip and survives one.
+ */
+export const RUN_MODES = ["sync", "durable"] as const;
+export type RunMode = (typeof RUN_MODES)[number];
 
 export const STEP_STATUSES = ["running", "succeeded", "failed", "skipped"] as const;
 export type StepStatus = (typeof STEP_STATUSES)[number];
@@ -43,12 +69,49 @@ export interface StepRecord {
   finishedAt: string | null;
 }
 
+/**
+ * Why the engine stopped.
+ *
+ * `interrupted` is Phase 17's addition and the only one that is not terminal: the
+ * engine put the work down without finishing it, because the run was cancelled from
+ * elsewhere or because it no longer holds the lease. The caller must **not** write a
+ * terminal status on an `interrupted` outcome — for `preempted` another worker owns
+ * the run and is mid-flight, and stamping `failed` over it would report a lie about a
+ * run that is still going.
+ */
+export type RunStop = "finished" | "interrupted";
+
 export interface RunOutcome {
-  status: Extract<RunStatus, "succeeded" | "failed" | "cancelled">;
+  /** `null` when `stop` is `interrupted`: the run's status is not this engine's to say. */
+  status: Extract<RunStatus, "succeeded" | "failed" | "cancelled"> | null;
+  stop: RunStop;
+  /** Set on an interruption: `cancelled` if a cancel was seen, `preempted` if the lease lapsed. */
+  reason: "cancelled" | "preempted" | null;
   error: string | null;
   output: unknown;
   steps: StepRecord[];
+  /** Where to carry on from. Written by the caller so a redelivery resumes here. */
+  cursor: RunCursor | null;
 }
+
+/**
+ * What a checkpoint learned about the run row it just wrote to.
+ *
+ * Both fields are read back from the *same* statement that writes the progress, so
+ * checking for a cancellation and holding the lease cost no extra query on a metered
+ * database. That is the reason this returns a value at all.
+ */
+export interface Checkpoint {
+  /** Someone asked for this run to stop. The engine finishes it as `cancelled`. */
+  cancelRequested: boolean;
+  /**
+   * This engine still owns the run. False means a redelivery claimed the lapsed
+   * lease and is executing it now — so this engine must stop touching it, silently.
+   */
+  leaseHeld: boolean;
+}
+
+export const CHECKPOINT_OK: Checkpoint = { cancelRequested: false, leaseHeld: true };
 
 /**
  * How the engine persists. An interface rather than a direct import so the engine
@@ -68,11 +131,20 @@ export interface RunRecorder {
    * it has stopped being interesting.
    */
   stepLogged?: (step: StepRecord, log: StepLog) => void;
-  heartbeat: () => Promise<void> | void;
+  /**
+   * End of a step: persist the frontier, extend the lease, and report what the run
+   * row says. This was `heartbeat()` in Chapter 1 and did one of those three things.
+   *
+   * All three in one statement is the point. A run on the free Neon tier cannot
+   * afford a poll for cancellation, a separate lease write and a heartbeat per step,
+   * so the checkpoint is a single `UPDATE ... RETURNING` whose returned row answers
+   * both questions above.
+   */
+  checkpoint: (cursor: RunCursor) => Promise<Checkpoint> | Checkpoint;
 }
 
 export const noopRecorder: RunRecorder = {
   stepStarted: () => {},
   stepFinished: () => {},
-  heartbeat: () => {},
+  checkpoint: () => CHECKPOINT_OK,
 };

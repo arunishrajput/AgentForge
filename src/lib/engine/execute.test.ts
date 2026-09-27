@@ -12,7 +12,7 @@ import {
   sequentialGraph,
 } from "./fixtures";
 
-import type { RunRecorder, StepRecord } from "./types";
+import { CHECKPOINT_OK, type RunRecorder, type StepRecord } from "./types";
 import { validateGraph } from "./validate";
 
 /**
@@ -29,7 +29,7 @@ function recording(): { recorder: RunRecorder; started: StepRecord[]; finished: 
     recorder: {
       stepStarted: (step) => { started.push({ ...step }); },
       stepFinished: (step) => { finished.push({ ...step }); },
-      heartbeat: () => {},
+      checkpoint: () => CHECKPOINT_OK,
     },
   };
 }
@@ -183,7 +183,7 @@ test("a log line written mid-node reaches the recorder before the step finishes"
     stepStarted: (step) => { events.push(`start:${step.nodeId}`); },
     stepFinished: (step) => { events.push(`finish:${step.nodeId}`); },
     stepLogged: (step, log) => { events.push(`log:${step.nodeId}:${log.message}`); },
-    heartbeat: () => {},
+    checkpoint: () => CHECKPOINT_OK,
   };
 
   const outcome = await run(

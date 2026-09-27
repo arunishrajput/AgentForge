@@ -1,6 +1,12 @@
 import type { StepLog } from "@/lib/nodes/types";
 
-import { TERMINAL_RUN_STATUSES, type RunStatus, type StepStatus, type TriggerKind } from "./types";
+import {
+  TERMINAL_RUN_STATUSES,
+  type RunMode,
+  type RunStatus,
+  type StepStatus,
+  type TriggerKind,
+} from "./types";
 
 /**
  * The SSE protocol — CONTRACT.md → "SSE event messages".
@@ -34,12 +40,24 @@ export interface StreamStep {
   finishedAt: string | null;
 }
 
-/** Wire shape of a run. The browser's `Run` is this type. */
+/**
+ * Wire shape of a run. The browser's `Run` is this type.
+ *
+ * Phase 17 added `mode`, `attempt` and `cancelRequested`. All three are things the
+ * canvas cannot infer and a person watching a run genuinely needs: whether this run can
+ * survive a deploy, whether it has already had to resume, and whether the Stop it just
+ * pressed was registered.
+ */
 export interface StreamRun {
   id: string;
   workflowId: string;
   status: RunStatus;
   trigger: TriggerKind;
+  mode: RunMode;
+  /** Deliveries so far. Above 1 means this run resumed after an interruption. */
+  attempt: number;
+  /** A stop was asked for; the engine acts on it at its next step boundary. */
+  cancelRequested: boolean;
   input: unknown;
   output: unknown;
   error: string | null;
@@ -53,6 +71,8 @@ export interface StreamRun {
 export interface StreamRunPatch {
   runId: string;
   status: RunStatus;
+  attempt: number;
+  cancelRequested: boolean;
   output: unknown;
   error: string | null;
   finishedAt: string | null;
@@ -164,14 +184,28 @@ function stepFingerprint(step: StreamStep): string {
   ].join(UNIT);
 }
 
+/**
+ * `attempt` and `cancelRequested` are in the fingerprint because both are events worth
+ * telling the client about while the status is unchanged: a run that resumed is still
+ * `running`, and so is a run that has just been asked to stop. Without them the canvas
+ * would show "Running" through both and look like it had ignored the Stop button.
+ */
 function runFingerprint(run: StreamRun): string {
-  return [run.status, run.finishedAt ?? "", run.error ?? ""].join(UNIT);
+  return [
+    run.status,
+    run.finishedAt ?? "",
+    run.error ?? "",
+    run.attempt,
+    run.cancelRequested ? "1" : "0",
+  ].join(UNIT);
 }
 
 export function runPatch(run: StreamRun): StreamRunPatch {
   return {
     runId: run.id,
     status: run.status,
+    attempt: run.attempt,
+    cancelRequested: run.cancelRequested,
     output: run.output,
     error: run.error,
     finishedAt: run.finishedAt,
