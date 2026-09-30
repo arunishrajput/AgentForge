@@ -39,8 +39,9 @@ phase is incomplete. Current position is in `PROGRESS.md`, not here.
 20  Roles, permissions and sharing                      ✅
 21  Credential vault and rotation                       ✅
 22  Observability and run analytics                     ✅
-23A Transform, control flow, templates, node docs      ← START HERE
-23B Integrations and the second provider
+23A Transform, control flow, templates, node docs      ✅
+23B SaaS integrations — Slack, Notion, GitHub, Airtable ← START HERE
+23C The database node and the second provider
 24  Documentation and open-source readiness
 25  Launch polish
 ```
@@ -1251,7 +1252,7 @@ CU-hour cost of the feature measured and recorded.
 
 ---
 
-## Phase 23 — Node catalogue and templates — **SPLIT into 23A and 23B**
+## Phase 23 — Node catalogue and templates — **SPLIT into 23A, 23B and 23C**
 
 **The split, decided 2026-09-30 at the start of the phase.**
 
@@ -1311,34 +1312,118 @@ real browser.
 
 ---
 
-## Phase 23B — Integrations and the second provider
+## Phase 23B/23C — the second split, decided 2026-10-01
 
-**Objective.** The integrations a real user expects, and a second LLM provider behind the existing
-adapter.
+**Phase 23B as written held six deliverables, and four of them share one mechanism while
+two do not.** Slack, Notion, GitHub and Airtable are each "a bearer secret and an HTTPS
+JSON API" — the pattern `lib/integrations/shared.ts` was factored for in Phase 9, whose own
+comment says a fifth integration should be "a node file and nothing else". Adding four of
+them is additive work on a settled seam.
 
-**Dependencies.** Phase 23A, and **the credentials listed in its opening manual-action block**.
+The other two are not additive. **The database node** reaches a wire protocol rather than
+an HTTPS endpoint, which raises a dependency question (`ARCHITECTURE.md` must be consulted
+before answering it) and needs its own SSRF argument, because `guard.ts` is written for
+URLs. **The second provider** changes an existing subsystem rather than extending one:
+`LLM_CREDENTIAL_KIND` is the literal `"llm.google"`, so a second provider touches the
+credential kind scheme, `resolveProvider`, the model picker, the observed-health table and
+the vault. Both are a *new mechanism behind an existing seam*; the four integrations are
+*more of an existing mechanism*.
 
-**Tasks.** Slack, Notion, GitHub and Airtable nodes. A database node. A second LLM provider behind
-`LanguageModel` (`PRD.md` S1, C12). Templates that use them.
+**So the seam is mechanism, and it is the same test that split Phase 23 itself.** 23A/23B
+divided on "does it reach a real service"; 23B/23C divides on "does it change a subsystem
+or extend one". Shipping all six together means the four that are additive wait on the two
+that are structural, and the session ends with six services half-proven instead of four
+proven.
 
-**Primary files.** `src/lib/nodes/integration/*`, `src/lib/integrations/*`, `src/lib/ai/*`.
+**What did not change:** the objective, the completion criteria, or the scope. Every node
+Phase 23 listed is still built, to the same bar. This is the third split in the ladder
+(19, 23, 23B) and the pattern is worth naming rather than repeating quietly: **the
+Chapter 2 ladder was written one phase per subject, and a subject is not a session.**
 
-**Implementation notes.** Every new credential kind needs an entry in `ROTATION_RULES` (Phase 21)
-and every new node type an entry in `PUBLISHABLE` (Phase 20) — the registry's second and third
-obligations, both asserted by tests in both directions. A node that calls a model must put the model
-id on its output as `model` and nothing else may use that field name (Phase 22's fourth obligation).
-The database node reaches an arbitrary host and therefore goes through `guard.ts`, like
-`integration.http`, and is **read-only by construction** — it is not a licence to run arbitrary SQL.
+---
 
-**Validation steps.** Every new node executes against its real service from the deployed app. Every
-new node is reachable as an agent tool and appears in generation. The second provider answers a real
-call and a real tool call.
+## Phase 23B — SaaS integrations: Slack, Notion, GitHub, Airtable
+
+**Objective.** The four integrations a real user expects after Discord and Google, added on
+a mechanism that makes the fifth one a table row rather than a copied route.
+
+**Dependencies.** Phase 23A, and **the credentials in this phase's opening manual-action
+block** — a Slack incoming webhook, a Notion internal integration token with one page and
+one database shared with it, a GitHub fine-grained PAT, an Airtable PAT with a base.
+
+**Tasks.** Slack, Notion, GitHub and Airtable nodes. A **token-credential registry** so
+each one's kind, secret shape, provider verification, rotation rule and settings copy are
+one entry in one table rather than four files apiece. One dynamic API route for connecting,
+reading and revoking them. Templates that use them.
+
+**Primary files.** `src/lib/integrations/{slack,notion,github,airtable,tokens}.ts`,
+`src/lib/nodes/integration/*`, `src/app/api/integrations/[service]/route.ts`,
+`src/components/settings/integrations-form.tsx`, `src/lib/templates/catalogue.ts`.
+
+**Implementation notes.** Every new credential kind needs an entry in `ROTATION_RULES`
+(Phase 21) and every new node type an entry in `PUBLISHABLE` (Phase 20) — the registry's
+second and third obligations, both asserted by tests in both directions. **Generate both
+from the token registry rather than hand-writing them**, so the obligations cannot be
+forgotten instead of merely failing a test. A node that calls a model must put the model id
+on its output as `model` and nothing else may use that field name (Phase 22's fourth
+obligation) — none of these four is a model call, so none of them may carry the field. Read
+each service's **current** API docs rather than recalling them: Slack cannot override a
+webhook's channel or username, and Notion's `2025-09-03` version replaced a `database_id`
+parent with a `data_source_id` that has to be resolved first.
+
+**Validation steps.** Every new node executes against its real service from the deployed
+app, and the object it created is asserted — a message in a channel, a Notion page, a
+GitHub issue, an Airtable record. Every new node is reachable as an agent tool and appears
+in generation. Each credential rotates on the deployed app. The four settings cards driven
+in a real browser.
 
 **Completion criteria.** All of the above, proven against real services, not mocks.
 
-**Documentation updates.** `CONTRACT.md`, `PRD.md`, `SECURITY.md`, `PROGRESS.md`, per-node docs.
+**Documentation updates.** `CONTRACT.md`, `PRD.md`, `SECURITY.md`, `PROGRESS.md`, per-node
+docs.
 
-**Commit.** `feat: complete phase 23b integrations and second provider`
+**Commit.** `feat: complete phase 23b slack notion github and airtable integrations`
+
+---
+
+## Phase 23C — The database node and the second provider
+
+**Objective.** A read-only database node, and a second LLM provider behind the existing
+adapter.
+
+**Dependencies.** Phase 23B. A Postgres connection string and a second provider's API key,
+both in this phase's opening manual-action block.
+
+**Tasks.** A database node. A second LLM provider behind `LanguageModel` (`PRD.md` S1,
+C12), including the credential-kind change that makes "which provider" a stored fact rather
+than a literal. Templates that use them.
+
+**Primary files.** `src/lib/integrations/*`, `src/lib/ai/*`, `src/lib/credentials/*`,
+`src/components/settings/provider-form.tsx`.
+
+**Implementation notes.** The database node reaches an arbitrary host and therefore needs
+`guard.ts`'s address classification, which is written for URLs and will have to be reached
+for a connection string instead. It is **read-only by construction** — it is not a licence
+to run arbitrary SQL, and Phase 23A's rule applies unchanged: **no expression language,
+ever**, so the query is built from enumerated parts rather than typed as text. **A new
+runtime dependency is an `ARCHITECTURE.md` decision** and must be taken as one, not assumed:
+the installed `@neondatabase/serverless` driver speaks only to Neon hosts, so "any Postgres"
+and "no new dependency" are in genuine conflict here. The second provider must not quietly
+become the default, and `llm.google` being a literal today means the migration of existing
+rows is part of the work rather than a follow-up.
+
+**Validation steps.** The database node reads a real table from the deployed app and is
+proved unable to write. The second provider answers a real call **and a real tool call** —
+the second is the one that matters, because Phase 13 found a model that answered prose in
+1.4 s and hung on tool calls. Existing `llm.google` credentials keep working across the
+change.
+
+**Completion criteria.** All of the above, proven against real services, not mocks.
+
+**Documentation updates.** `ARCHITECTURE.md`, `CONTRACT.md`, `PRD.md`, `SECURITY.md`,
+`PROGRESS.md`, per-node docs.
+
+**Commit.** `feat: complete phase 23c database node and second provider`
 
 ---
 

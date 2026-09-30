@@ -12,10 +12,14 @@ import { scheduleTrigger } from "./core/schedule-trigger";
 import { setNode } from "./core/set";
 import { switchNode } from "./core/switch";
 import { webhookTrigger } from "./core/webhook-trigger";
+import { airtableNode } from "./integration/airtable";
 import { discordNode } from "./integration/discord";
+import { githubNode } from "./integration/github";
 import { gmailNode } from "./integration/gmail";
 import { httpNode } from "./integration/http";
+import { notionNode } from "./integration/notion";
 import { sheetsNode } from "./integration/sheets";
+import { slackNode } from "./integration/slack";
 import { aggregateNode } from "./transform/aggregate";
 import { dateNode } from "./transform/date";
 import { filterNode } from "./transform/filter";
@@ -74,8 +78,12 @@ const definitions: RegisteredNode[] = [
   agentNode,
   httpNode,
   discordNode,
+  slackNode,
   sheetsNode,
   gmailNode,
+  notionNode,
+  githubNode,
+  airtableNode,
 ];
 
 const byType = new Map<string, RegisteredNode>();

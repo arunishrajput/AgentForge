@@ -312,8 +312,22 @@ separate tool definitions, no drift between "nodes that exist" and "tools the ag
 **That consequence cuts both ways, which is why `agentCallable` defaults to false.** Phase 23A added
 ten nodes and took the registry to 25; nine of them are agent-callable and one, `core.switch`, is
 not — a node whose entire output is the *edge* the run leaves through has nothing to say when called
-as a tool (D19, the same reason `core.branch` is excluded). The agent's tool list is pinned by a
-test, so widening its reach fails the build until somebody states the decision.
+as a tool (D19, the same reason `core.branch` is excluded). Phase 23B took it to **29** with Slack,
+Notion, GitHub and Airtable, all four agent-callable, and the argument for each is the same one:
+**the destination is fixed by the credential the user created, not chosen by the model.** The
+agent's tool list is pinned by a test, so widening its reach fails the build until somebody states
+the decision.
+
+**Phase 23B also found the cost of that growth, and it is in the prompt.** The catalogue is rendered
+from the registry into the generation system prompt on every call, and 29 nodes cost **~817
+characters each, measured** — 23,685 in total against a ceiling of 24,000 that Phase 23A had sized
+for 25 nodes. The rendering was examined for fat and there is none that is free (the one obviously
+droppable line, the node's `name`, is what a model copies to label the nodes it generates). So the
+ceiling was re-based to 26,000 and the test now also asserts a **per-node average**, which is the
+scale-free property and the one a person can act on. **The structural answer, when that fails again,
+is to stop sending the whole catalogue on every call** — selecting the nodes a request could
+plausibly need. That is a design change and belongs in a phase of its own, not in whichever phase
+happens to trip the ceiling.
 
 **The registry accumulates obligations, and there are five.** A node type needs an entry in
 `PUBLISHABLE` (Phase 20: what a public share link may show of it), an entry in `ROTATION_RULES` if
@@ -323,6 +337,14 @@ miscounted), a generator catalogue entry (automatic — rendered from `describeN
 if it is to explain itself in the inspector (Phase 23A). Four of the five are enforced a long way
 from the node file itself, which is why `src/lib/nodes/registry.test.ts` asserts them in one place
 and names them.
+
+**Phase 23B's answer to that accumulation was to stop relying on the tests to catch it.** A test
+that fails when an obligation is forgotten is strictly better than nothing, but an obligation that
+*cannot* be forgotten is better still. `src/lib/integrations/tokens.ts` is one table holding each
+token integration's credential kind, secret shape, provider verification, settings copy and
+rotation help — and `ROTATION_RULES`, the connect/revoke route and the settings cards are all
+derived from it. A fifth integration of that shape is one entry; there is nowhere left to forget
+the second obligation, because the row that defines the credential defines its rotation.
 
 Security boundary: the agent can call registry entries and nothing else. There is no shell tool, no
 filesystem tool, and no arbitrary-HTTP escape hatch beyond the explicit HTTP node, which is itself

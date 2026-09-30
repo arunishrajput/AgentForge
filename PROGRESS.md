@@ -14,11 +14,12 @@ Phases 0–12 built and shipped a hackathon MVP. It was submitted on 2026-09-26
 (<https://www.youtube.com/watch?v=Suc4RV9LnLs>), and that chapter is done and not reopened.
 
 **Chapter 2 turns the MVP into a real, professional, open-source product.** Thirteen phases,
-13 → 25, defined in `BUILD_PLAN.md`. **Phases 13–22 are done, and 23A with them** (19 was split into
-19A and 19B; **23 is now split into 23A and 23B** — see *Current Phase*). **Phase 23B is next.**
+13 → 25, defined in `BUILD_PLAN.md`. **Phases 13–22 are done, and 23A and 23B with them** (19 was
+split into 19A and 19B; **23 is split into 23A, 23B and 23C** — see *Current Phase*).
+**Phase 23C is next.**
 
 **The live system still works and must keep working:**
-**https://agentforge-733000675212.asia-southeast1.run.app** — revision `agentforge-00051-252`.
+**https://agentforge-733000675212.asia-southeast1.run.app** — revision `agentforge-00053-hn6`.
 
 ### Four binding decisions, made 2026-09-26
 
@@ -53,72 +54,84 @@ ceiling costing something looks like, and `SECURITY.md` states the protection gi
 
 ## Current Phase
 
-## ▶ NEXT: PHASE 23B — Integrations and the second provider
+## ▶ PHASE 23B — BLOCKED ON M10. Then PHASE 23C.
 
-**Phase 23A is COMPLETE (2026-09-30), on `agentforge-00051-252`.** Full definition of 23B in
-`BUILD_PLAN.md`. Read `CONTRACT.md` → *Node definition interface* before touching the registry —
-**it now carries five obligations**, and `src/lib/nodes/registry.test.ts` asserts all of them in one
-place.
+**Phase 23B is built, deployed and verified as far as it can be without the user**, on
+`agentforge-00053-hn6`. It is **not complete**, and the distinction matters: the phase's own
+completion bar is *"proven against real services, not mocks"*, and four of those proofs need an
+account only the user can create. See **M10** in *Manual Actions Pending* — it is one block listing
+all four credentials, and the resume path is one command.
 
-**Phase 23 was split at the start of the session, and the seam is the completion bar.** Phase 23's
-own criterion is *"proven against real services, not mocks"*. Transform nodes, node documentation
-and a template gallery reach no service and were provable the day they were written. Slack, Notion,
-GitHub, Airtable, a database node and a second LLM provider each need **an account and a credential
-only the user can create** — so shipping them together would have parked a finished half inside a
-phase marked `BLOCKED` behind six manual actions. 23B now opens with **one** manual-action block
-listing every credential at once.
+**What is proved, on the deployed service:** 39 checks in `verify-integrations.mjs`, 404 in
+`verify-api.mjs`, 45 in `verify-templates.mjs`, `verify-vault.mjs` all-pass, and 898 unit tests with
+coverage above all three thresholds. A **real browser** at 1440 and 375 px drove all four settings
+cards, and submitting a deliberately fake Slack webhook went **all the way to api.slack.com**, which
+answered `no_team`; the classification table turned that into "Slack could not identify the
+workspace for that webhook" on screen, and nothing was stored. That is a real-service proof of
+Slack's *failure* path. What is missing is the *success* path, four times.
 
-**What 23A leaves you:**
+**What 23B leaves you:**
 
-- **The registry is 25 nodes.** `core.switch` plus nine `transform.*` nodes. The nine transform
-  nodes are `agentCallable`; `core.switch` is not, for the same reason `core.branch` is not (D19)
-- **Two rules a new node must follow**, both in `CONTRACT.md`: a node returning a list returns
-  `{ items, count }` and reads config → bare array → `input.items`, which is what makes filter →
-  sort → unique → aggregate chain with nothing between them; and **no expression language, ever** —
-  fixed `z.enum` operator sets, a literal `replaceAll` rather than a compiled pattern, and
-  `readPath` refusing `__proto__`, `constructor` and array methods
-- **`docs` is the fifth registry obligation** — long-form help for a *person*, rendered in the
-  inspector behind a `<details>`. Deliberately not `description`, which the model reads verbatim; a
-  test asserts the two are never the same string
-- **Templates are graph literals in `src/lib/templates/catalogue.ts`, not rows.** No table, no seed
-  migration, nothing to bootstrap, and `templates.test.ts` **executes** every template that reaches
-  no service through the real engine. A node renamed in 23B fails the build here rather than
-  breaking a gallery card months later. `reachesNoService()` is derived from the node types, not
-  declared, so it cannot drift
-- **`/templates` costs no database query at all** — it reads two module constants. Nothing added
-  here may start polling or aggregating on a schedule; that is still what the whole zero-cost
-  position rests on
+- **The registry is 29 nodes.** `integration.slack`, `.notion`, `.github`, `.airtable`, all four
+  agent-callable. The D19 argument is the same each time and it is worth knowing in one line:
+  **the destination is fixed by the credential the user created, not chosen by the model** — a
+  Slack webhook cannot be re-pointed, a Notion integration sees only pages a human connected, and a
+  fine-grained GitHub or Airtable token reaches only what it was minted against
+- **`src/lib/integrations/tokens.ts` is the table a fifth integration is one row in.**
+  `ROTATION_RULES`, the `/api/integrations/[service]` route and the settings cards are all *derived*
+  from it. Phase 9's comment promised "a node file and nothing else" and was only true of the node;
+  this is what makes it true of the rest. **Membership is a criterion**: a bearer secret the user can
+  paste, which one HTTPS request can prove. Discord and Google are deliberately outside it
+- **Two fields, `secretLabel` and `secretNoun`**, because the first version derived the second with
+  `.toLowerCase()` and shipped "Slack incoming webhook url" into the vault
+- **The four services' API shapes were read, not recalled**, and two of them would have been wrong
+  from memory: Slack **cannot** override a webhook's channel *or username* (so the node has no
+  `username` field, unlike Discord's), and Notion's `2025-09-03` version **refuses**
+  `parent: { database_id }` — a data source has to be resolved first, which costs one extra GET per
+  database write and is why the user can still paste the id they can actually see
 
-**Three defects were found and fixed, and two of them were mine.**
+**Three defects were found, and two were mine.**
 
-1. **`core.branch` had no `outputShape`** — a genuine D38 gap open since Phase 3. It has produced
-   `{ matched, input }` for twenty-two phases and never said so, so a generated graph reading
-   `{{steps.branch.output}}` got an object where it meant a boolean. Found by the new registry test
-   requiring one on every non-passthrough node; visible only because its new sibling `core.switch`
-   had one
-2. **The shell header overflowed the viewport, and my fourth nav link widened it.** The bar is
-   capped at `max-w-5xl`, so it is **1024 px wide at every viewport above that** — the space is a
-   fixed budget, not a growing one. Adding *Templates* pushed the contents to ~1062 px of a 976 px
-   content box, and the workspace switcher, as the only item carrying `min-w-0`, absorbed the entire
-   deficit and collapsed from ~200 px to **19 px**, rendering the workspace name as "A…". The nav
-   also overflowed the *page* between 640 px and 1000 px — **which it already did with three links**
-   (839 px against a 768 px viewport), so the link widened a broken range rather than creating one.
-   Fixed by moving the nav to `lg:flex` and dropping the inline account email at `lg`, where the
-   nav takes the room; the email moved into the account menu so nothing was lost. Measured clean at
-   ten widths from 375 px to 1920 px
-3. **`api.useTemplate` was a lint error, not a style question** — React 19 has a `use()` hook and
-   the hooks rule reads any `use*` call inside a function as one. Renamed `cloneTemplate`
+1. **`normaliseId` ate the end of any Notion id whose page title ended in hex letters.** It stripped
+   every `-` before matching 32 hex characters, so `…/Cafe-1f2e…` started the window at the `e` of
+   "Cafe" and dropped the id's last digit — producing a **well-formed id for a page that does not
+   exist**, and a 404 that reads like a permissions problem. "Cafe", "Decade", "Facade", "Deadbeef"
+   all trigger it. Fixed by splitting the slug off structurally instead of by pattern
+2. **`rotationRule` resolved inherited properties** — a pre-existing hole from Phase 21, not this
+   phase's. `POST /api/credentials/toString/rotate` found `Object.prototype.toString`, walked past
+   the route's own 404 and answered **500 where 404 belonged**. It failed closed and wrote nothing,
+   which is why it survived unnoticed; it surfaced only because Phase 23B builds that table with a
+   spread, which changed the wrong answer's *shape*. Fixed with `Object.hasOwn`
+3. **Two standing tests used `integration.slack` as their example of "a type that does not exist".**
+   Both passed for six phases and then, the moment the node was registered, asserted the opposite of
+   their own names. Replaced with an identifier nobody would build
 
-**The lesson Phase 22 wrote down held again, and cost two extra deploys.** Both UI defects were
-invisible to 37 passing deployed API checks and to 852 passing unit tests. Only
-`getBoundingClientRect` on the elements themselves, at a width nobody had thought to look at,
-showed them — and the second was found **only because the first fix prompted a check of the width
-that was not being changed**. Measure the widths you are not touching.
-
-**Do not start Phase 24 in the same session as 23B.** One phase per session still holds; `/clear`
-between.
+**One measurement worth carrying forward: the generation prompt is at 23,685 characters for 29
+nodes — ~817 each.** The ceiling was 24,000, sized in 23A for 25 nodes, leaving 315 characters. The
+rendering was examined and there is no fat that is free, so the ceiling was re-based to 26,000 and
+the test now also asserts a **per-node average**, which is the property a person can act on. **When
+that fails again the answer is to stop sending the whole catalogue on every call** — that is a
+design change and deserves its own phase, not whichever phase trips the ceiling.
 
 ---
+
+## Then: PHASE 23C — the database node and the second provider
+
+Full definition in `BUILD_PLAN.md`. Both are **new mechanisms behind an existing seam**, which is
+why they are not in 23B — see *Phase 23B/23C, the second split*.
+
+Two things to decide deliberately rather than drift into:
+
+- **The database node needs a dependency decision.** The installed `@neondatabase/serverless` speaks
+  only to Neon hosts, so "any Postgres" and "no new dependency" are in genuine conflict. Read
+  `ARCHITECTURE.md` before answering, and note that `guard.ts` is written for URLs — a connection
+  string needs its address classification reached a different way
+- **`LLM_CREDENTIAL_KIND` is the literal `"llm.google"`.** A second provider makes "which provider"
+  a stored fact, so migrating existing rows is part of the work, not a follow-up
+
+It needs a Groq (or other) API key and a Postgres connection string — flagged to the user alongside
+M10 so both sittings can be one.
+
 
 ## Completed Phases
 
@@ -154,7 +167,8 @@ between.
 | **21** — credential vault and rotation | **COMPLETE** — envelope encryption under a Secret Manager root key, all three rotations proved on the deployed URL by `verify-vault.mjs` (61 checks), and the vault driven in a real browser at 1440 and 375 px, 2026-09-30 |
 | **22** — observability and run analytics | **COMPLETE** — `verify-observability.mjs` ALL CHECKS PASSED against the deployed URL, including every analytics figure recomputed independently from SQL and an induced failure traced end to end **through Cloud Logging with the database never opened**; four log-based metrics created and all four confirmed collecting real points; the model-fallback metric caught a live degradation within minutes of existing; driven in a real browser at 1440 / 1024 / 375 px with zero console errors, 2026-09-30 |
 | **23A** — transform, control flow, templates, node docs | **COMPLETE** — registry 15 → 25, six templates, per-node docs in the inspector. `verify-templates.mjs` **37 checks ALL PASSED** against the deployed URL, including the template's arithmetic recomputed exactly and `transform.date` proved to have full ICU time-zone data in the container; the gallery, a clone, a canvas run and the docs disclosure driven in a real browser, and the header measured clean at **ten widths from 375 to 1920 px** after two regressions were found there, 2026-09-30 |
-| **23B** — integrations and the second provider | **NOT STARTED ← next** |
+| **23B** — SaaS integrations: Slack, Notion, GitHub, Airtable | **BLOCKED — WAITING FOR MANUAL ACTION (M10).** Everything is built, deployed and verified *except the one thing the phase is judged on*: its completion bar is "proven against real services, not mocks", and four success paths need credentials only the user can create. Built and proved: registry 25 → 29, four credential kinds derived from one table, four templates, `verify-integrations.mjs` **39 passed / 0 failed / 4 skipped**, `verify-api.mjs` **404/404**, `verify-templates.mjs` **45/45**, `verify-vault.mjs` all-pass, four settings cards driven in a browser at 1440 and 375 px, and a bad Slack webhook driven end to end to **real Slack**. 2026-10-01 |
+| **23C** — the database node and the second provider | **NOT STARTED ← next** |
 | **24** — documentation and open-source readiness | NOT STARTED |
 | **25** — launch polish | NOT STARTED |
 
@@ -168,17 +182,17 @@ between.
 | **Canonical URL** | **`https://agentforge-733000675212.asia-southeast1.run.app`** |
 | Legacy URL | `https://agentforge-i5d2u66boa-as.a.run.app` — works, do not publish it |
 | Service | `agentforge` on Cloud Run, `asia-southeast1` |
-| Revision | **`agentforge-00051-252`** — ready, **`latestRevision: True`**, 100% of traffic (Phase 23A). **Phase 23A took FOUR deploys, and the two that mattered were both the header**: `-00048-hsb` shipped the feature, `-00049-ld9` moved the nav to `lg` after a browser found the page scrolling sideways between 640 and 1000 px, `-00050-z54` freed the width the workspace switcher had been collapsing into, and `-00051-252` redeployed the committed tree after a comment-only correction, so **what is running is exactly what is in git**. Previous good revisions: `agentforge-00047-w65` (Phase 22), `agentforge-00046-w7b`, `agentforge-00045-jj4`, `agentforge-00044-zmx` (all Phase 21), `agentforge-00043-nn2` (Phase 20, second), `agentforge-00042-5zx` (Phase 20, first), `agentforge-00041-75x` (Phase 19B). Earlier: `agentforge-00037-k7x` (19A), `agentforge-00035-vfd` (18), `agentforge-00034-54v` (17), `agentforge-00030-gv2` (16). **`00032` and `00033` were deliberately deleted** during Phase 17's verification, testing whether deleting a serving revision kills its in-flight request — it does not. Rollback was tested against `agentforge-00020-rcr` |
+| Revision | **`agentforge-00053-hn6`** — ready, **`latestRevision: True`**, 100% of traffic (Phase 23B). **Phase 23B took TWO deploys and only one of them was the feature**: `-00052-8xs` shipped it and passed every check, and `-00053-hn6` redeployed the committed tree after a whitespace-only correction, so **what is running is exactly what is in git** — the same closing move Phase 23A made. No defect reached the deployed service: both were found by the unit suite the moment the test was written. Previous good revisions: `agentforge-00051-252` (23A), `agentforge-00047-w65` (22), `agentforge-00046-w7b`, `agentforge-00045-jj4`, `agentforge-00044-zmx` (21), `agentforge-00043-nn2`, `agentforge-00042-5zx` (20), `agentforge-00041-75x` (19B). Earlier: `agentforge-00037-k7x` (19A), `agentforge-00035-vfd` (18), `agentforge-00034-54v` (17), `agentforge-00030-gv2` (16). **`00032` and `00033` were deliberately deleted** during Phase 17's verification, testing whether deleting a serving revision kills its in-flight request — it does not. Rollback was tested against `agentforge-00020-rcr` |
 | Scaling | `min-instances 1`, `max-instances 3`, 1 vCPU / 1 GiB, 3600 s timeout, port 8080 |
 | Env vars set | `NODE_ENV` `AUTH_URL` `APP_BASE_URL` `DATABASE_URL` `AUTH_SECRET` `GOOGLE_CLIENT_ID` `GOOGLE_CLIENT_SECRET` `ENCRYPTION_KEY` `CRON_SECRET` `TASKS_QUEUE` `TASKS_LOCATION` **`ROOT_KEY_SECRET`** — **12 now. Phase 21 added the last one**, naming the Secret Manager secret that holds the root key. Unset it and the service silently falls back to `ENCRYPTION_KEY` as the root key, which is the Chapter 1 problem back without the Chapter 1 warning — hence `rootKey.provider` on `/api/health`. **`GCP_ACCESS_TOKEN` and `GCP_PROJECT` are script-only and must never be set here**: they exist so `scripts/rekey.mjs` can reach Secret Manager from a machine with no metadata server, and an access token in a service env var is a long-lived credential in a place that survives restarts. Phase 20 added none (a share link is built from `APP_BASE_URL`); Phase 19B added none (an invitation link likewise, and there is no mail provider); **Phase 17 added `TASKS_QUEUE` and `TASKS_LOCATION`** — `TASKS_PROJECT` is deliberately unset, because the project comes from the metadata server, which cannot be wrong the way a copied variable can. All were added with `--update-env-vars`, which **merges**, rather than `--env-vars-file`, which replaces the whole set. No Gemini key on the service: the product path is the user's own key |
-| Database | Neon `super-mountain-39872886` — **13 tables**, migrations `0000`–`0009` applied, ~10 MB of 0.5 GB. **Phase 23A added no migration, no table and no column**, by design rather than by luck: templates are graph literals in `src/lib/templates/catalogue.ts`, so the gallery costs no row, no seed step and nothing for a new deployment to bootstrap — and a test executes them, so they cannot rot. Phase 22 added none either. Earlier migrations are unchanged — see `DEPLOYMENT.md` for `0009` (the vault, and the only rollback in this project that can destroy data), `0008` (sharing), `0007` (invitations), `0005`/`0006` (workspaces, deliberately in two halves), `0004` (versioning) |
-| Routes | `/` `/dashboard`→`/workflows` `/workflows` `/workflows/[id]` **`/templates`** `/analytics` `/settings` `/design` `/invite/[token]` `/s/[token]` + **39** API routes. **Phase 23A added one page and two API routes**: `GET /api/templates` (`viewer`) and `POST /api/templates/:id` (`editor`), which clones by calling the ordinary `createWorkflow` so a cloned template gets its workspace scoping, owner, version 1 and webhook token from the one path every workflow uses. **`/templates` opens no database connection at all** — it reads two module constants, which makes it the cheapest route in the product. **No new unauthenticated surface**: still exactly four. Phase 22 added `GET /api/analytics` and `/analytics`; Phase 21 added four routes and the Vault tab; Phase 20 added two routes, one method and `/s/[token]`; Phase 19B added nine routes and the accept page; Phase 18 added four under `/api/workflows/[id]/versions`; Phase 14 added `/design`, public and prerendered |
+| Database | Neon `super-mountain-39872886` — **13 tables**, migrations `0000`–`0009` applied, ~10 MB of 0.5 GB. **Phase 23B added no migration, no table and no column**, and that is the `credentials` table's design working as intended: a new credential kind is a new `kind` string in the existing row shape, sealed by the existing envelope and rotated by the existing route. Phases 23A and 22 added none either. See `DEPLOYMENT.md` for `0009` (the vault, and the only rollback in this project that can destroy data), `0008` (sharing), `0007` (invitations), `0005`/`0006` (workspaces, deliberately in two halves), `0004` (versioning) |
+| Routes | `/` `/dashboard`→`/workflows` `/workflows` `/workflows/[id]` `/templates` `/analytics` `/settings` `/design` `/invite/[token]` `/s/[token]` + **40** API routes. **Phase 23B added exactly one**: the dynamic `/api/integrations/[service]`, serving connect, read and revoke for all four new credentials rather than twelve handlers across four files. **A static segment beats a dynamic one**, so `/api/integrations/discord` still reaches its own file — asserted over HTTP by `verify-integrations.mjs`, because that is documented for the Pages router and merely conventional for the App one. A slug the registry does not hold is a 404, and so is `__proto__`. **No new unauthenticated surface**: still exactly four. Phase 23A added `/templates` and two API routes; Phase 22 added `GET /api/analytics` and `/analytics`; Phase 21 added four routes and the Vault tab; Phase 20 added two routes, one method and `/s/[token]`; Phase 19B added nine routes and the accept page; Phase 18 added four under `/api/workflows/[id]/versions`; Phase 14 added `/design`, public and prerendered |
 | Latency | **Warm**: health ~190 ms India → Singapore, database 7–11 ms. A 6-node demo-path run **4.2–7.5 s** end to end across five consecutive walks (Phase 13; it was 3.1–4.8 s in Chapter 1 when the model answered first time, and **94.5 s** when it did not — that second case is what Phase 13 removed). Generation 2.7–3.5 s. **Cold (Neon suspended)**: health **1.14 s, of which 739 ms is the database wake** — re-measured 2026-09-26 at 917 ms for a first query, 103 ms on the next. Cloud Run itself is never cold at `min-instances 1` | **Analytics, Phase 22: 21–27 ms of database time per page view** on 46 runs and ~200 steps, three statements, measured on the deployed service. The page is server-rendered and does not poll |
-| Last verified | **2026-09-30, after Phase 23A.** On **`agentforge-00051-252`**: `verify-templates.mjs` **37 checks, ALL PASSED** — the deployed registry serving 25 nodes with their `docs` intact over the wire, all six templates cloning and validating, `rank-and-report` run through the deployed engine with its arithmetic recomputed exactly (`4 of 5 scored over 50: Katherine, Ada, Grace, Edsger`), all three `core.switch` branches proved to route and skip correctly, and `transform.date` proved to have **full ICU time-zone data in the container** (a slim Node image ships `small-icu`, where `Europe/London` would have silently failed). `verify-api.mjs` **393 passed, 0 failed, 4 skipped — ALL CHECKS PASSED**, so nothing regressed. In a **real browser**: the gallery, a clone, the canvas, a live run streaming its exact log line to the page, and the inspector's docs disclosure; plus the header measured with `getBoundingClientRect` at **ten widths from 375 to 1920 px**, zero overflow and zero overlaps, after two regressions were found there |
+| Last verified | **2026-10-01, after Phase 23B.** On **`agentforge-00053-hn6`**: `verify-integrations.mjs` **39 passed, 0 failed, 4 skipped** — the deployed registry serving 29 nodes with `docs` over the wire, all four new nodes agent-callable and declaring an output shape and none carrying a `model` field, `/api/integrations/discord` proved still to beat the new dynamic route, `__proto__`/`toString`/`constructor` all 404, every status response proved to carry no part of a secret, a Slack webhook on another host refused before storage, all four new templates cloning and validating, and **a real model call generating a graph that reached for `integration.slack`**. `verify-api.mjs` **404 passed, 0 failed, 4 skipped**; `verify-templates.mjs` **45/45**; `verify-vault.mjs` all-pass after the rotation table changed. Local: **898 tests**, coverage **87.91 / 90.68 / 79.39**, all three thresholds cleared without moving them. In a **real browser** at 1440 and 375 px: all four settings cards, zero horizontal overflow and zero elements past the viewport at 375 px, and a deliberately fake Slack webhook submitted through the card's own form — the deployed app reached **api.slack.com**, Slack answered `no_team`, the right sentence reached the screen, nothing was stored. **The four success paths are NOT verified: that is M10** |
 | Rollback | **TESTED 2026-09-26, finally.** Traffic shifted to `agentforge-00020-rcr` in **~15 s**, health confirmed the older revision was serving, the demo path walked clean on it, then `--to-latest` restored `agentforge-00021-v4s` in ~15 s. The oldest open item in this file is closed |
 | Billing | Trial credit account `Billing - AgentForge` is **open and enabled**. Actual spend is **not queryable from the CLI** (no billing export configured) — **eyeball it in the console once before judging** |
 | Provider key stored | **Yes**, and the model was **rotated in Phase 13** from `gemini-3.5-flash-lite` to **`gemini-3-flash-preview`** — the only model healthy on both the text and tool-calling paths in all three probe passes. Confirmed persisted in Neon. Re-probe with `npm run probe:models` |
-| Registry | **25 nodes** — Phase 23A took it from 15, adding `core.switch` and nine `transform.*` nodes, the first registry growth since Phase 9. A node type owes **five** things now: an entry in `PUBLISHABLE` (Phase 20), an entry in `ROTATION_RULES` if it carries a credential kind (Phase 21), an output field named `model` **only** if it really is a model call (Phase 22, which counts them by reading the step's JSONB), a generator catalogue entry (automatic, from `describeNodes()`), and `docs` to explain itself in the inspector (Phase 23A). `src/lib/nodes/registry.test.ts` asserts all five in one place, and the `PUBLISHABLE` and agent-tool tests both failed the moment the ten nodes were registered — which is the obligations working as designed |
+| Registry | **29 nodes** — Phase 23B added `integration.slack`, `.notion`, `.github` and `.airtable` to Phase 23A's 25, all four agent-callable, each bounded by the credential the user created rather than by a check here. A node type owes **five** things: an entry in `PUBLISHABLE` (Phase 20), an entry in `ROTATION_RULES` if it carries a credential kind (Phase 21), an output field named `model` **only** if it really is a model call (Phase 22, which counts them by reading the step's JSONB), a generator catalogue entry (automatic, from `describeNodes()`), and `docs` to explain itself in the inspector (Phase 23A). `src/lib/nodes/registry.test.ts` asserts all five. **Phase 23B made the second one impossible to forget rather than merely tested**: `ROTATION_RULES` spreads `src/lib/integrations/tokens.ts`, so the row that defines a credential defines its rotation. **29 nodes cost 23,685 characters of generation prompt, ~817 each** — see *Current Phase* |
 | Fonts | **Geist + Geist Mono, self-hosted by `next/font`**, `latin` subset, variable axis. Two woff2 files in the image; no request leaves the browser for a font and there is no layout shift |
 
 **A redeploy preserves env vars.** Confirmed again on Phase 6's three deploys: `gcloud run deploy
@@ -324,6 +338,9 @@ Carried forward from every phase. These are the decisions later sessions must no
 
 | Issue | Impact | Action |
 |---|---|---|
+| **A table indexed by a URL path segment must be own-property only** | A 500 where a 404 belonged, live since Phase 21 | **Phase 23B, and it was found by a test written for something else.** `rotationRule(kind)` indexed a plain object, so `POST /api/credentials/toString/rotate` resolved `Object.prototype.toString` — truthy — walked past the route's own 404 and answered 500. It **failed closed and wrote nothing**, which is precisely why nobody noticed for two phases: the damage was to the error, not to the data. It surfaced only because Phase 23B builds that table with a spread, which changes `__proto__` from `Object.prototype` to a null-prototype object and made the wrong answer a *different shape*. `getNode` has used a `Map` since Phase 3 for exactly this reason. Fixed with `Object.hasOwn`, asserted for three prototype keys on both routes against the deployed service |
+| **A test whose example of "does not exist" later starts existing asserts nothing** | Two tests passed for six phases while checking the opposite of their names | **Phase 23B.** `generate.test.ts` and `credentials.test.ts` both used `integration.slack` as a stand-in for an unregistered type; registering the node made "output naming a node type that does not exist is rejected" a test that rejected nothing. **The failure is silent by construction** — a green test. Both now use an identifier nobody would build. Worth a glance whenever a phase registers something: search the suite for the new name before adding it |
+| **Lower-casing a user-facing string is wrong exactly as often as it holds an acronym** | "Slack incoming webhook url" in the vault and in three error messages | **Phase 23B.** `secretLabel.toLowerCase()` built the vault's title and two refusals. Replaced with a second explicit field, `secretNoun`, so each string is authored for where it is used. A test asserts the acronym survives. The general rule: derive prose from prose only when the transformation is total |
 | **A route that wraps its whole body in an error mapper destroys every deliberate refusal underneath it** | Four refusals came back as one 500 | **Phase 21, found by `verify-vault.mjs` and by nothing else.** `POST /api/credentials/:kind/rotate` wrapped `rotateCredential` in `integrationApiError`, so an unknown kind (404), a Google connection explaining a refresh token cannot be typed (400), and a key the provider had rejected (400) all answered *"Something went wrong saving this The provider connection."* **A route's error mapping is invisible to the unit suite**, because `lib/api.ts` imports `@/auth`, which the test runner cannot load. Fixed at the mapper (D109) with a test that fails without it |
 | **An arbitrary-value colour can apply its utility and silently drop its opacity modifier** | A quiet log list was separated by full-strength ink rules | **Phase 21, found in a browser with `getComputedStyle`.** `divide-[--color-line]/40`: `divide-y` gave `border-bottom-width: 1px`, and the `/40` never arrived, so the colour was full ink where `line-soft` (alpha 0.16) was meant. The class was in the DOM, the build passed, and no test in this repository could see it. **`divide-line-soft` already existed for exactly this.** Reach for the token the system has rather than an arbitrary value that looks equivalent — `DESIGN.md` → *Traps* |
 | **An empty state is a different sentence, not the same sentence with nothing under it** | The vault told a workspace with no secrets how "every secret below" was encrypted | **Phase 21, in a browser, in an editor's empty workspace.** Two defects in one screen: that paragraph, and a "Not connected" list that offered a way to connect for **one kind out of three** because it read `reconnectHref` — a field only a `reconnect` credential has. **Naming something missing without saying where to get it is worse than not listing it.** Every rule now carries a `connectHref` and a test asserts it |
@@ -406,7 +423,70 @@ Carried risks, recorded so they are not rediscovered:
 
 ## Manual Actions Pending
 
-**One outstanding: M9.** M1–M8 are all done and verified with live calls.
+**Two outstanding: M10 (blocking) and M9 (blocking nothing).** M1–M8 are all done and verified with
+live calls.
+
+### M10 — four integration credentials — **OPEN, and it is what blocks Phase 23B**
+
+**Why.** Phase 23B's completion bar is *"proven against real services, not mocks"*. The code is
+written, deployed and verified everywhere it can be without an account; what is left is four success
+paths that cannot be faked. `verify-integrations.mjs` currently reports **4 skipped**, and skipped is
+not passed.
+
+**Do not paste any of these into the chat.** They go in the local `.env`, which is gitignored — the
+same handling `DISCORD_WEBHOOK_URL` has had since Phase 9. `.env.example` documents all nine
+variables under *Phase 23B integrations*, including why they are script-only and must never be set on
+the Cloud Run service.
+
+**Location and steps.**
+
+1. **Slack** — <https://api.slack.com/apps> → *Create New App* → *From scratch* → name it, pick your
+   workspace → *Incoming Webhooks* → toggle **Activate** on → *Add New Webhook to Workspace* → pick a
+   channel → *Allow* → copy the URL.
+2. **Notion** — <https://www.notion.so/profile/integrations> → *New integration*, type **Internal** →
+   copy the *Internal Integration Secret*. Then **in Notion**, open a page and a database and use
+   `…` → *Connections* → connect it to each. **This step is the one people skip**, and without it
+   every run reports a 404 about a page that plainly exists. Copy each id: the 32-hex chunk in the
+   URL, before any `?`.
+3. **GitHub** — <https://github.com/settings/personal-access-tokens/new> → *Only select
+   repositories*, pick **one** you do not mind test issues in → *Repository permissions* → **Issues:
+   Read and write** → generate.
+4. **Airtable** — <https://airtable.com/create/tokens> → scopes **data.records:read** and
+   **data.records:write** → add the base → create. The table needs **at least one existing row**, so
+   the script can learn a real column name instead of guessing one.
+
+**Values to enter** — append to `.env`:
+
+```bash
+SLACK_WEBHOOK_URL=https://hooks.slack.com/services/T.../B.../...
+NOTION_TOKEN=ntn_...
+NOTION_PAGE_ID=<32-hex id of the page you connected>
+NOTION_DATABASE_ID=<32-hex id of the database you connected>
+GITHUB_TOKEN=github_pat_...
+GITHUB_REPO=<owner>/<repo>
+AIRTABLE_TOKEN=pat...
+AIRTABLE_BASE_ID=app...
+AIRTABLE_TABLE=<the exact table name>
+```
+
+**Expected result.** Nine lines in `.env`. In Notion, the page and the database each show the
+integration under *Connections*.
+
+**Verification** — this exact command, which must report **0 skipped**:
+
+```bash
+APP_BASE_URL="https://agentforge-733000675212.asia-southeast1.run.app" \
+  node --env-file=.env scripts/verify-integrations.mjs
+```
+
+It will leave a Slack message, a Notion page and a GitHub issue behind on purpose, and name them.
+
+**Resume by:** saying "credentials are in .env". **Phase 23C also wants a Groq API key
+(<https://console.groq.com/keys>) and any Postgres connection string** — worth doing in the same
+sitting, though 23B does not need them.
+
+---
+
 
 ### M9 — read Neon's consumed CU-hours — **OPEN, blocks nothing today**
 
@@ -680,6 +760,29 @@ the post-rotation run; without it those three checks SKIP rather than silently p
 
 Note `APP_BASE_URL` must be overridden: `.env` points at `localhost:3000` for development.
 
+**The integrations, against the real Slack, Notion, GitHub and Airtable** — added in Phase 23B:
+
+```bash
+APP_BASE_URL="https://agentforge-733000675212.asia-southeast1.run.app" \
+  node --env-file=.env scripts/verify-integrations.mjs
+```
+
+**39 checks pass with no credentials at all** — the deployed registry, the dynamic credential route,
+the precedence that keeps `/api/integrations/discord` reaching its own file, prototype keys refused,
+the write-only contract, the four templates, and generation reaching for the Slack node in a real
+model call. The **four real-service proofs need credentials only the user can create**, listed in
+`.env.example` under *Phase 23B integrations*; a service whose variables are absent is **SKIPPED and
+counted as skipped, never as passed**, and the script prints "SKIPPED IS NOT PASSED" when any were.
+
+It asserts the object the run created **by reading it back from the service itself** — a Notion
+page's blocks, a GitHub issue's title, an Airtable record's field. A step reporting `succeeded` is
+not evidence. It deletes the workflows and the Airtable records it made, and **deliberately leaves
+the Slack message, the Notion page and the GitHub issue**, naming them: these APIs cannot un-make
+them at the scopes asked for, and a verification that deleted its own evidence would be deleting the
+only proof it ran.
+
+**Re-run it after touching `lib/integrations/` or the node registry.**
+
 `npm run check` is what CI runs, so a green local run means a green pipeline. `probe:models` needs a
 key: `GEMINI_API_KEY=$(gcloud services api-keys get-key-string <key> --format='value(keyString)')` —
 the resource path is in the script's own header.
@@ -841,6 +944,55 @@ still documents a path known to work end to end, which is a useful smoke referen
 
 ## Recent Changes
 
+**2026-10-01 — Phase 23B built, deployed and verified except its four real-service proofs. BLOCKED
+on M10**
+
+- **The registry is 29 nodes.** Slack, Notion, GitHub and Airtable, all four agent-callable on the
+  same argument each time: **the destination is fixed by the credential the user created, not chosen
+  by the model.** Slack cannot be re-pointed at another channel (Slack itself refuses to let a caller
+  override channel, username or icon); a Notion integration sees only pages a human connected to it;
+  a fine-grained GitHub or Airtable token reaches only what it was minted against
+- **A fifth integration of that shape is now one table row.** `src/lib/integrations/tokens.ts` holds
+  each one's credential kind, secret shape, provider verification, settings copy and rotation help,
+  and `ROTATION_RULES`, the `/api/integrations/[service]` route and the settings cards are all
+  *derived* from it. Phase 9's comment promised "a node file and nothing else" and was true only of
+  the node. **Phase 21's obligation is no longer merely tested, it is unforgettable** — the row that
+  defines a credential defines its rotation
+- **Reading the four APIs' current docs changed two decisions.** Slack documents that a webhook's
+  channel *and username* cannot be overridden, so the node has no `username` field where Discord has
+  one — and that is a *stronger* agent-safety argument than Discord's. Notion's `2025-09-03` version
+  **refuses** `parent: { database_id }`; a data source must be resolved first, which costs one extra
+  GET per database write and is what lets the user paste the id they can actually see
+- **Slack's credential is proved without posting to the channel.** An empty JSON payload gets the
+  documented `no_text` (400), which Slack can only produce *after* resolving the webhook. So saving
+  or rotating a Slack credential reaches the same code path a real post would and stops one step
+  short of it, rather than leaving a test message in somebody's channel every time
+- **Three defects found; two were mine and one was Phase 21's.** `normaliseId` ate the last digit of
+  any Notion id whose page title ended in hex letters — "Cafe", "Decade", "Facade" — producing a
+  *well-formed id for a page that does not exist* and a 404 that reads like a permissions problem.
+  `rotationRule` resolved inherited properties, so `POST /api/credentials/toString/rotate` answered
+  **500 where 404 belonged**; it failed closed and wrote nothing, which is exactly why it survived
+  from Phase 21 unnoticed, and it surfaced only because building the table with a spread changed the
+  wrong answer's shape. And two standing tests used `integration.slack` as their example of "a type
+  that does not exist", so both asserted the opposite of their own names the moment it was registered
+- **Coverage was short by 0.02% and the gate was not moved.** The four protocol modules went from
+  ~12% function coverage to 100% by testing the thing a real-service test *cannot* reach: what each
+  service's documented failure answers are taken to mean. That is 26 new tests against a stubbed
+  `fetch`, asserting this repository's own classification, never that a request succeeds
+- **The generation prompt is at 23,685 characters for 29 nodes, ~817 each**, against a ceiling of
+  24,000 sized in 23A for 25. The rendering was examined for fat and there is none that is free, so
+  the ceiling was re-based to 26,000 **and the test now also asserts a per-node average** — the
+  scale-free property, and the one a person can act on. The structural fix, when it fails again, is
+  to stop sending the whole catalogue on every call; that deserves its own phase
+- **Phase 23 was split again, deliberately and recorded.** 23B is the four SaaS integrations; **23C**
+  is the database node and the second provider. The seam is mechanism: four additions on a settled
+  pattern versus two changes to existing subsystems. `BUILD_PLAN.md` carries the reasoning, and names
+  the pattern — the Chapter 2 ladder was written one phase per *subject*, and a subject is not a
+  session
+- **One deploy**, `agentforge-00053-hn6`. **No migration, no table, no column, no new env var on the
+  service, no new unauthenticated surface.** 898 unit tests, 39 + 404 + 45 deployed checks, and a
+  real browser at 1440 and 375 px
+
 **2026-09-30 — Phase 22 complete. The system explains itself: structured logs, four metrics, error
 grouping, and a per-workspace analytics page that costs 21 ms**
 
@@ -984,6 +1136,38 @@ above, the decisions are in *Decisions — BINDING*, the traps are in *Known Iss
 contracts are in `CONTRACT.md`. The narrative is in `git log`. **This file is a status board, not a
 diary** — keeping six months of "what happened when" here makes the part that matters harder to
 find, which is the failure mode it is meant to prevent.
+
+## Last Updated
+
+**2026-10-01** — **Phase 23B built and deployed; BLOCKED on M10 for its four real-service proofs.**
+Revision `agentforge-00053-hn6` live, `/api/health` green across all five dependency checks and
+reporting `registry: 29`. **No migration**, no table, no column, no new environment variable on the
+service, no new unauthenticated surface.
+
+**The registry went 25 → 29** — Slack, Notion, GitHub and Airtable, all four agent-callable because
+in every case the destination is fixed by the credential the user created rather than chosen by the
+model. **The four are one table**: `src/lib/integrations/tokens.ts` drives their rotation rules,
+their single dynamic API route and their settings cards, so a fifth is one row.
+
+**898 unit tests** (+46), coverage 87.91 / 90.68 / 79.39 with **no threshold moved** — the four new
+protocol modules went from ~12% to 100% function coverage by testing what a real-service test cannot
+reach, namely what each documented failure answer is taken to mean. Deployed: **39** checks in a new
+`verify-integrations.mjs`, **404** in `verify-api.mjs`, **45** in `verify-templates.mjs`,
+`verify-vault.mjs` all-pass.
+
+**What is not done, stated plainly:** the phase's bar is "proven against real services, not mocks",
+and four success paths need accounts only the user can create. `verify-integrations.mjs` reports
+**4 skipped** and says "SKIPPED IS NOT PASSED". That is **M10**, and it is the only thing between
+this phase and complete. Slack's *failure* path is already proved against real Slack, in a browser.
+
+**Phase 23 was split again, into 23A, 23B and 23C**, on mechanism rather than on size: four
+additions to a settled pattern, versus two changes to existing subsystems (the database node's
+dependency question and the second provider's credential-kind change). `BUILD_PLAN.md` records it,
+and names what the three splits have in common — **the Chapter 2 ladder was written one phase per
+subject, and a subject is not a session.**
+
+---
+
 
 ## Last Updated
 

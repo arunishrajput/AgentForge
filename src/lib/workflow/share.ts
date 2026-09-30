@@ -118,6 +118,34 @@ const PUBLISHABLE: Readonly<Record<string, SharePolicy>> = {
   "integration.discord": {},
   "integration.sheets": { values: ["sheet", "valueInputOption"] },
   "integration.gmail": {},
+
+  // Phase 23B's four. The comment at the top of this file used "the day somebody adds
+  // `integration.slack` with a `token` field" as its example of how a denylist fails open;
+  // that day arrived, and the allowlist did its job — each of these published nothing until
+  // somebody decided what it should.
+  //
+  //   slack      nothing. The channel is a stored credential rather than config, so the only
+  //              field is `text`, which is authored content. Identical to Discord's answer
+  //   notion     `operation` is the shape of the act. `titleProperty` is the *name* of a
+  //              database column, which is the same category as a published header name and
+  //              is what makes a shared graph legible. `target` names a real document — the
+  //              `spreadsheetId` reasoning exactly — and `title` and `body` are authored text
+  //   github     `operation` only. `repo` is withheld even though a repository name is often
+  //              public, because it is often not: publishing it would tell a reader that a
+  //              private repository exists and what it is called. `labels` is free text in an
+  //              array, and `core.switch` already set the rule that an array cannot be half
+  //              published
+  //   airtable   `operation`, `maxRecords` and `typecast` are settings. `fields` uses `keys`
+  //              on `core.set`'s precedent: the column names are the interesting half and
+  //              every value in them is something somebody typed. `baseId`, `table` and
+  //              `view` name a real base, so they go
+  "integration.slack": {},
+  "integration.notion": { values: ["operation", "titleProperty"] },
+  "integration.github": { values: ["operation"] },
+  "integration.airtable": {
+    values: ["operation", "maxRecords", "typecast"],
+    keys: ["fields"],
+  },
 };
 
 /** The table itself, for the test that keeps it in step with the registry. */

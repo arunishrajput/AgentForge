@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import { DISCORD_CREDENTIAL_KIND } from "@/lib/integrations/discord";
 import { GOOGLE_CREDENTIAL_KIND } from "@/lib/integrations/google";
+import { TOKEN_INTEGRATIONS } from "@/lib/integrations/tokens";
 
 import { ApiError } from "@/lib/api-error";
 import { clearTokenCache } from "@/lib/gcp/metadata";
@@ -51,14 +52,38 @@ test("every rotation rule names a kind the product actually stores", () => {
   }
 });
 
-test("the three kinds are the three the product has shipped since Phase 9", () => {
-  // Pinned deliberately. A fourth kind arriving in Phase 23 should fail this and be a
-  // decision, not a diff nobody reads.
+test("the seven kinds are the seven the product stores, and no more", () => {
+  // Pinned deliberately, and it did its job: it said "a fourth kind arriving in Phase 23
+  // should fail this and be a decision, not a diff nobody reads", and Phase 23B's four made
+  // it fail. The list is spelled out rather than derived from TOKEN_INTEGRATIONS on purpose —
+  // deriving it from the same table `CREDENTIAL_KINDS` is built from would assert nothing.
   assert.deepEqual([...CREDENTIAL_KINDS].sort(), [
     DISCORD_CREDENTIAL_KIND,
     GOOGLE_CREDENTIAL_KIND,
     LLM_CREDENTIAL_KIND,
+    "integration.slack",
+    "integration.notion",
+    "integration.github",
+    "integration.airtable",
   ].sort());
+});
+
+test("every token integration is rotatable by value, with a title that reads as English", () => {
+  // The rules are generated from TOKEN_INTEGRATIONS, so what needs asserting is not that they
+  // exist but that generating them produced something a person can read. The first version
+  // lower-cased `secretLabel` to build these strings and shipped "Slack incoming webhook url"
+  // into the vault — a transformation that is wrong precisely when the label holds an acronym.
+  for (const integration of TOKEN_INTEGRATIONS) {
+    const rule = rotationRule(integration.kind);
+    assert.ok(rule, `${integration.kind} has no rotation rule`);
+    assert.equal(rule.mode, "value");
+    assert.ok(rule.schema, `${integration.kind} bounds nothing`);
+    assert.equal(rule.title, `${integration.service} ${integration.secretNoun}`);
+    assert.ok(
+      !/\burl\b/.test(rule.title) && !/\burl\b/.test(rule.secretLabel ?? ""),
+      `${integration.kind} renders "URL" as "url": ${rule.title} / ${rule.secretLabel}`,
+    );
+  }
 });
 
 test("a value rotation offers an input and a shape to check it against", () => {
@@ -106,8 +131,12 @@ test("every rule says what rotation does, in a sentence somebody can read", () =
 
 test("an unknown kind has no rule, rather than a permissive default", () => {
   // Fails closed. A kind nobody has decided about must not be rotatable by accident.
-  assert.equal(rotationRule("integration.slack"), null);
+  assert.equal(rotationRule("integration.no_such_service"), null);
   assert.equal(rotationRule(""), null);
+  // The generated entries are spread into an object literal, so a prototype key must not
+  // resolve to something off Object.prototype — the same hole `getNode` is tested for.
+  assert.equal(rotationRule("__proto__"), null);
+  assert.equal(rotationRule("toString"), null);
 });
 
 test("a rotation schema refuses an obviously wrong secret before the provider is called", () => {
@@ -281,7 +310,10 @@ const SCOPE = { workspaceId: "ws-1", userId: "user-1", role: "admin" } as const;
 
 test("an unknown kind is 404, not 400 — the vault builds its controls from the table", async () => {
   await assert.rejects(
-    () => rotateCredential({ scope: SCOPE, kind: "integration.slack", secret: "x".repeat(20) }),
+    // Not `integration.slack` any more: Phase 23B made that a real kind, and a test for
+    // "an unknown kind is refused" whose example became known is a test that passes by
+    // accident. Same correction as `generate.test.ts` needed.
+    () => rotateCredential({ scope: SCOPE, kind: "integration.no_such_service", secret: "x".repeat(20) }),
     (error: unknown) => {
       assert.ok(error instanceof ApiError);
       assert.equal(error.code, "not_found");

@@ -63,6 +63,20 @@ export interface CredentialMetadata {
   /** `google.oauth` — which account connected, and what it actually granted. */
   email?: string | null;
   scopes?: string[];
+  /**
+   * Phase 23B's token integrations. Each one is whatever the service will say about the
+   * credential *without* revealing any of it, so the settings card can show which account is
+   * wired up: Notion's workspace, GitHub's login, Airtable's user id.
+   *
+   * `integration.slack` deliberately contributes none of these. Every identifying part of a
+   * Slack incoming webhook lives inside the URL, which is the secret, and Slack has no
+   * endpoint that describes one — so there is nothing here that would not be a fragment of
+   * key material, and the card says "Connected" and stops.
+   */
+  botName?: string | null;
+  workspaceName?: string | null;
+  login?: string | null;
+  userId?: string | null;
 }
 
 export interface CredentialSummary {

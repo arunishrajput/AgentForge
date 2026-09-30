@@ -13,7 +13,10 @@ import {
   ApiRequestError,
   type DiscordStatus,
   type GoogleStatus,
+  type TokenIntegrationStatus,
 } from "@/lib/canvas/client";
+
+import { TokenIntegrationCard } from "./token-integration-card";
 
 /**
  * Credential management for the Phase 9 integrations.
@@ -52,10 +55,17 @@ const CALLBACK_MESSAGES: Record<string, { text: string; tone: "ok" | "bad" }> = 
 export function IntegrationsForm({
   discord: initialDiscord,
   google: initialGoogle,
+  tokens,
   callbackStatus,
 }: {
   discord: DiscordStatus;
   google: GoogleStatus;
+  /**
+   * Phase 23B's four, as data. This component does not know which services they are — the
+   * copy, the placeholder and the link all come from `lib/integrations/tokens.ts` through the
+   * server component, so adding a fifth adds nothing here.
+   */
+  tokens: TokenIntegrationStatus[];
   callbackStatus?: string;
 }) {
   const [discord, setDiscord] = useState(initialDiscord);
@@ -255,6 +265,17 @@ export function IntegrationsForm({
           )}
         </div>
       </Card>
+
+      {tokens.map((token) => (
+        <TokenIntegrationCard
+          key={token.slug}
+          initial={token}
+          onChange={(_status, message) => {
+            setNotice(message);
+            setError(null);
+          }}
+        />
+      ))}
 
       {error && <Notice tone="bad" title={error} />}
       {notice && !error && <Notice tone="ok" title={notice} />}

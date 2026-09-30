@@ -9,7 +9,11 @@ import { WorkspacePanel } from "@/components/settings/workspace-panel";
 import { Tabs } from "@/components/ui/tabs";
 import { readSettings } from "@/lib/ai/settings";
 import { readVault } from "@/lib/credentials/vault";
-import { discordStatus, googleStatus } from "@/lib/integrations/store";
+import {
+  discordStatus,
+  googleStatus,
+  tokenIntegrationStatuses,
+} from "@/lib/integrations/store";
 import { requirePageSession } from "@/lib/workspace/page";
 import { atLeast } from "@/lib/workspace/roles";
 import { describeMember, describeWorkspace, listInvitations, listMembers } from "@/lib/workspace/store";
@@ -62,18 +66,22 @@ export default async function SettingsPage({
   const { name, email, scope, membership, memberships } = await requirePageSession();
   const canAdminister = atLeast(scope.role, "admin");
   const workspace = describeWorkspace(membership, scope.userId);
-  const [settings, discord, google, members, invitations, vault, params] = await Promise.all([
-    readSettings(scope),
-    discordStatus(scope),
-    googleStatus(scope),
-    listMembers(scope),
-    canAdminister ? listInvitations(scope) : Promise.resolve([]),
-    // Read for every role, because credential *status* has been a viewer action since Phase
-    // 19B and a viewer who cannot see whether a credential exists cannot understand a failed
-    // run. What a viewer may not do is change one, which the panel and the routes both say.
-    readVault(scope),
-    searchParams,
-  ]);
+  const [settings, discord, google, tokens, members, invitations, vault, params] =
+    await Promise.all([
+      readSettings(scope),
+      discordStatus(scope),
+      googleStatus(scope),
+      // Phase 23B's four, in one query rather than four: `tokenIntegrationStatuses` reads the
+      // workspace's credential rows once and matches them against the registry.
+      tokenIntegrationStatuses(scope),
+      listMembers(scope),
+      canAdminister ? listInvitations(scope) : Promise.resolve([]),
+      // Read for every role, because credential *status* has been a viewer action since Phase
+      // 19B and a viewer who cannot see whether a credential exists cannot understand a failed
+      // run. What a viewer may not do is change one, which the panel and the routes both say.
+      readVault(scope),
+      searchParams,
+    ]);
 
   return (
     <>
@@ -106,6 +114,7 @@ export default async function SettingsPage({
                 <IntegrationsForm
                   discord={discord}
                   google={google}
+                  tokens={tokens}
                   {...(params.google ? { callbackStatus: params.google } : {})}
                 />
               ),

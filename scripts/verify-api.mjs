@@ -1638,7 +1638,8 @@ try {
 
 
   // --- Phase 9: integration nodes -------------------------------------------
-  // Four integrations, each a registry entry and therefore each also an agent tool.
+  // Four integrations here, and four more added by Phase 23B below; each a registry entry
+  // and therefore each also an agent tool.
   // The Google-backed ones need a browser to consent, so what is provable over HTTP
   // is: the registry projection, the credential API's write-only contract, the
   // consent URL's parameters, the CSRF guard on the callback, and — the part that
@@ -1657,22 +1658,72 @@ try {
     (node) => node.category === "integration",
   );
   check(
+    // 8 since Phase 23B added Slack, Notion, GitHub and Airtable. Pinned rather than
+    // counted loosely, because this check's job is to make a new integration a decision
+    // somebody takes rather than a line in a diff.
     "every integration declares an output shape for the generator to read",
-    integrationNodes.length === 4 &&
+    integrationNodes.length === 8 &&
       integrationNodes.every(
         (node) => typeof node.outputShape === "string" && node.outputShape.length > 20,
       ),
     JSON.stringify(integrationNodes.map((node) => [node.type, node.outputShape])).slice(0, 300),
   );
 
+  // --- Phase 23B: the four token integrations -------------------------------
+  // The real-service proofs live in `verify-integrations.mjs`, which needs credentials only
+  // the user can create. What belongs here is the part that must never regress silently: the
+  // registry projection, and that the new dynamic route did not swallow Discord's static one.
+  check(
+    "registry serves all four Phase 23B integration node types",
+    ["integration.slack", "integration.notion", "integration.github", "integration.airtable"].every(
+      (type) => registryTypes.has(type),
+    ),
+    JSON.stringify(types),
+  );
+
+  for (const slug of ["slack", "notion", "github", "airtable"]) {
+    const anon = await api("GET", `/api/integrations/${slug}`);
+    check(`GET /api/integrations/${slug} requires a session`, anon.status === 401, `got ${anon.status}`);
+
+    const status = await api("GET", `/api/integrations/${slug}`, undefined, token);
+    check(
+      `${slug} reports status without any part of a secret`,
+      status.status === 200 &&
+        typeof status.json?.data?.configured === "boolean" &&
+        !("secret" in (status.json?.data ?? {})),
+      JSON.stringify(status.json?.data ?? {}).slice(0, 200),
+    );
+  }
+
+  const unknownService = await api("GET", "/api/integrations/nope", undefined, token);
+  check(
+    "a service the registry does not know is 404, not a permissive default",
+    unknownService.status === 404,
+    `got ${unknownService.status}`,
+  );
+  const protoService = await api("GET", "/api/integrations/__proto__", undefined, token);
+  check(
+    "a prototype key is 404 too — the route's lookup is a Map, not an object index",
+    protoService.status === 404,
+    `got ${protoService.status}`,
+  );
+
   const callableTypes = new Set(
     (nodes.json?.data ?? []).filter((node) => node.agentCallable).map((node) => node.type),
   );
   check(
-    "HTTP, Discord and Sheets are reachable by the agent",
-    ["integration.http", "integration.discord", "integration.sheets"].every((type) =>
-      callableTypes.has(type),
-    ),
+    "every integration but Gmail is reachable by the agent",
+    [
+      "integration.http",
+      "integration.discord",
+      "integration.sheets",
+      // Phase 23B. Each one's destination is bounded by the stored credential rather than by
+      // the model, which is the D19 test each had to pass to be listed here.
+      "integration.slack",
+      "integration.notion",
+      "integration.github",
+      "integration.airtable",
+    ].every((type) => callableTypes.has(type)),
     JSON.stringify([...callableTypes]),
   );
   check(

@@ -105,18 +105,33 @@ code that proved the original: a key with one `models.list` call, a webhook with
 Discord. The alternative is a route whose failure mode is *your workspace is now broken and the
 old secret is gone*, and there is no undo for that, because the old secret is not kept.
 
-Rotation is per-kind, and two of the three kinds are not a text box:
+Rotation is per-kind, and one of the seven is not a text box:
 
 | Kind | Mode | Rotation is |
 |---|---|---|
 | `llm.google` | `value` | Supply a new API key. Checked against the provider first |
 | `integration.discord` | `value` | Supply a new webhook URL. Called first. **The old webhook is not deleted at Discord** — nothing here can do that, and the vault says so |
 | `google.oauth` | `reconnect` | Re-run the consent flow. A refresh token can only be minted by Google, so there is nothing to paste and the vault offers a link instead of a control that could not work |
+| `integration.slack` | `value` | Supply a new incoming webhook URL. **The check posts nothing to your channel** — it sends a payload with no `text`, which Slack answers `no_text` only after it has resolved the webhook |
+| `integration.notion` | `value` | Supply a new internal integration secret. Which pages the integration can see is unchanged |
+| `integration.github` | `value` | Supply a new token. **The old token is not revoked** — do that in GitHub |
+| `integration.airtable` | `value` | Supply a new token. **The old token is not revoked** — do that in Airtable |
 
 `ROTATION_RULES` in `src/lib/credentials/rotation.ts` is the table, and **a test asserts it
 covers the credential registry in both directions** — so a kind added in a later phase fails the
 build until somebody decides what rotating it means. Without that, a new kind would silently
 become unrotatable and nothing would break, so nobody would notice.
+
+**Phase 23B went one better and made the entry impossible to forget**: the four rows above are
+*generated* from `src/lib/integrations/tokens.ts`, the same table that defines each credential's
+shape and its verification. The test still guards the three hand-written kinds.
+
+**A lookup keyed by a URL path segment must be own-property only.** `rotationRule(kind)` indexed a
+plain object, so `POST /api/credentials/toString/rotate` resolved `Object.prototype.toString` — a
+truthy value — walked past the route's own 404 and answered **HTTP 500 where 404 belonged**. It
+failed closed and wrote nothing, which is why it survived from Phase 21 unnoticed. Fixed with
+`Object.hasOwn`, and asserted against the deployed service for `__proto__`, `toString` and
+`constructor` on both this route and `/api/integrations/:service`.
 
 ### A workflow's webhook token
 
@@ -286,7 +301,8 @@ boundary, and it is drawn in three places.
 |---|---|
 | **An agent reaches only explicitly registered nodes** | `src/lib/nodes/index.ts`. There is no shell, no filesystem and no arbitrary network access in the tool set |
 | **`agentCallable` defaults to `false`** | `src/lib/nodes/types.ts`. Widening the agent's reach is a deliberate act per node, never a side effect of adding one |
-| **`integration.gmail` is closed to the agent**; HTTP, Discord and Sheets are open | A sent email leaves the account, reaches a third party and cannot be recalled — and an agent-callable Gmail means a model chooses **both** recipient and body from text that may have arrived on an unauthenticated webhook (D44) |
+| **`integration.gmail` is closed to the agent**; every other integration is open | A sent email leaves the account, reaches a third party and cannot be recalled — and an agent-callable Gmail means a model chooses **both** recipient and body from text that may have arrived on an unauthenticated webhook (D44) |
+| **Phase 23B's four are open, and each had to earn it** | The test is the same every time: *can the model choose the destination?* Slack — **no**, the channel is fixed by the stored webhook and Slack refuses to let a caller override it at all. Notion — **no**, an integration sees only pages a human explicitly connected to it. GitHub — **no**, a fine-grained token reaches only the repositories it was minted against, and the node files issues and comments but never touches code. Airtable — **no**, a token is granted per base and per scope, and a token without `data.records:write` makes the node read-only whatever its config says. **In every case the boundary is the credential the user created, not a check in this repository** |
 | **A node's authority is its run's workspace and nothing else** | `NodeContext.scope` is the whole of it. Nothing a node's config says can widen it, which is what keeps tool-calling inside the tenant it started in |
 | **No arbitrary user code execution** | Not in any form, not sandboxed, not for a demo. `PRD.md` → *Out of scope*, and it is not negotiable |
 | **Template references are lookups, not an expression language** | `{{steps.x.output}}` resolves a path. There is no `eval` anywhere in the request path (D17) |

@@ -117,9 +117,10 @@ mapped to the phase that delivers it. `BUILD_PLAN.md` is the contract; this is t
 | C8 | Credential vault, rotation, audit log | 21 — **DONE** | Post-Hackathon. Rotation was the sharpest known gap |
 | C9 | Observability, metrics, run analytics | 22 — **DONE** | Post-Hackathon |
 | C10a | Transform and control-flow nodes — registry to 25 | 23A — **DONE** | S5, capped for time |
-| C10b | Integration nodes: Slack, Notion, GitHub, Airtable, database | 23B | S5. Each needs an account |
+| C10b | Integration nodes: Slack, Notion, GitHub, Airtable — registry to 29 | 23B — **DONE** | S5. Each needs an account |
+| C10c | A database node | 23C | S5. Reaches a wire protocol, not an HTTPS API |
 | C11 | Template gallery | 23A — **DONE** | S4, never built |
-| C12 | A second LLM provider | 23B | S1, blocked on a key |
+| C12 | A second LLM provider | 23C | S1, blocked on a key |
 | C16 | Per-node documentation in the inspector | 23A — **DONE** | New in Chapter 2 |
 | C13 | Real test suite, coverage, CI | 13 | Explicitly excluded |
 | C14 | Docs site, ADRs, contributing guide, licence | 24 | Did not exist |
@@ -278,3 +279,9 @@ A second provider is **S1**, reachable in well under an hour once a key exists.
 **Slack → Discord.** The brief's demo spine posted to Slack. A Slack workspace cannot be
 authorised for this build; Discord webhooks need no app review. Same demo beat, same shape, no
 approval dependency.
+
+> **Reversed in Phase 23B.** Slack is in, and the original reason turned out to be the wrong shape
+> of obstacle: an *incoming webhook* needs no app review either, only an app the user creates in
+> their own workspace. Discord stays — the two sit side by side, and Slack's webhook is the
+> stricter of the two, because Slack refuses to let a caller override the channel, username or icon
+> where Discord permits a username.

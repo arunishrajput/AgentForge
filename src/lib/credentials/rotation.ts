@@ -3,6 +3,7 @@ import { z } from "zod";
 import { ApiError } from "@/lib/api-error";
 import { DISCORD_CREDENTIAL_KIND } from "@/lib/integrations/discord";
 import { GOOGLE_CREDENTIAL_KIND } from "@/lib/integrations/google";
+import { TOKEN_INTEGRATIONS, tokenIntegrationByKind } from "@/lib/integrations/tokens";
 import type { WorkspaceScope } from "@/lib/workspace/scope";
 
 import { LLM_CREDENTIAL_KIND } from "./index";
@@ -92,6 +93,34 @@ export const ROTATION_RULES: Record<string, RotationRule> = {
     reconnectHref: "/settings?tab=integrations",
     connectHref: "/settings?tab=integrations",
   },
+
+  /**
+   * **Phase 23B's four, generated from the token registry rather than typed out here.**
+   *
+   * The test below this file asserts the table covers the registry in both directions, and
+   * four hand-written entries would have passed it — right up until a fifth integration was
+   * added and somebody forgot. Spreading `TOKEN_INTEGRATIONS` means the entry cannot be
+   * forgotten, because there is nowhere to forget it: the same row that defines the
+   * credential's shape and its verification defines what rotating it means.
+   *
+   * Every one of them is `mode: "value"`. That is not a coincidence to be noticed later —
+   * it is the criterion for being in that table at all: a secret the user can paste, which
+   * one HTTPS request can prove. An OAuth credential could not join it, which is why Google
+   * is still written out above.
+   */
+  ...Object.fromEntries(
+    TOKEN_INTEGRATIONS.map((integration) => [
+      integration.kind,
+      {
+        mode: "value" as const,
+        title: `${integration.service} ${integration.secretNoun}`,
+        secretLabel: `New ${integration.secretNoun}`,
+        help: integration.rotationHelp,
+        connectHref: "/settings?tab=integrations",
+        schema: integration.schema,
+      },
+    ]),
+  ),
 };
 
 /** Every kind the product stores. The registry this table must cover. */
@@ -99,9 +128,25 @@ export const CREDENTIAL_KINDS = [
   LLM_CREDENTIAL_KIND,
   DISCORD_CREDENTIAL_KIND,
   GOOGLE_CREDENTIAL_KIND,
+  ...TOKEN_INTEGRATIONS.map((integration) => integration.kind),
 ] as const;
 
+/**
+ * **Own properties only.** `kind` arrives from a URL path segment, so this is a lookup on an
+ * attacker-chosen string, and a bare `ROTATION_RULES[kind]` answers for everything on
+ * `Object.prototype`: `rotationRule("toString")` returned a *function*, which is truthy, so
+ * `rotateCredential` walked past its own 404, found no branch for the kind, and answered
+ * **HTTP 500 where 404 was meant**.
+ *
+ * That was true from Phase 21 and nothing noticed, because failing closed made it look
+ * harmless — no credential was ever written. It surfaced here only because Phase 23B builds
+ * this table with a spread, which changes `__proto__` from `Object.prototype` to a
+ * null-prototype object and made the wrong answer a different shape. `getNode` has used a
+ * `Map` since Phase 3 for exactly this reason; this is the same rule applied to the one other
+ * table indexed by user input.
+ */
 export function rotationRule(kind: string): RotationRule | null {
+  if (!Object.hasOwn(ROTATION_RULES, kind)) return null;
   return ROTATION_RULES[kind] ?? null;
 }
 
@@ -149,6 +194,31 @@ export async function rotateCredential(options: {
       await rotateDiscordWebhook(options.scope, secret);
     } catch (error) {
       throw integrationApiError("Discord", error);
+    }
+  } else if (tokenIntegrationByKind(options.kind)) {
+    // Phase 23B. One branch for all four, and it stays one however many are added: the
+    // registry entry carries both the verification and the write, so the only thing this
+    // needs to know is that the kind is in it.
+    //
+    // The refusal that makes this a *rotation* is here rather than in the store, matching
+    // `rotateProviderKey` and `rotateDiscordWebhook`: there must be something to replace, or
+    // the vault would report a secret as rotated that had never existed.
+    const integration = tokenIntegrationByKind(options.kind)!;
+    const { getCredential } = await import("./index");
+    const existing = await getCredential({ scope: options.scope, kind: options.kind });
+    if (!existing) {
+      throw new ApiError(
+        "not_found",
+        `There is no ${integration.service} credential in this workspace to rotate. Add one first.`,
+      );
+    }
+
+    const { storeTokenSecret } = await import("@/lib/integrations/store");
+    const { integrationApiError } = await import("@/lib/integrations/errors");
+    try {
+      await storeTokenSecret(options.scope, integration, secret, "rotated");
+    } catch (error) {
+      throw integrationApiError(integration.service, error);
     }
   } else {
     // Unreachable while every `value` kind above is handled. Kept because the alternative

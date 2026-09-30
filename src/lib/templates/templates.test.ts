@@ -243,7 +243,11 @@ test("the templates that need setup say so, and the rest say nothing", () => {
   const needing = TEMPLATES.filter((template) => template.requires.length > 0);
   assert.deepEqual(
     needing.map((template) => template.id),
-    ["classify-and-route"],
+    // Phase 23B's four each need a credential only the user can create, so each one says so
+    // on its card. Pinned rather than counted: a template that quietly loses its `requires`
+    // becomes a promise that cloning and pressing Run works, which is the one thing a card
+    // must not claim falsely.
+    ["classify-and-route", "slack-standup", "notion-run-log", "webhook-to-github", "airtable-inbox"],
   );
   for (const template of needing) {
     for (const line of template.requires) assert.ok(line.length > 10, template.id);
@@ -252,6 +256,10 @@ test("the templates that need setup say so, and the rest say nothing", () => {
 
 test("reachesNoService is derived from the graph and agrees with what the graphs hold", () => {
   const offline = TEMPLATES.filter(reachesNoService).map((template) => template.id);
+  // Unchanged by Phase 23B, and that is the assertion: four templates reaching Slack, Notion,
+  // GitHub and Airtable must not join the set this suite *executes*, or `npm test` would post
+  // to somebody's real channel. `reachesNoService` reads the node types rather than `requires`,
+  // so it cannot be got wrong by forgetting to declare something.
   assert.deepEqual(offline, ["rank-and-report", "tidy-list", "triage-webhook", "daily-digest"]);
   // The distinction it draws is not the same one `requires` draws, and that is the point.
   const fetcher = getTemplate("fetch-and-summarise");

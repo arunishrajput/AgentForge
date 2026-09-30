@@ -163,11 +163,15 @@ test("a fenced JSON answer is still accepted", async () => {
 });
 
 test("output naming a node type that does not exist is rejected", async () => {
+  // The stand-in used to be `integration.slack`, and Phase 23B registered it — so this test
+  // passed for six phases and then asserted the opposite of its own name. The replacement is
+  // deliberately a type nobody would ever build, because the failure mode is silent: a test
+  // for "rejects the unknown" whose example has quietly become known proves nothing at all.
   const answer = JSON.stringify({
-    name: "Post to Slack",
+    name: "Post to a service that does not exist",
     nodes: [
       { id: "trigger", type: "core.manual_trigger", config: {} },
-      { id: "post", type: "integration.slack", config: {} },
+      { id: "post", type: "integration.no_such_service", config: {} },
     ],
     edges: [{ source: "trigger", target: "post" }],
   });

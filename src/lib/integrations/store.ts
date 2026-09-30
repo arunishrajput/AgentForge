@@ -1,6 +1,7 @@
 import {
   deleteCredential,
   getCredential,
+  listCredentials,
   putCredential,
   readSecret,
 } from "@/lib/credentials";
@@ -23,6 +24,12 @@ import {
   SHEETS_SCOPE,
 } from "./google";
 import { IntegrationError } from "./net";
+import {
+  describeTokenIntegration,
+  type TokenIntegration,
+  type TokenIntegrationCopy,
+  TOKEN_INTEGRATIONS,
+} from "./tokens";
 
 /**
  * The database-touching half of the integrations: reading and writing credentials,
@@ -295,4 +302,126 @@ export async function googleAccessToken(options: {
     }
     throw error;
   }
+}
+
+/* ------------------------------------------------------------------ *
+ * The token integrations — Phase 23B
+ * ------------------------------------------------------------------ */
+
+/**
+ * One shape for all four, because all four genuinely have the same shape.
+ *
+ * **Write-only on the same terms as everything else here.** `configured` plus `detail` is the
+ * whole answer to "is one connected and whose", and `detail` comes from the credential's
+ * metadata — Notion's workspace name, GitHub's login — never from the secret. Slack's
+ * `detail` is always `null`, which is the honest answer rather than a gap: see
+ * `CredentialMetadata`.
+ */
+export interface TokenIntegrationStatus extends TokenIntegrationCopy {
+  kind: string;
+  configured: boolean;
+  /** Who or what is connected, when the service will say. Never key material. */
+  detail: string | null;
+  updatedAt: string | null;
+}
+
+export async function tokenIntegrationStatus(
+  scope: WorkspaceScope,
+  integration: TokenIntegration,
+): Promise<TokenIntegrationStatus> {
+  const credential = await getCredential({ scope, kind: integration.kind });
+  return {
+    ...describeTokenIntegration(integration),
+    kind: integration.kind,
+    configured: credential !== null,
+    detail: credential ? integration.detail(credential.metadata) : null,
+    updatedAt: credential?.updatedAt ?? null,
+  };
+}
+
+/**
+ * Every token integration's status, for the settings page.
+ *
+ * **One query, not four.** The settings page already runs six statements to render, on a
+ * database metered by how long it is awake (`PROGRESS.md` → *The tension to hold*), and four
+ * more round trips to answer "is there a row" would be four more for nothing. `listCredentials`
+ * reads the whole workspace's credential rows, which the vault on the same page reads anyway.
+ */
+export async function tokenIntegrationStatuses(
+  scope: WorkspaceScope,
+): Promise<TokenIntegrationStatus[]> {
+  const rows = await listCredentials(scope);
+  const byKind = new Map(rows.map((row) => [row.kind, row]));
+
+  return TOKEN_INTEGRATIONS.map((integration) => {
+    const credential = byKind.get(integration.kind);
+    return {
+      ...describeTokenIntegration(integration),
+      kind: integration.kind,
+      configured: credential !== undefined,
+      detail: credential ? integration.detail(credential.metadata) : null,
+      updatedAt: credential?.updatedAt ?? null,
+    };
+  });
+}
+
+/**
+ * Shape-checked, normalised, **proved against the real service, and only then stored** — the
+ * same order Phase 6 set for the provider key and Phase 9 for the Discord webhook.
+ *
+ * `event` is what makes this one function serve both a first connection and a rotation. The
+ * refusal that distinguishes them is the caller's: `rotateCredential` requires that something
+ * was already there, because a rotation that silently created a credential would make the
+ * vault claim a secret had been replaced when it had never existed.
+ */
+export async function storeTokenSecret(
+  scope: WorkspaceScope,
+  integration: TokenIntegration,
+  raw: string,
+  event: "stored" | "rotated" = "stored",
+): Promise<TokenIntegrationStatus> {
+  const parsed = integration.schema.safeParse(raw);
+  if (!parsed.success) {
+    throw new IntegrationError(
+      `That does not look like a ${integration.service} ${integration.secretNoun}.`,
+    );
+  }
+
+  const secret = integration.normalise ? integration.normalise(parsed.data) : parsed.data;
+  const metadata = await integration.verify(secret);
+
+  await putCredential({ scope, kind: integration.kind, secret, metadata, event });
+
+  return tokenIntegrationStatus(scope, integration);
+}
+
+export async function clearTokenSecret(
+  scope: WorkspaceScope,
+  integration: TokenIntegration,
+): Promise<TokenIntegrationStatus> {
+  await deleteCredential({ scope, kind: integration.kind });
+  return tokenIntegrationStatus(scope, integration);
+}
+
+/**
+ * Server-side only. A node's `execute` is the only caller, and `use` is Phase 21's audit
+ * attribution — threaded through rather than inferred, because only the caller knows which
+ * run and which node reached for it.
+ */
+export async function readTokenSecret(
+  scope: WorkspaceScope,
+  integration: TokenIntegration,
+  use?: CredentialUse,
+): Promise<string> {
+  const secret = await readSecret({
+    scope,
+    kind: integration.kind,
+    ...(use ? { use } : {}),
+  });
+  if (!secret) {
+    throw new IntegrationError(
+      `${integration.service} is not connected. Add its ${integration.secretNoun} in Settings → Integrations.`,
+    );
+  }
+  return secret;
 }

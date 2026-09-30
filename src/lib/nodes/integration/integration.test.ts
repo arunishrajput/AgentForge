@@ -6,14 +6,19 @@ import { describeFields, defaultConfig } from "@/lib/canvas/schema";
 import { validateGraph } from "@/lib/engine/validate";
 import { describeNode, getNode, listAgentTools, listNodes } from "@/lib/nodes";
 
+import { airtableNode } from "./airtable";
 import { discordNode } from "./discord";
+import { githubNode } from "./github";
 import { gmailNode } from "./gmail";
 import { httpNode } from "./http";
+import { notionNode } from "./notion";
 import { jsonRecord } from "./shared";
 import { sheetsNode } from "./sheets";
+import { slackNode } from "./slack";
 
 /**
- * The registry-level properties of the four Phase 9 integrations.
+ * The registry-level properties of every integration node — four from Phase 9, four more
+ * from Phase 23B.
  *
  * These are the assertions that would have caught Phase 6's worst bug — a config
  * schema Gemini rejects with a 400, which surfaces only when an agent node first runs
@@ -21,16 +26,26 @@ import { sheetsNode } from "./sheets";
  * here costs a millisecond and nothing else does it.
  */
 
-const integrations = [httpNode, discordNode, sheetsNode, gmailNode];
+const integrations = [
+  httpNode,
+  discordNode,
+  sheetsNode,
+  gmailNode,
+  slackNode,
+  notionNode,
+  githubNode,
+  airtableNode,
+];
 
-test("all four integrations are registered and dispatchable by type", () => {
+test("all eight integrations are registered and dispatchable by type", () => {
   for (const node of integrations) {
     assert.equal(getNode(node.type), node, node.type);
     assert.equal(node.category, "integration", node.type);
     assert.equal(node.kind, "action", node.type);
   }
-  // 25 after Phase 23A added ten transform and control-flow nodes.
-  assert.equal(listNodes().length, 25);
+  assert.equal(integrations.length, 8);
+  // 29 after Phase 23B added Slack, Notion, GitHub and Airtable to Phase 23A's 25.
+  assert.equal(listNodes().length, 29);
 });
 
 test("every integration declares the shape of its output", () => {
@@ -41,11 +56,19 @@ test("every integration declares the shape of its output", () => {
   }
 });
 
-test("three integrations are agent-callable and Gmail deliberately is not", () => {
+test("every integration but Gmail is agent-callable, and Gmail deliberately is not", () => {
   const callable = new Set(listAgentTools().map((node) => node.type));
   assert.ok(callable.has("integration.http"));
   assert.ok(callable.has("integration.discord"));
   assert.ok(callable.has("integration.sheets"));
+  // Phase 23B. Each one's destination is bounded by the stored credential rather than by the
+  // model: a Slack webhook cannot be pointed at another channel, a Notion integration sees
+  // only pages a human connected to it, and a GitHub or Airtable token reaches only the
+  // repositories or bases it was minted against.
+  assert.ok(callable.has("integration.slack"));
+  assert.ok(callable.has("integration.notion"));
+  assert.ok(callable.has("integration.github"));
+  assert.ok(callable.has("integration.airtable"));
   // D19/D36. A model-chosen recipient plus a model-chosen body is the one capability
   // here whose effect leaves the user's own account and cannot be recalled.
   assert.equal(callable.has("integration.gmail"), false);
@@ -59,14 +82,21 @@ test("the agent tool set is exactly the callable registry, projected", () => {
   // whole point of D19 is that widening is a decision. This list failing is that
   // decision being asked for. Phase 23A added the eight transform nodes below: each is
   // pure data shaping that reaches no service and can have no effect outside the run.
+  // Phase 23B added four that very much do reach a service, and each was a decision recorded
+  // on its own node definition — the boundary in every case is the stored credential, not
+  // this list.
   assert.deepEqual(
     [...tools.byName.keys()].sort(),
     [
       "core_log",
       "core_set",
+      "integration_airtable",
       "integration_discord",
+      "integration_github",
       "integration_http",
+      "integration_notion",
       "integration_sheets",
+      "integration_slack",
       "transform_aggregate",
       "transform_date",
       "transform_filter",

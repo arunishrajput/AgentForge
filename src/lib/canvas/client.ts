@@ -6,7 +6,11 @@ import type { RekeyOutcome } from "@/lib/credentials/rekey";
 import type { Vault, VaultEntry } from "@/lib/credentials/vault";
 import type { StreamRun } from "@/lib/engine/stream";
 import type { GraphProblem } from "@/lib/engine/validate";
-import type { DiscordStatus, GoogleStatus } from "@/lib/integrations/store";
+import type {
+  DiscordStatus,
+  GoogleStatus,
+  TokenIntegrationStatus,
+} from "@/lib/integrations/store";
 import type { NodeSummary } from "@/lib/nodes";
 import type { GraphDiff } from "@/lib/workflow/diff";
 import type { SharedWorkflow } from "@/lib/workflow/share";
@@ -68,7 +72,7 @@ export interface IssuedInvitation {
 export type { GraphDiff, NodeChange, NodeDiff, DiffSummary } from "@/lib/workflow/diff";
 export type { NodeSummary, GraphProblem };
 export type { ProviderSettings, ModelInfo };
-export type { DiscordStatus, GoogleStatus };
+export type { DiscordStatus, GoogleStatus, TokenIntegrationStatus };
 export type { Vault, VaultEntry, RekeyOutcome };
 export type { GenerationIssue, GenerationAttempt };
 
@@ -311,6 +315,26 @@ export const api = {
 
   disconnectGoogleIntegration: () =>
     request<GoogleStatus>("/api/integrations/google", { method: "DELETE" }),
+
+  /* --------- the token integrations (Phase 23B): slack, notion, github, airtable ------- */
+  //
+  // Three methods for four services rather than twelve for four, because they go to one
+  // dynamic route keyed by the registry slug. Adding a fifth integration adds no client code
+  // at all — which is the point of `lib/integrations/tokens.ts`.
+
+  getTokenIntegration: (slug: string) =>
+    request<TokenIntegrationStatus>(`/api/integrations/${encodeURIComponent(slug)}`),
+
+  saveTokenIntegration: (slug: string, secret: string) =>
+    request<TokenIntegrationStatus>(`/api/integrations/${encodeURIComponent(slug)}`, {
+      method: "PUT",
+      body: JSON.stringify({ secret }),
+    }),
+
+  deleteTokenIntegration: (slug: string) =>
+    request<TokenIntegrationStatus>(`/api/integrations/${encodeURIComponent(slug)}`, {
+      method: "DELETE",
+    }),
 
   /* ------------------ the credential vault (Phase 21) ------------------ */
   //

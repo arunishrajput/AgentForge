@@ -503,6 +503,188 @@ const fetchAndSummarise: WorkflowTemplate = {
   ),
 };
 
+/**
+ * Phase 23B's four, one per service.
+ *
+ * Every one of them has a non-empty `requires`, which is what keeps them out of the set
+ * `templates.test.ts` executes — `reachesNoService()` reads that off the node types rather
+ * than off `requires`, so a template using an integration node cannot accidentally be run by
+ * the suite against somebody's real Slack channel. They are still validated against the real
+ * registry, which is the half that catches a rename.
+ *
+ * **Each one is deliberately short.** A template is read before it is run, and a five-node
+ * graph that obviously does one useful thing teaches more than a fifteen-node graph nobody
+ * finishes reading. The `about` says what to change first.
+ */
+
+const slackStandup: WorkflowTemplate = {
+  id: "slack-standup",
+  name: "A daily nudge in Slack",
+  description: "Every morning, works out the date in your time zone and posts a standup prompt to Slack.",
+  about:
+    "The shortest useful scheduled workflow. Change the cron on the trigger, the time zone on the date node and the words in the Slack node — the channel comes from the webhook you connected in Settings, so there is nothing to address.",
+  requires: ["A Slack incoming webhook in Settings → Integrations"],
+  graph: build(
+    [
+      {
+        id: "start",
+        type: "core.schedule_trigger",
+        label: "Weekday mornings",
+        config: { cron: "0 9 * * 1-5" },
+        at: at(0),
+      },
+      {
+        id: "today",
+        type: "transform.date",
+        label: "Today, in London",
+        config: { timeZone: "Europe/London" },
+        at: at(1),
+      },
+      {
+        id: "post",
+        type: "integration.slack",
+        label: "Ask the team",
+        config: {
+          text: "Standup for {{steps.today.output.weekday}} {{steps.today.output.date}} — what are you on today?",
+        },
+        at: at(2),
+      },
+    ],
+    [
+      { from: "start", to: "today" },
+      { from: "today", to: "post" },
+    ],
+  ),
+};
+
+const webhookToGithub: WorkflowTemplate = {
+  id: "webhook-to-github",
+  name: "Turn a webhook into a GitHub issue",
+  description: "Accepts a JSON POST, files it as an issue, and says in Slack that it did.",
+  about:
+    "A bug-report funnel. POST { title, detail } to the trigger's webhook URL and it becomes an issue in the repository you name on the GitHub node, then a Slack message carrying the issue's link. Set repo to owner/name — the stored token has to have been granted that repository.",
+  requires: [
+    "A GitHub token in Settings → Integrations",
+    "A Slack incoming webhook, for the confirmation step",
+  ],
+  sampleInput: { title: "Checkout fails on Safari", detail: "The pay button does nothing." },
+  graph: build(
+    [
+      {
+        id: "start",
+        type: "core.webhook_trigger",
+        label: "Incoming report",
+        config: { requiredFields: ["title", "detail"] },
+        at: at(0),
+      },
+      {
+        id: "file",
+        type: "integration.github",
+        label: "File it",
+        config: {
+          operation: "createIssue",
+          repo: "",
+          title: "{{trigger.title}}",
+          body: "Reported through AgentForge.\n\n{{trigger.detail}}",
+          labels: ["triage"],
+        },
+        at: at(1),
+      },
+      {
+        id: "announce",
+        type: "integration.slack",
+        label: "Say so",
+        config: { text: "Filed {{steps.file.output.repo}}#{{steps.file.output.number}}: {{steps.file.output.url}}" },
+        at: at(2),
+      },
+    ],
+    [
+      { from: "start", to: "file" },
+      { from: "file", to: "announce" },
+    ],
+  ),
+};
+
+const airtableInbox: WorkflowTemplate = {
+  id: "airtable-inbox",
+  name: "Collect signups in Airtable",
+  description: "Takes a JSON POST and writes it as a row in an Airtable base.",
+  about:
+    "A form backend without a backend. Point a form or a service at the trigger's webhook URL, then set baseId and table on the Airtable node and make the field names match your columns exactly — capitals included, which is the one thing Airtable is strict about.",
+  requires: ["An Airtable token in Settings → Integrations, with data.records:write"],
+  sampleInput: { name: "Ada Lovelace", email: "ada@example.com" },
+  graph: build(
+    [
+      {
+        id: "start",
+        type: "core.webhook_trigger",
+        label: "Incoming signup",
+        config: { requiredFields: ["name", "email"] },
+        at: at(0),
+      },
+      {
+        id: "row",
+        type: "integration.airtable",
+        label: "Add the row",
+        config: {
+          operation: "createRecord",
+          baseId: "",
+          table: "",
+          fields: { Name: "{{trigger.name}}", Email: "{{trigger.email}}" },
+        },
+        at: at(1),
+      },
+      {
+        id: "confirm",
+        type: "core.log",
+        label: "Note it",
+        config: { message: "Stored {{steps.row.output.recordId}} for {{trigger.email}}." },
+        at: at(2),
+      },
+    ],
+    [
+      { from: "start", to: "row" },
+      { from: "row", to: "confirm" },
+    ],
+  ),
+};
+
+const notionRunLog: WorkflowTemplate = {
+  id: "notion-run-log",
+  name: "Keep a run log in Notion",
+  description: "Appends a dated line to a Notion page every time it runs.",
+  about:
+    "Turns a Notion page into an append-only journal. Paste the page's link into the Notion node — and connect that page to your integration in Notion itself (“…” → Connections), or every run reports a 404 about a page that plainly exists.",
+  requires: ["A Notion integration in Settings → Integrations, connected to the target page"],
+  graph: build(
+    [
+      { id: "start", type: "core.manual_trigger", label: "Run it", at: at(0) },
+      {
+        id: "today",
+        type: "transform.date",
+        label: "Timestamp it",
+        config: { timeZone: "UTC" },
+        at: at(1),
+      },
+      {
+        id: "write",
+        type: "integration.notion",
+        label: "Append the line",
+        config: {
+          operation: "appendToPage",
+          target: "",
+          body: "{{steps.today.output.iso}} — the workflow ran.",
+        },
+        at: at(2),
+      },
+    ],
+    [
+      { from: "start", to: "today" },
+      { from: "today", to: "write" },
+    ],
+  ),
+};
+
 /** Gallery order: the two that run instantly first, then shape, then the ambitious ones. */
 export const TEMPLATES: readonly WorkflowTemplate[] = [
   rankAndReport,
@@ -511,6 +693,12 @@ export const TEMPLATES: readonly WorkflowTemplate[] = [
   dailyDigest,
   classifyAndRoute,
   fetchAndSummarise,
+  // Phase 23B. Last, because each needs a credential before it does anything — the gallery
+  // shows `requires` on the card, so the ones that run the moment they are cloned come first.
+  slackStandup,
+  notionRunLog,
+  webhookToGithub,
+  airtableInbox,
 ];
 
 /**

@@ -1445,9 +1445,9 @@ for the sum of its runs. Three at the engine's 120 s ceiling is 360 s, inside th
 The effective resolution of a cron expression is therefore the tick interval — a run starts at or
 shortly after its slot, never on the second.
 
-## Integration nodes and their credentials — **DEFINED** (Phase 9)
+## Integration nodes and their credentials — **DEFINED** (Phase 9, extended in Phase 23B)
 
-Four integrations, four registry entries. Nothing else was added: no palette code, no config form,
+Eight integrations, eight registry entries. Nothing else was added: no palette code, no config form,
 no validator rule, no second tool list. `src/lib/integrations/` holds the protocol modules (no
 database, no session — so they are asserted with no network) and `store.ts` holds the one module
 that reads credentials.
@@ -1458,6 +1458,36 @@ that reads credentials.
 | `integration.discord` | Posts a message to the connected channel | **yes** | `integration.discord` |
 | `integration.sheets` | Appends one row to a Google Sheet | **yes** | `google.oauth` |
 | `integration.gmail` | Sends one email as the connected account | **no** | `google.oauth` |
+| `integration.slack` | Posts a message to the connected channel | **yes** | `integration.slack` |
+| `integration.notion` | Appends to a page, or adds a database row | **yes** | `integration.notion` |
+| `integration.github` | Files an issue, or comments on one | **yes** | `integration.github` |
+| `integration.airtable` | Creates a record, or reads a page of them | **yes** | `integration.airtable` |
+
+### The token-credential registry — **Phase 23B**
+
+Phase 9's note on `nodes/integration/shared.ts` said it existed "so a fifth integration is a node
+file and nothing else". That was true of the node and false of everything around it: Discord needed
+its own API route, its own hand-written `ROTATION_RULES` entry, its own settings card and its own
+three client methods. **`src/lib/integrations/tokens.ts` is the table that makes the original claim
+true**, and everything derivable from it is derived:
+
+| Derived | Where | Why it matters |
+|---|---|---|
+| `ROTATION_RULES` entries | `credentials/rotation.ts` spreads the table | Phase 21's obligation cannot be forgotten, because there is nowhere to forget it |
+| The connect/revoke route | one dynamic `/api/integrations/[service]` | not four near-identical files |
+| The settings cards | `TokenIntegrationCard`, rendered from the table | the component names no service |
+| The vault entry | already derived from `ROTATION_RULES` | unchanged |
+
+**Membership in that table is a criterion, not a convenience:** *a bearer secret the user can paste,
+which one HTTPS request can prove.* Discord and Google are deliberately outside it — Discord's
+status carries provider-supplied metadata this shape has no room for, and an OAuth refresh token is
+something nobody can type, which is what `RotationRule`'s `reconnect` mode exists for. Bending
+either in would make the table about its exceptions.
+
+**`secretLabel` and `secretNoun` are two fields on purpose.** The first is a sentence-case input
+label, the second a lower-case noun phrase for mid-sentence use. The first version derived the
+second with `.toLowerCase()` and shipped "Slack incoming webhook url" into the vault: lower-casing a
+string is wrong exactly as often as the string holds an acronym.
 
 ### Why Gmail is closed to the agent — **D44**
 
@@ -1522,6 +1552,16 @@ the Google flow reuses `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `APP_BASE_
 |---|---|---|---|
 | `integration.discord` | `default` | the webhook URL | `{ webhookName, channelId, guildId }` |
 | `google.oauth` | `default` | the **refresh** token | `{ email, scopes: string[] }` |
+| `integration.slack` | `default` | the incoming webhook URL | `{}` — see below |
+| `integration.notion` | `default` | the internal integration secret | `{ botName, workspaceName }` |
+| `integration.github` | `default` | the personal access token | `{ login }` |
+| `integration.airtable` | `default` | the personal access token | `{ userId, email }` |
+
+**Slack stores no metadata, and that is the write-only rule holding rather than a gap.** Every
+identifying part of an incoming webhook — the team id, the hook id — is a path segment *of the
+secret*, and Slack publishes no endpoint that describes one. There is therefore nothing to store
+that would not be a fragment of key material, so the settings card says "Connected" and stops. The
+other three report what their own API volunteers about the credential and nothing more.
 
 **The Discord webhook URL is the credential**, not a setting: it carries its own bearer token in its
 path, so anyone holding it can post. It is therefore encrypted at rest and never in a graph — D41's
@@ -1549,6 +1589,21 @@ so a Sheets-only connection tells the user to reconnect instead of producing a 4
 | `DELETE /api/integrations/google` | — | the same shape, `connected: false` |
 | `GET /api/integrations/google/connect` | — | `302` to Google, sets the state cookie |
 | `GET /api/integrations/google/callback` | — | `302` to `/settings?google=<code>` |
+| `GET /api/integrations/:service` | — | `{ slug, kind, service, configured, detail, updatedAt, … }` |
+| `PUT /api/integrations/:service` | `{ secret }` | the same shape |
+| `DELETE /api/integrations/:service` | — | the same shape, `configured: false` |
+
+`:service` is the registry **slug** — `slack`, `notion`, `github`, `airtable` — never the credential
+kind, which would make the path read `/api/integrations/integration.slack`. A slug the table does not
+hold is a **404**, and so is a prototype key: the lookup is a `Map`, so `/api/integrations/__proto__`
+cannot resolve to something off `Object.prototype`. All three are asserted over HTTP against the
+deployed service by `verify-api.mjs`, because that class of bug is invisible to a unit test that
+imports the table directly.
+
+**A static segment takes precedence over the dynamic one**, so `/api/integrations/discord` still
+reaches `discord/route.ts` and this route never sees it. That is documented for the Pages router and
+merely conventional for the App router, so `verify-integrations.mjs` asserts it against the deployed
+build rather than trusting it.
 
 Write-only on the same terms as the provider key: **no response carries the webhook URL, any part of
 it, the refresh token, or an access token.** A webhook is proved against Discord before it is stored
