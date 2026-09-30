@@ -355,6 +355,65 @@ export async function unshareWorkflow(scope: WorkspaceScope, id: string): Promis
 }
 
 /**
+ * Rotate the webhook trigger's token — **Phase 21**, and the third of the phase's three
+ * rotations.
+ *
+ * **The old URL is dead the instant this returns**, which is the whole point and also the
+ * cost: whatever was calling it — a Zap, a GitHub webhook, a cron on somebody's laptop —
+ * stops working until it is given the new URL. So this is a deliberate, confirmed act in the
+ * UI and not a button beside the URL, and the response carries the new URL so there is one
+ * moment where the user has it.
+ *
+ * **`admin`, matching the share link rather than matching `editor`.** An editor may already
+ * change the graph this token fires; what they may not do is invalidate a secret that things
+ * outside this product depend on. Phase 20's rule again: the bar is about the class of act.
+ *
+ * The update is conditional on the token that was observed, for the same reason
+ * `shareWorkflowPublicly` is conditional on `shareToken is null` (D6 — `neon-http` has no
+ * transactions): two admins rotating at the same moment must not both succeed, because the
+ * loser would hand its user a URL that had already been replaced. The loser matches no row
+ * and is told to look again.
+ *
+ * **There is no grace period, and that is a decision.** A token that keeps working for an
+ * hour after being rotated is a token that is still live for an hour after somebody rotated it
+ * *because it leaked*, which is the case rotation exists for.
+ */
+export async function rotateWebhookToken(
+  scope: WorkspaceScope,
+  id: string,
+): Promise<{ workflow: Workflow; url: string }> {
+  const workflow = await getWorkflow(scope, id);
+  if (!webhookTriggerNode(workflow.graph)) {
+    throw new ApiError(
+      "invalid_request",
+      "This workflow has no webhook trigger, so it has no URL to rotate.",
+    );
+  }
+
+  const token = mintWebhookToken();
+  const [updated] = await db()
+    .update(workflows)
+    .set({ webhookToken: token, webhookTokenRotatedAt: new Date() })
+    .where(
+      and(
+        eq(workflows.id, id),
+        eq(workflows.workspaceId, scope.workspaceId),
+        eq(workflows.webhookToken, workflow.webhookToken),
+      ),
+    )
+    .returning();
+
+  if (!updated) {
+    throw new ApiError(
+      "conflict",
+      "This URL was rotated by somebody else a moment ago. Reload to see the current one.",
+    );
+  }
+
+  return { workflow: updated, url: webhookUrl(required("APP_BASE_URL"), token) };
+}
+
+/**
  * Resolve a share token — **the one function in this file with no `WorkspaceScope`.**
  *
  * It is reached from `GET /api/share/:token` and `/s/:token`, neither of which has a
@@ -441,6 +500,12 @@ export function describeWorkflow(workflow: Workflow) {
       ? shareUrl(required("APP_BASE_URL"), workflow.shareToken)
       : null,
     sharedAt: workflow.sharedAt?.toISOString() ?? null,
+    /**
+     * Null while the workflow still has the token it was created with (Phase 21). Shown by
+     * the trigger panel, because "this URL has never been rotated" is the honest answer and
+     * is the one a user needs before deciding whether to.
+     */
+    webhookTokenRotatedAt: workflow.webhookTokenRotatedAt?.toISOString() ?? null,
     scheduleCron: scheduleCron(workflow.graph),
     scheduleNextAt: workflow.scheduleNextAt?.toISOString() ?? null,
     scheduleLastFiredAt: workflow.scheduleLastFiredAt?.toISOString() ?? null,

@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { NoProviderKeyError, resolveProvider } from "@/lib/ai/provider";
 import { ProviderError } from "@/lib/ai/types";
+import type { CredentialUse } from "@/lib/credentials/audit";
 import type { WorkspaceScope } from "@/lib/workspace/scope";
 
 import { defineNode, NodeError } from "../types";
@@ -40,7 +41,12 @@ export const llmNode = defineNode({
     json: z.boolean().default(false),
   }),
   async execute({ config, input, context }) {
-    const { model, source, selectedModel } = await resolveKey(context.scope);
+    const { model, source, selectedModel } = await resolveKey(context.scope, {
+      runId: context.runId,
+      nodeId: context.nodeId,
+      nodeType: context.nodeType,
+      purpose: "generate",
+    });
     const modelId = config.model && config.model.length > 0 ? config.model : selectedModel;
 
     context.log(`Asking ${modelId} (key from ${source}).`);
@@ -98,9 +104,14 @@ export function stripCodeFence(text: string): string {
   return fenced ? fenced[1] : text.trim();
 }
 
-export async function resolveKey(scope: WorkspaceScope) {
+/**
+ * Shared by the LLM node and the agent node. `use` is the audit attribution (Phase 21) and
+ * both callers pass it, because a model key is a credential and "which node spent my quota"
+ * is exactly the question the log exists to answer.
+ */
+export async function resolveKey(scope: WorkspaceScope, use?: CredentialUse) {
   try {
-    return await resolveProvider(scope);
+    return await resolveProvider(scope, use);
   } catch (error) {
     if (error instanceof NoProviderKeyError) throw new NodeError(error.message);
     throw error;

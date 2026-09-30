@@ -221,6 +221,7 @@ describe("shareWorkflow builds the whole response from an explicit list", () => 
     visibility: "workspace" as const,
     shareToken: "SHARE-TOKEN-SECRET",
     sharedAt: new Date("2026-09-30T00:00:00Z"),
+    webhookTokenRotatedAt: null,
     createdAt: new Date("2026-09-01T00:00:00Z"),
     updatedAt: new Date("2026-09-29T12:00:00Z"),
   };

@@ -182,6 +182,19 @@ test("the token pattern rejects what must not reach the database", () => {
   }
 });
 
+test("rotation mints a token with no relationship to the one it replaces — Phase 21", () => {
+  // Rotating the webhook URL has to produce a URL an attacker holding the old one cannot
+  // predict, which means the mint must not be seeded by, derived from or adjacent to the
+  // previous value. `mintWebhookToken` takes no arguments, so it cannot be — and this
+  // asserts the property rather than the implementation, so a later phase that adds a
+  // parameter to it has to face this test.
+  const before = mintWebhookToken();
+  const after = Array.from({ length: 100 }, () => mintWebhookToken());
+  assert.equal(after.includes(before), false, "a rotation reissued the previous token");
+  assert.equal(new Set(after).size, 100);
+  for (const token of after) assert.match(token, WEBHOOK_TOKEN_PATTERN);
+});
+
 test("the URL is built without a double slash", () => {
   assert.equal(webhookUrl("https://app.example.com", "abc"), "https://app.example.com/api/webhook/abc");
   assert.equal(webhookUrl("https://app.example.com/", "abc"), "https://app.example.com/api/webhook/abc");
@@ -289,6 +302,7 @@ const context = () => {
       workflowId: "wf",
       scope: TEST_SCOPE,
       nodeId: "trigger",
+      nodeType: "trigger.webhook",
       iteration: 0,
       log: (message: string) => logs.push(message),
       signal: new AbortController().signal,

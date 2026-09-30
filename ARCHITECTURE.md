@@ -281,7 +281,8 @@ a handful of requests per page, not thirty per workflow run.
 | **Generation** | Natural language → validated workflow JSON → persisted workflow |
 | **Versioning and diffing** | Phase 18. One compact snapshot per save (`src/lib/workflow/versions.ts`), a pure graph diff (`src/lib/workflow/diff.ts`), and the canvas's read-only diff mode (`src/components/canvas/diff/`) |
 | **Tenancy** | Phases 19A–19B. `src/lib/workspace/` — the `WorkspaceScope` every store function takes, the one query that resolves it per request, invitations, and **the role check every mutating route now passes through**. **No query in the product reads across a workspace** |
-| **Persistence** | Neon Postgres. Workspaces and memberships, users, credentials, workflows, workflow versions, runs, run steps |
+| **Credential vault** | Phase 21. `src/lib/crypto/` — AES-256-GCM (`aes.ts`), the versioned root key (`root-key.ts`) and the two-layer envelope (`envelope.ts`); `src/lib/credentials/` — the store, the rotation registry, the re-key loop, the audit log and the vault's read model; `src/lib/gcp/` — the metadata server and Secret Manager over `fetch` |
+| **Persistence** | Neon Postgres. Workspaces and memberships, users, credentials, **credential events**, workflows, workflow versions, runs, run steps |
 | **Cloud Scheduler** | Managed cron, calls `/api/cron/tick` to fire due schedule triggers |
 
 ---
@@ -845,6 +846,57 @@ decided by an allowlist in `lib/workflow/share.ts` whose default publishes nothi
 itself does no field selection. A node type added in a later phase therefore cannot widen this
 surface by existing; a test asserts the table covers the registry, so it fails the build instead.
 
+### Secrets at rest — envelope encryption, Phase 21
+
+Chapter 1 encrypted every credential directly under `ENCRYPTION_KEY` and documented, accurately,
+that rotating it destroyed all of them. That is a property of any scheme where the key an operator
+can rotate is the key the data is under. Phase 21 added one layer of indirection, and everything
+else follows from it:
+
+```
+   the secret  --AES-256-GCM-->  ciphertext      key: a fresh 256-bit DEK, one per credential
+   that DEK    --AES-256-GCM-->  wrappedKey      key: the root key, versioned in Secret Manager
+```
+
+**Rotating the root key re-wraps ~60 bytes per credential and never reads a secret.** That is what
+turns "never rotate this" into an operation with a procedure (`SECURITY.md` → *Rotating the root
+key*). It is resumable by construction — every row is an independent `UPDATE` naming the key that
+wraps it, so an interrupted re-key leaves a database in which *every* row still decrypts — which is
+why it needs no maintenance window and could not have been written any other way under D6.
+
+**Secret Manager rather than Cloud KMS, and that is a cost decision with a real cost.** KMS is the
+textbook home for a root key and would keep it inside Google's HSM; it is ~$0.06 per key per month
+plus operations, and the zero-cost ceiling binds. Secret Manager's free tier covers the root key —
+6 active versions, 10,000 access operations a month — and hands us the bytes, which this process
+then holds in memory for the life of the instance. `SECURITY.md` → *What we do not claim* states
+that difference rather than hiding it.
+
+**No client library, following Phase 17.** Secret Manager is one authenticated `GET` with a token
+from the metadata server, so `src/lib/gcp/` is ~200 lines of `fetch` and the runtime dependency
+list is still the Phase 4 one. Phase 21 also **extracted the metadata and token code out of
+`lib/engine/queue.ts`** into `lib/gcp/metadata.ts`: Cloud Tasks and Secret Manager now share one
+token cache, because two caches on one instance are two things that can disagree about when the
+token expired.
+
+**Accessing `latest` resolves the version *and* returns its number**, so sealing costs one access
+operation and no `versions.list`. A version's bytes are immutable, so they are cached for the life
+of the instance and the cache can never be stale; `latest` is cached for five minutes instead,
+which is how long a rotation takes to reach a warm instance.
+
+**Refusing beats falling back.** If `ROOT_KEY_SECRET` is set and Secret Manager is unreachable, a
+write fails. A silent fallback to `ENCRYPTION_KEY` would seal new credentials under a key the
+operator believes is retired, leaving rows a later rotation would skip — and nothing would report
+it.
+
+### The credential audit log
+
+`credential_event`, written from `readSecret` and nowhere else, because that is the single funnel
+every plaintext passes through. It records *use* — which run, which node, when — and never content.
+Retention is 30 days, pruned by the cron tick, which is the only thing in this system that runs on
+a clock. `CONTRACT.md` → *The credential audit log* is the shape; `SECURITY.md` is the reasoning,
+including the deliberate trade that an audit insert which fails is logged and swallowed rather than
+failing the run it was auditing.
+
 ---
 
 ## Deployment topology
@@ -933,7 +985,7 @@ in a step log.
 | A5 | Cloud Scheduler for cron | **BINDING** | Scale-to-zero makes in-process timers non-functional |
 | A6 | SSE, not WebSocket | Binding at Phase 5 | No affinity config, native reconnect, one-directional suffices |
 | A7 | Gemini only, behind a provider-agnostic adapter | **BINDING** for MVP | Only available key. Second provider is `PRD.md` S1 |
-| A8 | AES-256-GCM app-level credential encryption | Binding at Phase 6 | Meets "encrypted at rest" without KMS setup |
+| A8 | ~~AES-256-GCM under one `ENCRYPTION_KEY`~~ → **envelope encryption: per-credential data keys under a versioned root key in Secret Manager** | **SUPERSEDED at Phase 21.** AES-256-GCM is unchanged; what changed is which key the data is under | The original met "encrypted at rest" without KMS setup and shipped with the accurate warning that rotating the key destroyed every credential. A key that cannot be rotated is not a control. One layer of indirection makes a root key rotation re-wrap ~60 bytes per row instead of re-encrypting the database, and makes it resumable — see *Secrets at rest* |
 | A9 | Discord instead of Slack | **BINDING** | Webhooks need no app review; Slack cannot be authorised for this build |
 | A10 | Foundation: harvest, single Next.js app | **BINDING** | Decided in Phase 0 Part A, 2026-09-25, against verified licences and repo sizes |
 | A11 | ORM: Drizzle, not Prisma | **BINDING** | No generate step or query engine in the container; first-class Neon serverless support; `@auth/drizzle-adapter` is maintained by Auth.js |
@@ -943,6 +995,8 @@ in a step log.
 | A15 | **oxlint**, not ESLint | Binding at Phase 13 | 2 packages against 305, for the same reason this project has no `ai` SDK and no test framework. Next 16 removed `next lint` and its own docs say to use a linter directly |
 | A16 | **`src/components/ui/` exists, reversing Chapter 1's "no component library"** | Binding at Phase 14 | The old rule held while controls carried no behaviour. A dialog that traps focus, a tablist with a roving tabindex, a menu that answers arrow keys and a toast region that exists before its first message do not fit in a CSS class. Still **zero new dependencies** — no Radix, no `tailwind-merge`, no headless kit — because the native elements carry most of it |
 | A17 | **The palette is mirrored in TypeScript, and CI asserts the mirror** | Binding at Phase 14 | The `/design` gallery needs token values plus a role per token, and a `readFileSync` of `globals.css` in a page is a build-versus-runtime trap that only shows up in the container. `src/lib/design/palette.ts` is the mirror; `tokens.test.ts` asserts it against the stylesheet in both directions, so it cannot become a second source of truth |
+| A18 | **Secret Manager, not Cloud KMS, for the root key** | **BINDING** while the zero-cost ceiling holds | KMS is the textbook answer and is ~$0.06 per key per month plus operations. Secret Manager's free tier covers one versioned root key (6 versions, 10,000 accesses/month). The cost is that the root key's bytes reach this process rather than staying in an HSM, which `SECURITY.md` → *What we do not claim* states outright. Revisit if a budget ever exists |
+| A19 | **A rotation validates against the provider before it writes** | Binding at Phase 21 | The old secret is not kept, so a route that stored first would have the failure mode *your workspace is broken and there is no way back*. The deployed suite asserts the stored envelope is byte-identical after a refused rotation |
 
 ---
 

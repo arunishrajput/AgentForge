@@ -22,6 +22,7 @@ function fakeContext(): NodeContext & { lines: Array<{ message: string; level: L
     workflowId: "wf-1",
     scope: TEST_SCOPE,
     nodeId: "agent_1",
+    nodeType: "ai.agent",
     iteration: 0,
     log: (message: string, level: LogLevel = "info") => lines.push({ message, level }),
     signal: new AbortController().signal,

@@ -4,6 +4,7 @@ import {
   putCredential,
   readSecret,
 } from "@/lib/credentials";
+import type { CredentialUse } from "@/lib/credentials/audit";
 import { required } from "@/lib/env";
 import type { WorkspaceScope } from "@/lib/workspace/scope";
 
@@ -80,14 +81,68 @@ export async function storeDiscordWebhook(
   return discordStatus(scope);
 }
 
+/**
+ * Replace the stored webhook — **Phase 21's rotation path for `integration.discord`.**
+ *
+ * The same one refusal as `rotateProviderKey`: there must be something here to rotate, or
+ * this is a first connection wearing the wrong name. Everything else is `storeDiscordWebhook`
+ * — the URL is called before it is stored, so a wrong one is refused rather than quietly
+ * breaking every workflow that posts to the channel.
+ *
+ * **The old webhook is not deleted at Discord**, and the vault says so. Nothing here can do
+ * that: a Discord webhook is revoked in Discord's own UI, and a rotation that implied
+ * otherwise would leave the user believing a live URL was dead.
+ */
+export async function rotateDiscordWebhook(
+  scope: WorkspaceScope,
+  rawUrl: string,
+): Promise<DiscordStatus> {
+  const existing = await getCredential({ scope, kind: DISCORD_CREDENTIAL_KIND });
+  if (!existing) {
+    throw new IntegrationError(
+      "There is no Discord webhook in this workspace to rotate. Add one first.",
+    );
+  }
+
+  const url = normaliseWebhookUrl(rawUrl);
+  const info = await verifyWebhook(url);
+
+  await putCredential({
+    scope,
+    kind: DISCORD_CREDENTIAL_KIND,
+    secret: url,
+    metadata: {
+      webhookName: info.webhookName,
+      channelId: info.channelId,
+      guildId: info.guildId,
+    },
+    event: "rotated",
+  });
+
+  return discordStatus(scope);
+}
+
 export async function clearDiscordWebhook(scope: WorkspaceScope): Promise<DiscordStatus> {
   await deleteCredential({ scope, kind: DISCORD_CREDENTIAL_KIND });
   return discordStatus(scope);
 }
 
-/** Server-side only. The node's `execute` is the only caller. */
-export async function readDiscordWebhook(scope: WorkspaceScope): Promise<string> {
-  const secret = await readSecret({ scope, kind: DISCORD_CREDENTIAL_KIND });
+/**
+ * Server-side only. The node's `execute` is the only caller.
+ *
+ * `use` is threaded through rather than inferred, because only the caller knows which run
+ * and which node reached for this — Phase 21's audit log is written inside `readSecret` and
+ * a use with no attribution is the one shape it cannot reconstruct.
+ */
+export async function readDiscordWebhook(
+  scope: WorkspaceScope,
+  use?: CredentialUse,
+): Promise<string> {
+  const secret = await readSecret({
+    scope,
+    kind: DISCORD_CREDENTIAL_KIND,
+    ...(use ? { use } : {}),
+  });
   if (!secret) {
     throw new IntegrationError(
       "No Discord webhook is connected. Add one in Settings → Integrations.",
@@ -190,6 +245,8 @@ export async function googleAccessToken(options: {
   requiredScopes: string[];
   capability: string;
   signal?: AbortSignal;
+  /** Which run and which node wanted it — Phase 21's audit log. */
+  use?: CredentialUse;
 }): Promise<string> {
   const credential = await getCredential({
     scope: options.scope,
@@ -211,6 +268,7 @@ export async function googleAccessToken(options: {
   const refreshToken = await readSecret({
     scope: options.scope,
     kind: GOOGLE_CREDENTIAL_KIND,
+    ...(options.use ? { use: options.use } : {}),
   });
   if (!refreshToken) {
     throw new IntegrationError(

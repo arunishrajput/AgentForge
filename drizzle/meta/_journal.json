@@ -64,6 +64,13 @@
       "when": 1790754253835,
       "tag": "0008_sparkling_nextwave",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1790760859908,
+      "tag": "0009_jazzy_alex_power",
+      "breakpoints": true
     }
   ]
 }

@@ -840,6 +840,35 @@ function EditorInner({
     [fitView, setEdges, setNodes],
   );
 
+  /**
+   * Rotate the webhook URL — **Phase 21**.
+   *
+   * It replaces the *saved* workflow and nothing else: the graph on screen is unchanged, the
+   * dirty flag is unchanged, and `webhookUrl` comes off `saved`, so the trigger panel prints
+   * the new URL without anybody building one. A failure is a toast rather than a thrown
+   * promise, because the panel's confirm step has already closed by the time it lands and a
+   * silent rejection would leave a user believing an old URL was dead.
+   */
+  const rotateWebhook = useCallback(async () => {
+    try {
+      const rotated = await api.rotateWebhookToken(saved.id);
+      setSaved(rotated);
+      toast({
+        tone: "ok",
+        title: "Webhook URL rotated",
+        detail: "The previous URL is already refused. Copy the new one to whatever calls it.",
+        duration: null,
+      });
+    } catch (error) {
+      toast({
+        tone: "bad",
+        title: "Could not rotate the URL",
+        detail: error instanceof ApiRequestError ? error.message : "Try again.",
+        duration: null,
+      });
+    }
+  }, [saved.id, toast]);
+
   const canvasValue = useMemo(
     () => ({
       registry,
@@ -1179,7 +1208,12 @@ function EditorInner({
             // `canRun` is the one flag it reads, so folding the role into it here keeps
             // the two paths to a run gated in one place rather than two.
             canRun={busy === null && !inFlight && !comparing && canEdit}
+            // `admin`, like Share and for the same reason (Phase 20's rule): an editor may
+            // change everything about this workflow, and may not invalidate a secret that
+            // systems outside this product are calling.
+            canRotateWebhook={canShare && !comparing}
             readOnly={!canEdit}
+            onRotateWebhook={rotateWebhook}
             onRunDurably={startDurable}
             onChangeNode={changeNode}
             onDeleteNode={deleteNode}

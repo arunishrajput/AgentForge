@@ -17,6 +17,7 @@ import type { RunMode, RunStatus, StepStatus, TriggerKind } from "@/lib/engine/t
 import type { StepLog } from "@/lib/nodes/types";
 import type { WorkflowGraph } from "@/lib/workflow/graph";
 import type { WorkflowVisibility } from "@/lib/workflow/visibility";
+import type { CredentialEventName } from "@/lib/credentials/audit";
 import type { WorkspaceRole } from "@/lib/workspace/roles";
 
 /**
@@ -270,6 +271,15 @@ export const workflows = pgTable(
       .notNull()
       .unique()
       .default(sql`replace(gen_random_uuid()::text, '-', '')`),
+    /**
+     * When the webhook token was last replaced — **Phase 21**.
+     *
+     * A column rather than a `credential_event` row, because a webhook token is not a
+     * `credential`: it lives on this row (D41) and there is nothing for a foreign key to
+     * point at. Null means it is still the token minted when the workflow was created,
+     * which is the honest answer and the one the trigger panel shows.
+     */
+    webhookTokenRotatedAt: timestamp("webhookTokenRotatedAt", { withTimezone: true }),
     /**
      * When this workflow's schedule trigger is next due, in UTC; null when the graph
      * has no schedule trigger. Derived from the cron expression on every save, and
@@ -565,12 +575,49 @@ export const credentials = pgTable(
       .references(() => workspaces.id, { onDelete: "cascade" }),
     kind: text("kind").notNull(),
     label: text("label").notNull(),
+    /**
+     * The secret, AES-256-GCM. **Under a per-credential data key since Phase 21**, not
+     * under `ENCRYPTION_KEY` — see the four columns below and `lib/crypto/envelope.ts`.
+     */
     ciphertext: text("ciphertext").notNull(),
     iv: text("iv").notNull(),
     authTag: text("authTag").notNull(),
+    /**
+     * The envelope — **Phase 21**, and the reason a root key can now be rotated.
+     *
+     * `wrappedKey` is this credential's 256-bit data key, itself AES-256-GCM under the
+     * root key named by `keyVersion`. Rotating the root key rewrites these three columns
+     * and **never touches `ciphertext`**, which is what turns "rotating the key destroys
+     * every credential" into an operation somebody can actually run.
+     *
+     * **All four are nullable, and that is what made migration `0009` safe.** A row with
+     * `wrappedKey is null` is a Chapter 1 row whose ciphertext is directly under
+     * `ENCRYPTION_KEY`; `openSecret` reads both shapes, so the previous revision kept
+     * serving while the columns were added and the database was never in a state that
+     * only one revision could read. The conversion is `POST /api/credentials/rekey`.
+     */
+    wrappedKey: text("wrappedKey"),
+    wrapIv: text("wrapIv"),
+    wrapAuthTag: text("wrapAuthTag"),
+    keyVersion: text("keyVersion"),
     metadata: jsonb("metadata"),
     createdAt: timestamp("createdAt", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updatedAt", { withTimezone: true }).notNull().defaultNow(),
+    /**
+     * When the **secret value** last changed, and how many times — Phase 21.
+     *
+     * Distinct from `updatedAt`, which also moves when only the metadata changes (picking
+     * a different model writes `updatedAt` and rotates nothing). The vault shows both,
+     * because "saved 5 minutes ago" and "the key has never been replaced since 2026-09-26"
+     * are different answers to different questions, and only the second one is about risk.
+     *
+     * Incremented inside the upsert's `set` clause, which Postgres runs **only on
+     * conflict** — so an insert leaves them at 0 and null with no read-then-write and no
+     * way for two concurrent writes to lose a count (D6 — `neon-http` has no
+     * transactions).
+     */
+    rotatedAt: timestamp("rotatedAt", { withTimezone: true }),
+    rotationCount: integer("rotationCount").notNull().default(0),
   },
   (table) => [
     /**
@@ -596,6 +643,71 @@ export const credentials = pgTable(
   ],
 );
 
+/**
+ * **The credential audit log — Phase 21.** Which credential, what happened to it, in
+ * which run and at which node, and when. **Never what it contains.**
+ *
+ * One table with an `event` discriminator rather than one table per kind of event, because
+ * the question an operator actually asks is chronological — *what has happened to this
+ * credential* — and answering it from two tables means a union in every query.
+ *
+ * **`credentialId` is nullable and `kind`/`label` are denormalised onto the row**, which
+ * looks redundant until you notice when this log matters most: a credential that has been
+ * revoked. `ON DELETE SET NULL` keeps the history after the row it describes is gone, and
+ * without the denormalised name that history would be a list of events about nothing. The
+ * cost is two columns that duplicate the parent while the parent exists.
+ *
+ * **`actorId` is nullable for the opposite reason.** A `used` event has no actor — it
+ * happens inside a run, which may have been started by a schedule or by an unauthenticated
+ * webhook, and naming the workflow's owner there would invent a person who did not act.
+ * `runId`/`nodeId` are the attribution for use; `actorId` is the attribution for a
+ * deliberate human act.
+ *
+ * Retention is 30 days, pruned by the cron tick — `lib/credentials/audit.ts` says why that
+ * is the number and why the tick is the right place.
+ */
+export const credentialEvents = pgTable(
+  "credential_event",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    credentialId: text("credentialId").references(() => credentials.id, {
+      onDelete: "set null",
+    }),
+    workspaceId: text("workspaceId")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    /** `used` | `rotated` | `revoked` | `rekeyed` | `stored` — `lib/credentials/audit.ts`. */
+    event: text("event").$type<CredentialEventName>().notNull(),
+    kind: text("kind").notNull(),
+    label: text("label").notNull(),
+    /** Present for `used`: which run and which node reached for it. */
+    runId: text("runId").references(() => runs.id, { onDelete: "set null" }),
+    nodeId: text("nodeId"),
+    nodeType: text("nodeType"),
+    /** Present for a deliberate act: who did it. Absent for `used`. */
+    actorId: text("actorId").references(() => users.id, { onDelete: "set null" }),
+    /**
+     * One short machine-readable word of context — the capability a node wanted, or the
+     * root key version a re-key moved to. **Never a value, never a fragment of one**; the
+     * shapes it may take are the union in `lib/credentials/audit.ts`.
+     */
+    detail: text("detail"),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    /**
+     * The log is read two ways and written one way, and both reads are covered here.
+     * `(workspaceId, at desc)` serves the vault's "what has happened lately", and
+     * `(credentialId, at desc)` serves one credential's own history. The prune reads
+     * neither: it deletes by `at` alone, which the first index also serves.
+     */
+    index("credential_event_workspace_idx").on(table.workspaceId, table.at.desc()),
+    index("credential_event_credential_idx").on(table.credentialId, table.at.desc()),
+  ],
+);
+
 export type Workspace = typeof workspaces.$inferSelect;
 export type WorkspaceMember = typeof workspaceMembers.$inferSelect;
 export type WorkspaceInvitation = typeof workspaceInvitations.$inferSelect;
@@ -604,3 +716,4 @@ export type WorkflowVersion = typeof workflowVersions.$inferSelect;
 export type Run = typeof runs.$inferSelect;
 export type RunStep = typeof runSteps.$inferSelect;
 export type Credential = typeof credentials.$inferSelect;
+export type CredentialEvent = typeof credentialEvents.$inferSelect;

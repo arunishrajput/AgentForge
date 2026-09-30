@@ -24,13 +24,25 @@ export function TriggerPanel({
   node,
   workflow,
   dirty,
+  canRotate,
+  onRotate,
 }: {
   node: CanvasNode;
   workflow: Workflow;
   dirty: boolean;
+  /** Replacing the URL is `admin` — Phase 21. A lesser role is shown why, not a dead button. */
+  canRotate: boolean;
+  onRotate: () => Promise<void>;
 }) {
   if (node.data.nodeType === "core.webhook_trigger") {
-    return <WebhookPanel workflow={workflow} dirty={dirty} />;
+    return (
+      <WebhookPanel
+        workflow={workflow}
+        dirty={dirty}
+        canRotate={canRotate}
+        onRotate={onRotate}
+      />
+    );
   }
   if (node.data.nodeType === "core.schedule_trigger") {
     return <SchedulePanel workflow={workflow} dirty={dirty} />;
@@ -38,9 +50,30 @@ export function TriggerPanel({
   return null;
 }
 
-function WebhookPanel({ workflow, dirty }: { workflow: Workflow; dirty: boolean }) {
+function WebhookPanel({
+  workflow,
+  dirty,
+  canRotate,
+  onRotate,
+}: {
+  workflow: Workflow;
+  dirty: boolean;
+  canRotate: boolean;
+  onRotate: () => Promise<void>;
+}) {
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
+  /**
+   * Rotation is two presses — **Phase 21**, and the second press is not ceremony.
+   *
+   * The old URL is dead the instant the request returns, so whatever is calling it stops
+   * working: a Zap, a GitHub webhook, a cron on somebody's laptop. A single button beside a
+   * "Copy URL" button, half an inch from a mouse that came to copy, is the wrong affordance
+   * for something with no undo. The confirm step states the consequence in those words.
+   */
+  const [confirming, setConfirming] = useState(false);
+  const [rotating, setRotating] = useState(false);
+  const [rotated, setRotated] = useState(false);
 
   if (!workflow.webhookUrl) {
     return (
@@ -52,6 +85,20 @@ function WebhookPanel({ workflow, dirty }: { workflow: Workflow; dirty: boolean 
       </Section>
     );
   }
+
+  const rotate = async () => {
+    setRotating(true);
+    try {
+      await onRotate();
+      setConfirming(false);
+      setRotated(true);
+      // The new URL is already in the field: `onRotate` replaces the saved workflow, and
+      // this panel reads `workflow.webhookUrl` from it. Nothing here builds a URL.
+      setCopied(false);
+    } finally {
+      setRotating(false);
+    }
+  };
 
   const copy = async () => {
     try {
@@ -87,6 +134,58 @@ function WebhookPanel({ workflow, dirty }: { workflow: Workflow; dirty: boolean 
       {copyFailed && (
         <p className="text-2xs text-warn">
           The browser refused clipboard access — select the field and copy it manually.
+        </p>
+      )}
+
+      {/* --- rotation, Phase 21 ------------------------------------------- */}
+      {canRotate &&
+        (confirming ? (
+          <div className="border-line bg-sunken animate-rise space-y-2 rounded-lg border-2 p-2.5">
+            <p className="text-2xs leading-relaxed">
+              <strong className="font-bold">The URL above stops working immediately.</strong>{" "}
+              Anything already calling it will get a 404 until you give it the new one. There
+              is no way back to the old URL.
+            </p>
+            <div className="flex gap-1.5">
+              <button
+                type="button"
+                onClick={rotate}
+                aria-busy={rotating}
+                className="btn btn-danger flex-1 text-2xs"
+              >
+                {rotating ? "Rotating…" : "Replace it"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirming(false)}
+                className="btn btn-ghost text-2xs"
+              >
+                Keep it
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => {
+              setConfirming(true);
+              setRotated(false);
+            }}
+            className="btn btn-ghost w-full text-2xs"
+          >
+            Rotate this URL
+          </button>
+        ))}
+
+      {rotated && (
+        <p className="text-2xs text-ok-ink" role="status">
+          Rotated. The URL above is the new one — the previous URL is already refused.
+        </p>
+      )}
+
+      {workflow.webhookTokenRotatedAt && !rotated && (
+        <p className="text-faint text-2xs">
+          Last rotated {formatUtc(workflow.webhookTokenRotatedAt)}.
         </p>
       )}
 

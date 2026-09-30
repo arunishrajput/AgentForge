@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 
 import { db } from "@/db";
+import { rootKeyProvider } from "@/lib/crypto";
 import { queueConfig } from "@/lib/engine/queue";
 
 export const dynamic = "force-dynamic";
@@ -23,8 +24,15 @@ function safeMessage(error: unknown): string {
  * with nothing to say so. Reporting the configuration makes that observable from
  * outside, which is what a deployed verification can actually assert.
  *
- * It names the queue, never a credential — the access token is minted per instance from
- * the metadata server and appears nowhere in this response.
+ * **`rootKey` is here for exactly the same reason — Phase 21.** A deployment with no
+ * `ROOT_KEY_SECRET` falls back to `ENCRYPTION_KEY`, which is correct locally and, in
+ * production, is the Chapter 1 problem back without the Chapter 1 warning: it works, so
+ * nothing reports it, and the root key silently cannot be rotated. Naming the *provider*
+ * makes that assertable from outside the container.
+ *
+ * It names the queue and the provider, never a credential and never a key. The access token
+ * is minted per instance from the metadata server, the root key is never serialised, and the
+ * version label names immutable bytes rather than revealing any of them.
  */
 export async function GET() {
   const startedAt = Date.now();
@@ -39,6 +47,7 @@ export async function GET() {
       queue: queue
         ? { configured: true, ...queue }
         : { configured: false, reason: "TASKS_QUEUE is not set, or its location is unknown" },
+      rootKey: { provider: rootKeyProvider() },
       revision: process.env.K_REVISION ?? "local",
       timestamp: new Date().toISOString(),
     });

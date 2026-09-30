@@ -101,7 +101,7 @@ done is not done, and there is no longer any reason to cut corners to reach one.
 | `DESIGN.md` | The Toybox design language. **Written in Phase 14, binding** | Before any UI work. The living reference is `/design` on the deployed URL |
 | `DEMO.md` | **ARCHIVED.** The hackathon demo script. Historical only — no longer a scope contract | Rarely |
 | `SUBMISSION.md` | **ARCHIVED.** Devpost submission copy as submitted | Rarely |
-| `SECURITY.md` | Security posture and disclosure. **Created in Phase 21** | Before touching auth or crypto |
+| `SECURITY.md` | Security posture, rotation procedures, disclosure, **and what the product does not claim**. Created in Phase 21 | Before touching auth or crypto |
 | `OPERATIONS.md` | Running it in production. **Created in Phase 22** | Before an operational change |
 | `docs/`, `adr/` | The docs site and decision records. **Created in Phase 24** | When documenting |
 | `README.md` | Practical entry point | When orienting from scratch |

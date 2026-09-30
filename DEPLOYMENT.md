@@ -16,10 +16,11 @@ Every step is labelled **`AUTOMATED BY CLAUDE CODE`** or **`MANUAL HUMAN ACTION`
 | Field | Value |
 |---|---|
 | Service | `agentforge`, Cloud Run, `asia-southeast1` |
-| Revision | **`agentforge-00041-75x`** — 100% of traffic (Phase 19B). Last known-good before it: `agentforge-00040-7c4`, `agentforge-00039-qlr`, `agentforge-00038-cfp` (all Phase 19B), then `agentforge-00037-k7x` (Phase 19A) |
+| Revision | **`agentforge-00046-w7b`** — 100% of traffic (Phase 21). **Phase 21 took three deploys**: `00044` shipped the phase and added `ROOT_KEY_SECRET`, `00045` shipped the error-mapping fix the deployed suite found, `00046` shipped the three defects a real browser walk found. Last known-good before them: `agentforge-00043-nn2` (Phase 20) |
 | Scaling | `min-instances 1`, `max-instances 3`, 1 vCPU / 1 GiB, 3600 s timeout |
-| Database | Neon `super-mountain-39872886`, `aws-ap-southeast-1` — **12 tables**, migrations `0000`–`0008` applied. 9.6 MB of 0.5 GB |
-| Last verified | **2026-09-27, after Phase 19B** — 299 API checks passed / 11 failed (all the Gemini daily free-tier quota) / 4 skipped, of which **83 are Phase 19B's own**: two real accounts, one shared workspace, the whole invitation lifecycle and a viewer refused on seventeen mutating routes. `verify-durable.mjs` all-pass including a Cloud Tasks scheduled run completing, `verify-schema.mjs` 6/6, and a real browser at 1440 px and 375 px with 0 console errors |
+| Root key | **Secret Manager `agentforge-root-key`, version `1`.** Every credential's data key is wrapped by it; `GET /api/health` reports `rootKey.provider` so a deployment silently on `ENCRYPTION_KEY` cannot hide |
+| Database | Neon `super-mountain-39872886`, `aws-ap-southeast-1` — **13 tables**, migrations `0000`–`0009` applied. 9.9 MB of 0.5 GB |
+| Last verified | **2026-09-30, after Phase 21** — `verify-api.mjs` 393 passed / 0 failed / 4 skipped; `verify-vault.mjs` **61/61**, including all three credentials re-keyed under `sm:1` and each one verified to decrypt, a Discord credential rotated and a workflow still posting with it, a webhook token rotated with the **old URL refused immediately**, a refused rotation proved to have left the stored envelope byte-identical, and a 16-cell role matrix; `verify-durable.mjs` all-pass; `verify-schema.mjs` 6/6. A real browser at 1440 px and 375 px found three defects, all fixed and re-verified |
 
 The service also answers on a legacy hashed URL. Do not use it — see *Deploy*.
 
@@ -66,6 +67,7 @@ across `/clear` boundaries this is how duplicate infrastructure gets created.
 | `agentforge` / `production` / `neondb` | Postgres project/branch | Neon | All persistence | Phase 0 | Partly — console for creation |
 | `agentforge-cron` | Cloud Scheduler job | Google Cloud | Fires due schedule triggers, every 15 min | Phase 8 | Yes |
 | `agentforge-runs` | Cloud Tasks queue | Google Cloud | Carries durable runs to `POST /api/runs/dispatch` | **Phase 17 — EXISTS**, `asia-southeast1` | Yes |
+| `agentforge-root-key` | Secret Manager secret | Google Cloud | The **root key** that wraps every credential's data key | **Phase 21 — EXISTS**, version `1` enabled, user-managed replication in `asia-southeast1` | Yes |
 | Gemini API key | Credential | Google AI Studio | LLM calls | Phase 0 manual | No |
 | Discord webhook URL | Credential | Discord | Demo output target | Phase 0 manual | No |
 | `AgentForge` | Git repository | GitHub | Source + persistent memory | Bootstrap | Yes |
@@ -641,7 +643,9 @@ applied while the previous revision is still serving, which is what Phases 17, 1
 `0007` adds one table and alters nothing, so it went in before the deploy and the old revision, which
 knows nothing about `workspace_invitation`, kept serving throughout. `0008` is the same shape in the
 other form: three columns on an existing table, each nullable or defaulted, so the previous revision
-kept inserting correctly against a table it did not know the shape of.
+kept inserting correctly against a table it did not know the shape of. `0009` is both at once — one
+`CREATE TABLE` plus seven columns, every one of them nullable or defaulted — and its row counts were
+identical before and after.
 
 A migration that **tightens** a constraint cannot. A `NOT NULL` column with no default makes every
 insert from the previous revision fail for the length of the deploy. Phase 19A is the worked
@@ -657,9 +661,10 @@ example, and the pattern to copy:
 | 6 | `scripts/verify-schema.mjs`, then the API and durable suites | |
 
 **Write the rollback by hand and keep it.** Drizzle has no down migrations. Phase 19A's is
-`drizzle/rollback_0005_0006.sql`, Phase 19B's is `drizzle/rollback_0007.sql` and Phase 20's is
-`drizzle/rollback_0008.sql`; each is applied with a SQL client and each also removes its ledger row,
-so a later `db:migrate` re-applies rather than believing the work is already done.
+`drizzle/rollback_0005_0006.sql`, Phase 19B's is `drizzle/rollback_0007.sql`, Phase 20's is
+`drizzle/rollback_0008.sql` and Phase 21's is `drizzle/rollback_0009.sql`; each is applied with a SQL
+client and each also removes its ledger row, so a later `db:migrate` re-applies rather than believing
+the work is already done.
 
 **Rehearse anything the SQL cannot obviously be read as safe.** `0007` is one `CREATE TABLE`, which
 looks trivial and carries one real risk: its **partial** unique index is the conflict target of the
@@ -676,6 +681,29 @@ database with no point-in-time restore. `scripts/rehearse-0008.mjs` applies both
 and asserts the copy is digest-identical afterwards, and it additionally proves the **partial** unique
 index refuses a duplicate token and permits many nulls, against the real DDL. An index that exists is
 not an index that refuses anything, and this one is read by an unauthenticated route.
+
+**Phase 21's rollback is the first that can destroy data, and the first that refuses to.** `0009` is
+purely additive, so applying it was safe with the previous revision serving. Reversing it is **not
+symmetric**: after a re-key, a credential's data key exists in exactly one place — the `wrappedKey`
+column — so `DROP COLUMN "wrappedKey"` discards the only copy of the key and leaves the ciphertext
+permanently unreadable. Every stored credential in the product, destroyed by one statement that looks
+like the other six.
+
+Three things follow, and all three are implemented rather than described:
+
+1. **The safe rollback does not touch the schema at all.** Shift Cloud Run traffic to the previous
+   revision and leave the columns in place — a revision that knows nothing about them reads the rows
+   it understands. The only prerequisite is converting the rows back:
+   `scripts/rekey.mjs --to-legacy`, which re-seals every credential in the Chapter 1 single-layer
+   shape under `ENCRYPTION_KEY` and verifies each one decrypts afterwards.
+2. **`rollback_0009.sql` opens with a guard** that counts enveloped rows and `RAISE EXCEPTION`s
+   rather than proceeding, naming the count. It is only for removing the columns *after* step 1.
+3. **`scripts/rehearse-0009.mjs` puts an envelope on a row and asserts the guard fires** — 15 checks,
+   including that the guard aborts the whole script and drops nothing, and that the copy is
+   digest-identical after a clean rollback. **A guard that does not fire is worse than no guard**,
+   because it is trusted. It also proves the migration is invisible to a serving revision: every
+   pre-existing credential comes out legacy, and a write naming none of the new columns still
+   succeeds.
 
 > **There is one Neon database.** Local development and production share `super-mountain-39872886`
 > / `production` / `neondb`. A migration applied from a developer machine is **immediately live**.
@@ -968,18 +996,35 @@ Neon, not Logging, because run analytics are computed from the `run`/`run_step` 
 | Management operations | **unlimited** | — |
 | **Rotation notifications** | **3/month** | **$0.05 each** |
 
-Envelope encryption needs **one** data key, so 6 active versions is ample — but note that a version
-is retained until destroyed, so Phase 21's rotation must **destroy superseded versions**, not merely
-create new ones, or the sixth rotation starts billing. Access operations are only a concern if the
-key is fetched per request rather than cached per instance; **cache it**, and a cold start per
-instance puts usage in the tens per month.
+**ENABLED 2026-09-30, Phase 21.** `agentforge-root-key` holds **one** version, and the numbers above
+are comfortable at this shape:
 
-**The sharp edge is rotation notifications: 3 per month, then $0.05 each.** That is a real, if
-small, cost, and it is the first thing in this project that is not free at any volume. Phase 21
-should rotate on a schedule the project controls rather than subscribe to Secret Manager's
-notifications — the free allowance permits quarterly rotation and nothing more frequent.
+- **Versions.** Envelope encryption needs one *root* key, not one per credential — the per-credential
+  data keys live in Postgres, wrapped. So the 6-version allowance is a rotation *history*, not a
+  capacity limit. A version is retained until destroyed, so the procedure in `SECURITY.md` ends with
+  **disabling** the superseded version and destroying it once nothing names it; six rotations without
+  ever destroying one is the only way this starts billing.
+- **Access operations.** The app caches a version's bytes for the life of the instance — a version is
+  immutable, so the cache can never be stale — and caches the `latest` lookup for five minutes.
+  Accessing `latest` returns the *resolved* version name, so **sealing costs one access and no
+  `versions.list` call**. At `min-instances 1` / `max-instances 3` that is single digits per day:
+  measured at **4 accesses** across the whole of Phase 21's verification, against 10,000/month.
+- **Rotation notifications are not used at all**, which removes the sharp edge this section
+  originally flagged. The 3/month free allowance applies to Secret Manager's own Pub/Sub rotation
+  schedule; AgentForge rotates on a procedure the operator runs (`SECURITY.md` → *Rotating the root
+  key*) and subscribes to nothing. **There is still nothing in this project that is not free.**
 
-`secretmanager.googleapis.com` is **not yet enabled**. Phase 21 enables it.
+**IAM is scoped to the one secret, not the project:**
+
+```bash
+gcloud secrets add-iam-policy-binding agentforge-root-key \
+  --member="serviceAccount:733000675212-compute@developer.gserviceaccount.com" \
+  --role="roles/secretmanager.secretAccessor"
+```
+
+Without it the app answers `RootKeyError` on every credential read and `/api/health` reports
+`rootKey.provider` as `secret-manager` while nothing decrypts — which is why the deployed suite
+asserts a real decrypt rather than the configuration alone.
 
 ### Re-checking these numbers
 
@@ -1061,6 +1106,29 @@ mint. The script inserts a real `session` row for an existing user, drives the A
 exactly as a browser would — the same path `auth()` takes — and deletes the row afterwards. **There
 is no test-only bypass in the application.** It needs `DATABASE_URL_UNPOOLED` from `.env`, and a
 user row must already exist, so sign in once before running it against a fresh database.
+
+**8. The subsystem suites — AUTOMATED.** One per phase whose subject was one subsystem, so each can
+be re-run on its own when that subsystem changes.
+
+```bash
+node --env-file=.env scripts/verify-schema.mjs                      # repo schema vs. the live database
+APP_BASE_URL="$APP_BASE_URL" node --env-file=.env scripts/verify-durable.mjs all   # Phase 17
+node --env-file=.env scripts/verify-vault.mjs "$APP_BASE_URL"       # Phase 21
+```
+
+`verify-vault.mjs` proves the three rotations Phase 21 exists for, and three claims that would
+otherwise be taken on trust: that the vault's response contains no part of any stored envelope
+(searched for against the real ciphertext, read out of the database), that a refused rotation
+leaves the stored secret byte-identical, and that every rotation mints a fresh data key. **It
+re-keys the real workspace**, which is unavoidable — re-keying is a property of the whole workspace
+and cannot be rehearsed on a throwaway one that holds nothing — and every operation it performs is
+idempotent and safe to repeat.
+
+**9. A real browser — NOT OPTIONAL.** `CLAUDE.md` records why, and Phase 21 was the seventh time:
+393 API checks and 61 vault checks all passed over a log list whose dividers were full-strength ink
+rules, an empty-state paragraph describing secrets that were not there, and a "Not connected" list
+that offered a way to connect for one kind out of three. **No suite in this repository can see any
+of that.**
 
 ---
 

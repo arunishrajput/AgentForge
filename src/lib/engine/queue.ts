@@ -1,3 +1,5 @@
+import { accessToken, projectId } from "@/lib/gcp/metadata";
+
 /**
  * The queue — Cloud Tasks, reached over its REST API with `fetch`.
  *
@@ -6,7 +8,9 @@
  * Phase 4 (`PROGRESS.md` → *Installed stack*) and this is not the phase to break that
  * for one `POST`. Creating a task is a single authenticated HTTP request, and the
  * credential is already on the instance: Cloud Run's metadata server mints an access
- * token for the service account with no key material anywhere.
+ * token for the service account with no key material anywhere. **Phase 21 moved that half
+ * into `lib/gcp/metadata.ts`**, because Secret Manager needs the same token and two caches on
+ * one instance are two things that can disagree about when it expired.
  *
  * **What travels in a task: a run id and its dispatch token. Nothing else.** Cloud
  * Tasks bills per 32 KB chunk of task payload (`DEPLOYMENT.md` → *Cloud Tasks*), so a
@@ -23,14 +27,12 @@
  * deployed verification asserts it.
  */
 
-const METADATA_ROOT = "http://metadata.google.internal/computeMetadata/v1";
 const TASKS_API = "https://cloudtasks.googleapis.com/v2";
 
 /** How long the worker is given to answer a delivery. Above the engine's 120 s. */
 export const DISPATCH_DEADLINE_SECONDS = 300;
 
 /** Bounds every call to Google's APIs so a slow queue cannot hold a user's request. */
-const METADATA_TIMEOUT_MS = 3_000;
 const TASKS_TIMEOUT_MS = 10_000;
 
 export interface QueueConfig {
@@ -51,60 +53,11 @@ export async function queueConfig(): Promise<QueueConfig | null> {
   const queue = process.env.TASKS_QUEUE;
   if (!queue) return null;
 
-  const project = process.env.TASKS_PROJECT ?? (await metadata("project/project-id"));
+  const project = process.env.TASKS_PROJECT ?? (await projectId());
   const location = process.env.TASKS_LOCATION ?? process.env.GCP_REGION;
   if (!project || !location) return null;
 
   return { project, location, queue };
-}
-
-async function metadata(path: string): Promise<string | null> {
-  try {
-    const response = await fetch(`${METADATA_ROOT}/${path}`, {
-      headers: { "Metadata-Flavor": "Google" },
-      signal: AbortSignal.timeout(METADATA_TIMEOUT_MS),
-    });
-    if (!response.ok) return null;
-    return (await response.text()).trim();
-  } catch {
-    // No metadata server: a developer machine, or CI. Not an error here.
-    return null;
-  }
-}
-
-/**
- * An access token for the instance's service account, cached for its lifetime.
- *
- * Cached because a token lasts an hour and a cold start per instance is the only time
- * this should cost a request. Refreshed a minute early so a token is never used in the
- * seconds around its expiry.
- */
-let cached: { token: string; expiresAt: number } | null = null;
-
-export async function accessToken(): Promise<string | null> {
-  if (cached && cached.expiresAt > Date.now()) return cached.token;
-
-  const raw = await metadata("instance/service-accounts/default/token");
-  if (!raw) return null;
-
-  let parsed: { access_token?: string; expires_in?: number };
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return null;
-  }
-  if (!parsed.access_token) return null;
-
-  cached = {
-    token: parsed.access_token,
-    expiresAt: Date.now() + Math.max(((parsed.expires_in ?? 3600) - 60) * 1000, 0),
-  };
-  return cached.token;
-}
-
-/** Only for tests and for a deliberate refresh; the cache is per instance otherwise. */
-export function clearTokenCache(): void {
-  cached = null;
 }
 
 /**

@@ -146,6 +146,46 @@ export async function writeSettings(
   return readSettings(scope);
 }
 
+/**
+ * Replace the stored key — **Phase 21's rotation path for `llm.google`.**
+ *
+ * The difference from `writeSettings` with an `apiKey` is one refusal, and it is the point:
+ * **rotation requires that something was there to rotate.** Saving a key into a workspace
+ * that has none is a first connection, and calling it a rotation would make the vault claim
+ * a key had been replaced when it had never existed — the one number in the vault somebody
+ * might act on.
+ *
+ * The chosen model is carried across deliberately. A rotation replaces a secret and must not
+ * quietly reset a setting beside it, or an operator rotating a key on a Friday discovers on
+ * Monday that every agent node is on a different model.
+ */
+export async function rotateProviderKey(
+  scope: WorkspaceScope,
+  apiKey: string,
+): Promise<ProviderSettings> {
+  const existing = await getCredential({ scope, kind: LLM_CREDENTIAL_KIND });
+  if (!existing) {
+    throw new ApiError(
+      "not_found",
+      "There is no provider key in this workspace to rotate. Add one first.",
+    );
+  }
+
+  await verifyKey(apiKey);
+  const model = existing.metadata.model ?? DEFAULT_MODEL;
+  await verifyModel(apiKey, model);
+
+  await putCredential({
+    scope,
+    kind: LLM_CREDENTIAL_KIND,
+    secret: apiKey,
+    metadata: { model },
+    event: "rotated",
+  });
+
+  return readSettings(scope);
+}
+
 export async function clearSettings(scope: WorkspaceScope): Promise<ProviderSettings> {
   await deleteCredential({ scope, kind: LLM_CREDENTIAL_KIND });
   return readSettings(scope);

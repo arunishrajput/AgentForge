@@ -70,7 +70,12 @@ export const agentNode = defineNode({
     temperature: z.number().min(0).max(2).optional(),
   }),
   async execute({ config, input, context }) {
-    const { model, source, selectedModel } = await resolveKey(context.scope);
+    const { model, source, selectedModel } = await resolveKey(context.scope, {
+      runId: context.runId,
+      nodeId: context.nodeId,
+      nodeType: context.nodeType,
+      purpose: "agent-loop",
+    });
     const modelId = config.model && config.model.length > 0 ? config.model : selectedModel;
 
     const tools = agentToolSet({ allow: config.tools });

@@ -65,6 +65,12 @@ export const sheetsNode = defineNode({
         requiredScopes: [SHEETS_SCOPE],
         capability: "edit your spreadsheets",
         signal: context.signal,
+        use: {
+          runId: context.runId,
+          nodeId: context.nodeId,
+          nodeType: context.nodeType,
+          purpose: "append-row",
+        },
       });
 
       const result = await appendRow({

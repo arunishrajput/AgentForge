@@ -308,7 +308,7 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
         policy: readPolicy(node.policy),
         signal,
         log,
-        context: { runId, workflowId, scope, nodeId: node.id, iteration, log },
+        context: { runId, workflowId, scope, nodeId: node.id, nodeType: node.type, iteration, log },
       });
 
       step.status = "succeeded";

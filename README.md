@@ -44,7 +44,13 @@ to a person, people are invited into one by a single-use expiring link, and `vie
 can move a member between roles, a workflow can be made private to its author and the workspace's
 admins, and any workflow can be published as a **read-only page anybody with the link can open** —
 showing the shape of the graph and every setting, and withholding every value its author typed.
-Still to come — a credential vault, observability, a much larger node catalogue, and proper
+**The credential vault** landed in Phase 21: every stored secret is encrypted under its own key,
+that key is wrapped by a **versioned root key**, and rotating the root key re-wraps the small keys
+without decrypting a single secret — which turns Chapter 1's *never rotate this, it destroys every
+credential* into a procedure with four steps. A secret can be replaced in place, a workflow's
+webhook URL can be rotated with the old one refused immediately, and an audit log records which run
+and which node used which credential — never what it contains.
+Still to come — observability, a much larger node catalogue, and proper
 documentation. It stays free to run.
 
 **The redesign has landed.** Phase 14 replaced the dark Chapter 1 interface with **Toybox** — bright,
@@ -102,6 +108,7 @@ Full scope, including what is deliberately excluded, is in [`PRD.md`](./PRD.md).
 | [`CONTRACT.md`](./CONTRACT.md) | Interfaces that must stay stable |
 | [`DESIGN.md`](./DESIGN.md) | **Toybox** — the design language, and the rules it is built inside |
 | [`DEPLOYMENT.md`](./DEPLOYMENT.md) | How to deploy and verify |
+| [`SECURITY.md`](./SECURITY.md) | What is protected and how, the rotation procedures, **and what we do not claim**. Also how to report a vulnerability |
 | [`DEMO.md`](./DEMO.md) | **Archived.** The hackathon demo script, kept as a smoke reference |
 | [`SUBMISSION.md`](./SUBMISSION.md) | Everything the Devpost form asks for, written once |
 

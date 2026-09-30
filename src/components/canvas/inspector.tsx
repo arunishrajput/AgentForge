@@ -56,7 +56,9 @@ export function Inspector({
   onChangeTriggerInput,
   queueing,
   canRun,
+  canRotateWebhook,
   readOnly,
+  onRotateWebhook,
   onRunDurably,
   onChangeNode,
   onDeleteNode,
@@ -86,11 +88,18 @@ export function Inspector({
   /** Nothing is busy and no run is in flight, so starting one is possible. */
   canRun: boolean;
   /**
+   * Replacing the webhook URL is `admin` — **Phase 21**. Separate from `readOnly` on purpose:
+   * an editor may change everything about this workflow and still may not invalidate a secret
+   * that systems outside this product depend on.
+   */
+  canRotateWebhook: boolean;
+  /**
    * The viewer's role does not carry editing — **Phase 20**. The panel stays open and
    * every value stays legible; nothing in it can be changed. Reading a node's
    * configuration is a read, and it is most of what a viewer opens this panel for.
    */
   readOnly: boolean;
+  onRotateWebhook: () => Promise<void>;
   onRunDurably: () => void;
   onChangeNode: (id: string, data: Partial<CanvasNode["data"]>) => void;
   onDeleteNode: (id: string) => void;
@@ -126,6 +135,8 @@ export function Inspector({
           dirty={dirty}
           problems={problems.filter((problem) => problem.nodeId === node.id)}
           readOnly={readOnly}
+          canRotateWebhook={canRotateWebhook}
+          onRotateWebhook={onRotateWebhook}
           onChange={onChangeNode}
           onDelete={onDeleteNode}
         />
@@ -155,6 +166,8 @@ function NodeInspector({
   dirty,
   problems,
   readOnly,
+  canRotateWebhook,
+  onRotateWebhook,
   onChange,
   onDelete,
 }: {
@@ -164,6 +177,8 @@ function NodeInspector({
   dirty: boolean;
   problems: GraphProblem[];
   readOnly: boolean;
+  canRotateWebhook: boolean;
+  onRotateWebhook: () => Promise<void>;
   onChange: (id: string, data: Partial<CanvasNode["data"]>) => void;
   onDelete: (id: string) => void;
 }) {
@@ -251,7 +266,13 @@ function NodeInspector({
 
         {/* A trigger's URL and its next due time are workflow state, not node config,
             so they sit below the form rather than inside it. */}
-        <TriggerPanel node={node} workflow={workflow} dirty={dirty} />
+        <TriggerPanel
+          node={node}
+          workflow={workflow}
+          dirty={dirty}
+          canRotate={canRotateWebhook}
+          onRotate={onRotateWebhook}
+        />
 
         {/* Retry and timeout are properties of *running* a node, so they sit below its
             configuration behind a rule of their own rather than inside the config form.

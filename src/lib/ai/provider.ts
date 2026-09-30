@@ -4,6 +4,7 @@ import {
   readSecret,
   type CredentialMetadata,
 } from "@/lib/credentials";
+import type { CredentialUse } from "@/lib/credentials/audit";
 import type { WorkspaceScope } from "@/lib/workspace/scope";
 
 import { DEFAULT_MODEL, geminiModel } from "./gemini";
@@ -37,8 +38,16 @@ export interface ResolvedProvider {
   selectedModel: string;
 }
 
-export async function resolveProvider(scope: WorkspaceScope): Promise<ResolvedProvider> {
-  const stored = await readSecret({ scope, kind: LLM_CREDENTIAL_KIND });
+/**
+ * `use` is Phase 21's audit attribution. Optional, and its absence is meaningful rather
+ * than lazy: the two routes that resolve a provider key to fill a picker or to generate a
+ * graph really do have no run and no node, and recording one would be an invention.
+ */
+export async function resolveProvider(
+  scope: WorkspaceScope,
+  use?: CredentialUse,
+): Promise<ResolvedProvider> {
+  const stored = await readSecret({ scope, kind: LLM_CREDENTIAL_KIND, ...(use ? { use } : {}) });
 
   if (stored) {
     const credential = await getCredential({ scope, kind: LLM_CREDENTIAL_KIND });

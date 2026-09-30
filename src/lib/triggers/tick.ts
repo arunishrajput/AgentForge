@@ -2,6 +2,7 @@ import { and, eq, isNotNull, lte } from "drizzle-orm";
 
 import { db } from "@/db";
 import { workflows, type Workflow } from "@/db/schema";
+import { pruneCredentialEvents } from "@/lib/credentials/audit";
 import { sweepAbandonedRuns } from "@/lib/engine/lease";
 import { startDurableRun } from "@/lib/engine/run";
 import { systemScope } from "@/lib/workspace/scope";
@@ -55,6 +56,12 @@ export interface TickOutcome {
   cleared: string[];
   /** Abandoned runs closed by this tick. The sweeper's only scheduled caller. */
   swept: number;
+  /**
+   * Credential audit events dropped past their retention window — Phase 21. The tick is the
+   * only thing in this system that runs on a clock, so it is the only place a retention
+   * policy can live (`lib/credentials/audit.ts`).
+   */
+  pruned: number;
 }
 
 /**
@@ -109,6 +116,12 @@ export async function runDueSchedules(options: { now?: Date; signal?: AbortSigna
     // asking, so a run abandoned by a user who never comes back would otherwise stay
     // `running` for ever on nobody looking at it.
     swept: await sweepAbandonedRuns(),
+    /**
+     * Every tick rather than on a slower clock of its own. The statement is one indexed
+     * delete that matches nothing on almost every tick, the database is already awake for
+     * the sweep above, and a prune that runs rarely is a prune nobody notices has stopped.
+     */
+    pruned: await pruneCredentialEvents(now),
   };
 
   for (const workflow of due) {

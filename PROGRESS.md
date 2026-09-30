@@ -14,11 +14,11 @@ Phases 0–12 built and shipped a hackathon MVP. It was submitted on 2026-09-26
 (<https://www.youtube.com/watch?v=Suc4RV9LnLs>), and that chapter is done and not reopened.
 
 **Chapter 2 turns the MVP into a real, professional, open-source product.** Thirteen phases,
-13 → 25, defined in `BUILD_PLAN.md`. **Phases 13–20 are done** (19 was split into 19A and 19B, both
-complete). **Phase 21 is next.**
+13 → 25, defined in `BUILD_PLAN.md`. **Phases 13–21 are done** (19 was split into 19A and 19B, both
+complete). **Phase 22 is next.**
 
 **The live system still works and must keep working:**
-**https://agentforge-733000675212.asia-southeast1.run.app** — revision `agentforge-00043-nn2`.
+**https://agentforge-733000675212.asia-southeast1.run.app** — revision `agentforge-00046-w7b`.
 
 ### Four binding decisions, made 2026-09-26
 
@@ -37,58 +37,70 @@ cron tick to `*/15` to stay inside it. Multi-user queries and analytics both spe
 budget. **Phase 13 measured the real headroom; Phase 18 re-measured storage; Phase 19A sharpened
 what the meter actually counts — compute time awake, not statements**, which is why workspaces were
 nearly free and why Phase 22's analytics is the phase that has to be designed against the number.
+**Phase 21 settled the vault half of it and it cost nothing**: Secret Manager's free tier covers a
+versioned root key, the app spends single-digit access operations a day against 10,000 a month, and
+the audit log is one insert per credential read on a database a run has already woken. **Cloud KMS
+was the textbook answer and was refused for being ~$0.06 a key a month** (D106) — that is what the
+ceiling costing something looks like, and `SECURITY.md` states the protection given up.
 `BUILD_PLAN.md` → *The zero-cost problem* holds the per-area resolution.
 
 ---
 
 ## Current Phase
 
-## ▶ NEXT: PHASE 21 — Credential vault and rotation
+## ▶ NEXT: PHASE 22 — Observability and run analytics
 
-**Phase 20 is COMPLETE (2026-09-30).** Full definition of Phase 21 in `BUILD_PLAN.md`. Read
-`CONTRACT.md` → *Credential storage shape* and `ARCHITECTURE.md` → *Auth* before touching any of it,
-and **write `SECURITY.md`** — Phase 21 creates it.
+**Phase 21 is COMPLETE (2026-09-30).** Full definition of Phase 22 in `BUILD_PLAN.md`. Read
+`SECURITY.md` and `DEPLOYMENT.md` → *Cloud Logging* before touching any of it, and **write
+`OPERATIONS.md`** — Phase 22 creates it.
 
-**What Phase 20 leaves you:**
+**What Phase 21 leaves you:**
 
-- **The authorisation layer is finished, and it is one funnel.** `requireScope(minimumRole)` is
-  still the only place a route's authority is established; Phase 20 added the two rules a ranking
-  cannot express — `roleChangeRefusal` (who may move whom to what) and `visibleWorkflows` (which
-  *rows* a member may see). Both are pure functions with unit tests, and **`visibleWorkflows` is the
-  first authorisation in the product that filters rather than refuses**
-- **A role is now something a workspace can be administered with.** `PATCH
-  /api/workspaces/:id/members/:userId`. Ownership moves only by an owner's hand, in either
-  direction, and the last owner can be neither removed nor demoted — so a workspace cannot become
-  unadministrable. The handover is: promote the successor, then step down
-- **A workflow can be private to its creator plus the workspace's admins.** `private` is 404 to
-  everybody else — its runs and its version history included, which needed a join added to `getRun`
-  and `listRuns`, the only two reads that do not go through `getWorkflow`. **Admins see private
-  workflows deliberately**: a private workflow still runs with the workspace's credentials
-- **The public share link is the product's fourth unauthenticated surface**, and the only one whose
-  risk is in the *response*. What it may publish is an allowlist in `lib/workflow/share.ts` that
-  **defaults to publishing nothing**, so a node type added in Phase 23 cannot widen it by existing —
-  a test asserts the table covers the registry and fails the build otherwise
-- **The UI now withholds what the API refuses.** That is a usability change, not a security one:
-  every control it hides was already refused server-side and still is, asserted by 56 cells of the
-  deployed matrix
+- **Chapter 1's sharpest gap is closed.** Every credential is now sealed under its own 256-bit data
+  key, and that key is wrapped by a **versioned root key in Secret Manager** (`agentforge-root-key`,
+  version 1). Rotating the root key re-wraps ~60 bytes per row and **never decrypts a secret** — so
+  *never rotate `ENCRYPTION_KEY`, it destroys all stored credentials* is now a four-step procedure in
+  `SECURITY.md` instead of a warning
+- **Three rotations exist and all three are proved on the deployed system.** A stored credential
+  (`POST /api/credentials/:kind/rotate`, `admin`), a workflow's webhook token
+  (`POST /api/workflows/:id/webhook/rotate`, `admin`, **old URL 404 with no grace period**), and the
+  root key (`POST /api/credentials/rekey`, `owner`, plus `scripts/rekey.mjs` for every workspace)
+- **`credential_event` is the product's first audit log**, written from `readSecret` — the single
+  funnel every plaintext passes through — and retained 30 days, pruned by the cron tick. **Phase 22
+  should read this before inventing a second logging story**: the shape of "an operational record
+  with a retention policy, pruned by the only thing that runs on a clock" is already decided here
+- **`SECURITY.md` exists**, and its *What we do not claim* section is deliberately blunt: the root
+  key is in process memory (Secret Manager, not KMS — KMS is not free), a compromised container
+  reads everything, there is no rate limiting, and the audit log is not tamper-evident. **Phase 22
+  must not quietly contradict any of those** — if observability changes one, change the section
+- **One shared GCP access layer.** `lib/gcp/metadata.ts` now holds the metadata server and the token
+  cache, extracted out of `lib/engine/queue.ts`, so Cloud Tasks and Secret Manager share one cache.
+  **Phase 22's Cloud Logging client belongs there too**, as one more `fetch`, not a client library
 
-**What Phase 21 inherits, explicitly**: rotation is now permission-sensitive — `POST`/`DELETE
-/api/workflows/:id/share` is the worked example of an admin-gated secret lifecycle, and the webhook
-trigger token still has no rotation at all. `mintShareToken` and `SHARE_TOKEN_PATTERN` in
-`lib/workflow/visibility.ts` are the shape a rotatable token takes here.
+**What Phase 22 inherits, explicitly**: `GET /api/health` already reports `queue.configured` and
+`rootKey.provider`, which is the pattern for "make a silent misconfiguration observable from
+outside". `GCP_ACCESS_TOKEN`/`GCP_PROJECT` are **script-only** and must never reach the service.
 
-**Two defects came from the browser and nothing else**, which is the phase's finding and the Phase
-12 lesson for the sixth time:
+**Four defects came from verification and nothing else**, which is the phase's finding:
 
-1. **A viewer's inspector still offered a trigger-input box and a "Queue a run" button**, under a
-   paragraph beginning *"Press **Run**"* — a button they do not have. `canRun` had correctly
-   disabled the button and left the whole panel dishonest. **A flag that makes one control honest
-   does not make the region around it honest.**
-2. **The share page's title truncated to two words at 375 px**, because it shared a header row with
-   the wordmark and a badge and had about 90 px left. On the one page a stranger ever sees, where
-   the workflow's name is the first thing they need. It looked perfect at 1440.
+1. **The rotation route wrapped its whole body in `integrationApiError`**, collapsing four
+   deliberate refusals — unknown kind (404), a Google connection explaining a refresh token cannot
+   be typed (400), a rejected key (400) — into *"Something went wrong saving this The provider
+   connection."* Found by `verify-vault.mjs`; **a route's error mapping is invisible anywhere else**.
+   Fixed at the class rather than the call site: an `ApiError` now passes through that mapper
+   unchanged, with a unit test that fails without it
+2. **`divide-[--color-line]/40` applied its `divide-y` and silently dropped its `/40`**, so a quiet
+   log list was separated by full-strength ink rules. The class was in the DOM and the build passed;
+   `getComputedStyle` in a browser was the only thing that could see it. `divide-line-soft` already
+   existed for exactly this
+3. **The vault's intro said "Every secret below…" above an empty list** in a workspace that stores
+   none
+4. **The "Not connected" list offered a way to connect for one kind out of three**, because it read
+   `reconnectHref` — a field only a `reconnect` credential has. Naming something missing without
+   saying where to get it is worse than not listing it. Fixed with a `connectHref` on every rule and
+   a test that every rule has one
 
-**Do not start Phase 22 in the same session as 21.** One phase per session still holds; `/clear`
+**Do not start Phase 23 in the same session as 22.** One phase per session still holds; `/clear`
 between.
 
 ---
@@ -125,8 +137,8 @@ between.
 | **19A** — workspaces: the data model and scoping | **COMPLETE** — both migrations applied to the deployed database with **no data loss** (row counts identical before and after), 26 workspace checks green over HTTP against the deployed URL, rollback rehearsed forward and backward on a copy, 2026-09-27 |
 | **19B** — membership: invitations and the switcher | **COMPLETE** — two real accounts, one shared workspace, driven in a browser; 83 workspace checks green over HTTP against the deployed URL, 2026-09-27 |
 | **20** — roles, permissions and sharing | **COMPLETE** — 56 matrix cells green over HTTP against the deployed URL, the share link's redaction proved against a real bearer token in a real header, and both a viewer's canvas and the public page driven in a real browser at 1440 and 375 px, 2026-09-30 |
-| **21** — credential vault and rotation | **NOT STARTED ← next** |
-| **22** — observability and run analytics | NOT STARTED |
+| **21** — credential vault and rotation | **COMPLETE** — envelope encryption under a Secret Manager root key, all three rotations proved on the deployed URL by `verify-vault.mjs` (61 checks), and the vault driven in a real browser at 1440 and 375 px, 2026-09-30 |
+| **22** — observability and run analytics | **NOT STARTED ← next** |
 | **23** — node catalogue and templates | NOT STARTED |
 | **24** — documentation and open-source readiness | NOT STARTED |
 | **25** — launch polish | NOT STARTED |
@@ -141,17 +153,17 @@ between.
 | **Canonical URL** | **`https://agentforge-733000675212.asia-southeast1.run.app`** |
 | Legacy URL | `https://agentforge-i5d2u66boa-as.a.run.app` — works, do not publish it |
 | Service | `agentforge` on Cloud Run, `asia-southeast1` |
-| Revision | **`agentforge-00043-nn2`** — ready, **`latestRevision: True`**, 100% of traffic (Phase 20). **Phase 20 took two deploys**: `00042` shipped the phase, `00043` shipped the two defects a real browser walk found. Previous good revisions: `agentforge-00042-5zx` (Phase 20, first deploy), `agentforge-00041-75x` (Phase 19B). **Phase 19B took four deploys, deliberately**: `00038` shipped the phase, and `00039`, `00040` and `00041` shipped the four defects a real browser walk found — reporting the phase complete with three known defects in it was the alternative. Earlier: `agentforge-00040-7c4`, `agentforge-00039-qlr`, `agentforge-00038-cfp`, `agentforge-00037-k7x` (Phase 19A), `agentforge-00036-zm8` (Phase 19A, first of two deploys — the expand/contract migration wanted one between its halves), `agentforge-00035-vfd` (Phase 18), `agentforge-00034-54v` (Phase 17), `agentforge-00030-gv2` (Phase 16). **`00032` and `00033` were deliberately deleted** during Phase 17's verification, testing whether deleting a serving revision kills its in-flight request — it does not. Rollback was tested against `agentforge-00020-rcr` |
+| Revision | **`agentforge-00046-w7b`** — ready, **`latestRevision: True`**, 100% of traffic (Phase 21). **Phase 21 took three deploys**: `00044` shipped the phase and added `ROOT_KEY_SECRET`, `00045` shipped the error-mapping defect `verify-vault.mjs` found, `00046` shipped the three defects a real browser walk found. Previous good revisions: `agentforge-00045-jj4`, `agentforge-00044-zmx` (both Phase 21), `agentforge-00043-nn2` (Phase 20, second deploy), `agentforge-00042-5zx` (Phase 20, first), `agentforge-00041-75x` (Phase 19B). **Phase 19B took four deploys, deliberately**: `00038` shipped the phase and `00039`–`00041` shipped the four defects a browser walk found. Earlier: `agentforge-00037-k7x` (Phase 19A), `agentforge-00036-zm8` (Phase 19A, first of two — the expand/contract migration wanted one between its halves), `agentforge-00035-vfd` (Phase 18), `agentforge-00034-54v` (Phase 17), `agentforge-00030-gv2` (Phase 16). **`00032` and `00033` were deliberately deleted** during Phase 17's verification, testing whether deleting a serving revision kills its in-flight request — it does not. Rollback was tested against `agentforge-00020-rcr` |
 | Scaling | `min-instances 1`, `max-instances 3`, 1 vCPU / 1 GiB, 3600 s timeout, port 8080 |
-| Env vars set | `NODE_ENV` `AUTH_URL` `APP_BASE_URL` `DATABASE_URL` `AUTH_SECRET` `GOOGLE_CLIENT_ID` `GOOGLE_CLIENT_SECRET` `ENCRYPTION_KEY` `CRON_SECRET` `TASKS_QUEUE` `TASKS_LOCATION` — **still 11. Phase 20 added none either**: a share link is built from `APP_BASE_URL`, which already exists. **Phase 19B added none**: an invitation link is built from `APP_BASE_URL`, which already exists, and there is no mail provider to configure. **Phase 17 added the last two** (`TASKS_PROJECT` is deliberately unset; the project comes from the metadata server, which cannot be wrong the way a copied variable can). They were added with `--update-env-vars`, which **merges**, rather than `--env-vars-file`, which replaces the whole set — so the other nine were never handled. Phases 9–16 added none (`SMOKE_SPREADSHEET_ID` is a local test variable, never on the service): the Google integration flow reuses `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `APP_BASE_URL`, and every third-party credential is a `credential` row rather than an environment variable. No Gemini key on the service: the product path is the user's own key |
-| Database | Neon `super-mountain-39872886` — **12 tables**, migrations `0000`–**`0008`** applied, **9.6 MB of 0.5 GB**. **Phase 20's `0008` adds three columns to `workflow` and one index, and nothing else** — `visibility` (NOT NULL, default `workspace`), `shareToken`, `sharedAt`, and a **partial** unique index on `shareToken where not null`. Purely additive with defaults, so the previous revision kept serving while it was applied, and row counts were identical before and after (workflow 2, run 20, run_step 130, credential 3, workflow_version 2, workspace 1, workspace_member 1, user 1). **`visibility` defaults to exactly the behaviour every row already had**, so nothing any user can observe changed. Rehearsed forward *and backward* on a throwaway schema first — 11/11, digest-identical after the rollback — because the **rollback** drops columns from the table holding the user's actual workflows. `scripts/rehearse-0008.mjs`; rollback `drizzle/rollback_0008.sql`. Earlier: **Phase 19B's `0007` adds `workspace_invitation`**. One `CREATE TABLE`, so the previous revision kept serving while it was applied, and row counts were identical before and after. Its **partial** unique index on `(workspaceId, email)` among rows neither accepted nor revoked is load-bearing rather than decorative: it is the conflict target of the upsert that issues an invitation, and `ON CONFLICT` against a partial index that does not match **fails to plan**, which is exactly the 42P10 that made every credential write a 500 before 19A found it. Rehearsed on a throwaway schema first — 10/10, including issue, re-issue, revoke and re-invite through the real DDL — and proved again end to end against the deployed system. Rollback: `drizzle/rollback_0007.sql`. Earlier: **Phase 19A's two migrations add `workspace` and `workspace_member`, plus a `workspaceId` on `workflow`, `run`, `workflow_version` and `credential`.** Deliberately two: `0005` adds them **nullable** and backfills a personal workspace per user so the previous revision kept serving through the deploy, `0006` sets `NOT NULL` and drops the superseded credential index once the new revision was alone. **`0005` also repairs `credential_owner_kind_label_idx`, which migration `0001` creates and which was missing from the database** — see *Known Issues*. Row counts identical before and after: user 1, workflow 2, run 11, run_step 65, credential 3, workflow_version 2, session 14, account 1. Older: **9 tables**, migrations `0000` + `0001` + `0002_wooden_morlocks` + `0003_omniscient_norman_osborn` + **`0004_wonderful_bloodscream`** applied. **Phase 18's migration adds the `workflow_version` table, `workflow.version` and `run.workflowVersion`**, all additive with defaults, plus a hand-written backfill giving every pre-existing workflow a version 1 labelled `Before versioning` — confirmed applied, and the previous revision kept serving throughout. Storage re-measured: whole database **8.55 MiB of 0.5 GB**, a stored graph **737 bytes** on average. **Phase 17's migration adds 7 columns and 1 index to `run`** (`mode` `cursor` `attempt` `leaseOwner` `leaseExpiresAt` `cancelRequestedAt` `dispatchToken`) and is **purely additive with defaults**, so the previous revision kept serving against it while it was applied — verified in `information_schema`. **Phases 14, 15 and 16 needed no migration** — none of them touches data. **Phases 9, 10 and 11 needed none either**: two new credential kinds are rows in the existing `credential` table, which is what `(ownerId, kind, label)` was for |
-| Routes | `/` `/dashboard`→`/workflows` `/workflows` `/workflows/[id]` `/settings` **`/design`** **`/invite/[token]`** **`/s/[token]`** + **32** API routes. **Phase 20 added two API routes, one method and one page.** The routes are `POST`/`DELETE /api/workflows/[id]/share` (one file) and `GET /api/share/[token]`; the method is `PATCH` on the existing member route; the page is `/s/[token]`, **`noindex`, and the second screen a signed-out stranger can reach** — its URL carries a bearer token, exactly like `/invite/[token]`. `GET /api/share/:token` is the product's **fourth** route with no session and the only one whose risk is in the response rather than in what the request can cause. **Phase 19B added nine API routes and one page.** The page is the accept surface and is **the only screen a signed-out stranger can reach that is not the landing page** — `noindex`, because its URL carries a bearer token. `GET /api/invitations/:token` is the phase's one unauthenticated endpoint. Settings gained a fourth tab, reachable as `?tab=workspace`, which is where the switcher's "New workspace…" goes. **Phase 19A added none** — it changed what every existing one is scoped to, not the surface. The switcher and the invitation routes are 19B. **Phase 18 added four**, all under `/api/workflows/[id]/versions` — the history, one version, its label, restore, and compare. No new page: version history is a dialog on the canvas, deliberately, because a third side panel would undo what Phase 16 spent itself solving. **Phase 16 added no route and no API** — it rebuilt what `/workflows/[id]` renders, and added a `generateMetadata` to that page so the tab carries the workflow's name. Phase 15 added none either. **Phase 14 added `/design`** — the design-system gallery, **public (no session) and prerendered static**, which is deliberate: it is the page to link a contributor to and it holds nothing belonging to any account |
+| Env vars set | `NODE_ENV` `AUTH_URL` `APP_BASE_URL` `DATABASE_URL` `AUTH_SECRET` `GOOGLE_CLIENT_ID` `GOOGLE_CLIENT_SECRET` `ENCRYPTION_KEY` `CRON_SECRET` `TASKS_QUEUE` `TASKS_LOCATION` **`ROOT_KEY_SECRET`** — **12 now. Phase 21 added the last one**, naming the Secret Manager secret that holds the root key. Unset it and the service silently falls back to `ENCRYPTION_KEY` as the root key, which is the Chapter 1 problem back without the Chapter 1 warning — hence `rootKey.provider` on `/api/health`. **`GCP_ACCESS_TOKEN` and `GCP_PROJECT` are script-only and must never be set here**: they exist so `scripts/rekey.mjs` can reach Secret Manager from a machine with no metadata server, and an access token in a service env var is a long-lived credential in a place that survives restarts. Phase 20 added none (a share link is built from `APP_BASE_URL`); Phase 19B added none (an invitation link likewise, and there is no mail provider); **Phase 17 added `TASKS_QUEUE` and `TASKS_LOCATION`** — `TASKS_PROJECT` is deliberately unset, because the project comes from the metadata server, which cannot be wrong the way a copied variable can. All were added with `--update-env-vars`, which **merges**, rather than `--env-vars-file`, which replaces the whole set. No Gemini key on the service: the product path is the user's own key |
+| Database | Neon `super-mountain-39872886` — **13 tables**, migrations `0000`–**`0009`** applied, **9.9 MB of 0.5 GB**. **Phase 21's `0009` adds the `credential_event` table and seven columns, and nothing else** — `wrappedKey` `wrapIv` `wrapAuthTag` `keyVersion` `rotatedAt` `rotationCount` on `credential`, `webhookTokenRotatedAt` on `workflow`, every one nullable or defaulted. Purely additive, so the previous revision kept serving while it was applied, and row counts were identical before and after (credential 3, workflow 2, run 32, run_step 200, workflow_version 2, workspace 1, workspace_member 1, user 1). **Its rollback is the first in this project that can destroy data**: after a re-key a credential's data key exists only in `wrappedKey`, so dropping that column makes the ciphertext permanently unreadable. `drizzle/rollback_0009.sql` therefore **refuses to run while any row is enveloped**, and `scripts/rehearse-0009.mjs` puts an envelope on a row and asserts the refusal — 15/15, digest-identical after a clean rollback. **The real rollback does not touch the schema at all**: `scripts/rekey.mjs --to-legacy`, then shift traffic. Earlier: **Phase 20's `0008`** adds three columns to `workflow` and a partial unique index on `shareToken where not null`, rehearsed forward and backward 11/11. **Phase 19B's `0007`** adds `workspace_invitation`, whose partial unique index is the conflict target of the invitation upsert — `ON CONFLICT` against a partial index that does not match **fails to plan** (42P10), which is what made every credential write a 500 before 19A found it. **Phase 19A's `0005`/`0006`** add `workspace` and `workspace_member` plus a `workspaceId` on four tables, deliberately in two halves so the previous revision kept serving; `0005` also repairs `credential_owner_kind_label_idx`, which `0001` creates and which was missing from the database. **Phase 18's `0004`** adds `workflow_version`, `workflow.version` and `run.workflowVersion` with a backfill. **Phase 17's** adds 7 columns and 1 index to `run`. Phases 9–16 needed none |
+| Routes | `/` `/dashboard`→`/workflows` `/workflows` `/workflows/[id]` `/settings` **`/design`** **`/invite/[token]`** **`/s/[token]`** + **36** API routes. **Phase 21 added four API routes and one settings tab, and no page.** The routes are `GET /api/credentials` (`viewer`), `POST /api/credentials/[kind]/rotate` (`admin`), `POST /api/credentials/rekey` (**`owner`** — the only route besides ownership itself that needs it) and `POST /api/workflows/[id]/webhook/rotate` (`admin`). The tab is **Vault**, reachable as `?tab=vault`, the fifth on settings — and the tab index became a lookup table in the same commit, because the previous `params.tab === "workspace" ? 2 : …` would have silently pointed at the new tab. **Phase 21 added no unauthenticated surface**: the product still has exactly four. **Phase 20 added two API routes, one method and one page** — `POST`/`DELETE /api/workflows/[id]/share`, `GET /api/share/[token]`, `PATCH` on the member route, and `/s/[token]`, `noindex`, the fourth unauthenticated route and the only one whose risk is in the *response*. **Phase 19B added nine API routes and one page**, the accept surface, `noindex` because its URL carries a bearer token. **Phase 19A added none** — it changed what every existing one is scoped to. **Phase 18 added four**, all under `/api/workflows/[id]/versions`; no new page, because a third side panel would undo what Phase 16 spent itself solving. **Phase 16 added none** — it rebuilt what `/workflows/[id]` renders. **Phase 14 added `/design`** — public and prerendered static, deliberately: it is the page to link a contributor to and it holds nothing belonging to any account |
 | Latency | **Warm**: health ~190 ms India → Singapore, database 7–11 ms. A 6-node demo-path run **4.2–7.5 s** end to end across five consecutive walks (Phase 13; it was 3.1–4.8 s in Chapter 1 when the model answered first time, and **94.5 s** when it did not — that second case is what Phase 13 removed). Generation 2.7–3.5 s. **Cold (Neon suspended)**: health **1.14 s, of which 739 ms is the database wake** — re-measured 2026-09-26 at 917 ms for a first query, 103 ms on the next. Cloud Run itself is never cold at `min-instances 1` |
-| Last verified | **2026-09-30, after Phase 20.** On **`agentforge-00043-nn2`**: `verify-api.mjs` — **394 passed / 0 failed / 3 skipped**, and **ALL CHECKS PASSED**. The three skips are `VERIFY_GEMINI_KEY` and `VERIFY_DISCORD_WEBHOOK` not being supplied to this session, plus one state difference (Google *is* connected, which is the state the product wants) — **not failures, and not the 11 quota failures of Phases 14–19A**: those checks did not run at all this time, because the live Gemini key lives in Neon as a workspace credential and is not available as an env var here. **~80 of the passes are Phase 20's own**: a **56-cell role matrix** run in a throwaway workspace — every role below each action's bar refused with `forbidden` **and proved to have changed no row**, every role at the bar allowed; the whole role-change rule through the route, including an admin refused at both ends of ownership, the last owner refused, and the promote-then-step-down handover; per-workflow visibility proved from six directions, including that **a run of a private workflow is 404 by run id** and that a **webhook still fires it**; and the share link end to end — minted, idempotent, publicly readable with no session, **a `Bearer` token in a request header and an email address in a request body both absent from the response and from the rendered page**, revoked, dead immediately, and re-shared under a new token. `verify-durable.mjs` re-run because `getRun` and `listRuns` both changed: **ALL CHECKS PASSED**, including a Cloud Tasks scheduled run completing end to end on this revision. `verify-schema.mjs` **6/6**. **A real browser** at 1440 px and 375 px with **0 console errors or warnings across the whole session**: the share dialog driven to a live link, the public `/s/` page opened with **no cookies at all** and confirmed to carry no id, no token, no address and no workspace name, a viewer's canvas with no Save, Run, Share or palette and a node inspector Playwright **could not type into**, and a role promoted through the settings picker and confirmed in the database. Local: `npm run check` **661 passing** (was 613), coverage **86.47 / 92.43 / 76.60** against thresholds 85 / 88 / 76. *Previously, after Phase 19B on `agentforge-00041-75x`:* `verify-api.mjs` — 299 passed / 11 failed / 4 skipped, every one of the 11 the Gemini free-tier daily quota.
+| Last verified | **2026-09-30, after Phase 21.** On **`agentforge-00046-w7b`**: `verify-api.mjs` — **393 passed / 0 failed / 4 skipped**, and **ALL CHECKS PASSED**; the four skips are `VERIFY_GEMINI_KEY` and `VERIFY_DISCORD_WEBHOOK` not being supplied to this session, one free-tier rate limit while probing a model, and one state difference (Google *is* connected, which is the state the product wants) — **not failures**. `verify-vault.mjs` — **61/61**, Phase 21's own: **all three credentials converted from the Chapter 1 shape to `sm:1` and each one verified to decrypt**, the re-key idempotent on a second run, an already-enveloped row proved to have kept its ciphertext byte-identical, a Discord credential rotated **with a fresh data key** and a workflow still posting with it afterwards, a webhook token rotated with the **old URL answering 404 immediately** and the new one 201, a refused rotation proved to have left the stored envelope byte-identical, a **16-cell role matrix** across viewer/editor/admin/owner, the vault's response searched against the real ciphertext for every one of six envelope columns and found clean, and the audit log naming the run and the node that used a credential. `verify-durable.mjs` **ALL CHECKS PASSED**, including a Cloud Tasks scheduled run completing on this revision. `verify-schema.mjs` **6/6**. `scripts/rehearse-0009.mjs` **15/15** on a throwaway copy, forward and backward. **A real browser** at 1440 px and 375 px: the vault read, a rotation refused with the provider's own words and the stored key proved untouched, a re-key pressed, the canvas webhook rotation driven to completion with the old URL confirmed 404 **from inside the page**, and an editor's view confirmed to offer neither control. It found **three defects**, all fixed and re-verified. Local: `npm run check` **714 passing** (was 661), coverage **86.07 / 91.30 / 76.57** against thresholds 85 / 88 / 76 |
 | Rollback | **TESTED 2026-09-26, finally.** Traffic shifted to `agentforge-00020-rcr` in **~15 s**, health confirmed the older revision was serving, the demo path walked clean on it, then `--to-latest` restored `agentforge-00021-v4s` in ~15 s. The oldest open item in this file is closed |
 | Billing | Trial credit account `Billing - AgentForge` is **open and enabled**. Actual spend is **not queryable from the CLI** (no billing export configured) — **eyeball it in the console once before judging** |
 | Provider key stored | **Yes**, and the model was **rotated in Phase 13** from `gemini-3.5-flash-lite` to **`gemini-3-flash-preview`** — the only model healthy on both the text and tool-calling paths in all three probe passes. Confirmed persisted in Neon. Re-probe with `npm run probe:models` |
-| Registry | **15 nodes**, unchanged by Phases 10–20. **Phase 20 gave the registry a second obligation**: every node type must have an entry in `PUBLISHABLE` in `lib/workflow/share.ts` saying what a public share link may show of it, asserted by a test in both directions. **The registry claim has now held eight times** — and the landing page now *renders* that number from the registry rather than stating it |
+| Registry | **15 nodes**, unchanged by Phases 10–21. **Phase 20 gave the registry a second obligation**: every node type must have an entry in `PUBLISHABLE` in `lib/workflow/share.ts` saying what a public share link may show of it, asserted by a test in both directions. **Phase 21 gave it a third obligation**: every credential *kind* must have an entry in `ROTATION_RULES` in `lib/credentials/rotation.ts` saying what rotating it means, asserted by a test in both directions — so a kind added in Phase 23 cannot become silently unrotatable. **The registry claim has now held nine times** — and the landing page now *renders* that number from the registry rather than stating it |
 | Fonts | **Geist + Geist Mono, self-hosted by `next/font`**, `latin` subset, variable axis. Two woff2 files in the image; no request leaves the browser for a font and there is no layout shift |
 
 **A redeploy preserves env vars.** Confirmed again on Phase 6's three deploys: `gcloud run deploy
@@ -287,11 +299,19 @@ Carried forward from every phase. These are the decisions later sessions must no
 | **D102** | **A read-only canvas is a separate component, not `Editor` with a flag** | `Editor` is eleven hundred lines that exist to mutate a workflow — it holds a save function, a run function, the API client, the SSE stream and the palette. Pointing it at a public page with `readOnly` would mean the thing between an anonymous visitor and `api.updateWorkflow` was a boolean. `SharedCanvas` cannot save anything because it imports no client, no store and no mutation. It reuses everything about how a node *looks* — `WorkflowNodeView`, `toFlow`, the same edge treatment — so the two cannot drift into two visual languages. **The same argument does not apply inside the app**, where the viewer's canvas *is* `Editor` with a role: there the API refuses every write already, and a second canvas would be a second thing to keep correct for no gain |
 | **D103** | **Minting a share link is idempotent; rotating it is two deliberate requests** | The opposite of the choice invitations made (D95), and the difference is what each token is for. An invitation is delivered once and then dead, so re-issuing should rotate — an old link in somebody's chat history is a liability. A share link is a URL somebody pastes into a README or a ticket, so re-minting on every press of a Share button would break those quietly, and the user pressed a button labelled "Share", not "Rotate". Rotation is therefore `DELETE` then `POST`, which reads as what it is. The mint is a conditional UPDATE on `shareToken is null` so two admins pressing at once cannot produce two tokens, one of them live and unreachable (D6 — no transactions) |
 | **D104** | **A `<fieldset disabled>` makes a region read-only, not a prop threaded through four components** | The config form builds its controls from a JSON schema at runtime, so a `readOnly` prop would have to pass `ConfigForm` → `Field` → `Control` → six control components, and a control type added later would be missed. A native disabled fieldset disables every form control inside it however deeply nested and whatever type — one element, and the guarantee is the browser's. It needs `min-w-0` (a fieldset's default `min-inline-size: min-content` breaks flex) and it cannot be `display: contents` (which drops the disabling). **Note when testing it: the descendants do not gain a `disabled` attribute**, so `input[disabled]` matches nothing and `:disabled` matches everything — an attribute selector reports the opposite of the truth |
+| **D105** | **Envelope encryption: a per-credential data key wrapped by a versioned root key** | Chapter 1's warning — *rotating `ENCRYPTION_KEY` destroys all stored credentials* — was accurate and is a property of any scheme where the key an operator can rotate is the key the data is under. One layer of indirection makes a root key rotation re-wrap ~60 bytes per row instead of re-encrypting the database, and makes it **resumable**: every row names the key that wraps it, so an interrupted re-key leaves a database in which every row still decrypts. That last property is what lets it run against production with no maintenance window, and it could not have been written any other way under D6 (no transactions). A fresh data key per write is the bonus: rotating a secret leaves no key material in common with what it replaced |
+| **D106** | **The root key lives in Secret Manager, not Cloud KMS** | KMS is the textbook home for a root key and would keep it inside an HSM. It costs ~$0.06 per key per month plus operations, and the zero-cost ceiling binds. Secret Manager's free tier covers one versioned root key — 6 active versions, 10,000 accesses a month — and hands the bytes to this process, which then holds them for the life of the instance. **That is a real reduction in protection and `SECURITY.md` → *What we do not claim* states it outright** rather than describing the scheme as though it were KMS. Revisit if a budget ever exists |
+| **D107** | **If a named root key is unreachable, a write fails rather than falling back to `ENCRYPTION_KEY`** | The tempting behaviour is to degrade gracefully. It is wrong: a fallback would seal new credentials under a key the operator believes is retired, leaving rows behind that a later rotation would skip — and nothing would report it, because everything would keep working. Refusing makes the failure loud and leaves no wrongly-keyed rows. `rootKeyProvider()` is on `/api/health` for the same reason the queue's configuration is |
+| **D108** | **The audit log is written from `readSecret` and nowhere else** | It is the single funnel every plaintext credential passes through, so it is the one place that cannot miss a use. Recording at the four call sites would mean four places to keep in step and a fifth added later without one — and **a use this log missed is worse than no log, because a log is trusted**. The cost is a `use` parameter threaded through three integration helpers and `resolveProvider`, and an optional one, because the two routes that resolve a key to fill a picker genuinely have no run and no node |
+| **D109** | **An `ApiError` passes through `integrationApiError` unchanged** | The vault's rotation route wrapped its whole body in that mapper and collapsed four deliberate refusals into one 500. Fixed at the mapper rather than the call site because the defect is a class: an `ApiError` already carries a code and a client-safe message chosen on purpose, so re-deciding either is always wrong, in every caller present and future. **Found by the deployed suite** — a route's error mapping is invisible to a unit test, because `lib/api.ts` imports `@/auth`, which the test runner cannot load (D18's shape again) |
 
 ## Known Issues
 
 | Issue | Impact | Action |
 |---|---|---|
+| **A route that wraps its whole body in an error mapper destroys every deliberate refusal underneath it** | Four refusals came back as one 500 | **Phase 21, found by `verify-vault.mjs` and by nothing else.** `POST /api/credentials/:kind/rotate` wrapped `rotateCredential` in `integrationApiError`, so an unknown kind (404), a Google connection explaining a refresh token cannot be typed (400), and a key the provider had rejected (400) all answered *"Something went wrong saving this The provider connection."* **A route's error mapping is invisible to the unit suite**, because `lib/api.ts` imports `@/auth`, which the test runner cannot load. Fixed at the mapper (D109) with a test that fails without it |
+| **An arbitrary-value colour can apply its utility and silently drop its opacity modifier** | A quiet log list was separated by full-strength ink rules | **Phase 21, found in a browser with `getComputedStyle`.** `divide-[--color-line]/40`: `divide-y` gave `border-bottom-width: 1px`, and the `/40` never arrived, so the colour was full ink where `line-soft` (alpha 0.16) was meant. The class was in the DOM, the build passed, and no test in this repository could see it. **`divide-line-soft` already existed for exactly this.** Reach for the token the system has rather than an arbitrary value that looks equivalent — `DESIGN.md` → *Traps* |
+| **An empty state is a different sentence, not the same sentence with nothing under it** | The vault told a workspace with no secrets how "every secret below" was encrypted | **Phase 21, in a browser, in an editor's empty workspace.** Two defects in one screen: that paragraph, and a "Not connected" list that offered a way to connect for **one kind out of three** because it read `reconnectHref` — a field only a `reconnect` credential has. **Naming something missing without saying where to get it is worse than not listing it.** Every rule now carries a `connectHref` and a test asserts it |
 | **A flag that makes one control honest does not make the region around it honest** | A viewer was offered a trigger-input box and a "Queue a run" button, under a paragraph starting *"Press **Run**"* | **Found in Phase 20 in a browser, on the deployed revision, by looking at a screenshot.** `canRun` was correctly false so the durable-run button was disabled — and the panel around it still explained a feature the viewer has no way to use and still offered a payload for a run they cannot start. Two dead controls and an explanation of a third. **When a role removes an action, look at the whole region that action lived in**, not only at its button |
 | **A header that fits at 1440 px can leave a title 90 px wide at 375 px** | The public share page truncated a real workflow name to two words and an ellipsis | **Phase 20, measured in a browser.** The title shared a flex row with the wordmark and a status badge; at 375 px there was nothing left for it. It is `max-sm:basis-full` now and takes its own line, measured at 351 px of 375 and not truncating. **On a page a stranger lands on, the name is the first thing they need** — and this is the fourth phase in a row where the only thing that found a layout defect was resizing to 375 and looking |
 | **A test that asserts "the secret did not leak" must name the secret, not its label** | Cost one verification round in Phase 20 | The share-redaction check tested for the string `"message"` and failed on **correct** behaviour: the field *name* legitimately appears in the `redacted` array, which is the whole point of that array. What must never appear is the **value**. A leak assertion written against a key name will either fail on correct behaviour or, worse, pass while the value sits in the response under a different key |
@@ -451,14 +471,14 @@ hours).
 | **GitHub Actions CI** | GitHub | `.github/workflows/ci.yml`, job `check` | **CREATED Phase 13** — lint · typecheck · test+coverage · build, on every push and PR to `main`. Green in **53–60 s** on PR #1 and on `main`. Free for a public repository |
 | **Branch protection on `main`** | GitHub | required check `lint · typecheck · test · build` | **CREATED Phase 13.** Strict (a branch must be current with `main`), no force pushes, no deletions, conversation resolution required. **`enforce_admins` is deliberately `false`** so `CLAUDE.md`'s "work directly on `main`" still works for the solo developer — **verified by an actual direct push, not assumed**. A contributor's PR is gated; the owner's direct push is not |
 | Google Cloud project | Google Cloud | `agentforge-hackathon-2026`, number **`733000675212`** | **EXISTS**, billing active ($300 / 90-day trial) |
-| **`agentforge` Cloud Run service** | Google Cloud | `asia-southeast1`, revision **`agentforge-00041-75x`** | **LIVE 2026-09-27.** This row has gone stale twice now (`00018-x7q`, then `00023-xf4`) — the *Deployed State* table above is the one kept current, and this one is corrected against it at the end of each phase |
+| **`agentforge` Cloud Run service** | Google Cloud | `asia-southeast1`, revision **`agentforge-00046-w7b`** | **LIVE 2026-09-30.** This row has gone stale three times now (`00018-x7q`, `00023-xf4`, `00041-75x`) — the *Deployed State* table above is the one kept current, and this one is corrected against it at the end of each phase |
 | **`cloud-run-source-deploy` repo** | Artifact Registry | `asia-southeast1` | **EXISTS** |
 | OAuth consent screen | Google Cloud | External, app "AgentForge" | **EXISTS** — status **Testing**, 1 test user |
 | OAuth 2.0 client | Google Cloud | "AgentForge Web", `733000675212-…ntm7` | **VERIFIED** — 4 redirect entries |
 | Neon Postgres project | Neon | `agentforge`, id `super-mountain-39872886` | **EXISTS** — free plan, PostgreSQL 18.6 |
 | Neon branch / database / role | Neon | `production` / `neondb` / `neondb_owner` | **VERIFIED** |
-| Neon tables | Neon | `user` `account` `session` `verificationToken` `workflow` `run` `run_step` `credential` `workflow_version` `workspace` `workspace_member` **`workspace_invitation`** | **12 tables. `0000`–`0007` APPLIED and verified against `information_schema` by `scripts/verify-schema.mjs`** — the ledger was three migrations behind reality until Phase 19A reconciled it. **9.5 MB of the free plan's 0.5 GB** |
-| Enabled APIs | Google Cloud | `run`, `cloudbuild`, `artifactregistry`, `cloudscheduler`, `apikeys`, `generativelanguage`, **`gmail`, `sheets`** | **ENABLED** — the last two added 2026-09-26, without which `integration.gmail` and `integration.sheets` fail at runtime however the OAuth consent went |
+| Neon tables | Neon | `user` `account` `session` `verificationToken` `workflow` `run` `run_step` `credential` `workflow_version` `workspace` `workspace_member` `workspace_invitation` **`credential_event`** | **13 tables. `0000`–`0009` APPLIED and verified against `information_schema` by `scripts/verify-schema.mjs`** — the ledger was three migrations behind reality until Phase 19A reconciled it. **9.9 MB of the free plan's 0.5 GB** |
+| Enabled APIs | Google Cloud | `run`, `cloudbuild`, `artifactregistry`, `cloudscheduler`, `apikeys`, `generativelanguage`, `gmail`, `sheets`, `cloudtasks`, **`secretmanager`** | **ENABLED** — `secretmanager` added 2026-09-30 for Phase 21's root key; `gmail` and `sheets` added 2026-09-26, without which `integration.gmail` and `integration.sheets` fail at runtime however the OAuth consent went |
 | Stored provider credential | Neon | `credential` row, kind `llm.google`, for the demo user | **PRESENT** — the free-tier key, encrypted. Left in place so no phase is blocked |
 | Stored Discord credential | Neon | `credential` row, kind `integration.discord` | **PRESENT 2026-09-26** — webhook "AgentForge", channel `1553084744504316034`, verified against Discord before storage. **Note it goes absent whenever `scripts/verify-api.mjs` is run with `VERIFY_DISCORD_WEBHOOK`**: the script stores it, posts with it, then deletes it, because deletion is one of the paths under test. Re-add it from `DISCORD_WEBHOOK_URL` in local `.env` — a `PUT /api/integrations/discord` is enough |
 | Stored Google credential | Neon | `credential` row, kind `google.oauth` | **PRESENT 2026-09-26** — `arunishrajput7@gmail.com`, scopes include `spreadsheets` and `gmail.send`, so `canAppendSheets` and `canSendMail` are both true. Consent was completed by the user in a browser; that step authenticates as them and cannot be scripted |
@@ -471,7 +491,10 @@ hours).
 | Cloud Tasks API | Google Cloud | `cloudtasks.googleapis.com` | **ENABLED Phase 17.** Free tier verified: 1,000,000 ops/month per billing account |
 | **`agentforge-runs` Cloud Tasks queue** | Google Cloud | `asia-southeast1`, state `RUNNING` | **CREATED Phase 17.** `maxAttempts 5` (mirrors `MAX_DELIVERIES` in `lease.ts`), backoff 5 s → 60 s, `maxConcurrentDispatches 3` — which is a **Neon** decision, not a Cloud Run one, since every concurrent run spends from the same 100 CU-hours. Measured: a task is delivered in **under a second**. Nothing to pause when idle; it bills per operation, not per hour |
 | **`roles/cloudtasks.enqueuer`** | Google Cloud IAM | on `733000675212-compute@developer.gserviceaccount.com` | **GRANTED Phase 17.** The service account Cloud Run already runs as. Without it `enqueueRun` gets a 403 and every durable run silently falls back to in-process — which is why `/api/health` reports `queue.configured` |
-| Secret Manager API | Google Cloud | `secretmanager.googleapis.com` | **NOT ENABLED.** Phase 21 enables it. Free tier verified: 6 versions, 10,000 access ops, **only 3 rotation notifications**/month |
+| Secret Manager API | Google Cloud | `secretmanager.googleapis.com` | **ENABLED Phase 21, 2026-09-30.** Free tier: 6 active versions, 10,000 access ops/month. **The 3-rotation-notification limit is not a constraint here** — AgentForge subscribes to nothing and rotates on its own procedure |
+| **`agentforge-root-key` secret** | Google Cloud | Secret Manager, user-managed replication in `asia-southeast1` | **CREATED Phase 21.** **Version `1` enabled** — 32 bytes of CSPRNG, base64, generated on the maintainer's machine and never written to the repository. It wraps every credential's data key. **Do not destroy a version anything still names**: `select distinct "keyVersion" from credential;` is the check. `SECURITY.md` → *Rotating the root key* |
+| **`roles/secretmanager.secretAccessor`** | Google Cloud IAM | on `733000675212-compute@developer.gserviceaccount.com`, **scoped to `agentforge-root-key`** | **GRANTED Phase 21.** On the one secret, not the project. Without it every credential read answers `RootKeyError` while `/api/health` still reports `rootKey.provider: secret-manager` — which is why the deployed suite asserts a real decrypt rather than the configuration alone |
+| **GitHub private vulnerability reporting** | GitHub | `arunishrajput/AgentForge` | **ENABLED Phase 21.** `SECURITY.md` points readers at it, so it had to actually exist |
 
 **One Neon database serves both local and production.** Migrations applied locally are already
 live. Phase 3's migration is purely additive, so the older revision still runs against it.
@@ -539,7 +562,17 @@ for it.
 ```bash
 node --env-file=.env scripts/rehearse-migration.mjs   # 19A — expand/contract, 5 tables, a backfill
 node --env-file=.env scripts/rehearse-0008.mjs        # 20  — 3 additive columns and a partial index
+node --env-file=.env scripts/rehearse-0009.mjs        # 21  — a table, 7 columns, and a guard
 ```
+
+**Phase 21's exists because its rollback can destroy every credential in the product.** After a
+re-key, a credential's data key lives only in `wrappedKey`, so `DROP COLUMN "wrappedKey"` discards
+the only copy of the key and leaves the ciphertext permanently unreadable. `rollback_0009.sql`
+therefore opens with a `DO` block that counts enveloped rows and raises rather than proceeding — and
+the rehearsal **puts an envelope on a row and asserts the guard fires**, because a guard that does
+not fire is worse than no guard: it is trusted. 15/15, including that the guard aborts the whole
+script and drops nothing. The real rollback does not touch the schema at all: `scripts/rekey.mjs
+--to-legacy`, then shift traffic.
 
 **Phase 20's exists because of its *rollback*, not its migration.** `0008` is three `ADD COLUMN`s
 and cannot lose anything; `rollback_0008.sql` is three `DROP COLUMN`s against `workflow`, the table
@@ -569,6 +602,27 @@ the scheduled path, and constructs four abandoned runs to check the sweeper's mo
 **Re-run it after touching the engine, the queue or the lease** — none of those are reachable by a
 unit test, because they are properties of Postgres and Cloud Tasks rather than of the code. Phase
 18 re-ran it for exactly that reason: the resume path now reads a version snapshot first.
+
+**The credential vault, against the deployed service** — ~90 s, 61 checks, added in Phase 21:
+
+```bash
+node --env-file=.env scripts/verify-vault.mjs \
+  "https://agentforge-733000675212.asia-southeast1.run.app"
+```
+
+It proves the three rotations the phase exists for — a stored credential, a workflow's webhook token
+with the **old URL refused immediately**, and a re-key in which **every credential is verified to
+decrypt** — plus three claims that would otherwise be taken on trust: that the vault's response
+contains no part of any stored envelope (searched for against the real ciphertext, read out of the
+database), that a refused rotation leaves the stored secret byte-identical, and that every rotation
+mints a fresh data key. It also runs a 16-cell role matrix.
+
+**It re-keys the real workspace**, which is unavoidable — re-keying is a property of the whole
+workspace and cannot be rehearsed on a throwaway one that holds nothing — and every operation it
+performs is idempotent and safe to repeat. Supply `DISCORD_WEBHOOK_URL` to exercise the rotation and
+the post-rotation run; without it those three checks SKIP rather than silently pass.
+
+**Re-run it after touching `lib/crypto/`, `lib/credentials/` or `lib/gcp/`.**
 
 Note `APP_BASE_URL` must be overridden: `.env` points at `localhost:3000` for development.
 
@@ -659,10 +713,17 @@ decorators anywhere in `src`.
 
 ## Notes for whoever comes next
 
-**Start Phase 19 — workspaces and membership.** It is defined in `BUILD_PLAN.md` and summarised
-under *Current Phase* above. **Read `DEPLOYMENT.md` → *Free-tier headroom* first**: Neon compute is
-the binding resource and multi-user query load spends from the ~39 spare CU-hours a month. Chapter 1 is closed; the hackathon items that used to live here (the Fallback B
-recording, the deck re-cut) are **no longer part of this project's work** and have been dropped.
+**Start Phase 22 — observability and run analytics.** It is defined in `BUILD_PLAN.md` and
+summarised under *Current Phase* above. **Read `DEPLOYMENT.md` → *Free-tier headroom* first**: Neon
+compute is the binding resource, analytics queries spend from the ~39 spare CU-hours a month, and
+Phase 22 is the phase that has to be designed against that number rather than around it.
+
+*(This line said "Start Phase 19" from Phase 19 until Phase 21 found it — a heading that names a
+phase goes stale the moment that phase ends, so it is corrected at the end of every phase now, the
+same way the Cloud Run revision row is.)*
+
+Chapter 1 is closed; the hackathon items that used to live here (the Fallback B recording, the deck
+re-cut) are **no longer part of this project's work** and have been dropped.
 
 **New in Phase 13, and load-bearing from here on:**
 
@@ -726,6 +787,51 @@ still documents a path known to work end to end, which is a useful smoke referen
 
 ## Recent Changes
 
+**2026-09-30 — Phase 21 complete. Credentials are enveloped under a rotatable root key, all three
+rotations work, and the product has an audit log**
+
+- **Chapter 1's sharpest gap is closed.** Every secret is sealed under its own 256-bit data key,
+  wrapped by a **versioned root key in Secret Manager** (D105, D106). Rotating the root key re-wraps
+  ~60 bytes per row and **never decrypts a secret**, so *never rotate `ENCRYPTION_KEY`, it destroys
+  all stored credentials* is now a four-step procedure in `SECURITY.md`. The re-key is **resumable
+  by construction** — every row names the key that wraps it — which is what lets it run against
+  production with no maintenance window, and it re-opens and compares every row it writes
+- **Three rotations, all proved on the deployed system.** A stored credential, per-kind and
+  **validated against the provider before anything is written** (A19); a workflow's webhook token,
+  with **the old URL answering 404 from the moment the request returns** and no grace period; and
+  the root key itself, by route per workspace and by `scripts/rekey.mjs` over every workspace
+- **Two of the three credential kinds are not a text box**, and the interface says so instead of
+  offering a control that cannot work: a Google refresh token can only be minted by Google, so the
+  vault links to the consent flow. `ROTATION_RULES` is asserted against the credential registry in
+  both directions, so a kind added in Phase 23 cannot become silently unrotatable
+- **`credential_event` is the product's first audit log** (D108) — which run, which node, when, and
+  **never what the credential contains**. Written from `readSecret`, the single funnel; survives the
+  revocation it describes; retained 30 days, pruned by the cron tick; and never fails the thing it
+  audits
+- **`SECURITY.md` exists**, and its *What we do not claim* section is deliberately blunt: the root
+  key is in process memory, a compromised container reads everything, there is no rate limiting, and
+  the audit log is not tamper-evident
+- **The rollback is the first in this project that can destroy data, and the first that refuses to.**
+  `rollback_0009.sql` counts enveloped rows and raises; `scripts/rehearse-0009.mjs` puts an envelope
+  on a row and asserts the refusal, because a guard that does not fire is worse than no guard
+- **One shared GCP access layer.** `lib/gcp/metadata.ts` was extracted out of `lib/engine/queue.ts`
+  so Cloud Tasks and Secret Manager share one token cache
+
+Verified on **`agentforge-00046-w7b`**: `verify-vault.mjs` **61/61**, `verify-api.mjs` **393 passed /
+0 failed / 4 skipped**, `verify-durable.mjs` all-pass, `verify-schema.mjs` 6/6,
+`rehearse-0009.mjs` 15/15. Local `npm run check` **714 passing** (was 661), coverage
+**86.07 / 91.30 / 76.57** against 85 / 88 / 76.
+
+**Four defects came from verification and nothing else.** One from the deployed suite — a route that
+wrapped its whole body in an error mapper and collapsed four deliberate refusals into a 500, which
+**no unit test in this repository can see**, because `lib/api.ts` imports `@/auth`. Three from a real
+browser — a divider whose opacity modifier silently did not apply, an empty-state paragraph
+describing secrets that were not there, and a "Not connected" list offering a way to connect for one
+kind out of three. All four fixed, redeployed and re-verified, three of them with a regression test
+that fails without the fix. **That is the Phase 12 lesson for the seventh time.**
+
+---
+
 **2026-09-30 — Phase 20 complete. Roles are administrable, a workflow can be private, and a
 workflow can be published read-only to anybody holding a URL**
 
@@ -770,114 +876,7 @@ shape* first, and note that Phase 21 **creates `SECURITY.md`**. Phase 20 leaves 
 of an admin-gated secret lifecycle (mint, show, revoke, re-mint under a new token) and one gap it
 does not close: **the webhook trigger token still has no rotation at all**.
 
-**2026-09-27 — Phase 19B complete, and with it Phase 19. Two accounts share one workspace, roles
-are enforced, and four defects that no test could see were found by driving the product**
-
-- **Invitations, the switcher, members and a second workspace.** Nine API routes and one page
-  (`/invite/[token]`), a fourth settings tab, and a header control that actually changes what every
-  page returns. Verified with **two real accounts** end to end in a browser, not with two cookies
-- **The 19A handoff is discharged: `role` is enforced** (D93). `requireScope(minimumRole)` is the
-  single funnel and **its default is `viewer`**, so a mutating route that forgets the argument fails
-  closed rather than open. Seventeen refusals are asserted against the deployed system, each one
-  also proved to have **changed nothing**
-- **`forbidden` / 403 joins the error contract, and it is not interchangeable with 404** (D94).
-  Another workspace's resource stays 404 (D20 — 403 would confirm the id exists); your own
-  workspace's resource that your role cannot change is 403, naming the role needed
-- **An invitation token is stored only as a SHA-256 hash** (D95) — the deliberate difference from
-  the webhook token, which must stay displayable. The link therefore exists exactly once, and
-  "send it again" is re-inviting, which rotates it. Plain SHA-256 and not a password hash, on
-  purpose: bcrypt exists to slow down guessing a *low-entropy* secret, and there is nothing to slow
-  down at 256 bits
-- **The active workspace is an unsigned cookie that grants nothing** (D96). `chooseMembership`
-  honours its id only when it appears in the memberships the database just returned, so forged,
-  borrowed and stale cookies all fall back — each of the three is a deployed check. No
-  `activeWorkspaceId` column: it would be a write per switch on a metered database and would make
-  the choice global across every tab
-- **Re-inviting is an atomic upsert against a partial unique index** (D97), not a read-then-write.
-  `neon-http` has no transactions (D6), so the index is the interlock — the same argument
-  `workspace_personal_idx` is built on. Rehearsed on a throwaway schema before it went near the real
-  database, because `ON CONFLICT` against a partial index that does not match **fails to plan**,
-  which is the 42P10 that made every credential write a 500 before Phase 19A found it
-- **Four defects found by driving it, three invisible to 613 unit tests and 299 API checks**: a
-  refusal reported as a conflict (and leaking the owner count), an invited account landing in the
-  inviter's workspace, two screens calling somebody else's workspace "yours", and a switcher hidden
-  on phones — where, being the only control that changes workspace, it meant a phone user was stuck.
-  Each has a regression test where a test can see it
-- **AgentForge does not send the invitation email, and says so** rather than implying it did. There
-  is no mail provider on a zero-cost budget; the admin gets one link to deliver themselves
-- **Four deploys, deliberately.** `00038` shipped the phase; `00039`, `00040` and `00041` shipped the
-  fixes the browser walk found. The alternative was reporting a phase complete with three known
-  defects in it
-
-**2026-09-27 — Phase 19A complete. AgentForge is multi-tenant: every resource belongs to a
-workspace, proved by a second tenant over HTTP — and rehearsing the migration uncovered two silent
-production defects that no test could see**
-
-- **Phase 19 was split into 19A and 19B**, under the licence the phase always carried. 19A is the
-  data model, the migration and the scoping; 19B is invitations, the switcher and the members list.
-  The two halves fail in different ways and the expand/contract migration wanted a deploy between
-  its own halves — bundling them would have made a misbehaving deploy impossible to attribute.
-  Recorded in `BUILD_PLAN.md`
-- **`workspace` and `workspace_member`, and a `workspaceId` alongside `ownerId`** on `workflow`,
-  `run`, `workflow_version` and `credential`. Alongside, never replacing: the two answer *who may
-  see this* and *who made this happen*, and collapsing them would cost the run history its only
-  record of who triggered a run
-- **`WorkspaceScope` is an object, and that is the entire safety argument** (D89). The sweep changed
-  the meaning of the first argument of ~30 functions from "the user" to "the workspace". Had both
-  been `string`, every missed call site would have compiled and read one tenant's rows under
-  another's name. As a distinct type, **all 43 failed the typecheck** and were found that way
-- **The migration was expand/contract, with a deploy between the halves.** `0005` adds the tables
-  and columns **nullable** and backfills a personal workspace per user, so the previous revision
-  kept serving; `0006` sets `NOT NULL` and drops the superseded credential index once the new
-  revision was alone. **Row counts identical before and after** — the phase's completion criterion
-- **The rollback is hand-written and was rehearsed both directions before either half was applied.**
-  `scripts/rehearse-migration.mjs` clones the affected tables and rows into a throwaway schema, runs
-  the migration forward, the rollback backward, and asserts the copy is **digest-identical** to
-  where it started. 12/12. Neon branching would have been the obvious tool and `neonctl` here is
-  unauthenticated (M9), so a schema on the same database is the copy
-- **Credentials became workspace-scoped, which widens a security surface on purpose.** A shared
-  workflow that cannot reach its Google credential fails at the first integration node, at runtime.
-  The consequence is stated where the decision is made: the Google card now says the connection
-  belongs to the workspace and anyone in it can send mail from that address
-- **`role` is written and not enforced — and that is inert only until Phase 19B.** 19A creates
-  exactly one kind of member, the `owner` of their own personal workspace. `lib/workspace/roles.ts`
-  and `CONTRACT.md` both carry the handoff
-- **Verified by building a real second tenant, not by asserting isolation.** A second `user`,
-  `workspace`, membership and session drove the deployed API: **404 on all thirteen cross-tenant
-  routes**, empty run list, all three credential surfaces empty, the refused edit and delete
-  confirmed to have **changed nothing in the database**, and the reverse direction proved too
-
-**Two silent defects, both live for days, neither visible to any test — found by rehearsing the
-migration rather than by running the suite:**
-
-1. **Every credential write was answering HTTP 500 in production.**
-   `credential_owner_kind_label_idx` is created by migration `0001` and was **absent** from the
-   deployed database; every other index from that migration was present. `putCredential` upserts
-   with `ON CONFLICT ("ownerId", "kind", "label")` and Postgres will not *plan* that statement
-   without a matching unique index. Saving an API key, connecting Google and storing a Discord
-   webhook all 500'd. Proved against the deployed URL, repaired inside `0005`, and proved fixed when
-   the identical request answered **200 on the unchanged revision**
-2. **`drizzle.__drizzle_migrations` held 3 rows while 5 migrations were physically applied.** The
-   next `db:migrate` would have tried to re-apply `0003` and died on `CREATE TABLE ... already
-   exists`, with 19A's own migrations queued behind it
-
-**`scripts/verify-schema.mjs` is the guard for both**, comparing drizzle's snapshot, its journal and
-`information_schema`. It would have caught each of them, and it runs before and after every
-migration from here.
-
-**A third, cheaper defect:** the Discord route reported *any* failure as "Could not reach Discord",
-including a database error on a request where Discord had answered successfully — which sent the
-diagnosis the wrong way for a while. `integrationApiError` now only speaks for a service when the
-error came from it. Three tests, one of which fails against the old mapping.
-
-**`ApiError` moved to `src/lib/api-error.ts`.** `lib/api.ts` imports `@/auth`, which the test runner
-cannot load (D18), so anything merely *returning* an `ApiError` was untestable by association —
-including the mapper above. `lib/api.ts` re-exports it, so no existing import changed.
-
-
----
-
-**Phases 13–18 — pruned 2026-09-30.** Their entries said what each phase built, and every one of
+**Phases 13–19B — pruned; 13–18 on 2026-09-30, 19A and 19B the same day after Phase 21.** Their entries said what each phase built, and every one of
 those facts now lives where a cold session actually reads it: the deployed state is in the table
 above, the decisions are in *Decisions — BINDING*, the traps are in *Known Issues*, and the
 contracts are in `CONTRACT.md`. The narrative is in `git log`. **This file is a status board, not a
@@ -886,29 +885,38 @@ find, which is the failure mode it is meant to prevent.
 
 ## Last Updated
 
-**2026-09-30** — **Phase 20 complete.** Revision `agentforge-00043-nn2` live, `/api/health` green,
-migration `0008_sparkling_nextwave` applied with row counts identical before and after and the
-previous revision serving throughout.
+**2026-09-30** — **Phase 21 complete.** Revision `agentforge-00046-w7b` live, `/api/health` green
+and reporting `rootKey.provider: secret-manager`, migration `0009_jazzy_alex_power` applied with row
+counts identical before and after and the previous revision serving throughout.
 
-**Verified on the deployed system, not asserted.** `verify-api.mjs` — **394 passed / 0 failed /
-3 skipped**, **ALL CHECKS PASSED**; the three skips are two unsupplied optional env vars and one
-state difference, not failures. **~80 of the passes are this phase's**: a 56-cell role matrix in a
-throwaway workspace with every refusal proved to have changed no row, the whole role-change rule
-through the route, per-workflow visibility from six directions including a run 404 by run id and a
-webhook that still fires a private workflow, and the share link minted, read with no session,
-proved to withhold a real `Bearer` header and a real address, revoked, and re-shared under a new
-token. `verify-durable.mjs` **ALL CHECKS PASSED**, including a Cloud Tasks scheduled run completing
-end to end. `verify-schema.mjs` **6/6**. Migration `0008` rehearsed **11/11** on a throwaway schema,
-forward and rolled back to a digest-identical copy.
-**A real browser** at 1440 px and 375 px, **0 console errors or warnings across the whole session**:
-the share dialog driven to a live link, the public page opened with no cookies and confirmed to
-carry no id, token, address or workspace name, a viewer's canvas stripped of every write control
-with an inspector Playwright could not type into, and a role promoted through the settings picker
-and confirmed in the database.
-Local `npm run check` **661 passing**, coverage **86.47 / 92.43 / 76.60** against 85 / 88 / 76.
+**Verified on the deployed system, not asserted.** `verify-vault.mjs` — **61 passed / 0 failed**,
+**ALL CHECKS PASSED**, and it is this phase's own suite: all three credentials converted from the
+Chapter 1 shape to `sm:1` with **each one verified to decrypt**, the re-key idempotent on a second
+run, an already-enveloped row proved to have kept its ciphertext byte-identical, a Discord
+credential rotated **with a fresh data key** and a workflow still posting with it, a webhook token
+rotated with the **old URL answering 404 immediately** and the new one 201, a refused rotation proved
+to have left the stored envelope byte-identical, a 16-cell role matrix, the vault's response searched
+against the real ciphertext for all six envelope columns and found clean, and the audit log naming
+the run and the node that used a credential. `verify-api.mjs` — **393 passed / 0 failed / 4
+skipped**, the skips all unsupplied env vars, one rate limit and one state difference.
+`verify-durable.mjs` **ALL CHECKS PASSED**, including a Cloud Tasks scheduled run completing on this
+revision. `verify-schema.mjs` **6/6**. Migration `0009` rehearsed **15/15** on a throwaway schema,
+forward, then with the rollback's guard proved to fire, then rolled back to a digest-identical copy.
 
-**Two defects came from the browser and nothing else** — a viewer's panel offering a trigger input
-and a "Queue a run" button under a paragraph beginning *"Press Run"*, and a share-page title
-truncated to two words at 375 px. Both fixed, redeployed and re-verified. **394 deployed checks, 661
-unit tests and a green typecheck all passed while both were live.** That is the Phase 12 lesson for
-the sixth time: drive the real thing before believing a claim about it.
+**A real browser** at 1440 px and 375 px, **0 console errors or warnings** beyond two deliberate
+error responses: the vault read at both widths with no horizontal overflow, a rotation refused with
+the provider's own words rendered and the stored key proved untouched, a re-key pressed, the canvas
+webhook rotation driven through its confirm step with the old URL confirmed 404 **from inside the
+page**, and an editor's view confirmed to offer neither the rotate control nor the re-key button.
+
+Local `npm run check` **714 passing** (was 661), coverage **86.07 / 91.30 / 76.57** against
+85 / 88 / 76.
+
+**Four defects came from verification and nothing else** — one from the deployed suite (a route
+whose error mapper collapsed four deliberate refusals into a 500, invisible to every unit test
+because `lib/api.ts` imports `@/auth`), three from the browser (a divider whose opacity modifier
+silently did not apply, an empty-state paragraph describing secrets that were not there, and a "Not
+connected" list that offered a way to connect for one kind out of three). All fixed, redeployed and
+re-verified; three carry a regression test that fails without the fix. **714 unit tests, 393 API
+checks and a green typecheck all passed while every one of them was live.** That is the Phase 12
+lesson for the seventh time: drive the real thing before believing a claim about it.

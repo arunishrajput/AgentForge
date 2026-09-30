@@ -31,6 +31,7 @@ function fakeContext(iteration = 0): NodeContext & {
     workflowId: "wf-1",
     scope: TEST_SCOPE,
     nodeId: "node-1",
+    nodeType: "core.log",
     iteration,
     log: (message: string, level: LogLevel = "info") => lines.push({ message, level }),
     signal: new AbortController().signal,

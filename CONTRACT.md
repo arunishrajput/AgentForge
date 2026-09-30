@@ -18,7 +18,8 @@ Do not pre-empt them.
 | API request/response shapes | **DEFINED** for Phases 3's routes | Phase 3, extended by 4–9 |
 | SSE event messages | **DEFINED** | Phase 5 — `src/lib/engine/stream.ts` |
 | Agent tool-call schema | **DEFINED** | Phase 6 — `src/lib/ai/` |
-| Credential storage shape | **DEFINED** | Table Phase 3, API Phase 6 |
+| Credential storage shape | **DEFINED** | Table Phase 3, API Phase 6, **envelope + vault Phase 21** |
+| Credential audit log | **DEFINED** | Phase 21 — `src/lib/credentials/audit.ts` |
 | Generation request/response | **DEFINED** | Phase 7 |
 | Trigger shapes | **DEFINED** | Phase 8 — `src/lib/triggers/` |
 | Design token names | **DEFINED** | Phase 14 — `src/app/globals.css`, `src/lib/design/palette.ts` |
@@ -40,7 +41,7 @@ live in `.env` locally (never committed) and on the Cloud Run service in product
 | `AUTH_URL` | Canonical app origin for OAuth callbacks | Must match the deployed origin **exactly**, or the Google callback fails in a way that looks like a bad client id. In production this is `https://agentforge-733000675212.asia-southeast1.run.app` — the **deterministic** Cloud Run URL. The service also answers on a legacy hashed URL and `status.url` returns *that* one; using it here breaks sign-in (Phase 2, D10) |
 | `GOOGLE_CLIENT_ID` | Google OAuth client id | From the Phase 0 OAuth client. Auth.js v5 *auto-infers* `AUTH_GOOGLE_ID`/`AUTH_GOOGLE_SECRET`, not these names — pass these explicitly into the Google provider config. Verified Phase 0 |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth client secret | Secret |
-| `ENCRYPTION_KEY` | AES-256-GCM key for credentials at rest | 32 bytes, base64. **Rotating this makes every stored credential unreadable** |
+| `ENCRYPTION_KEY` | AES-256-GCM key for credentials at rest | 32 bytes, base64. **Two jobs since Phase 21**: it is the root key when `ROOT_KEY_SECRET` is unset (a developer machine, CI), and it decrypts any credential still in the Chapter 1 single-layer shape whatever `ROOT_KEY_SECRET` says. The Chapter 1 warning no longer holds unconditionally — changing it makes unreadable only the rows it is still the key for, and `scripts/rekey.mjs --dry-run` names them. `SECURITY.md` → *Rotating the root key* |
 | `APP_BASE_URL` | Public base URL | Used to build webhook URLs shown to the user. Same value as `AUTH_URL`, no trailing slash |
 | `CRON_SECRET` | Shared secret for the **machine endpoints** — `POST /api/cron/tick` and `POST /api/runs/dispatch` | Cloud Scheduler sends it for the tick; Cloud Tasks sends it in the task's headers for a dispatch. **One secret for both, deliberately** (Phase 17): the dispatch route's real authorisation is the run's own 192-bit `dispatchToken`, so this is the outer gate rather than the thing that grants anything. A leaked `CRON_SECRET` lets someone fire due schedules — which was already true — and lets them re-dispatch only runs whose per-run token they also hold |
 | `NODE_ENV` | `development` \| `production` | — |
@@ -54,6 +55,7 @@ live in `.env` locally (never committed) and on the Cloud Run service in product
 | `TASKS_QUEUE` | Cloud Tasks queue name for durable runs (Phase 17) | **Unset means durable runs execute in-process instead** — correct locally and in CI, and a silent no-op in production, which is why `GET /api/health` reports `queue.configured`. Set to `agentforge-runs` on the service |
 | `TASKS_LOCATION` | The queue's region | Falls back to `GCP_REGION`. A queue in another region would be a deliberate act; there is no reason to state the common case twice |
 | `TASKS_PROJECT` | The queue's project | Falls back to the metadata server's `project/project-id`, which cannot be wrong in the way a copied variable can. Set it only when the queue lives outside this project |
+| `ROOT_KEY_SECRET` | The Secret Manager secret holding the **root key** (Phase 21) | **Unset means `ENCRYPTION_KEY` is the root key**, version `env` — correct locally and in CI, where there is no metadata server. Set, it means *versions*: adding one is a rotation, and `scripts/rekey.mjs` moves the database onto it without decrypting a secret. Set to `agentforge-root-key` on the service. Unset in production is the Chapter 1 problem back without the Chapter 1 warning, which is why `GET /api/health` reports `rootKey.provider` and the vault shows it |
 
 ### Deploy-time only — not read by the app
 
@@ -62,6 +64,13 @@ live in `.env` locally (never committed) and on the Cloud Run service in product
 | `GCP_PROJECT_ID` | Target Google Cloud project |
 | `GCP_REGION` | Cloud Run region. One region for everything |
 | `CLOUD_RUN_SERVICE` | Service name (`agentforge`) |
+
+### Script-only — **never set on the service** (Phase 21)
+
+| Variable | Purpose |
+|---|---|
+| `GCP_ACCESS_TOKEN` | A Google access token for `scripts/rekey.mjs`, which has no metadata server to mint one. Supply it on the command line from `gcloud auth print-access-token`. On Cloud Run the token comes from the metadata server and is short-lived by construction; pasted into a service environment variable it would be a long-lived credential in a place that survives restarts |
+| `GCP_PROJECT` | The project that script should reach Secret Manager in. Overrides the metadata server, which does not exist off Cloud Run |
 
 ### Rules
 
@@ -183,6 +192,8 @@ interface NodeDefinition<Config> {
 
 interface NodeContext {
   runId, workflowId, nodeId: string;
+  nodeType: string;        // Phase 21. The engine already had it. Added so a node attributing a
+                           // credential use in the audit log need not repeat its own `type`
   scope: WorkspaceScope;   // Phase 19A. Replaced `ownerId`. A node's ENTIRE authority:
                            // the credentials of the workspace whose workflow is running,
                            // and nothing else. Nothing in a node's config can widen it
@@ -841,6 +852,9 @@ not write access, and a new mutating route that forgets the argument fails close
 | Store or delete a provider key, connect or disconnect an integration, **list provider models** | `admin` |
 | Rename the workspace, invite, revoke, remove another member, **change a member's role** | `admin` |
 | **Publish or revoke a workflow's public share link** (Phase 20) | `admin` |
+| **Read the credential vault** — what is stored, when it was last rotated and used (Phase 21) | `viewer` |
+| **Rotate a stored credential**, **rotate a workflow's webhook token** (Phase 21) | `admin` |
+| **Re-key a workspace under the current root key** (Phase 21) | `owner` |
 | Remove an **owner**, **grant or take away ownership** (Phase 20) | `owner` |
 | **Change a workflow's visibility** (Phase 20) | its **creator**, or `admin` — not any editor |
 | Leave the workspace | membership alone — and never the last owner |
@@ -856,6 +870,15 @@ and this one makes its content readable by anybody handed a URL. **Changing a wo
 is not a role at all** but a relationship — its creator, or an admin — for the reason
 `lib/workflow/visibility.ts` sets out: an editor flipping a colleague's workflow to private would
 hide it from the people it was shared with, which is a destructive act dressed as an edit.
+
+**Phase 21 added three more, on the same principle.** *Reading* the vault is `viewer`, because
+credential status already was and a viewer who cannot see whether a credential exists cannot
+understand a failed run. *Rotating* one is `admin`, and so is rotating a webhook token: an editor
+may already change everything about a workflow, and what they may not do is invalidate a secret
+that systems outside this product are calling. *Re-keying* is `owner` — the only route besides
+ownership itself that needs it — because it changes how every secret in the workspace is stored,
+and "it is designed so a failure is safe" is exactly the claim a permission bar should not rest
+on.
 
 ### Changing a member's role — **DEFINED** (Phase 20)
 
@@ -1021,18 +1044,59 @@ helpers (`src/lib/crypto.ts`), the store (`src/lib/credentials.ts`) and the writ
 **Phase 6**.
 
 Columns: `id`, `workspaceId`, `ownerId`, `kind`, `label`, `ciphertext`, `iv`, `authTag`,
+**`wrappedKey`, `wrapIv`, `wrapAuthTag`, `keyVersion`, `rotatedAt`, `rotationCount`**,
 `metadata`, `createdAt`, `updatedAt`. **Unique on `(workspaceId, kind, label)` since Phase 19A** —
-it was `(ownerId, kind, label)`, and migration `0006` dropped the old index. The AES-256-GCM
-envelope is stored as three base64
-columns; the key is `ENCRYPTION_KEY`. GCM rather than CBC because it authenticates: a row edited in
-the database fails to decrypt instead of yielding plausible rubbish that then gets sent to a
-provider as an API key. A fresh IV per encryption, generated inside `encryptSecret` rather than
-passed in.
+it was `(ownerId, kind, label)`, and migration `0006` dropped the old index. GCM rather than CBC
+because it authenticates: a row edited in the database fails to decrypt instead of yielding
+plausible rubbish that then gets sent to a provider as an API key. A fresh IV per encryption,
+generated inside `seal` rather than passed in.
 
-**Nothing in this row ever reaches a client.** Not the value, not a prefix, not a masked tail — a
-four-character hint is still key material. `configured: true` plus `updatedAt` is the whole answer
-to "is a key stored". `describeCredential` never reads the envelope columns into its result, so a
-future spread cannot leak them.
+### Envelope encryption — **Phase 21**, and it replaced a single key
+
+Chapter 1 encrypted every secret directly under `ENCRYPTION_KEY` and shipped the accurate warning
+that rotating it destroyed all of them. A key that cannot be rotated is not a control. Phase 21
+added one layer of indirection:
+
+```
+   the secret  --AES-256-GCM-->  ciphertext      key: a fresh 256-bit DEK, one per credential
+   that DEK    --AES-256-GCM-->  wrappedKey      key: the root key, versioned
+```
+
+| Column | What it holds |
+|---|---|
+| `ciphertext` / `iv` / `authTag` | The secret, under this credential's own data key |
+| `wrappedKey` / `wrapIv` / `wrapAuthTag` | That data key, under the root key |
+| `keyVersion` | Which root key wrapped it — `env`, or `sm:<n>` for a Secret Manager version |
+
+**The four envelope columns are nullable, and that is the migration's whole safety argument.** A
+row with `wrappedKey is null` is a Chapter 1 row whose ciphertext is directly under
+`ENCRYPTION_KEY`; `openSecret` reads both shapes, so the previous revision kept serving while
+`0009` was applied and the database was never in a state that only one revision could read.
+`POST /api/credentials/rekey` performs the conversion.
+
+**A fresh data key per write, always.** Two credentials never share one, and neither does a
+credential and its own previous value — so rotating a secret in place leaves no key material in
+common with what it replaced.
+
+**Rotating the root key re-wraps ~60 bytes per credential and never touches `ciphertext`.** That
+is what makes it an operation somebody performs rather than one the docs warn against. It is
+resumable by construction: every row is an independent `UPDATE` naming the key that wraps it, so an
+interrupted re-key leaves every row still readable.
+
+`rotatedAt` and `rotationCount` track the **secret value**, distinct from `updatedAt`, which also
+moves when only the metadata does. They are incremented inside the upsert's `DO UPDATE SET`, which
+Postgres runs only on conflict — so an insert leaves them at `null`/`0` with no read-then-write to
+race (D6).
+
+**Nothing secret in this row ever reaches a client.** Not the value, not a prefix, not a masked
+tail — a four-character hint is still key material. `configured: true` plus `updatedAt` is the
+whole answer to "is a key stored". `describeCredential` never reads the six envelope columns into
+its result, so a future spread cannot leak them, and a test serialises the projection and searches
+it for every one of them.
+
+**`keyVersion` does cross to the client, and it is not key material.** It names immutable bytes in
+a key store and reveals nothing about them, and it is the only way an operator can tell that a
+re-key moved anything — otherwise the phase's central claim would have to be taken on trust.
 
 Phase 6 added one kind, `llm.google`, label `default`, `metadata: { model }`. Phase 9 added two
 more — see *Integration nodes and their credentials* for `integration.discord` and `google.oauth`.
@@ -1058,6 +1122,68 @@ column, and at that moment the two were in exact one-to-one correspondence, so k
 only state in which neither revision could write a duplicate. **The old one had to be gone before
 any user could hold a second workspace**, or the same kind of credential in two of their workspaces
 would be refused by an index measuring the wrong thing.
+
+### The vault, rotation and re-keying — **DEFINED** (Phase 21)
+
+| Route | Needs | Body | Returns |
+|---|---|---|---|
+| `GET /api/credentials` | `viewer` | — | The whole `Vault` — see below |
+| `POST /api/credentials/<kind>/rotate` | `admin` | `{ secret }` | The whole `Vault`, refreshed |
+| `POST /api/credentials/rekey` | `owner` | — | `{ rekey: RekeyOutcome, vault: Vault }` |
+| `POST /api/workflows/<id>/webhook/rotate` | `admin` | — | The workflow projection, with the **new** `webhookUrl` |
+
+`Vault` carries `entries` (every stored credential with its rotation and usage state),
+`missing` (the kinds this workspace holds none of, each with a `connectHref`), `events` (the
+audit log, newest first), `rootKey` (`provider` and the versions actually in use), `legacyCount`
+and `retentionDays`.
+
+**Reading is `viewer` and changing is `admin`**, which is the matrix already in *What each role
+may do*: credential *status* has been a viewer action since Phase 19B, and a viewer who cannot
+see whether a credential exists cannot understand a failed run. Re-keying is `owner` — rotating
+one credential has a blast radius of one integration; this touches how every secret in the
+workspace is stored.
+
+**Rotation is per-kind, and two of the three kinds are not a text box.** `ROTATION_RULES` in
+`src/lib/credentials/rotation.ts` is the table, and a test asserts it covers the credential
+registry in both directions — a kind added later with no rule would silently become unrotatable
+and nothing would break, so nobody would notice.
+
+| Kind | `mode` | Rotation is |
+|---|---|---|
+| `llm.google` | `value` | A new API key, proved with one `models.list` call before anything is written |
+| `integration.discord` | `value` | A new webhook URL, called before anything is written. **The old webhook is not deleted at Discord** — nothing here can do that |
+| `google.oauth` | `reconnect` | Re-running the consent flow. A refresh token can only be minted by Google, so there is nothing to paste |
+
+**Nothing is stored until the new secret has been proved against the provider.** Storing first
+would give this route the failure mode *your workspace is now broken and the old secret is gone*,
+and there is no undo, because the old secret is not kept. A refused rotation leaves the stored
+envelope byte-identical, which the deployed suite asserts by comparing it either side.
+
+**Refusals keep their own status codes.** An unknown kind is `404` (the vault builds its controls
+from the table, so a kind it does not know is a reference to something that does not exist), a
+`reconnect` kind sent a typed secret is `400`, a key the provider rejects is `400`, and a
+throttled provider is `409` — the Phase 13 distinction, unchanged.
+
+**Webhook token rotation has no grace period.** The old URL answers 404 from the moment the
+request returns. A token that keeps working for an hour after being rotated is a token still live
+for an hour after somebody rotated it *because it leaked*. `webhookTokenRotatedAt` on the workflow
+row is `null` until the first rotation, and the workflow projection carries it.
+
+### The credential audit log — **DEFINED** (Phase 21)
+
+Table `credential_event`. **It records use, never content**: no secret, no prefix, no length, no
+hash, and no request or response body from the service the secret authenticated to.
+
+| Property | Value |
+|---|---|
+| Written from | `readSecret` — the single funnel every plaintext passes through. Four call sites would be four places to keep in step and a fifth added later without one |
+| Events | `stored`, `rotated`, `revoked`, `used`, `rekeyed`. The first two are separate: a workspace's first Discord connection is not a rotation |
+| Survives revocation | `credentialId` is `ON DELETE SET NULL` and `kind`/`label` are denormalised, so the history stays readable after the credential is gone |
+| Attribution | `runId`/`nodeId`/`nodeType` for a use; `actorId` for a deliberate human act. **A use has no actor** — it happens inside a run that may have been started by a schedule or an unauthenticated webhook |
+| `actorId` never reaches a client | Recorded, deliberately not projected. `describeEvent` is a pure function so that rule is asserted rather than maintained by hand |
+| `detail` | One machine-readable word: a node's capability (`send-mail`, `append-row`, `post-message`, `generate`, `agent-loop`) or a root key version. Never a value or part of one |
+| Retention | **30 days**, pruned by the cron tick, which reports `pruned` in its outcome |
+| Never fails what it audits | An insert that throws is logged to stderr and swallowed. This log is **operational, not a compliance record**; if that changes, so does this line |
 
 ### Routes
 

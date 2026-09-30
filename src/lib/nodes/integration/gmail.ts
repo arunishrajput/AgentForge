@@ -61,6 +61,12 @@ export const gmailNode = defineNode({
         requiredScopes: [GMAIL_SEND_SCOPE],
         capability: "send email on your behalf",
         signal: context.signal,
+        use: {
+          runId: context.runId,
+          nodeId: context.nodeId,
+          nodeType: context.nodeType,
+          purpose: "send-mail",
+        },
       });
 
       // The authenticated mailbox, so the message carries a From the recipient

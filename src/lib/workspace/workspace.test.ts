@@ -371,4 +371,34 @@ describe("integrationApiError", () => {
     );
     assert.doesNotMatch(mapped.message, /hunter2/);
   });
+
+  it("passes a deliberate ApiError through with its own code and message — Phase 21", () => {
+    /**
+     * **The Phase 21 regression.** The vault's rotation route wrapped its whole body in this
+     * mapper, so every deliberate refusal underneath it — an unknown credential kind (404), a
+     * Google connection explaining that a refresh token cannot be typed (400), a key the
+     * provider had rejected (400) — came back as *"Something went wrong saving this The provider
+     * connection."* Four real refusals collapsed into one internal error, found by the deployed
+     * check suite because a route's error mapping is invisible anywhere else.
+     *
+     * Fixed here rather than at that call site, because the defect is a class: an `ApiError`
+     * already carries a code and a client-safe message chosen on purpose, so re-deciding either
+     * is always wrong.
+     */
+    const refusal = new ApiError("not_found", "This product does not store that kind of credential.");
+    const mapped = integrationApiError("Discord", refusal);
+    assert.equal(mapped, refusal, "the refusal was replaced rather than passed through");
+    assert.equal(mapped.code, "not_found");
+    assert.match(mapped.message, /does not store that kind/);
+  });
+
+  it("keeps every ApiError code intact, not just the one that was reported", () => {
+    // Total over the codes a rotation can raise, so the fix cannot be narrowed to a special
+    // case for 404 by somebody reading only the bug report.
+    for (const code of ["not_found", "invalid_request", "conflict", "forbidden"] as const) {
+      const mapped = integrationApiError("Discord", new ApiError(code, "refused on purpose"));
+      assert.equal(mapped.code, code);
+      assert.equal(mapped.message, "refused on purpose");
+    }
+  });
 });

@@ -2,6 +2,8 @@ import type { ProviderSettings } from "@/lib/ai/settings";
 import type { GenerationAttempt, GenerationIssue } from "@/lib/generate/generate";
 import type { ModelInfo } from "@/lib/ai/types";
 import type { ApiErrorCode } from "@/lib/api";
+import type { RekeyOutcome } from "@/lib/credentials/rekey";
+import type { Vault, VaultEntry } from "@/lib/credentials/vault";
 import type { StreamRun } from "@/lib/engine/stream";
 import type { GraphProblem } from "@/lib/engine/validate";
 import type { DiscordStatus, GoogleStatus } from "@/lib/integrations/store";
@@ -67,6 +69,7 @@ export type { GraphDiff, NodeChange, NodeDiff, DiffSummary } from "@/lib/workflo
 export type { NodeSummary, GraphProblem };
 export type { ProviderSettings, ModelInfo };
 export type { DiscordStatus, GoogleStatus };
+export type { Vault, VaultEntry, RekeyOutcome };
 export type { GenerationIssue, GenerationAttempt };
 
 /** CONTRACT.md → "Generation request/response". */
@@ -301,6 +304,36 @@ export const api = {
 
   disconnectGoogleIntegration: () =>
     request<GoogleStatus>("/api/integrations/google", { method: "DELETE" }),
+
+  /* ------------------ the credential vault (Phase 21) ------------------ */
+  //
+  // Read is `viewer`, rotation and revocation are `admin`, re-keying is `owner`. Every
+  // response is the whole vault rather than one entry: it costs one query and it means the
+  // page cannot be left showing a stale rotation count beside a row that just changed.
+
+  getVault: () => request<Vault>("/api/credentials"),
+
+  /**
+   * Replace a stored secret in place. The new one is proved against the provider before
+   * anything is written, so a wrong value is a 400 and the old secret is untouched.
+   */
+  rotateCredential: (kind: string, secret: string) =>
+    request<Vault>(`/api/credentials/${encodeURIComponent(kind)}/rotate`, {
+      method: "POST",
+      body: JSON.stringify({ secret }),
+    }),
+
+  /** Re-wrap this workspace's data keys under the current root key. No secret is decrypted. */
+  rekeyCredentials: () =>
+    request<{ rekey: RekeyOutcome; vault: Vault }>("/api/credentials/rekey", { method: "POST" }),
+
+  /**
+   * Mint a new webhook URL for this workflow. **The old one answers 404 from the moment this
+   * resolves**, so the caller has to be a deliberate, confirmed action rather than a button
+   * beside the URL.
+   */
+  rotateWebhookToken: (id: string) =>
+    request<Workflow>(`/api/workflows/${id}/webhook/rotate`, { method: "POST" }),
 
   /* ---------------------- workspaces (Phase 19B) ---------------------- */
 

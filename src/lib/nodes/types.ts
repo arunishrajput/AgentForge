@@ -57,6 +57,14 @@ export interface NodeContext {
   scope: WorkspaceScope;
   nodeId: string;
   /**
+   * This node's registry type — **Phase 21**, and the engine already had it.
+   *
+   * Added so a node attributing a credential use does not have to repeat its own `type`
+   * string inside its own definition, where a self-reference would be a temporal dead zone
+   * and a copied literal would be the thing that drifts when a type is renamed.
+   */
+  nodeType: string;
+  /**
    * How many times this node has already *completed* in this run. 0 on first
    * execution. This is what makes a loop node a plain node: it reads its own
    * iteration count instead of the engine holding loop state.
