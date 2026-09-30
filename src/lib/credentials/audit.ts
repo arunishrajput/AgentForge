@@ -2,6 +2,7 @@ import { and, desc, eq, lt } from "drizzle-orm";
 
 import { db } from "@/db";
 import { credentialEvents } from "@/db/schema";
+import { logError } from "@/lib/logging";
 import type { WorkspaceScope } from "@/lib/workspace/scope";
 
 /**
@@ -130,7 +131,13 @@ export async function recordCredentialEvent(input: RecordInput): Promise<void> {
         detail: input.detail ?? input.use?.purpose ?? null,
       });
   } catch (error) {
-    console.error("Could not record a credential event:", error);
+    // Never fails the read it was recording — the credential is already decrypted and
+    // the run is already using it. A missing audit row is a gap in the log rather than a
+    // fault in the product, and this is what explains the gap.
+    logError("system.warning", "Could not record a credential event.", error, {
+      credentialEvent: input.event,
+      kind: input.kind,
+    });
   }
 }
 

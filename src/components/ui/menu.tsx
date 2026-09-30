@@ -101,10 +101,24 @@ export function Menu({
             event.preventDefault();
           }
         }}
-        className="btn btn-quiet"
+        /**
+         * **`min-w-0` — Phase 22, and it fixes a latent bug rather than a cosmetic one.**
+         *
+         * A flex child's `min-width` defaults to `auto`, so without this the trigger
+         * refuses to shrink below its own content and simply **overflows its wrapper**,
+         * drawing on top of whatever sits next to it. The workspace switcher passes this
+         * component a `max-w-[16rem]` and a label that truncates, intending exactly that
+         * squeeze; it could not happen, and the overflow only became visible when the
+         * shell header gained a third navigation link and the bar ran out of room.
+         *
+         * `min-w-0` here means the trigger shrinks when — and only when — a parent
+         * constrains it. Every other menu in the product sits in an unconstrained parent
+         * and is unaffected.
+         */
+        className="btn btn-quiet min-w-0"
       >
         {label}
-        <span aria-hidden="true" className="text-3xs">
+        <span aria-hidden="true" className="text-3xs shrink-0">
           ▾
         </span>
       </button>

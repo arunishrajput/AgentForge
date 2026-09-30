@@ -18,6 +18,7 @@ import {
 } from "@/lib/engine/stream";
 import { getWorkflow } from "@/lib/workflow/store";
 
+import { addLogContext, logError, traceFromHeaders, withLogContext } from "@/lib/logging";
 export const dynamic = "force-dynamic";
 
 /**
@@ -45,7 +46,20 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export async function GET(request: Request, { params }: Context) {
+/**
+ * **Phase 22.** The stream is one of the four routes that do not go through `handle`, so
+ * it opens its own log context — and it is the one that most needs one: it is the only
+ * connection in the product that stays open for minutes, and every `node.finished` of the
+ * run it is watching is written while it is. Sharing the trace is what puts the stream
+ * and the run it is streaming on the same thread in the Logs Explorer.
+ */
+export async function GET(request: Request, context: Context) {
+  return withLogContext({ trace: traceFromHeaders(request.headers) }, () =>
+    openStream(request, context),
+  );
+}
+
+async function openStream(request: Request, { params }: Context) {
   let scope: WorkspaceScope;
   let workflowId: string;
 
@@ -57,9 +71,10 @@ export async function GET(request: Request, { params }: Context) {
     const { id } = await params;
     await getWorkflow(scope, id);
     workflowId = id;
+    addLogContext({ workflowId });
   } catch (error) {
     if (error instanceof ApiError) return fail(error.code, error.message, error.details);
-    console.error("Unhandled error opening a run stream:", error);
+    logError("api.error", "A run stream could not be opened.", error);
     return fail("internal", "Something went wrong opening the stream.");
   }
 
@@ -157,7 +172,7 @@ export async function GET(request: Request, { params }: Context) {
       // A cancelled stream makes `enqueue` throw, which is the normal way this loop
       // ends when the client goes away — not worth a log line.
       if (closed) return;
-      console.error("Run stream failed:", error);
+      logError("api.error", "A run stream failed while open.", error, { workflowId });
       closed = true;
       try {
         controller.enqueue(

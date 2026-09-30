@@ -212,6 +212,119 @@ test("a model that keeps failing falls back to the next one in the chain", async
   assert.equal(calls.filter((call) => call.url.includes("3.5-flash-lite")).length, 2);
 });
 
+/**
+ * **The model-fallback metric, proved to fire — `BUILD_PLAN.md` → Phase 22 makes this a
+ * validation step in its own right, and it is the phase's reason for existing.**
+ *
+ * Chapter 1's 92-second regression was a *healthy-looking* system: runs succeeded and
+ * nothing errored, because the requested model had started timing out and the chain was
+ * quietly answering every call with its second choice at the cost of a wedged attempt
+ * first. A fallback is a success from the outside — that is the whole point of having one
+ * — so the only thing that can report it is an event emitted when it happens.
+ *
+ * `logWarn` is silenced under the test runner (`scripts/test-register.mjs`), so the
+ * variable is unset around the call and `console.log`/`console.error` captured. That is
+ * an environment variable doing what it does, not a back door: `logger.ts` reads it per
+ * call precisely so this assertion is possible.
+ */
+function captureLogs<T>(work: () => Promise<T>): Promise<{ result: T; entries: Record<string, unknown>[] }> {
+  const entries: Record<string, unknown>[] = [];
+  const realLog = console.log;
+  const realError = console.error;
+  const previous = process.env.AGENTFORGE_LOG_SILENT;
+  const capture = (line: unknown) => {
+    try {
+      entries.push(JSON.parse(String(line)));
+    } catch {
+      // Not one of ours — a stray write from somewhere else. Ignored, not failed.
+    }
+  };
+
+  delete process.env.AGENTFORGE_LOG_SILENT;
+  console.log = capture;
+  console.error = capture;
+
+  return work()
+    .then((result) => ({ result, entries }))
+    .finally(() => {
+      console.log = realLog;
+      console.error = realError;
+      if (previous !== undefined) process.env.AGENTFORGE_LOG_SILENT = previous;
+    });
+}
+
+test("a fallback emits model.call with fallback true — the metric Chapter 1 lacked", async () => {
+  const { fetchImpl } = fakeFetch([
+    { status: 503, payload: { error: { message: "high demand" } } },
+    { status: 503, payload: { error: { message: "high demand" } } },
+    answer("from the fallback"),
+  ]);
+
+  const { entries } = await captureLogs(() =>
+    model({
+      apiKey: "k",
+      fetchImpl,
+      fallbacks: ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"],
+    }).generate({ model: "gemini-3.5-flash-lite", turns: [{ role: "user", text: "hi" }] }),
+  );
+
+  const call = entries.find((entry) => entry.event === "model.call");
+  assert.ok(call, `no model.call entry in ${JSON.stringify(entries)}`);
+  assert.equal(call.fallback, true);
+  assert.equal(call.severity, "WARNING");
+  assert.equal(call.requested, "gemini-3.5-flash-lite");
+  assert.equal(call.answered, "gemini-3.1-flash-lite");
+  assert.equal(call.attempts, 3);
+  // The label is what `agentforge_model_fallbacks` filters on — see OPERATIONS.md.
+  assert.deepEqual(call["logging.googleapis.com/labels"], { event: "model.call" });
+});
+
+test("a call answered by the model that was asked for is not counted as a fallback", async () => {
+  const { fetchImpl } = fakeFetch([answer("OK")]);
+
+  const { entries } = await captureLogs(() =>
+    model({ apiKey: "k", fetchImpl }).generate({
+      model: "gemini-3.5-flash-lite",
+      turns: [{ role: "user", text: "hi" }],
+    }),
+  );
+
+  const call = entries.find((entry) => entry.event === "model.call");
+  assert.ok(call);
+  assert.equal(call.fallback, false);
+  assert.equal(call.severity, "INFO");
+  assert.equal(call.answered, "gemini-3.5-flash-lite");
+});
+
+/**
+ * A call that reached no model at all is the limiting case of a fallback — the chain was
+ * exercised and did not deliver — so it carries `fallback: true` and lands in the same
+ * metric, with `failed` to tell the two apart.
+ */
+test("a chain that exhausts every model is an ERROR that still counts as a fallback", async () => {
+  const { fetchImpl } = fakeFetch([{ status: 503, payload: { error: { message: "high demand" } } }]);
+
+  const { entries } = await captureLogs(async () => {
+    await assert.rejects(
+      () =>
+        model({ apiKey: "k", fetchImpl, fallbacks: ["a", "b"] }).generate({
+          model: "a",
+          turns: [{ role: "user", text: "hi" }],
+        }),
+      ProviderError,
+    );
+  });
+
+  const call = entries.find((entry) => entry.event === "model.call");
+  assert.ok(call);
+  assert.equal(call.severity, "ERROR");
+  assert.equal(call.fallback, true);
+  assert.equal(call.failed, true);
+  assert.equal(call.answered, null);
+  // The group is what makes repeated provider outages one incident rather than many.
+  assert.match(String(call.errorGroup), /^[0-9a-f]{8}$/);
+});
+
 test("a 400 is not retried and not failed over — another model cannot fix it", async () => {
   const { fetchImpl, calls } = fakeFetch([
     { status: 400, payload: { error: { message: 'Unknown name "additionalProperties"' } } },

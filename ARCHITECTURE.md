@@ -281,6 +281,7 @@ a handful of requests per page, not thirty per workflow run.
 | **Generation** | Natural language → validated workflow JSON → persisted workflow |
 | **Versioning and diffing** | Phase 18. One compact snapshot per save (`src/lib/workflow/versions.ts`), a pure graph diff (`src/lib/workflow/diff.ts`), and the canvas's read-only diff mode (`src/components/canvas/diff/`) |
 | **Tenancy** | Phases 19A–19B. `src/lib/workspace/` — the `WorkspaceScope` every store function takes, the one query that resolves it per request, invitations, and **the role check every mutating route now passes through**. **No query in the product reads across a workspace** |
+| **Observability** | Phase 22. `src/lib/logging/` — the event catalogue, the `AsyncLocalStorage` correlation context, error fingerprinting and the JSON-line writer; `src/lib/analytics/` — the three aggregate queries and the pure arithmetic over their rows; `/analytics` and `GET /api/analytics`. **No client library, no exporter, no agent** |
 | **Credential vault** | Phase 21. `src/lib/crypto/` — AES-256-GCM (`aes.ts`), the versioned root key (`root-key.ts`) and the two-layer envelope (`envelope.ts`); `src/lib/credentials/` — the store, the rotation registry, the re-key loop, the audit log and the vault's read model; `src/lib/gcp/` — the metadata server and Secret Manager over `fetch` |
 | **Persistence** | Neon Postgres. Workspaces and memberships, users, credentials, **credential events**, workflows, workflow versions, runs, run steps |
 | **Cloud Scheduler** | Managed cron, calls `/api/cron/tick` to fire due schedule triggers |
@@ -899,6 +900,99 @@ failing the run it was auditing.
 
 ---
 
+## Observability — Phase 22
+
+**The objective, from `BUILD_PLAN.md`: answer "what is this system doing, and what broke" without
+opening a database client.** Three pieces, and the interesting part of each is what was left out.
+
+### Logging is one JSON line on stdout
+
+Cloud Run's runtime already parses a JSON line written to stdout into a Cloud Logging `LogEntry`,
+promoting the reserved fields and keeping the rest as `jsonPayload`. So structured logs, log-based
+metrics and Error Reporting all come from `console.log` — **no client library, no exporter, no
+background flush, no new dependency**, and nothing buffered to lose when a container is recycled
+mid-run, which is precisely when the logs matter.
+
+`DEPLOYMENT.md` measured the allowance before this was designed: 50 GiB per project per month
+against 6.34 MB actually ingested in the preceding 30 days. Volume is not a constraint here.
+
+**The correlation id is Cloud Run's, not ours.** Cloud Run writes a request log for every request —
+method, path, status, latency — at no cost. Emitting its `X-Cloud-Trace-Context` trace id on our
+entries joins ours to that one, so the method and the path are recoverable from the join rather than
+logged a second time at our expense. **This is why there is no `api.request` event and no `proxy`
+in this project**: a Next 16 proxy was considered, purely to put the route path on every entry, and
+rejected as paying to duplicate a record Google is already keeping.
+
+The context travels on `AsyncLocalStorage` (`src/lib/logging/context.ts`) rather than as a
+parameter, because `executeWorkflow` is the one module the critical-path suites run with no
+database, no session and no request — threading a logger through
+`startRun → drive → executeWorkflow → runNode → definition.execute` would put an observability
+concern into the node interface, which `CONTRACT.md` pins and Phase 23 is about to extend.
+
+**Event names are a catalogue** (`src/lib/logging/events.ts`) and a test asserts the four the metrics
+depend on still exist. A log-based metric is a filter string living in a GCP resource with nothing
+connecting it to this repository: rename an event and the metric reports zero forever, which looks
+exactly like a healthy system.
+
+**What is never logged**: no secret, no credential, no ciphertext, no node input or output, no prompt
+and no completion. A run's payloads are the user's data, they live in `run_step` behind the same
+authorisation as everything else, and a log would be a second copy with none of it. Entries carry
+ids, registry names, statuses, counts and durations. `redact()` is a backstop for the one secret
+shape that arrives by accident — a driver putting the connection string in its own error message —
+not the policy.
+
+### Error grouping is one function, used twice
+
+`src/lib/logging/fingerprint.ts` normalises a message to a template by replacing varying tokens, then
+hashes the template to an eight-character group id. **The rule order is the design**: each rule
+removes a more specific shape than the one after it, because a URL contains digits and a UUID
+contains hex runs, so replacing digits first shreds both and scatters one problem across many groups.
+
+It is used by the logger *and* by the analytics page, which is the only way a group id read off a
+chart can be pasted into the Logs Explorer and find its own lines. It deliberately **over-groups**:
+two problems in one row is a nuisance somebody notices on reading the sample, and one problem in
+forty rows is invisible.
+
+### Analytics is computed on demand, and that is the expensive decision
+
+`BUILD_PLAN.md` states the constraint before the feature: *an analytics page that polls is exactly
+the pattern that pins the database awake.* Neon's free plan meters **compute time awake**, not
+statements — sharpened in Phase 19A — so what spends the budget is a new reason to wake an idle
+database.
+
+So there is **no event pipeline, no rollup table, no materialised view, no cache warmer and nothing
+on a clock.** Three statements run against `run` and `run_step` when a person opens the page, and a
+person opening a page has already woken the database by signing in. The window selector is three
+links rather than a control that fetches, so a new window is a navigation somebody asked for. Every
+query opens on `run_workspace_idx`, which has existed since Phase 19A; this phase added no index and
+no column.
+
+**Measured on the deployed service, 2026-09-30: 21–27 ms of database time per page view.** A
+30-second auto-refresh on one open tab would have cost 120 wakes an hour instead.
+
+Aggregation is split deliberately: run rows come back individually because error grouping needs a
+normaliser Postgres does not have, so returning them costs nothing extra; step rows are an order of
+magnitude more numerous and nothing needs one on its own, so they are counted in Postgres.
+
+Both are scoped twice — by workspace and by `visibleWorkflows` — exactly as `getRun` and `listRuns`
+are, and for the reason recorded there: a run carries the name of its workflow, so a viewer with no
+access to a private workflow must not learn its failure rate from a chart.
+
+### `/api/health` reports dependency status
+
+It was already where this project records *"a silent misconfiguration should be visible from outside
+the container"* — Phase 17 added `queue` because unconfigured Cloud Tasks degrades to in-process
+execution that works and says nothing, Phase 21 added `rootKey` because an unset `ROOT_KEY_SECRET`
+falls back to `ENCRYPTION_KEY` and also works and also says nothing. Phase 22 generalised that into
+`checks` with three verdicts and added `schema` (migrations applied) and `registry` (node count).
+
+**`degraded` answers 200 deliberately**: failing a health check would take a working revision out of
+service over a configuration warning. `error` — the database unreachable — is the only 503.
+
+`OPERATIONS.md` is the runbook built on all of this.
+
+---
+
 ## Deployment topology
 
 ```
@@ -997,6 +1091,10 @@ in a step log.
 | A17 | **The palette is mirrored in TypeScript, and CI asserts the mirror** | Binding at Phase 14 | The `/design` gallery needs token values plus a role per token, and a `readFileSync` of `globals.css` in a page is a build-versus-runtime trap that only shows up in the container. `src/lib/design/palette.ts` is the mirror; `tokens.test.ts` asserts it against the stylesheet in both directions, so it cannot become a second source of truth |
 | A18 | **Secret Manager, not Cloud KMS, for the root key** | **BINDING** while the zero-cost ceiling holds | KMS is the textbook answer and is ~$0.06 per key per month plus operations. Secret Manager's free tier covers one versioned root key (6 versions, 10,000 accesses/month). The cost is that the root key's bytes reach this process rather than staying in an HSM, which `SECURITY.md` → *What we do not claim* states outright. Revisit if a budget ever exists |
 | A19 | **A rotation validates against the provider before it writes** | Binding at Phase 21 | The old secret is not kept, so a route that stored first would have the failure mode *your workspace is broken and there is no way back*. The deployed suite asserts the stored envelope is byte-identical after a refused rotation |
+| A20 | **Logging is `console.log` of a JSON line — no client library, no exporter, no agent** | Binding at Phase 22 | Cloud Run's runtime already turns a JSON line on stdout into a Cloud Logging `LogEntry`. An exporter would add a dependency, a background flush and a way to lose the entries written while a container is being recycled — which is exactly when they matter. Log-based metrics and Error Reporting work off the same lines |
+| A21 | **The correlation id is Cloud Run's trace, and no request log is written** | Binding at Phase 22 | Cloud Run logs method, path, status and latency for every request for free. Emitting its trace id joins ours to that record; writing our own would pay to duplicate it. This is why there is **no `api.request` event and no Next 16 `proxy`** — a proxy was considered solely to put the route path on every entry, and rejected |
+| A22 | **Analytics is computed on demand from `run`/`run_step`; nothing runs on a clock** | **BINDING** while the zero-cost ceiling holds | Neon meters compute time *awake*. A rollup job, a cache warmer or a polling page is a new reason to wake an idle database; three statements when a signed-in person opens a page is not. Measured at 21–27 ms of database time per page view against a ~39 CU-hour monthly margin. Revisit only if the run table outgrows a 2,000-row window |
+| A23 | **Error grouping is one normaliser, shared by the logs and the analytics page** | Binding at Phase 22 | Two fingerprinters would mean a group id read off a chart could not be pasted into the Logs Explorer, which is the only thing that makes either of them useful. It over-groups deliberately: one problem scattered over forty rows is invisible, two problems in one row is noticed on reading the sample |
 
 ---
 

@@ -102,7 +102,7 @@ done is not done, and there is no longer any reason to cut corners to reach one.
 | `DEMO.md` | **ARCHIVED.** The hackathon demo script. Historical only — no longer a scope contract | Rarely |
 | `SUBMISSION.md` | **ARCHIVED.** Devpost submission copy as submitted | Rarely |
 | `SECURITY.md` | Security posture, rotation procedures, disclosure, **and what the product does not claim**. Created in Phase 21 | Before touching auth or crypto |
-| `OPERATIONS.md` | Running it in production. **Created in Phase 22** | Before an operational change |
+| `OPERATIONS.md` | Running it in production — the signals, the runbooks, the budget. **Created in Phase 22** | Before an operational change, and when something is wrong |
 | `docs/`, `adr/` | The docs site and decision records. **Created in Phase 24** | When documenting |
 | `README.md` | Practical entry point | When orienting from scratch |
 
@@ -445,11 +445,12 @@ Do not invent details. Use these markers, in the docs and in conversation:
 - `NOT YET DECIDED` — a decision deliberately deferred to a later phase
 - `SUPERSEDED` — previously considered, now replaced (keep the reason)
 
-Known unknowns carried forward, all for Phase 13 to resolve with measured numbers: **how much
-Neon CU-hour headroom actually remains**; **the real Cloud Tasks, Cloud Logging and Secret Manager
-free-tier limits**; and whether the deterministic
-Cloud Run URL form allows pre-registering the OAuth redirect URI; the Foundation Decision until
-Phase 0 resolves it.
+Known unknowns carried forward. **Phase 13 measured the free-tier limits and Phases 17, 21 and 22
+proved them in use**; what remains open is one number: **how many Neon CU-hours have actually been
+consumed this billing period.** Phase 22 established that it is *console-only* on the free plan —
+`neonctl` is authenticated, but the consumption API is Scale-plan and the legacy fields read zero —
+so it is a manual read, tracked as M9 in `PROGRESS.md`. It blocks nothing: features are designed
+against the *rule* (do not add a new reason to wake an idle database) and then measured directly.
 
 When plan and reality diverge: identify the discrepancy, explain the practical impact on the
 product and the roadmap, choose the simplest solution that preserves the product goal, update the affected

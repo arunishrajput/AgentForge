@@ -5,6 +5,7 @@ import { required } from "@/lib/env";
 import { DISPATCH_TOKEN_PATTERN } from "@/lib/engine/lease";
 import { describeDelivery } from "@/lib/engine/queue";
 import { resumeRun } from "@/lib/engine/run";
+import { logInfo } from "@/lib/logging";
 import { cronSecretMatches } from "@/lib/triggers/secret";
 
 export const dynamic = "force-dynamic";
@@ -75,9 +76,19 @@ export async function POST(request: Request) {
     // A run firing is otherwise invisible: nobody is watching a webhook-triggered run at
     // 03:00, and `gcloud run services logs read` is how it gets confirmed afterwards.
     // The retry count is the interesting half — it is how a resumed run is recognised.
-    console.log(
-      `[dispatch] run=${body.runId} retry=${delivery.retryCount ?? "-"} ` +
-        (outcome.handled ? `status=${outcome.status}` : `declined=${outcome.reason}`),
+    logInfo(
+      "queue.delivered",
+      outcome.handled
+        ? `Delivery for run ${body.runId} completed: ${outcome.status}.`
+        : `Delivery for run ${body.runId} declined: ${outcome.reason}.`,
+      {
+        handled: outcome.handled,
+        status: outcome.handled ? outcome.status : null,
+        reason: outcome.handled ? null : outcome.reason,
+        // The interesting half: above zero means this run was redelivered, which is the
+        // durability guarantee actually being exercised rather than merely configured.
+        retryCount: delivery.retryCount ?? null,
+      },
     );
 
     return ok({ runId: body.runId, ...outcome });

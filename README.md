@@ -50,8 +50,15 @@ without decrypting a single secret — which turns Chapter 1's *never rotate thi
 credential* into a procedure with four steps. A secret can be replaced in place, a workflow's
 webhook URL can be rotated with the old one refused immediately, and an audit log records which run
 and which node used which credential — never what it contains.
-Still to come — observability, a much larger node catalogue, and proper
-documentation. It stays free to run.
+**Observability** landed in Phase 22: every run, node and model call writes a structured log line
+carrying the request's trace, so a failure can be diagnosed end to end without opening a database;
+identical failures are folded into one **error group** by a fingerprint the logs and the interface
+share; `/api/health` reports five dependency checks rather than a bare `ok`; and every workspace
+gets an **analytics page** — runs over time, success rate, slowest nodes, model usage and grouped
+failures — computed on demand from run history, with **no rollup job and no polling**, because the
+free database plan meters time awake. It costs 21 ms of database time per page view.
+[`OPERATIONS.md`](./OPERATIONS.md) is the runbook.
+Still to come — a much larger node catalogue and proper documentation. It stays free to run.
 
 **The redesign has landed.** Phase 14 replaced the dark Chapter 1 interface with **Toybox** — bright,
 playful and light-first, with saturated colour, thick ink outlines and hard offset shadows. It is
@@ -109,6 +116,7 @@ Full scope, including what is deliberately excluded, is in [`PRD.md`](./PRD.md).
 | [`DESIGN.md`](./DESIGN.md) | **Toybox** — the design language, and the rules it is built inside |
 | [`DEPLOYMENT.md`](./DEPLOYMENT.md) | How to deploy and verify |
 | [`SECURITY.md`](./SECURITY.md) | What is protected and how, the rotation procedures, **and what we do not claim**. Also how to report a vulnerability |
+| [`OPERATIONS.md`](./OPERATIONS.md) | Running it in production — the signals, the runbooks, the budget, and how to verify a deploy |
 | [`DEMO.md`](./DEMO.md) | **Archived.** The hackathon demo script, kept as a smoke reference |
 | [`SUBMISSION.md`](./SUBMISSION.md) | Everything the Devpost form asks for, written once |
 

@@ -1,5 +1,6 @@
 import { fail, handle, ok } from "@/lib/api";
 import { required } from "@/lib/env";
+import { logInfo } from "@/lib/logging";
 import { cronSecretMatches, runDueSchedules } from "@/lib/triggers/tick";
 
 export const dynamic = "force-dynamic";
@@ -29,11 +30,21 @@ export async function POST(request: Request) {
 
     const outcome = await runDueSchedules({ signal: request.signal });
 
-    // Logged because a schedule firing is otherwise invisible: nobody is watching at
-    // 09:00, and `gcloud run services logs read` is how it gets confirmed after.
-    console.log(
-      `[cron] due=${outcome.due} fired=${outcome.fired.length} skipped=${outcome.skipped.length} cleared=${outcome.cleared.length}`,
-    );
+    /**
+     * Logged because a schedule firing is otherwise invisible: nobody is watching at
+     * 09:00, and the log is how it gets confirmed after.
+     *
+     * **An idle tick is logged too, and that is the point** — this is the only thing in
+     * the product that runs on a clock, so its entry is the heartbeat that says the
+     * scheduler is still wired up. `OPERATIONS.md` → *Is the scheduler alive* is a
+     * filter on this event and an expectation of four an hour.
+     */
+    logInfo("cron.tick", `The tick fired ${outcome.fired.length} of ${outcome.due} due schedules.`, {
+      due: outcome.due,
+      fired: outcome.fired.length,
+      skipped: outcome.skipped.length,
+      cleared: outcome.cleared.length,
+    });
 
     return ok(outcome);
   });

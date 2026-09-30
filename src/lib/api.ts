@@ -1,7 +1,9 @@
+import { headers } from "next/headers";
 import { z } from "zod";
 
 import { auth } from "@/auth";
 import { ApiError, STATUS, type ApiErrorCode } from "@/lib/api-error";
+import { addLogContext, logError, traceFromHeaders, withLogContext } from "@/lib/logging";
 import { readActiveWorkspaceId } from "@/lib/workspace/active";
 import { assertRole, type WorkspaceRole } from "@/lib/workspace/roles";
 import { listMemberships, resolveScope } from "@/lib/workspace/store";
@@ -64,6 +66,10 @@ export async function requireScope(minimumRole: WorkspaceRole = "viewer"): Promi
     await readActiveWorkspaceId(),
   );
   assertRole(scope.role, minimumRole);
+  // Phase 22. Learned here and nowhere earlier — the log context is already open by the
+  // time a route knows whose request this is — so every later line from this request
+  // names its user and its workspace without the route saying so.
+  addLogContext({ userId: scope.userId, workspaceId: scope.workspaceId });
   return scope;
 }
 
@@ -101,6 +107,7 @@ export async function requireScopeFor(
     role: membership.role,
   };
   assertRole(scope.role, minimumRole);
+  addLogContext({ userId: scope.userId, workspaceId: scope.workspaceId });
   return scope;
 }
 
@@ -148,13 +155,41 @@ export async function readJson<T>(
  * Wraps a handler so an unexpected throw becomes a clean 500 with the detail in
  * the server log, never in the response. An `ApiError` passes through with its own
  * code.
+ *
+ * **Phase 22 made it the correlation boundary as well**, and that is why it reads the
+ * headers it does not otherwise need. Every route in the product except four already
+ * goes through here, so opening the log context here covers the whole API surface
+ * without a single call site changing — and, critically, without `handle` growing a
+ * `Request` parameter that 49 routes would have had to start passing.
+ *
+ * **The trace id comes from Cloud Run, not from here.** Cloud Run already writes a
+ * request log for every request — method, path, status, latency — and charges nothing
+ * for it. Emitting its trace id on our entries joins ours to that one, so the method and
+ * the path are recoverable from the join instead of being logged a second time at our
+ * expense. `OPERATIONS.md` → *Following one request* has the query.
+ *
+ * `headers()` throws outside a request context, which is exactly what a unit test is, so
+ * it is guarded: no context is worse than a failed request.
  */
 export async function handle(run: () => Promise<Response>): Promise<Response> {
+  let trace: string;
   try {
-    return await run();
-  } catch (error) {
-    if (error instanceof ApiError) return fail(error.code, error.message, error.details);
-    console.error("Unhandled API error:", error);
-    return fail("internal", "Something went wrong handling this request.");
+    trace = traceFromHeaders(await headers());
+  } catch {
+    trace = traceFromHeaders(null);
   }
+
+  return withLogContext({ trace }, async () => {
+    try {
+      return await run();
+    } catch (error) {
+      // An `ApiError` is a decision this product made about a request, not a fault: a
+      // 404 for another workspace's workflow is the authorisation layer working. Logging
+      // them at ERROR would bury the faults among thousands of correct refusals, so they
+      // are not logged at all — the response says everything there is to say.
+      if (error instanceof ApiError) return fail(error.code, error.message, error.details);
+      logError("api.error", "An API request failed unexpectedly.", error);
+      return fail("internal", "Something went wrong handling this request.");
+    }
+  });
 }

@@ -1611,3 +1611,134 @@ separate name exists so a call site reads as "the label on a fill" rather than "
 and every Chapter 1 screen through the `@utility` classes.
 
 **Adding a tone means adding both registers and a catalogue entry**, or CI fails on the drift gate.
+
+---
+
+## Observability and analytics — **DEFINED** (Phase 22)
+
+### The log entry
+
+Every line the product writes is one JSON object on stdout. **The reserved names are Cloud
+Logging's, not this project's** — a typo in one silently demotes it to an ordinary payload field
+that no filter and no alerting policy will ever see.
+
+```ts
+{
+  severity: "INFO" | "WARNING" | "ERROR",
+  message: string,                              // the collapsed line
+  event: EventName,                             // the catalogue below
+  "logging.googleapis.com/trace"?: string,      // Cloud Run's trace, when there is one
+  "logging.googleapis.com/labels": { event },   // indexed; what every metric filters on
+  userId?, workspaceId?, runId?, workflowId?,   // from the ambient context
+  ...fields                                     // scalars only
+}
+```
+
+**`src/lib/logging/events.ts` is the catalogue, and it is contract.** A log-based metric is a
+filter string living in a GCP resource with nothing connecting it to this repository, so a renamed
+event leaves its metric reporting zero forever — indistinguishable from a healthy system.
+`logging.test.ts` asserts that the four names the metrics in `OPERATIONS.md` depend on still exist.
+
+| `event` | Emitted when | Load-bearing fields |
+|---|---|---|
+| `run.started` | A run row is created | `trigger`, `mode`, `workflowVersion` |
+| `run.finished` | **A run reaches a terminal status** | `status`, `durationMs`, `attempt`, `resumed` |
+| `node.finished` | **One node finishes** | `nodeId`, `nodeType`, `status`, `durationMs` |
+| `model.call` | **A `generate` resolves** | `requested`, `answered`, `fallback`, `attempts` |
+| `queue.degraded` | A durable run could not be enqueued | `reason` |
+| `queue.delivered` | A Cloud Tasks delivery is handled | `handled`, `status`, `retryCount` |
+| `cron.tick` | The scheduler fires, **including when nothing is due** | `due`, `fired`, `skipped`, `cleared` |
+| `api.error` | A request throws unexpectedly | `errorGroup`, `errorName` |
+| `system.warning` | A refusal or repair nobody asked for | varies |
+
+**Three rules a later phase must not break:**
+
+1. **`run.finished` is emitted once per terminal outcome and never for a preemption.** A preempted
+   run is still executing in another worker, which will emit its own; counting it here would
+   double the volume metric and put a run with no status in neither bucket. Preemption is a
+   `system.warning`.
+2. **An `ApiError` is never logged.** A 404 for another workspace's workflow is the authorisation
+   layer working, not a fault, and logging thousands of correct refusals at ERROR buries the real
+   ones.
+3. **No payload, prompt, completion, secret or ciphertext is ever a field.** Ids, registry names,
+   statuses, counts and durations only.
+
+### Error groups
+
+`errorGroup` is eight hex characters of SHA-256 over a normalised template
+(`src/lib/logging/fingerprint.ts`). **The same function produces the groups in the logs and the
+groups on the analytics page** — that is what makes an id read off a chart paste-able into the Logs
+Explorer, and it is the reason the module lives under `logging/` and is imported by `analytics/`
+rather than being reimplemented there.
+
+### `GET /api/analytics`
+
+| Route | Needs | Query | Returns |
+|---|---|---|---|
+| `GET /api/analytics` | `viewer` | `range` ∈ `7 \| 30 \| 90`, default **30** | `Analytics` |
+
+An unrecognised, absent or hostile `range` falls back to 30 rather than erroring — the window is a
+bound on a query, so an unparsed value must never widen it.
+
+```ts
+interface Analytics {
+  range, from, to,                        // the window, so a reader knows what "30 days" meant
+  totals: { runs, succeeded, failed, cancelled, settled, successRate, medianMs, p95Ms },
+  days:     DayBucket[],                  // one per day in the window, zeros included
+  failures: FailureGroup[],               // distinct failures, most frequent first, capped at 8
+  nodes:    NodeStat[],                   // per node type, capped at 10
+  models:   ModelStat[],                  // by the model that ANSWERED, capped at 8
+  queryMs,                                // what this page cost, reported on the page itself
+}
+```
+
+**Four meanings that are contract, not implementation:**
+
+- **`successRate` is `succeeded / settled`, and `settled` includes cancelled.** A cancellation is a
+  run that did not do what it was asked to; excluding it would let a workspace that cancels half
+  its runs report a perfect record. A run still in flight is in neither.
+- **`successRate` is `null`, never `1`, when nothing has settled.** A workspace with no history has
+  no success rate, and a fabricated 100% is the first number a new user would see.
+- **Percentiles are nearest-rank**, so `p95Ms` is a duration that actually occurred. With eleven
+  runs in a window — the realistic case here for some time — an interpolated p95 invents a latency
+  no run ever took, and somebody eventually goes looking for it.
+- **`models` is keyed by the model that answered, not the one requested.** After a fallback those
+  differ, and the one that answered is the one that spent the quota.
+
+`days` is filled for every day in `[from, to]` including the empty ones. A chart built only from
+days that have rows draws a dense, healthy-looking week out of two runs three days apart.
+
+**Scoping is doubled**, by workspace and by `visibleWorkflows`, on all three queries — the same rule
+`getRun` and `listRuns` carry, for the same reason: a run names its workflow, so a viewer with no
+access to a private workflow must not learn its failure rate from an aggregate.
+
+### `GET /api/health` — extended, and the extension is additive
+
+Phase 22 rewrote this route. **Every field the earlier suites assert on kept its name and meaning**,
+because `verify-api.mjs`, `verify-durable.mjs`, `verify-vault.mjs` and `DEPLOYMENT.md` all read it:
+`database`, `databaseLatencyMs`, `queue.configured` (Phase 17), `rootKey.provider` (Phase 21) and
+`revision` are unmoved.
+
+Added: `checks[]`, `migrations` and `registry`.
+
+```ts
+{ status: "ok" | "degraded" | "error",
+  checks: { name, status: "ok" | "degraded" | "error", latencyMs?, detail? }[],
+  migrations: number | null,   // what the database has applied
+  registry: number }           // node types loaded
+```
+
+| `status` | HTTP | Meaning |
+|---|---|---|
+| `ok` | 200 | Everything a production deployment should have |
+| `degraded` | **200** | Serving correctly, with a guarantee quietly missing |
+| `error` | 503 | The database is unreachable |
+
+**`degraded` answering 200 is the contract**, not an oversight: failing a health check would take a
+working revision out of service over a configuration warning. An uptime check pages on 503; a human
+reads `checks` for `degraded`. A developer machine with no Cloud Tasks and no Secret Manager is
+*correctly* `degraded`, which is what makes the verdict worth having.
+
+`detail` says what to do and never what a value is. The route is unauthenticated, so every field
+added here is added to the public internet — the test for a new one is whether it helps an operator
+more than it helps somebody mapping the system.

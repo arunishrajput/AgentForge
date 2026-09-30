@@ -73,7 +73,9 @@ export function WorkspaceSwitcher({
             {/* Read out but not drawn: sighted users have the bar's context, and a screen
                 reader arriving at a bare name has none. */}
             <span className="sr-only">Workspace: </span>
-            <span className="max-w-[7rem] truncate font-semibold sm:max-w-[10rem]">
+            {/* `min-w-0` so the name can truncate when the header squeezes the trigger,
+                rather than holding the button open past its wrapper — see `Menu`. */}
+            <span className="min-w-0 max-w-[7rem] truncate font-semibold sm:max-w-[10rem]">
               {active.name}
             </span>
             {pending && <span className="text-faint text-3xs">switching…</span>}

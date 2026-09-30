@@ -4,6 +4,7 @@ import { z } from "zod";
 import { db } from "@/db";
 import { workflowVersions, type Workflow, type WorkflowVersion } from "@/db/schema";
 import { ApiError } from "@/lib/api";
+import { logError } from "@/lib/logging";
 import type { WorkspaceScope } from "@/lib/workspace/scope";
 
 import { diffGraphs, type DiffSummary } from "./diff";
@@ -77,11 +78,10 @@ export async function recordVersion(options: {
       label: options.label ?? null,
     });
   } catch (error) {
-    console.error(
-      `[versions] could not record version ${options.number} of workflow ${options.workflowId}: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-    );
+    logError("system.warning", "Could not record a workflow version.", error, {
+      workflowId: options.workflowId,
+      version: options.number,
+    });
     return;
   }
 
@@ -117,11 +117,9 @@ async function pruneVersions(workflowId: string): Promise<void> {
       );
   } catch (error) {
     // Retention is housekeeping. It must never turn a successful save into a failure.
-    console.error(
-      `[versions] could not prune workflow ${workflowId}: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-    );
+    logError("system.warning", "Could not prune a workflow's version history.", error, {
+      workflowId,
+    });
   }
 }
 

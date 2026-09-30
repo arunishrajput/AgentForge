@@ -14,11 +14,11 @@ Phases 0–12 built and shipped a hackathon MVP. It was submitted on 2026-09-26
 (<https://www.youtube.com/watch?v=Suc4RV9LnLs>), and that chapter is done and not reopened.
 
 **Chapter 2 turns the MVP into a real, professional, open-source product.** Thirteen phases,
-13 → 25, defined in `BUILD_PLAN.md`. **Phases 13–21 are done** (19 was split into 19A and 19B, both
-complete). **Phase 22 is next.**
+13 → 25, defined in `BUILD_PLAN.md`. **Phases 13–22 are done** (19 was split into 19A and 19B, both
+complete). **Phase 23 is next.**
 
 **The live system still works and must keep working:**
-**https://agentforge-733000675212.asia-southeast1.run.app** — revision `agentforge-00046-w7b`.
+**https://agentforge-733000675212.asia-southeast1.run.app** — revision `agentforge-00047-w65`.
 
 ### Four binding decisions, made 2026-09-26
 
@@ -36,7 +36,12 @@ is 100 CU-hours/month with autosuspend that cannot be disabled, and Chapter 1 al
 cron tick to `*/15` to stay inside it. Multi-user queries and analytics both spend from that same
 budget. **Phase 13 measured the real headroom; Phase 18 re-measured storage; Phase 19A sharpened
 what the meter actually counts — compute time awake, not statements**, which is why workspaces were
-nearly free and why Phase 22's analytics is the phase that has to be designed against the number.
+nearly free and why Phase 22's analytics was the phase that had to be designed against the number.
+**Phase 22 settled the observability half and it also cost nothing**: logging is `console.log` of a
+JSON line (Cloud Run parses it, 6.34 MB against 50 GiB), the four log-based metrics are free, and
+the analytics page runs three statements **on demand** with no rollup job and no polling —
+**measured at 21–27 ms of database time per page view**. The tension is now resolved in every area
+it was stated for.
 **Phase 21 settled the vault half of it and it cost nothing**: Secret Manager's free tier covers a
 versioned root key, the app spends single-digit access operations a day against 10,000 a month, and
 the audit log is one insert per credential read on a database a run has already woken. **Cloud KMS
@@ -48,59 +53,66 @@ ceiling costing something looks like, and `SECURITY.md` states the protection gi
 
 ## Current Phase
 
-## ▶ NEXT: PHASE 22 — Observability and run analytics
+## ▶ NEXT: PHASE 23 — Node catalogue and templates
 
-**Phase 21 is COMPLETE (2026-09-30).** Full definition of Phase 22 in `BUILD_PLAN.md`. Read
-`SECURITY.md` and `DEPLOYMENT.md` → *Cloud Logging* before touching any of it, and **write
-`OPERATIONS.md`** — Phase 22 creates it.
+**Phase 22 is COMPLETE (2026-09-30).** Full definition of Phase 23 in `BUILD_PLAN.md`. Read
+`ARCHITECTURE.md` → *The node registry is the spine* and `CONTRACT.md` → *Node definition interface*
+before touching the registry — **it now carries four obligations, not one**.
 
-**What Phase 21 leaves you:**
+**What Phase 22 leaves you:**
 
-- **Chapter 1's sharpest gap is closed.** Every credential is now sealed under its own 256-bit data
-  key, and that key is wrapped by a **versioned root key in Secret Manager** (`agentforge-root-key`,
-  version 1). Rotating the root key re-wraps ~60 bytes per row and **never decrypts a secret** — so
-  *never rotate `ENCRYPTION_KEY`, it destroys all stored credentials* is now a four-step procedure in
-  `SECURITY.md` instead of a warning
-- **Three rotations exist and all three are proved on the deployed system.** A stored credential
-  (`POST /api/credentials/:kind/rotate`, `admin`), a workflow's webhook token
-  (`POST /api/workflows/:id/webhook/rotate`, `admin`, **old URL 404 with no grace period**), and the
-  root key (`POST /api/credentials/rekey`, `owner`, plus `scripts/rekey.mjs` for every workspace)
-- **`credential_event` is the product's first audit log**, written from `readSecret` — the single
-  funnel every plaintext passes through — and retained 30 days, pruned by the cron tick. **Phase 22
-  should read this before inventing a second logging story**: the shape of "an operational record
-  with a retention policy, pruned by the only thing that runs on a clock" is already decided here
-- **`SECURITY.md` exists**, and its *What we do not claim* section is deliberately blunt: the root
-  key is in process memory (Secret Manager, not KMS — KMS is not free), a compromised container
-  reads everything, there is no rate limiting, and the audit log is not tamper-evident. **Phase 22
-  must not quietly contradict any of those** — if observability changes one, change the section
-- **One shared GCP access layer.** `lib/gcp/metadata.ts` now holds the metadata server and the token
-  cache, extracted out of `lib/engine/queue.ts`, so Cloud Tasks and Secret Manager share one cache.
-  **Phase 22's Cloud Logging client belongs there too**, as one more `fetch`, not a client library
+- **The registry's fourth obligation.** A node type already needs an entry in `PUBLISHABLE`
+  (Phase 20) and, for credential kinds, in `ROTATION_RULES` (Phase 21). Phase 22 adds a softer one
+  with teeth: **a node whose output carries `model` is counted as a model call** by the analytics
+  query, which reads the JSONB rather than a list of AI node types — so a Phase 23 node that calls a
+  model gets counted without anybody remembering to register it, and one that puts an unrelated
+  `model` field on its output will be miscounted. Name that field something else
+- **`src/lib/logging/` is the only place anything writes to stdout.** Sixteen ad-hoc `console.*`
+  calls are gone. A new node does not need to log — `context.log` already streams to the canvas and
+  persists to the step row, and the engine emits `node.finished` with the type and duration for
+  every node automatically. **Do not add a `console.log` to a node**
+- **`src/lib/logging/events.ts` is a catalogue and a test guards it.** A log-based metric is a
+  filter string in a GCP resource; renaming an event leaves its metric reporting zero forever, which
+  looks exactly like a healthy system. Add an event there first
+- **`OPERATIONS.md` exists** and is the runbook. If Phase 23 changes what can go wrong
+  operationally — a node that can wedge, a template that can be expensive — that file is where it
+  belongs, not a comment
+- **The analytics page is the first screen that shows the registry back to the user by label.**
+  `NodeStat.label` resolves through `getNode()` and is `null` for a type the registry no longer has,
+  which is deliberate: a run is a historical record and outlives a rename
 
-**What Phase 22 inherits, explicitly**: `GET /api/health` already reports `queue.configured` and
-`rootKey.provider`, which is the pattern for "make a silent misconfiguration observable from
-outside". `GCP_ACCESS_TOKEN`/`GCP_PROJECT` are **script-only** and must never reach the service.
+**What Phase 23 must not undo:** nothing may start aggregating on a schedule, and nothing may poll.
+That is the constraint the whole zero-cost position rests on — see below.
 
-**Four defects came from verification and nothing else**, which is the phase's finding:
+**The phase's finding, and it is the reason the phase existed.** Within minutes of
+`agentforge_model_fallbacks` existing, it caught the deployed system doing exactly what Chapter 1
+did invisibly for days: **`gemini-3-flash-preview`, the configured default, was being answered by
+`gemini-3.5-flash-lite` on nearly every call**, having hit its free-tier quota. Every affected run
+*succeeded*. Nothing else in the system moved. A fallback is a success from the outside — that is
+the entire point of having one — which is why it needed an instrument of its own.
 
-1. **The rotation route wrapped its whole body in `integrationApiError`**, collapsing four
-   deliberate refusals — unknown kind (404), a Google connection explaining a refresh token cannot
-   be typed (400), a rejected key (400) — into *"Something went wrong saving this The provider
-   connection."* Found by `verify-vault.mjs`; **a route's error mapping is invisible anywhere else**.
-   Fixed at the class rather than the call site: an `ApiError` now passes through that mapper
-   unchanged, with a unit test that fails without it
-2. **`divide-[--color-line]/40` applied its `divide-y` and silently dropped its `/40`**, so a quiet
-   log list was separated by full-strength ink rules. The class was in the DOM and the build passed;
-   `getComputedStyle` in a browser was the only thing that could see it. `divide-line-soft` already
-   existed for exactly this
-3. **The vault's intro said "Every secret below…" above an empty list** in a workspace that stores
-   none
-4. **The "Not connected" list offered a way to connect for one kind out of three**, because it read
-   `reconnectHref` — a field only a `reconnect` credential has. Naming something missing without
-   saying where to get it is worse than not listing it. Fixed with a `connectHref` on every rule and
-   a test that every rule has one
+**Two defects came from verification, and both were found before the phase shipped**, which is why
+Phase 22 took one deploy rather than three:
 
-**Do not start Phase 23 in the same session as 22.** One phase per session still holds; `/clear`
+1. **A real browser found that the third nav link broke the header.** Adding *Analytics* pushed the
+   workspace switcher's trigger past its wrapper and it drew **on top of** the *Workflows* link, 22
+   px of overlap. The bounding boxes of the *containers* said there was no overlap — only
+   `getBoundingClientRect` on the `<button>` itself showed it. **The cause was a latent bug my nav
+   item merely exposed**: a flex child's `min-width` defaults to `auto`, so `Menu`'s trigger refused
+   to shrink below its content although the switcher passes it a `max-w` and a truncating label
+   intending exactly that. Fixed in the primitive, where it also fixes every future caller
+2. **`array_agg` over the Neon HTTP driver returns a Postgres array as its text literal**,
+   `{1200,34,5}`, not a JavaScript array — so the node-latency query called `.map` on a string and
+   the whole analytics route answered 500. Fixed with `jsonb_agg` *and* a tolerant coercion, with
+   tests for every shape. Writing the coercion then surfaced a second bug in it: `Number(null)` is
+   `0`, which is finite, so an absent duration became a zero-millisecond step and dragged that node
+   type's median toward nothing
+
+**A third defect was found by the deployed suite** and is smaller but worth the note: the error
+fingerprinter labelled a thirteen-digit `Date.now()` as `<hex>` rather than `<n>`, because every
+decimal digit is also a hex digit. It mis-grouped nothing; it told a reader a number was an id.
+
+**Do not start Phase 24 in the same session as 23.** One phase per session still holds; `/clear`
 between.
 
 ---
@@ -138,8 +150,8 @@ between.
 | **19B** — membership: invitations and the switcher | **COMPLETE** — two real accounts, one shared workspace, driven in a browser; 83 workspace checks green over HTTP against the deployed URL, 2026-09-27 |
 | **20** — roles, permissions and sharing | **COMPLETE** — 56 matrix cells green over HTTP against the deployed URL, the share link's redaction proved against a real bearer token in a real header, and both a viewer's canvas and the public page driven in a real browser at 1440 and 375 px, 2026-09-30 |
 | **21** — credential vault and rotation | **COMPLETE** — envelope encryption under a Secret Manager root key, all three rotations proved on the deployed URL by `verify-vault.mjs` (61 checks), and the vault driven in a real browser at 1440 and 375 px, 2026-09-30 |
-| **22** — observability and run analytics | **NOT STARTED ← next** |
-| **23** — node catalogue and templates | NOT STARTED |
+| **22** — observability and run analytics | **COMPLETE** — `verify-observability.mjs` ALL CHECKS PASSED against the deployed URL, including every analytics figure recomputed independently from SQL and an induced failure traced end to end **through Cloud Logging with the database never opened**; four log-based metrics created and all four confirmed collecting real points; the model-fallback metric caught a live degradation within minutes of existing; driven in a real browser at 1440 / 1024 / 375 px with zero console errors, 2026-09-30 |
+| **23** — node catalogue and templates | **NOT STARTED ← next** |
 | **24** — documentation and open-source readiness | NOT STARTED |
 | **25** — launch polish | NOT STARTED |
 
@@ -153,13 +165,13 @@ between.
 | **Canonical URL** | **`https://agentforge-733000675212.asia-southeast1.run.app`** |
 | Legacy URL | `https://agentforge-i5d2u66boa-as.a.run.app` — works, do not publish it |
 | Service | `agentforge` on Cloud Run, `asia-southeast1` |
-| Revision | **`agentforge-00046-w7b`** — ready, **`latestRevision: True`**, 100% of traffic (Phase 21). **Phase 21 took three deploys**: `00044` shipped the phase and added `ROOT_KEY_SECRET`, `00045` shipped the error-mapping defect `verify-vault.mjs` found, `00046` shipped the three defects a real browser walk found. Previous good revisions: `agentforge-00045-jj4`, `agentforge-00044-zmx` (both Phase 21), `agentforge-00043-nn2` (Phase 20, second deploy), `agentforge-00042-5zx` (Phase 20, first), `agentforge-00041-75x` (Phase 19B). **Phase 19B took four deploys, deliberately**: `00038` shipped the phase and `00039`–`00041` shipped the four defects a browser walk found. Earlier: `agentforge-00037-k7x` (Phase 19A), `agentforge-00036-zm8` (Phase 19A, first of two — the expand/contract migration wanted one between its halves), `agentforge-00035-vfd` (Phase 18), `agentforge-00034-54v` (Phase 17), `agentforge-00030-gv2` (Phase 16). **`00032` and `00033` were deliberately deleted** during Phase 17's verification, testing whether deleting a serving revision kills its in-flight request — it does not. Rollback was tested against `agentforge-00020-rcr` |
+| Revision | **`agentforge-00047-w65`** — ready, **`latestRevision: True`**, 100% of traffic (Phase 22). **Phase 22 took ONE deploy**, the first since Phase 18: both of its defects were found *before* it shipped, by a browser walk at 1440 px and by the suite running locally. Previous good revisions: `agentforge-00046-w7b`, `agentforge-00045-jj4`, `agentforge-00044-zmx` (all Phase 21), `agentforge-00043-nn2` (Phase 20, second), `agentforge-00042-5zx` (Phase 20, first), `agentforge-00041-75x` (Phase 19B). Earlier: `agentforge-00037-k7x` (19A), `agentforge-00035-vfd` (18), `agentforge-00034-54v` (17), `agentforge-00030-gv2` (16). **`00032` and `00033` were deliberately deleted** during Phase 17's verification, testing whether deleting a serving revision kills its in-flight request — it does not. Rollback was tested against `agentforge-00020-rcr` |
 | Scaling | `min-instances 1`, `max-instances 3`, 1 vCPU / 1 GiB, 3600 s timeout, port 8080 |
 | Env vars set | `NODE_ENV` `AUTH_URL` `APP_BASE_URL` `DATABASE_URL` `AUTH_SECRET` `GOOGLE_CLIENT_ID` `GOOGLE_CLIENT_SECRET` `ENCRYPTION_KEY` `CRON_SECRET` `TASKS_QUEUE` `TASKS_LOCATION` **`ROOT_KEY_SECRET`** — **12 now. Phase 21 added the last one**, naming the Secret Manager secret that holds the root key. Unset it and the service silently falls back to `ENCRYPTION_KEY` as the root key, which is the Chapter 1 problem back without the Chapter 1 warning — hence `rootKey.provider` on `/api/health`. **`GCP_ACCESS_TOKEN` and `GCP_PROJECT` are script-only and must never be set here**: they exist so `scripts/rekey.mjs` can reach Secret Manager from a machine with no metadata server, and an access token in a service env var is a long-lived credential in a place that survives restarts. Phase 20 added none (a share link is built from `APP_BASE_URL`); Phase 19B added none (an invitation link likewise, and there is no mail provider); **Phase 17 added `TASKS_QUEUE` and `TASKS_LOCATION`** — `TASKS_PROJECT` is deliberately unset, because the project comes from the metadata server, which cannot be wrong the way a copied variable can. All were added with `--update-env-vars`, which **merges**, rather than `--env-vars-file`, which replaces the whole set. No Gemini key on the service: the product path is the user's own key |
-| Database | Neon `super-mountain-39872886` — **13 tables**, migrations `0000`–**`0009`** applied, **9.9 MB of 0.5 GB**. **Phase 21's `0009` adds the `credential_event` table and seven columns, and nothing else** — `wrappedKey` `wrapIv` `wrapAuthTag` `keyVersion` `rotatedAt` `rotationCount` on `credential`, `webhookTokenRotatedAt` on `workflow`, every one nullable or defaulted. Purely additive, so the previous revision kept serving while it was applied, and row counts were identical before and after (credential 3, workflow 2, run 32, run_step 200, workflow_version 2, workspace 1, workspace_member 1, user 1). **Its rollback is the first in this project that can destroy data**: after a re-key a credential's data key exists only in `wrappedKey`, so dropping that column makes the ciphertext permanently unreadable. `drizzle/rollback_0009.sql` therefore **refuses to run while any row is enveloped**, and `scripts/rehearse-0009.mjs` puts an envelope on a row and asserts the refusal — 15/15, digest-identical after a clean rollback. **The real rollback does not touch the schema at all**: `scripts/rekey.mjs --to-legacy`, then shift traffic. Earlier: **Phase 20's `0008`** adds three columns to `workflow` and a partial unique index on `shareToken where not null`, rehearsed forward and backward 11/11. **Phase 19B's `0007`** adds `workspace_invitation`, whose partial unique index is the conflict target of the invitation upsert — `ON CONFLICT` against a partial index that does not match **fails to plan** (42P10), which is what made every credential write a 500 before 19A found it. **Phase 19A's `0005`/`0006`** add `workspace` and `workspace_member` plus a `workspaceId` on four tables, deliberately in two halves so the previous revision kept serving; `0005` also repairs `credential_owner_kind_label_idx`, which `0001` creates and which was missing from the database. **Phase 18's `0004`** adds `workflow_version`, `workflow.version` and `run.workflowVersion` with a backfill. **Phase 17's** adds 7 columns and 1 index to `run`. Phases 9–16 needed none |
-| Routes | `/` `/dashboard`→`/workflows` `/workflows` `/workflows/[id]` `/settings` **`/design`** **`/invite/[token]`** **`/s/[token]`** + **36** API routes. **Phase 21 added four API routes and one settings tab, and no page.** The routes are `GET /api/credentials` (`viewer`), `POST /api/credentials/[kind]/rotate` (`admin`), `POST /api/credentials/rekey` (**`owner`** — the only route besides ownership itself that needs it) and `POST /api/workflows/[id]/webhook/rotate` (`admin`). The tab is **Vault**, reachable as `?tab=vault`, the fifth on settings — and the tab index became a lookup table in the same commit, because the previous `params.tab === "workspace" ? 2 : …` would have silently pointed at the new tab. **Phase 21 added no unauthenticated surface**: the product still has exactly four. **Phase 20 added two API routes, one method and one page** — `POST`/`DELETE /api/workflows/[id]/share`, `GET /api/share/[token]`, `PATCH` on the member route, and `/s/[token]`, `noindex`, the fourth unauthenticated route and the only one whose risk is in the *response*. **Phase 19B added nine API routes and one page**, the accept surface, `noindex` because its URL carries a bearer token. **Phase 19A added none** — it changed what every existing one is scoped to. **Phase 18 added four**, all under `/api/workflows/[id]/versions`; no new page, because a third side panel would undo what Phase 16 spent itself solving. **Phase 16 added none** — it rebuilt what `/workflows/[id]` renders. **Phase 14 added `/design`** — public and prerendered static, deliberately: it is the page to link a contributor to and it holds nothing belonging to any account |
-| Latency | **Warm**: health ~190 ms India → Singapore, database 7–11 ms. A 6-node demo-path run **4.2–7.5 s** end to end across five consecutive walks (Phase 13; it was 3.1–4.8 s in Chapter 1 when the model answered first time, and **94.5 s** when it did not — that second case is what Phase 13 removed). Generation 2.7–3.5 s. **Cold (Neon suspended)**: health **1.14 s, of which 739 ms is the database wake** — re-measured 2026-09-26 at 917 ms for a first query, 103 ms on the next. Cloud Run itself is never cold at `min-instances 1` |
-| Last verified | **2026-09-30, after Phase 21.** On **`agentforge-00046-w7b`**: `verify-api.mjs` — **393 passed / 0 failed / 4 skipped**, and **ALL CHECKS PASSED**; the four skips are `VERIFY_GEMINI_KEY` and `VERIFY_DISCORD_WEBHOOK` not being supplied to this session, one free-tier rate limit while probing a model, and one state difference (Google *is* connected, which is the state the product wants) — **not failures**. `verify-vault.mjs` — **61/61**, Phase 21's own: **all three credentials converted from the Chapter 1 shape to `sm:1` and each one verified to decrypt**, the re-key idempotent on a second run, an already-enveloped row proved to have kept its ciphertext byte-identical, a Discord credential rotated **with a fresh data key** and a workflow still posting with it afterwards, a webhook token rotated with the **old URL answering 404 immediately** and the new one 201, a refused rotation proved to have left the stored envelope byte-identical, a **16-cell role matrix** across viewer/editor/admin/owner, the vault's response searched against the real ciphertext for every one of six envelope columns and found clean, and the audit log naming the run and the node that used a credential. `verify-durable.mjs` **ALL CHECKS PASSED**, including a Cloud Tasks scheduled run completing on this revision. `verify-schema.mjs` **6/6**. `scripts/rehearse-0009.mjs` **15/15** on a throwaway copy, forward and backward. **A real browser** at 1440 px and 375 px: the vault read, a rotation refused with the provider's own words and the stored key proved untouched, a re-key pressed, the canvas webhook rotation driven to completion with the old URL confirmed 404 **from inside the page**, and an editor's view confirmed to offer neither control. It found **three defects**, all fixed and re-verified. Local: `npm run check` **714 passing** (was 661), coverage **86.07 / 91.30 / 76.57** against thresholds 85 / 88 / 76 |
+| Database | Neon `super-mountain-39872886` — **13 tables**, migrations `0000`–`0009` applied, ~10 MB of 0.5 GB. **Phase 22 added no migration, no table, no column and no index** — the analytics are computed from the `run` and `run_step` rows the engine already writes, and every query opens on `run_workspace_idx`, present since Phase 19A. That was a design constraint, not luck: a rollup table would have needed a job to fill it, and a job on a clock is the one thing Neon's free plan actually charges for. Earlier migrations are unchanged — see `DEPLOYMENT.md` for `0009` (the vault, and the only rollback in this project that can destroy data), `0008` (sharing), `0007` (invitations), `0005`/`0006` (workspaces, deliberately in two halves), `0004` (versioning) |
+| Routes | `/` `/dashboard`→`/workflows` `/workflows` `/workflows/[id]` **`/analytics`** `/settings` `/design` `/invite/[token]` `/s/[token]` + **37** API routes. **Phase 22 added one API route and one page.** The route is `GET /api/analytics` (`viewer`); the page is `/analytics`, the fourth item in the shell nav — and adding it is what exposed the `Menu` trigger's `min-width: auto` overflow, which had been latent since Phase 14. **`/api/health` was rewritten, additively**: `checks[]`, `migrations` and `registry` are new, and every field `verify-api.mjs`, `verify-durable.mjs`, `verify-vault.mjs` and `DEPLOYMENT.md` assert on kept its name and meaning. **Phase 22 added no unauthenticated surface**: still exactly four. Phase 21 added four API routes and the Vault settings tab; Phase 20 added two routes, one method and `/s/[token]`; Phase 19B added nine routes and the accept page; Phase 18 added four under `/api/workflows/[id]/versions`; Phase 14 added `/design`, public and prerendered |
+| Latency | **Warm**: health ~190 ms India → Singapore, database 7–11 ms. A 6-node demo-path run **4.2–7.5 s** end to end across five consecutive walks (Phase 13; it was 3.1–4.8 s in Chapter 1 when the model answered first time, and **94.5 s** when it did not — that second case is what Phase 13 removed). Generation 2.7–3.5 s. **Cold (Neon suspended)**: health **1.14 s, of which 739 ms is the database wake** — re-measured 2026-09-26 at 917 ms for a first query, 103 ms on the next. Cloud Run itself is never cold at `min-instances 1` | **Analytics, Phase 22: 21–27 ms of database time per page view** on 46 runs and ~200 steps, three statements, measured on the deployed service. The page is server-rendered and does not poll |
+| Last verified | **2026-09-30, after Phase 22.** On **`agentforge-00047-w65`**: `verify-observability.mjs` **ALL CHECKS PASSED** (1 skipped) — every analytics total, percentile, day bucket, node row and model row **recomputed independently from SQL** and compared; a probe workflow created, failed twice on purpose, and those failures found **in Cloud Logging without the database being opened**, with the right severity, an indexed `event` label, a duration, an error group and one trace per run; two identical failures proved to be ONE group in both the API and the logs; a hostile `?range=` proved to fall back rather than widen the window, with the `run` table still intact after. `verify-api.mjs` **ALL CHECKS PASSED (3 skipped)**; a second back-to-back run reported 4 failures that were **Gemini free-tier quota (20 req/min), not regression** — the provider says so in its own words. `verify-vault.mjs` ALL CHECKS PASSED. `verify-durable.mjs` ALL CHECKS PASSED, including a real Cloud Tasks scheduled run on this revision. `verify-schema.mjs` 6/6. **Four log-based metrics created and all four confirmed collecting real points** via the Monitoring API. **A real browser** at 1440, 1024 and 375 px, deployed and local: the page read, the range links driven, nothing overflowing at 375, **zero console errors**. Local `npm run check` **769 passing** (was 739), coverage **86.79 / 91.04 / 77.72** against thresholds 85 / 88 / 76 |
 | Rollback | **TESTED 2026-09-26, finally.** Traffic shifted to `agentforge-00020-rcr` in **~15 s**, health confirmed the older revision was serving, the demo path walked clean on it, then `--to-latest` restored `agentforge-00021-v4s` in ~15 s. The oldest open item in this file is closed |
 | Billing | Trial credit account `Billing - AgentForge` is **open and enabled**. Actual spend is **not queryable from the CLI** (no billing export configured) — **eyeball it in the console once before judging** |
 | Provider key stored | **Yes**, and the model was **rotated in Phase 13** from `gemini-3.5-flash-lite` to **`gemini-3-flash-preview`** — the only model healthy on both the text and tool-calling paths in all three probe passes. Confirmed persisted in Neon. Re-probe with `npm run probe:models` |
@@ -396,16 +408,28 @@ Carried risks, recorded so they are not rediscovered:
 ### M9 — read Neon's consumed CU-hours — **OPEN, blocks nothing today**
 
 **Why.** Neon's Free plan is **100 CU-hours per project per month** and the `*/15` cron tick
-commits about **61** of them, leaving ~39 for real use. **Phase 19A no longer needs it**: Neon
-meters compute *time awake* rather than statements, workspaces add a query to requests that already
-make one and add no poller or tick, so they spend essentially nothing from that balance. **Phase 22
-still does** — anything that aggregates on a schedule spends awake time rather than borrowing it.
-The
-*budget* is verified (`DEPLOYMENT.md` → *Free-tier headroom*); the balance is not.
+commits about **61** of them, leaving ~39 for real use. The *budget* is verified
+(`DEPLOYMENT.md` → *Free-tier headroom*); the *balance* is not.
 
-**Why it is not automated.** Neon exposes consumption only through its API or console, never
-through the SQL connection. `neonctl` is installed but unauthenticated on this machine, and
-`neonctl auth` needs a browser — it was attempted in Phase 13 and timed out.
+**Phase 19A did not need it** — Neon meters compute *time awake* rather than statements, and
+workspaces add a query to requests that already make one. **Phase 22 did not need it either, in the
+end**, and that is the more useful precedent: the analytics were designed against the *rule* rather
+than the balance — never add a new reason to wake an idle database — and the feature's own cost was
+then measured directly at **21–27 ms per page view**. A phase that respects the rule does not have
+to know the balance. A phase that wants a scheduled job does.
+
+**Why it is not automated — SHARPENED IN PHASE 22, and the Phase 13 reason was wrong.** `neonctl`
+**is** authenticated on this machine now, so "it needs a browser" no longer applies. The real reason
+is permanent on this plan: the consumption API is a paid feature.
+
+```
+$ neonctl api "/consumption_history/projects?...&granularity=daily" 
+ERROR: This endpoint is not available. It is included with Scale plans and above.
+```
+
+And the legacy fields that used to carry it read zero — `compute_time_seconds`, `active_time_seconds`
+and `cpu_used_sec` are all `0` on both `/projects/{id}` and `/projects/{id}/branches`, verified
+2026-09-30. **It is console-only.** Do not spend another session trying to script it.
 
 **Location.** <https://console.neon.tech> → project `agentforge` (`super-mountain-39872886`)
 → **Usage** (or **Billing → Usage**).
@@ -414,19 +438,15 @@ through the SQL connection. `neonctl` is installed but unauthenticated on this m
 1. Sign in to <https://console.neon.tech>.
 2. Open the `agentforge` project.
 3. Read **Compute hours** (CU-hours) used in the current billing period, and the period's end date.
-4. Either paste those two numbers back, **or** run `neonctl auth` in this terminal so a future
-   session can read it without you.
+4. Paste those two numbers back. **There is no scriptable alternative** — see above.
 
 **Expected result.** A figure well under 100. If it is above ~70 with a week still to run, say so
-— that is an escalation, not a note, and Phase 19 must be redesigned around it.
+— that is an escalation, not a note.
 
-**Verification, once `neonctl auth` has been done:**
+**Verification.** There is no command. The API refuses on this plan (above), so the console is the
+only source. Paste the number back.
 
-```bash
-neonctl consumption projects --project-id super-mountain-39872886
-```
-
-**Resume by:** pasting the CU-hours figure, or saying "neonctl is authenticated".
+**Resume by:** pasting the CU-hours figure and the period end date.
 
 ---
 
@@ -471,7 +491,7 @@ hours).
 | **GitHub Actions CI** | GitHub | `.github/workflows/ci.yml`, job `check` | **CREATED Phase 13** — lint · typecheck · test+coverage · build, on every push and PR to `main`. Green in **53–60 s** on PR #1 and on `main`. Free for a public repository |
 | **Branch protection on `main`** | GitHub | required check `lint · typecheck · test · build` | **CREATED Phase 13.** Strict (a branch must be current with `main`), no force pushes, no deletions, conversation resolution required. **`enforce_admins` is deliberately `false`** so `CLAUDE.md`'s "work directly on `main`" still works for the solo developer — **verified by an actual direct push, not assumed**. A contributor's PR is gated; the owner's direct push is not |
 | Google Cloud project | Google Cloud | `agentforge-hackathon-2026`, number **`733000675212`** | **EXISTS**, billing active ($300 / 90-day trial) |
-| **`agentforge` Cloud Run service** | Google Cloud | `asia-southeast1`, revision **`agentforge-00046-w7b`** | **LIVE 2026-09-30.** This row has gone stale three times now (`00018-x7q`, `00023-xf4`, `00041-75x`) — the *Deployed State* table above is the one kept current, and this one is corrected against it at the end of each phase |
+| **`agentforge` Cloud Run service** | Google Cloud | `asia-southeast1`, revision **`agentforge-00047-w65`** | **LIVE 2026-09-30.** This row has gone stale three times now (`00018-x7q`, `00023-xf4`, `00041-75x`) — the *Deployed State* table above is the one kept current, and this one is corrected against it at the end of each phase |
 | **`cloud-run-source-deploy` repo** | Artifact Registry | `asia-southeast1` | **EXISTS** |
 | OAuth consent screen | Google Cloud | External, app "AgentForge" | **EXISTS** — status **Testing**, 1 test user |
 | OAuth 2.0 client | Google Cloud | "AgentForge Web", `733000675212-…ntm7` | **VERIFIED** — 4 redirect entries |
@@ -495,6 +515,8 @@ hours).
 | **`agentforge-root-key` secret** | Google Cloud | Secret Manager, user-managed replication in `asia-southeast1` | **CREATED Phase 21.** **Version `1` enabled** — 32 bytes of CSPRNG, base64, generated on the maintainer's machine and never written to the repository. It wraps every credential's data key. **Do not destroy a version anything still names**: `select distinct "keyVersion" from credential;` is the check. `SECURITY.md` → *Rotating the root key* |
 | **`roles/secretmanager.secretAccessor`** | Google Cloud IAM | on `733000675212-compute@developer.gserviceaccount.com`, **scoped to `agentforge-root-key`** | **GRANTED Phase 21.** On the one secret, not the project. Without it every credential read answers `RootKeyError` while `/api/health` still reports `rootKey.provider: secret-manager` — which is why the deployed suite asserts a real decrypt rather than the configuration alone |
 | **GitHub private vulnerability reporting** | GitHub | `arunishrajput/AgentForge` | **ENABLED Phase 21.** `SECURITY.md` points readers at it, so it had to actually exist |
+| **Four log-based metrics** | Google Cloud | `agentforge_runs`, `agentforge_node_latency`, `agentforge_model_fallbacks`, `agentforge_errors` | **CREATED Phase 22, 2026-09-30**, and **all four confirmed collecting real points** through the Monitoring API rather than assumed from the create call. Free — they bill against Cloud Monitoring's 150 MiB/month chargeable-metrics allowance and this project makes a handful of time series. **Their filters name events declared in `src/lib/logging/events.ts` and a test guards those names**: a rename would leave a metric reporting zero forever, which is indistinguishable from a healthy system. `gcloud logging metrics list` |
+| **Cloud Logging** | Google Cloud | project-wide, default `_Default` bucket | **IN USE, Phase 22.** No sink, no exporter and no agent was created — Cloud Run parses a JSON line on stdout into a `LogEntry` on its own. 30-day retention is included. Measured 6.34 MB per 30 days against **50 GiB**, so roughly 8,000× headroom |
 
 **One Neon database serves both local and production.** Migrations applied locally are already
 live. Phase 3's migration is purely additive, so the older revision still runs against it.
@@ -616,6 +638,35 @@ decrypt** — plus three claims that would otherwise be taken on trust: that the
 contains no part of any stored envelope (searched for against the real ciphertext, read out of the
 database), that a refused rotation leaves the stored secret byte-identical, and that every rotation
 mints a fresh data key. It also runs a 16-cell role matrix.
+
+**Observability and analytics, against the deployed service** — ~2 minutes, added in Phase 22:
+
+```bash
+node --env-file=.env scripts/verify-observability.mjs \
+  "https://agentforge-733000675212.asia-southeast1.run.app"
+```
+
+It does three things no other suite can. It **recomputes every analytics figure from SQL
+independently** — totals, both percentiles by hand-written nearest rank, day buckets, node rows and
+model rows — and compares, which is the only check that can catch an aggregate that is merely
+plausible. It **creates its own workflow, fails it twice on purpose, and then finds those failures
+in Cloud Logging**, asserting severity, the indexed `event` label, the duration, the error group and
+that one run is one trace — the phase's objective written as a test, with the database never opened.
+And it **measures what the analytics page costs** and prints the number. It deletes what it made.
+
+Run it locally too: four checks skip there rather than fail, because a machine with no Cloud Tasks
+and no Secret Manager is *correctly* `degraded`, and that verdict existing is the point.
+
+**The log-based metrics are a separate thing and are not asserted by any suite** — they live in GCP,
+not in the repository. Confirm they still exist and still collect:
+
+```bash
+gcloud logging metrics list --format='table(name,filter)'     # expect 4
+gcloud logging read 'resource.type=cloud_run_revision AND jsonPayload.event="model.call"' \
+  --limit 10 --freshness 6h --format='value(jsonPayload.requested,jsonPayload.answered,jsonPayload.fallback)'
+```
+
+`OPERATIONS.md` is the runbook for reading all of it.
 
 **It re-keys the real workspace**, which is unavoidable — re-keying is a property of the whole
 workspace and cannot be rehearsed on a throwaway one that holds nothing — and every operation it
@@ -787,6 +838,54 @@ still documents a path known to work end to end, which is a useful smoke referen
 
 ## Recent Changes
 
+**2026-09-30 — Phase 22 complete. The system explains itself: structured logs, four metrics, error
+grouping, and a per-workspace analytics page that costs 21 ms**
+
+- **"What is this system doing, and what broke" is answerable without a database client**, which was
+  the phase's objective verbatim. `verify-observability.mjs` induces a failure and then traces it end
+  to end through Cloud Logging — which node, with what message, how long each step took, one trace
+  per run — with the database never opened
+- **Logging is `console.log` of a JSON line (A20).** Cloud Run's runtime turns it into a `LogEntry`,
+  so structured logs, log-based metrics and Error Reporting all work with **no client library, no
+  exporter, no background flush and no new dependency** — and nothing buffered to lose when a
+  container is recycled mid-run, which is exactly when it matters. Sixteen ad-hoc `console.*` calls
+  became nine named events
+- **The correlation id is Cloud Run's trace, and no request log is written (A21).** Cloud Run already
+  logs method, path, status and latency for free; emitting its trace joins ours to that record rather
+  than paying to duplicate it. A Next 16 `proxy` was considered purely to put the route path on every
+  entry, and **rejected** for that reason
+- **Error grouping is one normaliser used twice (A23)** — by the logs and by the analytics page — so
+  a group id read off a chart pastes into the Logs Explorer and finds its own lines. The rule *order*
+  is the design: a URL contains digits and a UUID contains hex runs, so a greedy rule first shreds
+  both and scatters one problem across many groups
+- **Analytics is computed on demand and nothing runs on a clock (A22).** Three statements against the
+  rows the engine already writes, when a signed-in person opens the page — no rollup table, no
+  materialised view, no cache warmer, no polling, and the window selector is three links. **No
+  migration, no column, no index.** Measured at **21–27 ms of database time per page view** on the
+  deployed service; a 30-second auto-refresh would have cost 120 wakes an hour instead
+- **`/api/health` reports five dependency checks with three verdicts**, and `degraded` answers **200
+  on purpose** — failing a health check would take a working revision out of service over a
+  configuration warning. Every field the four existing suites assert on kept its name and meaning
+- **The phase's finding.** Within minutes of existing, `agentforge_model_fallbacks` caught the
+  deployed system doing what Chapter 1 did invisibly for days: **the configured `gemini-3-flash-preview`
+  was being answered by `gemini-3.5-flash-lite` on nearly every call**, on quota. Every affected run
+  *succeeded*. A fallback is a success from the outside — which is precisely why it needed its own
+  instrument
+- **Two defects, both caught before the deploy**, which is why this phase took one deploy rather than
+  three. A browser walk found that the third nav link made the workspace switcher draw **on top of**
+  the *Workflows* link — the containers' boxes said there was no overlap; only measuring the
+  `<button>` showed it, and the cause was a `min-width: auto` in the `Menu` primitive that had been
+  latent since Phase 14. And `array_agg` over the Neon HTTP driver returns a Postgres array as its
+  **text literal**, so the node-latency query called `.map` on a string and the route answered 500;
+  fixing it then exposed that `Number(null)` is `0`, which was turning absent durations into
+  zero-millisecond steps
+- **`OPERATIONS.md` created** — the signals, four runbooks, the budget with its numbers, and the
+  honest note that `verify-api.mjs` run twice inside a minute reports quota as failure
+- **M9 corrected.** `neonctl` **is** authenticated; the Phase 13 reason was wrong. Neon's consumption
+  API is Scale-plan-only and the legacy fields read zero on the free plan, so it is **console-only**.
+  Recorded so nobody scripts it again
+- Local: `npm run check` **769 passing** (was 739), coverage 86.79 / 91.04 / 77.72
+
 **2026-09-30 — Phase 21 complete. Credentials are enveloped under a rotatable root key, all three
 rotations work, and the product has an audit log**
 
@@ -884,6 +983,49 @@ diary** — keeping six months of "what happened when" here makes the part that 
 find, which is the failure mode it is meant to prevent.
 
 ## Last Updated
+
+**2026-09-30** — **Phase 22 complete.** Revision `agentforge-00047-w65` live, `/api/health` reporting
+`status: ok` across all five dependency checks. **No migration**, so nothing to roll back at the
+schema level.
+
+**Verified on the deployed system, not asserted.** `verify-observability.mjs` — **ALL CHECKS
+PASSED** (1 skipped), this phase's own suite:
+
+- **Every analytics figure recomputed independently from SQL** and compared — totals, both
+  percentiles by a hand-written nearest rank, the day buckets, the node table and the model table.
+  The only check that can catch an aggregate which is merely plausible
+- **A failure induced and then found from the logs alone** — a probe workflow created through the
+  API, failed twice on purpose, and both failures located in Cloud Logging with the right severity,
+  an indexed `event` label, a duration, an error group, and one trace per run. **The database was
+  never opened.** The suite then deleted what it made
+- **Two identical failures proved to be ONE error group** in the API response *and* in the logs,
+  which is the property that makes the fingerprint worth having
+- **A hostile `?range=` proved to fall back rather than widen the window**, with the `run` table
+  intact afterwards
+- **The feature's cost measured and printed: 21–27 ms of database time per page view**
+
+`verify-api.mjs` **ALL CHECKS PASSED (3 skipped)**. A second back-to-back run reported 4 failures
+that were **Gemini's 20-requests-per-minute free tier, not a regression** — the provider says so in
+its own words, and `DEPLOYMENT.md` now warns about it. `verify-vault.mjs` ALL CHECKS PASSED.
+`verify-durable.mjs` ALL CHECKS PASSED including a real Cloud Tasks scheduled run on this revision.
+`verify-schema.mjs` 6/6.
+
+**Four log-based metrics created, and all four confirmed collecting real points** through the
+Monitoring API rather than trusted from the create call. `agentforge_model_fallbacks` needed a real
+degradation to prove, so one was induced on the deployed service: a workflow asking for a model that
+does not exist, answered by `gemini-3.5-flash-lite` — **and the run succeeded**, which is the whole
+reason the metric exists.
+
+**A real browser** at 1440, 1024 and 375 px, deployed and local. It found the header defect before
+the deploy. Zero console errors on the deployed page; nothing overflows at 375 px.
+
+Local: `npm run check` **769 passing**, coverage **86.79 / 91.04 / 77.72** against 85 / 88 / 76.
+
+**Next: Phase 23 — node catalogue and templates.** `/clear` first.
+
+---
+
+## Previously
 
 **2026-09-30** — **Phase 21 complete.** Revision `agentforge-00046-w7b` live, `/api/health` green
 and reporting `rootKey.provider: secret-manager`, migration `0009_jazzy_alex_power` applied with row

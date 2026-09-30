@@ -16,11 +16,12 @@ Every step is labelled **`AUTOMATED BY CLAUDE CODE`** or **`MANUAL HUMAN ACTION`
 | Field | Value |
 |---|---|
 | Service | `agentforge`, Cloud Run, `asia-southeast1` |
-| Revision | **`agentforge-00046-w7b`** — 100% of traffic (Phase 21). **Phase 21 took three deploys**: `00044` shipped the phase and added `ROOT_KEY_SECRET`, `00045` shipped the error-mapping fix the deployed suite found, `00046` shipped the three defects a real browser walk found. Last known-good before them: `agentforge-00043-nn2` (Phase 20) |
+| Revision | **`agentforge-00047-w65`** — 100% of traffic (Phase 22). **Phase 22 took one deploy**, which is the first time since Phase 18: its two defects were both found *before* it shipped, by a browser walk and by the suite running locally. Last known-good before it: `agentforge-00046-w7b` (Phase 21), then `agentforge-00045-jj4`, `agentforge-00043-nn2` (Phase 20) |
 | Scaling | `min-instances 1`, `max-instances 3`, 1 vCPU / 1 GiB, 3600 s timeout |
 | Root key | **Secret Manager `agentforge-root-key`, version `1`.** Every credential's data key is wrapped by it; `GET /api/health` reports `rootKey.provider` so a deployment silently on `ENCRYPTION_KEY` cannot hide |
 | Database | Neon `super-mountain-39872886`, `aws-ap-southeast-1` — **13 tables**, migrations `0000`–`0009` applied. 9.9 MB of 0.5 GB |
-| Last verified | **2026-09-30, after Phase 21** — `verify-api.mjs` 393 passed / 0 failed / 4 skipped; `verify-vault.mjs` **61/61**, including all three credentials re-keyed under `sm:1` and each one verified to decrypt, a Discord credential rotated and a workflow still posting with it, a webhook token rotated with the **old URL refused immediately**, a refused rotation proved to have left the stored envelope byte-identical, and a 16-cell role matrix; `verify-durable.mjs` all-pass; `verify-schema.mjs` 6/6. A real browser at 1440 px and 375 px found three defects, all fixed and re-verified |
+| Observability | **Structured JSON logging on stdout, four log-based metrics, and `/api/health` reporting five dependency checks.** `OPERATIONS.md` is the runbook |
+| Last verified | **2026-09-30, after Phase 22** — `verify-observability.mjs` **ALL CHECKS PASSED** (1 skipped), including the analytics figures recomputed independently from SQL, an induced failure traced end to end **through Cloud Logging without opening the database**, and two identical failures proved to be one error group in both the API and the logs; `verify-api.mjs` all-pass (a second back-to-back run reported 4 failures that were **Gemini free-tier quota, not regression** — 20 requests/minute); `verify-vault.mjs` all-pass; `verify-durable.mjs` all-pass including a real Cloud Tasks scheduled run; `verify-schema.mjs` 6/6. Local `npm run check`: **769 passing**, coverage 86.79 / 91.04 / 77.72. A real browser at 1440, 1024 and 375 px, deployed and local, with **zero console errors** |
 
 The service also answers on a legacy hashed URL. Do not use it — see *Deploy*.
 
@@ -911,6 +912,15 @@ awake time, or roughly 5 hours a day of genuine activity on top of the tick.
 > one query to requests that already make one, and Phase 19A added no poller, no tick and no
 > background job. **Phase 22's analytics is the phase that must be designed against the number** —
 > anything that aggregates on a schedule is spending awake time rather than borrowing it.
+>
+> **RESOLVED, Phase 22, and it cost almost nothing.** The analytics page runs **three statements on
+> demand**, when a signed-in person opens it — and a signed-in person has already woken the database.
+> There is no rollup job, no materialised view, no cache warmer and no polling: the window selector
+> is three links, so a new window is a navigation somebody asked for. **Measured on the deployed
+> service, 2026-09-30: 21–27 ms of database time per page view**, over 46 runs and ~200 steps.
+> A 30-second auto-refresh on one open tab would instead have cost 120 wakes an hour — that is the
+> trade, in numbers. Every query opens on `run_workspace_idx`, present since Phase 19A; Phase 22
+> added no index, no column and no migration.
 
 Measured live while writing this: a first query after idle took **917 ms** and the next **103 ms**,
 so scale-to-zero is demonstrably active and the wake cost is ~0.9 s. The database is **8,488 kB**
@@ -949,10 +959,17 @@ psql "$DATABASE_URL_UNPOOLED" -c "select count(*), avg(pg_column_size(graph))::i
   max(pg_column_size(graph)) from workflow_version"
 ```
 
-> **`UNKNOWN — VERIFY` still open: CU-hours actually consumed this billing period.** Neon does not
-> expose consumption through the connection, only through its API or console, and `neonctl` on this
-> machine is unauthenticated. See *Manual Actions Pending* in `PROGRESS.md` (M9). The *budget* is
-> verified; the *balance* is not. Do not let Phase 19 or 22 start without reading it.
+> **`UNKNOWN — VERIFY` still open: CU-hours actually consumed this billing period — and Phase 22
+> sharpened why.** `neonctl` **is** authenticated now, so the Phase 13 note that it was not is
+> superseded. The balance still cannot be read from a terminal, for a different and more permanent
+> reason: `GET /consumption_history/projects` answers *"This endpoint is not available. It is
+> included with Scale plans and above"*, and the legacy `compute_time_seconds` / `active_time_seconds`
+> fields on `/projects/{id}` and `/branches` all read `0` on the free plan. **It is console-only.**
+> <https://console.neon.tech> → `agentforge` (`super-mountain-39872886`) → Usage. Tracked as M9.
+>
+> It did not block Phase 22, because the phase was designed against the *rule* rather than the
+> balance — do not add a new reason to wake an idle database — and the feature's own cost was then
+> measured directly at 21–27 ms per page view.
 
 ### Cloud Tasks — Phase 17's dependency, and it is fine
 
@@ -978,14 +995,35 @@ What that means for Phase 17's design:
 
 ### Cloud Logging — Phase 22's dependency, and it is very fine
 
+> **BUILT, Phase 22.** Structured logging ships, four log-based metrics exist, and the prediction
+> below held: the constraint was Neon, not Logging. The application added **no dependency** to do
+> it — Cloud Run's runtime parses a JSON line on stdout into a `LogEntry`, so the whole transport is
+> `console.log`.
+
 $0.50/GiB after the first **50 GiB per project per month**, which includes 30 days of retention,
 querying and analysis at no extra charge. Log Router and Log Analytics add nothing. Retention
 beyond 30 days is $0.01/GiB/month.
 
 **Measured over the 30 days to 2026-09-26: 6,339,545 bytes — 0.0059 GiB, or 0.0118% of the
 allowance.** Phase 22 could increase log volume by three orders of magnitude and still be free.
-Log-based metrics are the right instrument here; the constraint that matters for observability is
-Neon, not Logging, because run analytics are computed from the `run`/`run_step` tables.
+
+**The four log-based metrics, created 2026-09-30** and all four confirmed collecting real points on
+the deployed service:
+
+```bash
+gcloud logging metrics list --format='table(name,filter)'
+```
+
+| Metric | Filter | What it is for |
+|---|---|---|
+| `agentforge_runs` | `jsonPayload.event="run.finished"` | Volume and failure rate, labelled `status`/`trigger`/`mode` |
+| `agentforge_node_latency` | `jsonPayload.event="node.finished"` | A `durationMs` distribution, labelled `nodeType`/`status` |
+| `agentforge_model_fallbacks` | `event="model.call" AND jsonPayload.fallback=true` | **The one that matters** — see `OPERATIONS.md` |
+| `agentforge_errors` | `severity>=ERROR AND jsonPayload.errorGroup!=""` | Errors labelled by group, so repeats are one line |
+
+**They are free.** Log-based metrics bill against Cloud Monitoring's chargeable-metrics allowance
+(150 MiB per billing account per month); this project produces a handful of time series with a few
+points each. Nothing here is close to a limit.
 
 ### Secret Manager — Phase 21's dependency, with one sharp edge
 
@@ -1114,6 +1152,7 @@ be re-run on its own when that subsystem changes.
 node --env-file=.env scripts/verify-schema.mjs                      # repo schema vs. the live database
 APP_BASE_URL="$APP_BASE_URL" node --env-file=.env scripts/verify-durable.mjs all   # Phase 17
 node --env-file=.env scripts/verify-vault.mjs "$APP_BASE_URL"       # Phase 21
+node --env-file=.env scripts/verify-observability.mjs "$APP_BASE_URL"   # Phase 22
 ```
 
 `verify-vault.mjs` proves the three rotations Phase 21 exists for, and three claims that would
@@ -1123,6 +1162,18 @@ leaves the stored secret byte-identical, and that every rotation mints a fresh d
 re-keys the real workspace**, which is unavoidable — re-keying is a property of the whole workspace
 and cannot be rehearsed on a throwaway one that holds nothing — and every operation it performs is
 idempotent and safe to repeat.
+
+`verify-observability.mjs` proves the three things Phase 22 would otherwise be taking on trust. It
+**recomputes every analytics figure from SQL independently** and compares — the only check that can
+catch an aggregate which is merely plausible. It **creates its own workflow, fails it twice on
+purpose, and then finds those failures in Cloud Logging** rather than in the database, which is the
+phase's objective stated as a test. And it **measures what the page costs** and prints the number.
+It deletes what it made.
+
+> **Running `verify-api.mjs` twice inside a minute reports four failures that are not regressions.**
+> It makes real Gemini calls and the free tier allows 20 requests a minute per model; the four are
+> all generation checks, and `jsonPayload.detail` says *"Quota exceeded"* in the provider's own
+> words. Wait a minute and re-run before believing it.
 
 **9. A real browser — NOT OPTIONAL.** `CLAUDE.md` records why, and Phase 21 was the seventh time:
 393 API checks and 61 vault checks all passed over a log list whose dividers were full-strength ink

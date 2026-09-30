@@ -144,6 +144,14 @@ export function CommandPalette({ className }: { className?: string }) {
         run: () => router.push("/workflows"),
       },
       {
+        id: "analytics",
+        group: "Go to",
+        title: "Analytics",
+        subtitle: "Runs, failures and model usage",
+        keywords: ["runs", "failures", "errors", "latency", "metrics", "usage", "dashboard"],
+        run: () => router.push("/analytics"),
+      },
+      {
         id: "settings",
         group: "Go to",
         title: "Settings",

@@ -33,7 +33,7 @@ export function AppHeader({
   workspace: WorkspaceSummary;
   /** Every workspace this account is in — the switcher's list (Phase 19B). */
   workspaces: WorkspaceSummary[];
-  active?: "workflows" | "settings";
+  active?: "workflows" | "analytics" | "settings";
 }) {
   async function signOutAction() {
     "use server";
@@ -52,6 +52,9 @@ export function AppHeader({
         <nav aria-label="Main" className="ml-3 hidden items-center gap-1 sm:flex">
           <NavLink href="/workflows" current={active === "workflows"}>
             Workflows
+          </NavLink>
+          <NavLink href="/analytics" current={active === "analytics"}>
+            Analytics
           </NavLink>
           <NavLink href="/settings" current={active === "settings"}>
             Settings

@@ -11,6 +11,7 @@ import {
   type Workspace,
   type WorkspaceInvitation,
 } from "@/db/schema";
+import { logWarn } from "@/lib/logging";
 import { ApiError } from "@/lib/api-error";
 
 import {
@@ -740,7 +741,9 @@ export async function acceptInvitation(
   if (!spent) {
     // Two clicks arriving together: one spent it. The membership write above is
     // idempotent, so the loser is a member too and this is not an error.
-    console.warn(`[workspace] invitation ${found.invitation.id} was already spent when accepted`);
+    logWarn("system.warning", "An invitation was already spent when it was accepted.", {
+      invitationId: found.invitation.id,
+    });
   }
 
   return { workspace: found.workspace, role: found.invitation.role };

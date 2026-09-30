@@ -17,6 +17,13 @@ import { pathToFileURL } from "node:url";
  */
 const root = process.cwd();
 
+/**
+ * Structured logging writes a JSON line per run, per node and per model call (Phase 22).
+ * The critical-path suites execute hundreds of workflows, so left on, a test run buries
+ * its own failures under thousands of log lines. `src/lib/logging/logger.ts` reads this.
+ */
+process.env.AGENTFORGE_LOG_SILENT = "1";
+
 registerHooks({
   resolve(specifier, context, nextResolve) {
     const mapped = specifier.startsWith("@/")

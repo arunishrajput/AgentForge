@@ -3,6 +3,7 @@ import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
 
 import { db, schema } from "@/db";
+import { logError } from "@/lib/logging";
 import { required } from "@/lib/env";
 
 /**
@@ -50,9 +51,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth(() => ({
         const { createPersonalWorkspaceForNewUser } = await import("@/lib/workspace/store");
         await createPersonalWorkspaceForNewUser(user.id);
       } catch (error) {
-        console.error(
-          `[workspace] could not create a personal workspace for new user ${user.id}:`,
+        logError(
+          "system.warning",
+          "Could not create a personal workspace for a new user.",
           error,
+          { userId: user.id },
         );
       }
     },

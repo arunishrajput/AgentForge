@@ -12,6 +12,7 @@ import {
 } from "@/lib/integrations/oauth-state";
 import { googleOAuthConfig, storeGoogleConnection } from "@/lib/integrations/store";
 
+import { logError, logWarn } from "@/lib/logging";
 export const dynamic = "force-dynamic";
 
 /**
@@ -69,13 +70,13 @@ export async function GET(request: Request) {
   // The user pressed Cancel, or unticked everything and Google refused.
   const denied = url.searchParams.get("error");
   if (denied) {
-    console.warn("Google integration consent was not granted:", denied);
+    logWarn("system.warning", "Google integration consent was not granted.", { denied });
     return back("denied");
   }
 
   const expected = readCookie(request.headers.get("cookie"), STATE_COOKIE);
   if (!stateMatches(expected, url.searchParams.get("state"))) {
-    console.warn("Google integration callback had a bad or missing state.");
+    logWarn("system.warning", "A Google integration callback had a bad or missing state.");
     return back("state");
   }
 
@@ -93,7 +94,7 @@ export async function GET(request: Request) {
     });
     return back("connected");
   } catch (error) {
-    console.error("Google integration connection failed:", error);
+    logError("api.error", "A Google integration connection failed.", error);
     return back("failed");
   }
 }

@@ -1,3 +1,4 @@
+import { logError } from "@/lib/logging";
 import { ApiError } from "@/lib/api-error";
 
 import { IntegrationError } from "./net";
@@ -35,6 +36,8 @@ export function integrationApiError(service: string, error: unknown): ApiError {
   if (error instanceof IntegrationError) {
     return new ApiError("invalid_request", error.message);
   }
-  console.error(`Unhandled error in the ${service} integration:`, error);
+  logError("api.error", `An unexpected error came out of the ${service} integration.`, error, {
+    service,
+  });
   return new ApiError("internal", `Something went wrong saving this ${service} connection.`);
 }

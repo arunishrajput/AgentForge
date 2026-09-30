@@ -1,3 +1,4 @@
+import { logError, logInfo } from "@/lib/logging";
 import { getNode } from "@/lib/nodes";
 import { NodeError, type LogLevel, type StepLog } from "@/lib/nodes/types";
 import { edgesFrom, type WorkflowGraph } from "@/lib/workflow/graph";
@@ -316,6 +317,25 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
       step.branch = outcome.branch ?? null;
       step.finishedAt = new Date().toISOString();
 
+      /**
+       * **The node-latency metric — Phase 22.** One entry per completed step, carrying
+       * the registry type and the duration and *nothing the node was working on*: an
+       * input or an output here would be a second, unauthorised copy of the user's data
+       * in a place none of the workspace rules reach (`lib/logging/logger.ts`).
+       *
+       * The duration is measured from the step record's own timestamps rather than a
+       * separate clock, so what the chart shows and what the run panel shows cannot
+       * disagree.
+       */
+      logInfo("node.finished", `Node ${node.id} succeeded.`, {
+        nodeId: node.id,
+        nodeType: node.type,
+        status: "succeeded",
+        iteration,
+        branch: step.branch,
+        durationMs: Date.parse(step.finishedAt) - Date.parse(step.startedAt!),
+      });
+
       outputs.set(node.id, step.output);
       bySeq.set(mySeq, step.output);
       executions.set(node.id, iteration + 1);
@@ -333,6 +353,16 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
       executions.set(node.id, iteration + 1);
       await recorder.stepFinished(step);
       failure = `Node "${node.id}" (${node.type}) failed: ${step.error}`;
+      // Severity ERROR, so this is the entry a `severity>=ERROR` filter finds and Error
+      // Reporting groups. The message carries the node's own words, which is what makes
+      // the group in the logs and the group on the analytics page the same group.
+      logError("node.finished", `Node ${node.id} failed.`, error, {
+        nodeId: node.id,
+        nodeType: node.type,
+        status: "failed",
+        iteration,
+        durationMs: Date.parse(step.finishedAt) - Date.parse(step.startedAt!),
+      });
       break;
     }
 

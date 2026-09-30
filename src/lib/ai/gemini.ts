@@ -1,3 +1,5 @@
+import { logError, logInfo, logWarn } from "@/lib/logging";
+
 import {
   countsAgainstModel,
   orderChain,
@@ -327,7 +329,7 @@ export function geminiModel(options: GeminiOptions): LanguageModel {
     return { status: response.status, payload: await response.json(), ms: Date.now() - started };
   }
 
-  async function generate(request: GenerateRequest): Promise<GenerateResult> {
+  async function attemptChain(request: GenerateRequest): Promise<GenerateResult> {
     const tools = request.tools ?? [];
     const body: Record<string, unknown> = {
       contents: toContents(request.turns),
@@ -469,6 +471,69 @@ export function geminiModel(options: GeminiOptions): LanguageModel {
         attempts,
       })
     );
+  }
+
+  /**
+   * **The model-fallback metric — Phase 22, and the one this phase exists for.**
+   *
+   * Chapter 1's 92-second regression was a healthy-looking system: runs succeeded, the
+   * canvas streamed, nothing errored. What had happened was that the requested model had
+   * started timing out and every call was quietly being answered by the second or third
+   * model in the chain, at the cost of a wedged 45-second attempt first. Nothing reported
+   * it, because from the outside a fallback *is* a success — that is the entire point of
+   * having one.
+   *
+   * So a fallback is recorded as an event in its own right. `fallback: true` is the
+   * filter behind `agentforge_model_fallbacks` in `OPERATIONS.md`; a rate above zero for
+   * any sustained period means the head of the chain is degrading and
+   * `npm run probe:models` should be run before the numbers in `FALLBACK_MODELS` are
+   * trusted again.
+   *
+   * It wraps the chain rather than living inside it so that the loop, which is delicate
+   * and well tested, did not have to be edited to be observed. **No prompt and no
+   * completion is logged** — only which model was asked, which answered, how long, and
+   * how many attempts it took.
+   */
+  async function generate(request: GenerateRequest): Promise<GenerateResult> {
+    const requested = request.model || defaultModel;
+    const startedAt = Date.now();
+
+    try {
+      const result = await attemptChain(request);
+      const fallback = result.model !== requested;
+      const fields = {
+        requested,
+        answered: result.model,
+        fallback,
+        attempts: result.attempts.length,
+        durationMs: Date.now() - startedAt,
+        finishReason: result.finishReason,
+        toolCalls: result.toolCalls.length,
+        inputTokens: result.usage?.inputTokens ?? null,
+        outputTokens: result.usage?.outputTokens ?? null,
+      };
+      if (fallback) {
+        logWarn("model.call", `${requested} did not answer; ${result.model} did.`, fields);
+      } else {
+        logInfo("model.call", `${result.model} answered.`, fields);
+      }
+      return result;
+    } catch (error) {
+      const attempts = error instanceof ProviderError ? error.attempts : [];
+      logError("model.call", `No model answered a request for ${requested}.`, error, {
+        requested,
+        answered: null,
+        // A call that reached no model at all is the limiting case of a fallback, and it
+        // belongs in the same metric: the chain was exercised and did not deliver.
+        fallback: true,
+        failed: true,
+        attempts: attempts.length,
+        triedModels: attempts.map((attempt) => attempt.model).join(",") || null,
+        status: error instanceof ProviderError ? error.status : null,
+        durationMs: Date.now() - startedAt,
+      });
+      throw error;
+    }
   }
 
   async function listModels(): Promise<ModelInfo[]> {

@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { runs, runSteps, workflows, type Run, type RunStep, type Workflow } from "@/db/schema";
 import { ApiError } from "@/lib/api";
 import { required } from "@/lib/env";
+import { addLogContext, logError, logInfo, logWarn } from "@/lib/logging";
 import { visibleWorkflows } from "@/lib/workflow/visibility";
 import { versionGraph } from "@/lib/workflow/versions";
 import { systemScope, type WorkspaceScope } from "@/lib/workspace/scope";
@@ -80,6 +81,23 @@ async function createRun(options: StartOptions & { mode: RunMode }): Promise<Run
     })
     .returning();
 
+  /**
+   * The run id joins the **context** rather than being passed as a field, so this entry
+   * and every entry after it in this request carries it — `drive` sets the same keys a
+   * moment later, and setting them here means `run.started` is findable by run id too.
+   * Found by filtering a real log for one run and getting two entries instead of three.
+   */
+  addLogContext({
+    runId: created.id,
+    workflowId: created.workflowId,
+    workspaceId: created.workspaceId,
+  });
+  logInfo("run.started", `Run ${created.id} created.`, {
+    trigger: created.trigger,
+    mode: created.mode,
+    workflowVersion: created.workflowVersion,
+  });
+
   return created;
 }
 
@@ -103,6 +121,34 @@ async function drive(options: {
   resume?: { cursor: NonNullable<ReturnType<typeof readCursor>>; steps: readonly StepRecord[] };
 }): Promise<RunOutcome> {
   const { run, workflow, owner, signal, resume } = options;
+
+  /**
+   * **Phase 22 — the one place a run's outcome is observable.**
+   *
+   * Every path that executes a run passes through here: the synchronous one, the
+   * in-process fallback, and a Cloud Tasks delivery. So `run.finished` is emitted here
+   * rather than at the three call sites, which is what makes the run-volume and
+   * failure-rate metrics count the same thing however a run was started.
+   *
+   * The run id joins the context rather than being passed as a field, so every
+   * `node.finished` and `model.call` below this frame carries it too.
+   */
+  addLogContext({ runId: run.id, workflowId: workflow.id, workspaceId: run.workspaceId });
+  const startedAt = Date.now();
+  const finished = (status: string, error: string | null) => {
+    const fields = {
+      status,
+      trigger: run.trigger,
+      mode: run.mode,
+      attempt: run.attempt,
+      resumed: resume !== undefined,
+      workflowVersion: run.workflowVersion,
+      /** This attempt, not the run's whole life — a resumed run has several. */
+      durationMs: Date.now() - startedAt,
+    };
+    if (status === "failed") logError("run.finished", `Run ${run.id} failed.`, error, fields);
+    else logInfo("run.finished", `Run ${run.id} ${status}.`, fields);
+  };
 
   let outcome: RunOutcome;
   try {
@@ -128,10 +174,29 @@ async function drive(options: {
           : String(error);
 
     await finishRun({ runId: run.id, owner, status: "failed", error: message });
+    finished("failed", message);
     throw error;
   }
 
-  if (outcome.stop === "interrupted") return outcome;
+  if (outcome.stop === "interrupted") {
+    /**
+     * **Deliberately not a `run.finished`.** `stop: "interrupted"` is preemption and
+     * only preemption — a cancelled run comes back `stop: "finished"` with a terminal
+     * status, which the line below handles. A preempted run is still going, in another
+     * worker, and *that* worker will emit its outcome.
+     *
+     * Emitting `run.finished` here would count the same run twice in the volume metric
+     * and, having no status, would land it in neither the success nor the failure
+     * bucket. It is worth seeing, so it is a warning rather than nothing.
+     */
+    logWarn("system.warning", `Run ${run.id} was preempted and handed to another worker.`, {
+      reason: outcome.reason,
+      trigger: run.trigger,
+      mode: run.mode,
+      durationMs: Date.now() - startedAt,
+    });
+    return outcome;
+  }
 
   await finishRun({
     runId: run.id,
@@ -142,6 +207,7 @@ async function drive(options: {
     cursor: outcome.cursor,
   });
 
+  finished(outcome.status!, outcome.error);
   return outcome;
 }
 
@@ -223,9 +289,16 @@ export async function startDurableRun(options: StartOptions): Promise<EnqueueOut
   if (result.enqueued) return { run: created, queued: true };
 
   if (result.reason !== "unconfigured") {
-    console.error(
-      `[queue] could not enqueue run ${created.id} (${result.reason}): ${result.detail ?? "no detail"} — falling back to in-process execution`,
-    );
+    /**
+     * **The event worth alerting on in this whole file.** A rejected enqueue does not
+     * break anything a user can see — the run executes here instead and finishes
+     * normally — so nothing else in the product reports it, and the only symptom is that
+     * durable runs quietly stopped surviving a redeploy. `OPERATIONS.md` builds the one
+     * alerting policy in this project on it.
+     */
+    logError("queue.degraded", `Run ${created.id} could not be enqueued; executing in-process.`, result.detail, {
+      reason: result.reason,
+    });
   }
 
   const [downgraded] = await db()
@@ -270,8 +343,18 @@ export async function resumeRun(options: {
   token: string;
   signal?: AbortSignal;
 }): Promise<ResumeOutcome> {
+  // A delivery has no session and no caller, so the run id is the only correlation this
+  // side of the queue has. Set before the claim, so a delivery for a run that cannot be
+  // claimed still says which run it was for.
+  addLogContext({ runId: options.runId });
+
   const owner = mintLeaseOwner();
   const claimed = await claimRun({ runId: options.runId, token: options.token, owner });
+
+  logInfo("queue.delivered", `A delivery arrived for run ${options.runId}.`, {
+    claimed: claimed !== undefined,
+    attempt: claimed?.attempt,
+  });
 
   if (!claimed) {
     const [existing] = await db()
