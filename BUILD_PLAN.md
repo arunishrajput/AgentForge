@@ -1136,6 +1136,27 @@ by then, `PROGRESS.md`.
 
 ## Phase 20 — Roles, permissions and sharing
 
+> **DONE, 2026-09-30.** Roles became administrable, a workflow became privatable, and a workflow
+> became publishable read-only to anybody holding a URL. Seven decisions worth carrying: what a
+> share link may publish is an **allowlist defaulting to nothing**, so a node added in Phase 23
+> cannot widen an unauthenticated surface by existing (D98); `visibility` and `shareToken` are
+> **independent columns, not one three-valued ladder**, because they answer different questions and
+> "private with a live link" is a coherent thing to want (D99); an **admin can see a private
+> workflow**, because it runs with the workspace's credentials and somebody has to account for that
+> (D100); visibility filters rows **in the `where`** and is never checked after the read — and the
+> two queries that do not pass through `getWorkflow` are the whole of the risk (D101); the public
+> canvas is a **separate component**, because a boolean is not what should stand between an
+> anonymous visitor and `api.updateWorkflow` (D102); minting a share link is **idempotent** while
+> an invitation rotates, because a share URL gets pasted into a README (D103); and a region is made
+> read-only by one **`<fieldset disabled>`** rather than a prop threaded through four components
+> (D104).
+>
+> **Two defects came from the browser and nothing else**, while 394 deployed checks, 661 unit tests
+> and a green typecheck all passed: a viewer's panel still offered a trigger input and a "Queue a
+> run" button under a paragraph beginning *"Press **Run**"*, and the share page's title truncated
+> to two words at 375 px. The lesson generalises — **a flag that makes one control honest does not
+> make the region around it honest.**
+
 **Objective.** Owner, admin, editor and viewer mean something, and a workflow can be shared.
 
 **Dependencies.** Phase 19.

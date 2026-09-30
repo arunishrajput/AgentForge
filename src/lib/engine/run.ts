@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { runs, runSteps, workflows, type Run, type RunStep, type Workflow } from "@/db/schema";
 import { ApiError } from "@/lib/api";
 import { required } from "@/lib/env";
+import { visibleWorkflows } from "@/lib/workflow/visibility";
 import { versionGraph } from "@/lib/workflow/versions";
 import { systemScope, type WorkspaceScope } from "@/lib/workspace/scope";
 
@@ -381,16 +382,34 @@ function toStepRecord(step: RunStep): StepRecord {
   };
 }
 
+/**
+ * **Phase 20 — the two run reads that do not go through `getWorkflow`.**
+ *
+ * Every other workflow-scoped route reaches its rows by calling `getWorkflow` first, so
+ * the visibility filter in that one function covers versions, per-workflow run lists, the
+ * SSE stream and execution without any of them knowing about it. These two are the
+ * exceptions: `getRun` and the unfiltered `listRuns` are addressed by *run* id, and a run
+ * carries the name of its workflow. Left alone, a viewer would read the steps, inputs and
+ * outputs of a colleague's private workflow by asking about its runs.
+ *
+ * So both join `workflow` and apply the same predicate. The join is free — it is an
+ * equality on a primary key — and it can never drop a row it should have kept, because
+ * `run.workflowId` cascades on delete, so there is no run whose workflow is missing.
+ */
 export async function getRun(
   scope: WorkspaceScope,
   runId: string,
 ): Promise<{ run: Run; steps: RunStep[] }> {
-  const [run] = await db()
-    .select()
+  const [row] = await db()
+    .select({ run: runs })
     .from(runs)
-    .where(and(eq(runs.id, runId), eq(runs.workspaceId, scope.workspaceId)))
+    .innerJoin(workflows, eq(workflows.id, runs.workflowId))
+    .where(
+      and(eq(runs.id, runId), eq(runs.workspaceId, scope.workspaceId), visibleWorkflows(scope)),
+    )
     .limit(1);
 
+  const run = row?.run;
   if (!run) throw new ApiError("not_found", "No such run.");
 
   const steps = await db()
@@ -408,16 +427,25 @@ export async function listRuns(
 ): Promise<Run[]> {
   await sweepAbandonedRuns(scope);
 
-  const where = options.workflowId
-    ? and(eq(runs.workspaceId, scope.workspaceId), eq(runs.workflowId, options.workflowId))
-    : eq(runs.workspaceId, scope.workspaceId);
-
-  return db()
-    .select()
+  const rows = await db()
+    .select({ run: runs })
     .from(runs)
-    .where(where)
+    // See `getRun` above for why the join is here. It is applied even when `workflowId`
+    // narrows the query, because that caller has already been through `getWorkflow` and a
+    // filter that is right in one branch and absent in the other is the shape that
+    // eventually gets refactored into a leak.
+    .innerJoin(workflows, eq(workflows.id, runs.workflowId))
+    .where(
+      and(
+        eq(runs.workspaceId, scope.workspaceId),
+        options.workflowId ? eq(runs.workflowId, options.workflowId) : undefined,
+        visibleWorkflows(scope),
+      ),
+    )
     .orderBy(desc(runs.startedAt))
     .limit(Math.min(options.limit ?? 50, 200));
+
+  return rows.map((row) => row.run);
 }
 
 /**

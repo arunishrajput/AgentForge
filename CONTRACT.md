@@ -473,7 +473,10 @@ through `assertRole`. Both are server-side and neither depends on the UI hiding 
 | `POST /api/workflows` | `{ name, description?, graph? }` | 201, the workflow |
 | `POST /api/workflows/generate` | `{ prompt, name? }` | 201, `{ workflow, generation }` — see *Generation* |
 | `GET /api/workflows/:id` | — | The workflow |
-| `PATCH /api/workflows/:id` | `{ name?, description?, graph? }` | The workflow |
+| `PATCH /api/workflows/:id` | `{ name?, description?, graph?, visibility? }` | The workflow. `visibility` is **authorised separately** — its creator or an `admin`, not any editor — so the rest of the body may succeed on a request where it alone would be refused, and the 403 names why |
+| `POST /api/workflows/:id/share` | — | 201 / 200, the workflow with `shareUrl`. **`admin`** — see *Per-workflow sharing* |
+| `DELETE /api/workflows/:id/share` | — | The workflow with `shareUrl: null`. **`admin`** |
+| `GET /api/share/:token` | — | The redacted graph. **No session** — see *Per-workflow sharing* |
 | `DELETE /api/workflows/:id` | — | `{ deleted: id }` |
 | `GET /api/workflows/:id/versions` and the four routes beside it | — | Version history, restore and diff — see *Workflow versions* (Phase 18) |
 | `POST /api/workflows/:id/runs` | `{ input?, mode? }` | `mode` defaults to `sync` → **201, the finished run with every step**. `mode: "durable"` → **202**, a `queued` run with no steps; it is executed by a Cloud Tasks delivery and watched over the stream. A durable request that could not reach the queue falls back to executing in-process and answers **201**, so the status code says which happened without a flag to interpret |
@@ -490,6 +493,7 @@ through `assertRole`. Both are server-side and neither depends on the UI hiding 
 | `PATCH /api/workspaces/:id` | `{ name }` | The workspace. **`admin`** |
 | `GET /api/workspaces/:id/members` | — | `[{ userId, name, email, role, joinedAt, you }]`. Every member may read it |
 | `DELETE /api/workspaces/:id/members/:userId` | — | `{ removed }`. Removing somebody else needs `admin`; removing **yourself** is leaving and needs only membership; the **last owner** cannot be removed by anybody |
+| `PATCH /api/workspaces/:id/members/:userId` | `{ role }` | The member as they now are. **`admin`**, and `owner` at either end of the change needs `owner` — see *Changing a member's role* |
 | `GET /api/workspaces/:id/invitations` | — | Every invitation with its state, newest first. **`admin`**. No token, ever |
 | `POST /api/workspaces/:id/invitations` | `{ email, role? }` | 201, `{ invitation, url }`. **`admin`**. `role` defaults to `editor` and can never be `owner`. **The `url` is the only time the link exists** |
 | `DELETE /api/workspaces/:id/invitations/:invitationId` | — | The revoked invitation. **`admin`**. Already accepted or already revoked answers 404 |
@@ -497,13 +501,24 @@ through `assertRole`. Both are server-side and neither depends on the UI hiding 
 | `POST /api/invitations/:token/accept` | — | The workspace, and switches to it. Session required; the **verified email** must match |
 | `POST /api/runs/dispatch` | `{ runId, token }` | **No session** (Phase 17). `CRON_SECRET` **and** the run's own `dispatchToken` both required. Executes or resumes that one run. **Always 200 on a delivery it declines** — a 4xx/5xx tells Cloud Tasks to retry, and every declined case (already finished, already claimed, forged token, deliveries exhausted) is one where retrying is pointless or harmful; the body says which |
 
-Every route above requires a session and is workspace-scoped, **except `GET /api/invitations/:token`
-and the last three**, which need none: the first is reached by a link holder before they sign in, and
-the other three are machine endpoints. The tick and the webhook are specified under *Trigger shapes*; the dispatcher is
+Every route above requires a session and is workspace-scoped, **except four**:
+`GET /api/invitations/:token`, `GET /api/share/:token`, and the three machine endpoints
+(`POST /api/webhook/:token`, `POST /api/cron/tick`, `POST /api/runs/dispatch`). The first two are
+reached by a link holder who may have no account at all.
+
+**`GET /api/share/:token` is the only one of them whose risk is in the response rather than in what
+the request can cause** — a webhook starts a run, a tick fires schedules, an invitation preview names
+one workspace; this one hands back content. That is why what it may carry is decided by an allowlist
+in one place and not by field selection in the route. The tick and the webhook are specified under *Trigger shapes*; the dispatcher is
 specified below.
 
 A workflow is returned as `{ id, name, description, graph, runnable, problems, webhookUrl,
-version, scheduleCron, scheduleNextAt, scheduleLastFiredAt, createdAt, updatedAt }`. `runnable` and
+version, visibility, ownerId, shareUrl, sharedAt, scheduleCron, scheduleNextAt, scheduleLastFiredAt,
+createdAt, updatedAt }`. The four Phase 20 fields are safe to send to a member of the workspace:
+`visibility` is a setting they can already infer from seeing this at all, `ownerId` is who made it so
+a client knows whether the viewer may change that setting, and `shareUrl` is a bearer URL granting a
+*redacted* read of a graph every member can already read in full. This shape is **not** what the
+public share link answers — that is `SharedWorkflow`, a different type with no ids and no tokens. `runnable` and
 `problems` come from `validateGraph`, so a client can show what is wrong without the save having
 failed. `webhookUrl` is null unless the **stored** graph holds a webhook trigger, and the three
 `schedule*` fields are null unless it holds a schedule trigger (Phase 8).
@@ -519,6 +534,8 @@ started by somebody else's request, which the browser follows by *workflow* rath
 it could not have known (D28). The Run button and the Queue button therefore differ in one line.
 
 ### `POST /api/runs/dispatch` — the third route with no session
+
+*(Phase 20 added a fourth, `GET /api/share/:token`. This one is still the third machine endpoint.)*
 
 Two independent things must hold, and only the second one actually authorises anything:
 
@@ -797,11 +814,16 @@ routes, which name a workspace in the path: a workspace the caller is not a memb
 `requirePageSession()` in
 `src/lib/workspace/page.ts` does it for a page and redirects instead of answering 401.
 
-### The three routes with no session get theirs from the row
+### The three machine routes with no session get theirs from the row
 
 `systemScope(workflow)` derives the scope from the workflow the webhook token, the cron tick or the
 dispatch token resolved to. Nothing about the request can name a workspace, so those routes cannot
 reach another tenant even if their own token check were wrong about *which* workflow.
+
+The role it hands back is `owner`, and **Phase 20 re-examined that and kept it**, which was the
+question `scope.ts` left open. These paths have nobody at the keyboard, so there is no membership to
+look up; and per-workflow `visibility` deliberately does not gate them, because a trigger is not a
+person — a private workflow still fires on its own webhook and its own schedule.
 
 ### What each role may do — **ENFORCED since Phase 19B**
 
@@ -817,20 +839,45 @@ not write access, and a new mutating route that forgets the argument fails close
 | Read workflows, runs, versions, the members list, credential *status* | `viewer` |
 | Create, edit, delete, run, cancel, generate, label and restore a version | `editor` |
 | Store or delete a provider key, connect or disconnect an integration, **list provider models** | `admin` |
-| Rename the workspace, invite, revoke, remove another member | `admin` |
-| Remove an **owner** | `owner` |
+| Rename the workspace, invite, revoke, remove another member, **change a member's role** | `admin` |
+| **Publish or revoke a workflow's public share link** (Phase 20) | `admin` |
+| Remove an **owner**, **grant or take away ownership** (Phase 20) | `owner` |
+| **Change a workflow's visibility** (Phase 20) | its **creator**, or `admin` — not any editor |
 | Leave the workspace | membership alone — and never the last owner |
 
-Two entries look odd and are deliberate. **Listing provider models is `admin` although it is a GET**:
-it spends the workspace's provider quota on an outbound call with the workspace's key, to fill a
-picker beside a Save button no lesser role can press. **Running a workflow is `editor`, not
+Four entries look odd and are deliberate. **Listing provider models is `admin` although it is a
+GET**: it spends the workspace's provider quota on an outbound call with the workspace's key, to
+fill a picker beside a Save button no lesser role can press. **Running a workflow is `editor`, not
 `viewer`**: a run sends mail, posts to Discord and writes to spreadsheets, so it is a write to the
-outside world whatever it is to the database.
+outside world whatever it is to the database. **Publishing a share link is `admin`, not `editor`**,
+although an editor may already do far less reversible things: the bar is about the *kind* of act,
+not its size — everything else an editor does stays inside the workspace and is undone by editing,
+and this one makes its content readable by anybody handed a URL. **Changing a workflow's visibility
+is not a role at all** but a relationship — its creator, or an admin — for the reason
+`lib/workflow/visibility.ts` sets out: an editor flipping a colleague's workflow to private would
+hide it from the people it was shared with, which is a destructive act dressed as an edit.
 
-**What is still Phase 20's**: per-workflow sharing, a public share link, changing an existing
-member's role, and hiding in the UI what the API already refuses. A viewer today sees a Save button
-and is told *"This needs the editor role in this workspace, or higher"* when they press it. That is
-correct and unpolished, in that order.
+### Changing a member's role — **DEFINED** (Phase 20)
+
+`PATCH /api/workspaces/:id/members/:userId` with `{ role }`. The rule is `roleChangeRefusal` in
+`src/lib/workspace/roles.ts`, and it is applied in the order **authority → ownership → invariant**,
+which is Phase 19B's bug fix carried across: a viewer aiming a demotion at the sole owner must be
+told they may not do this, not that the workspace would be left ownerless.
+
+| Refusal | HTTP | When |
+|---|---|---|
+| `not_allowed` | 403 | Changing anybody's role — **including your own** — needs `admin`. Unlike *leaving*, a self-demotion is not an escape hatch |
+| `owner_only` | 403 | Only an owner may **grant** `owner`, and only an owner may change an owner's role. Both halves are needed, or `admin` is `owner` with extra steps |
+| `last_owner` | 409 | The workspace would have no owner. The same invariant `removalRefusal` protects, reached by a different route |
+| `no_change` | 409 | The target already holds that role — so the list the request was built from is stale |
+| — | 400 | The value is not one of the four roles. The route's schema refuses it before the rule is reached |
+
+**The handover is: promote the successor, then step down.** An owner may demote themselves once a
+second owner exists, and that is the only way the sole owner of a shared workspace stops being one.
+
+**A role change takes effect on the next request.** The role is read per request from the membership
+row — there is no session to re-mint and no cache to wait out — which is asserted against the
+deployed system rather than assumed.
 
 ---
 
@@ -880,6 +927,90 @@ already has.
 
 There is deliberately no `activeWorkspaceId` column: it would be a write on every switch against a
 metered database, and it would make the choice global across every browser and tab.
+
+---
+
+## Per-workflow sharing — **DEFINED** (Phase 20)
+
+Two columns on `workflow`, and they are **independent on purpose**. `visibility` is who among your
+colleagues may open it; `shareToken` is whether anybody handed a URL may read it. A private workflow
+with a live link is coherent — *not ready for my colleagues, ready for the person I am showing it
+to* — and collapsing the two into one three-valued ladder would make "published" look like a kind of
+privacy setting rather than the outward-facing act it is.
+
+### `workflow.visibility`
+
+| Value | Who can see it |
+|---|---|
+| `workspace` | Every member. **The default, and exactly what Phase 19A already did** — so the migration changes nothing anybody can observe |
+| `private` | Its **creator** (`ownerId`), plus the workspace's `admin`s and `owner`s |
+
+**Admins see private workflows, and that is a decision rather than a hole.** A private workflow still
+runs with the *workspace's* credentials: it can send mail from the workspace's Gmail connection and
+post to its Discord channel. An admin who cannot see it cannot account for what those credentials are
+doing. `private` means *not yet shared with my colleagues*; it has never meant *hidden from the
+workspace*, and the UI says so in those words.
+
+**An invisible workflow answers 404, not 403** — D20 applied one level in. The fact that it exists is
+what `private` hides, so confirming it with a 403 would defeat the column.
+
+The filter is `visibleWorkflows(scope)` in `src/lib/workflow/visibility.ts`, applied in the `where`
+of `listWorkflows` and `getWorkflow`. Every workflow-scoped route reaches its rows through one of
+those two, so versions, per-workflow run lists, the stream and execution are covered without knowing
+about it. **`getRun` and the unfiltered `listRuns` are the two exceptions** — they are addressed by
+*run* id — and both join `workflow` and apply the same predicate, or a viewer would read the steps,
+inputs and outputs of a workflow they cannot open.
+
+**A trigger is not a person.** The webhook, the cron tick and the dispatcher derive their scope from
+the workflow row (`systemScope`), so a private workflow still fires on its own triggers.
+
+### The public share link
+
+| Property | Value |
+|---|---|
+| Token | 24 bytes of CSPRNG, base64url — 192 bits in 32 characters, the same width as the webhook token (D41) and for the same reason: this is an unauthenticated surface and the token is the whole of its access control |
+| Stored as | **Plaintext**, unlike an invitation's hash. The URL has to be displayable for as long as the link is live, exactly as the webhook URL is — which is why revoking is the only way to stop it |
+| Uniqueness | A **partial** unique index on `shareToken where shareToken is not null`. One token names at most one workflow, enforced by the database rather than by the code that mints it (D6 — no transactions) |
+| Minting | **Idempotent.** An already-shared workflow answers with the link it has. Rotating is deliberately `DELETE` then `POST`: a share URL gets pasted into a README, and re-minting it on every press of a Share button would break those silently |
+| Revoking | The token is **discarded**, so the URL can never come back. Idempotent |
+| Needs | `admin` to publish or revoke. Nobody needs anything to read one |
+
+### What a share link may carry — **the allowlist**
+
+`src/lib/workflow/share.ts` holds one table, `PUBLISHABLE`, keyed by node type, and **its default
+publishes nothing**. A denylist — "strip `headers`, strip `to`" — is the obvious shape and it fails
+open: the day somebody adds a node with a `token` field, the denylist does not know about it. This
+one refuses to publish a field nobody has named, so the same mistake produces a share that says too
+little, which somebody notices, rather than one that says too much, which nobody does.
+`share.test.ts` asserts every registered node type has an entry, so adding a node fails the build
+until its publishability is a decision somebody took.
+
+**The line the table draws is: shape and settings are published, typed-in values are not.** Enums,
+numbers, booleans and the *names* of object keys carry no authored content; a URL, a prompt, an email
+address, a message body and a header value all can. So `integration.http` publishes its method and
+its header **names** and withholds the URL, the body and every header value; `integration.gmail`
+publishes nothing at all; `core.set` publishes its field names and none of their values.
+
+Each shared node carries a `redacted` array naming what was withheld, and the page prints the count.
+A reader who cannot tell *unconfigured* from *not shown to you* is being misled by omission, which is
+the failure mode a share link has.
+
+### Routes
+
+| Route | Body | Returns |
+|---|---|---|
+| `POST /api/workflows/:id/share` | — | **201** the first time with `shareUrl` set, **200** if a link already existed. `admin` |
+| `DELETE /api/workflows/:id/share` | — | The workflow with `shareUrl: null`. `admin`. Idempotent |
+| `GET /api/share/:token` | — | `{ name, description, graph, version, updatedAt }`. **No session.** The token is pattern-checked before any query, and every dead or malformed token answers the identical 404 |
+
+`/s/:token` renders the same thing as a page, `noindex`, reading the database directly rather than
+fetching its own API — the redaction is the same function either way.
+
+**The response is built field by field from an explicit list, never by spreading the row.** The
+workflow row carries `webhookToken`, `shareToken`, `ownerId`, `workspaceId` and `visibility`, and a
+column added to that table later would arrive in the response under any shape that started from the
+row. Nothing about a run, a credential or a member of the workspace is reachable from that function
+at all: it is handed one workflow and has nothing else to leak.
 
 ---
 

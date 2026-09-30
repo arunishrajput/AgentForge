@@ -113,7 +113,7 @@ mapped to the phase that delivers it. `BUILD_PLAN.md` is the contract; this is t
 | C5 | Workflow versioning, restore, visual diff | 18 — **DONE** | Post-Hackathon |
 | C6a | Workspaces: the data model and scoping | 19A — **DONE** | Post-Hackathon |
 | C6b | Membership: invitations and the switcher | 19B — **DONE** | Post-Hackathon |
-| C7 | Roles, permissions, sharing | 20 | Post-Hackathon |
+| C7 | Roles, permissions, sharing | 20 — **DONE** | Post-Hackathon |
 | C8 | Credential vault, rotation, audit log | 21 | Post-Hackathon. Rotation was the sharpest known gap |
 | C9 | Observability, metrics, run analytics | 22 | Post-Hackathon |
 | C10 | Node catalogue well beyond 15 nodes | 23 | S5, capped for time |
@@ -163,10 +163,29 @@ so rather than implying a message was sent. A link is single use, expires in sev
 for the address it names, and can be revoked. The header carries a switcher; a member may leave, and
 the last owner may not.
 
-**Roles mean something.** `viewer` reads, `editor` builds and runs, `admin` also invites and connects
-credentials, `owner` also removes owners. **Enforced server-side on every route**, not by hiding
-buttons — a viewer who crafts the request is refused with a 403 that names the role required.
-Per-workflow sharing, promoting an existing member and hiding refused controls in the UI are Phase 20.
+**Roles mean something.** `viewer` reads, `editor` builds and runs, `admin` also invites, connects
+credentials, changes other members' roles and publishes share links, `owner` also grants and removes
+ownership. **Enforced server-side on every route**, not by hiding buttons — a viewer who crafts the
+request is refused with a 403 that names the role required, and the UI additionally withholds the
+control, which is a courtesy rather than the enforcement. An admin can move an existing member
+between roles; ownership moves only by an owner's hand, and the last owner can neither be removed nor
+demoted, so a workspace can never become unadministrable.
+
+**Per-workflow sharing.** A workflow is visible to everybody in its workspace by default, and its
+creator or an admin can narrow it to *just me, and the admins* — admins included deliberately,
+because a workflow runs with the workspace's credentials and somebody has to be able to account for
+that. A workflow narrowed this way is **404 to everybody else**, including its runs and its history,
+so its existence is hidden rather than merely its contents. Its own triggers still fire: visibility
+governs people, not machines.
+
+**A public share link.** An admin can publish a read-only page for one workflow that anybody with the
+URL can open, signed in or not, and revoke it in one press — after which the URL is dead and cannot
+come back. The page shows the **shape** of the workflow: its nodes, how they are wired, and every
+setting that cannot carry a secret. It withholds **every value the author typed** — URLs, prompts,
+message bodies, email addresses, request headers — and says so on the page, with a count of what was
+hidden. It carries no run, no credential, no id and nothing about the workspace or who is in it.
+What may be published is an allowlist that defaults to publishing nothing, so a node added later
+cannot widen it by existing.
 
 **Workflows.** Create, rename, delete. A workflow is a set of nodes and directed edges with
 per-node configuration. Save and load must round-trip losslessly — a saved workflow reloads

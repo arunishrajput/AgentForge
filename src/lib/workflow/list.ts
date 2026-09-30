@@ -44,6 +44,15 @@ export type WorkflowCard = {
   runnable: boolean;
   problemCount: number;
   scheduleCron: string | null;
+  /**
+   * Phase 20. `private` means only its creator and the workspace's admins can open it;
+   * `workspace` is the default and means everybody in the workspace. A card is only ever
+   * built for a workflow the reader may already see, so this is a *label* rather than a
+   * filter — the filtering happened in SQL (`lib/workflow/visibility.ts`).
+   */
+  visibility: string;
+  /** A public link is live on this workflow. Not the link itself — a card does not need it. */
+  shared: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -60,6 +69,8 @@ type DescribedWorkflow = {
   runnable: boolean;
   problems: unknown[];
   scheduleCron: string | null;
+  visibility: string;
+  shareUrl: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -99,6 +110,11 @@ export function toWorkflowCard(workflow: DescribedWorkflow, lookup: NodeLookup):
     runnable: workflow.runnable,
     problemCount: workflow.problems.length,
     scheduleCron: workflow.scheduleCron,
+    visibility: workflow.visibility,
+    // A boolean rather than the URL: the list is a client component, so anything put on a
+    // card ships to the browser, and the card has no use for the link. The dialog on the
+    // canvas is where a share URL belongs.
+    shared: workflow.shareUrl !== null,
     createdAt: workflow.createdAt,
     updatedAt: workflow.updatedAt,
   };

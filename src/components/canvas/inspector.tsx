@@ -56,6 +56,7 @@ export function Inspector({
   onChangeTriggerInput,
   queueing,
   canRun,
+  readOnly,
   onRunDurably,
   onChangeNode,
   onDeleteNode,
@@ -84,6 +85,12 @@ export function Inspector({
   queueing: boolean;
   /** Nothing is busy and no run is in flight, so starting one is possible. */
   canRun: boolean;
+  /**
+   * The viewer's role does not carry editing — **Phase 20**. The panel stays open and
+   * every value stays legible; nothing in it can be changed. Reading a node's
+   * configuration is a read, and it is most of what a viewer opens this panel for.
+   */
+  readOnly: boolean;
   onRunDurably: () => void;
   onChangeNode: (id: string, data: Partial<CanvasNode["data"]>) => void;
   onDeleteNode: (id: string) => void;
@@ -118,6 +125,7 @@ export function Inspector({
           workflow={workflow}
           dirty={dirty}
           problems={problems.filter((problem) => problem.nodeId === node.id)}
+          readOnly={readOnly}
           onChange={onChangeNode}
           onDelete={onDeleteNode}
         />
@@ -131,6 +139,7 @@ export function Inspector({
           onChangeTriggerInput={onChangeTriggerInput}
           queueing={queueing}
           canRun={canRun}
+          readOnly={readOnly}
           onRunDurably={onRunDurably}
           onSelectNode={onSelectNode}
         />
@@ -145,6 +154,7 @@ function NodeInspector({
   workflow,
   dirty,
   problems,
+  readOnly,
   onChange,
   onDelete,
 }: {
@@ -153,6 +163,7 @@ function NodeInspector({
   workflow: Workflow;
   dirty: boolean;
   problems: GraphProblem[];
+  readOnly: boolean;
   onChange: (id: string, data: Partial<CanvasNode["data"]>) => void;
   onDelete: (id: string) => void;
 }) {
@@ -194,29 +205,49 @@ function NodeInspector({
           </Notice>
         )}
 
-        <Labelled label="Label" hint="What this node is called on the canvas.">
-          <Input
-            type="text"
-            value={node.data.label ?? ""}
-            placeholder={definition?.label ?? ""}
-            maxLength={200}
-            onChange={(event) =>
-              onChange(node.id, {
-                label: event.target.value === "" ? undefined : event.target.value,
-              })
-            }
-          />
-        </Labelled>
+        {/* **One `<fieldset disabled>` rather than a `readOnly` prop threaded through
+            four components** — Phase 20. A native disabled fieldset disables every form
+            control inside it, however deeply nested and whatever type, which is exactly
+            the guarantee wanted here: the config form builds its controls from a JSON
+            schema at runtime, so a field type added later is covered without anybody
+            remembering to cover it. A prop passed down through `ConfigForm` → `Field` →
+            `Control` → six control components is the version of this that eventually
+            misses one.
 
-        {definition && (
-          // Remounts on selection change, which reloads the form's local drafts.
-          <ConfigForm
-            key={node.id}
-            schema={definition.configSchema}
-            config={node.data.config}
-            onChange={(config) => onChange(node.id, { config })}
-          />
+            `min-w-0` because a fieldset's default `min-inline-size: min-content` breaks
+            the panel's flex layout, and `contents` is not usable — it drops the disabling.
+
+            The values stay readable. That is the point: a viewer is here to read them. */}
+        {readOnly && (
+          <p className="text-faint text-2xs text-pretty">
+            You can read this node&rsquo;s configuration and not change it.
+          </p>
         )}
+        <fieldset disabled={readOnly} className="min-w-0 space-y-4 border-0 p-0">
+          <Labelled label="Label" hint="What this node is called on the canvas.">
+            <Input
+              type="text"
+              value={node.data.label ?? ""}
+              placeholder={definition?.label ?? ""}
+              maxLength={200}
+              onChange={(event) =>
+                onChange(node.id, {
+                  label: event.target.value === "" ? undefined : event.target.value,
+                })
+              }
+            />
+          </Labelled>
+
+          {definition && (
+            // Remounts on selection change, which reloads the form's local drafts.
+            <ConfigForm
+              key={node.id}
+              schema={definition.configSchema}
+              config={node.data.config}
+              onChange={(config) => onChange(node.id, { config })}
+            />
+          )}
+        </fieldset>
 
         {/* A trigger's URL and its next due time are workflow state, not node config,
             so they sit below the form rather than inside it. */}
@@ -230,24 +261,32 @@ function NodeInspector({
         {definition && definition.kind !== "trigger" && (
           <>
             <hr className="border-line-soft" />
-            <PolicyForm
-              key={node.id}
-              policy={node.data.policy}
-              onChange={(policy) => onChange(node.id, { policy })}
-            />
+            <fieldset disabled={readOnly} className="min-w-0 border-0 p-0">
+              <PolicyForm
+                key={node.id}
+                policy={node.data.policy}
+                onChange={(policy) => onChange(node.id, { policy })}
+              />
+            </fieldset>
           </>
         )}
       </div>
 
-      <footer className="border-line shrink-0 border-t-2 px-3 py-2.5">
-        <button
-          type="button"
-          onClick={() => onDelete(node.id)}
-          className="btn btn-danger w-full"
-        >
-          Delete node
-        </button>
-      </footer>
+      {/* The footer goes entirely rather than holding a disabled Delete. A whole bar
+          whose only control can never be used is a permanent claim that something is
+          available here, and it costs the panel 44px of the height a viewer is using to
+          read. */}
+      {!readOnly && (
+        <footer className="border-line shrink-0 border-t-2 px-3 py-2.5">
+          <button
+            type="button"
+            onClick={() => onDelete(node.id)}
+            className="btn btn-danger w-full"
+          >
+            Delete node
+          </button>
+        </footer>
+      )}
     </>
   );
 }
@@ -261,6 +300,7 @@ function WorkflowInspector({
   onChangeTriggerInput,
   queueing,
   canRun,
+  readOnly,
   onRunDurably,
   onSelectNode,
 }: {
@@ -272,6 +312,7 @@ function WorkflowInspector({
   onChangeTriggerInput: (value: string) => void;
   queueing: boolean;
   canRun: boolean;
+  readOnly: boolean;
   onRunDurably: () => void;
   onSelectNode: (id: string) => void;
 }) {
@@ -290,26 +331,42 @@ function WorkflowInspector({
         </Notice>
       )}
 
-      {/* The manual trigger exists to turn a payload into the first node's output, so
-          the canvas has to be able to supply one. */}
-      <TriggerInput value={triggerInput} onChange={onChangeTriggerInput} />
+      {/* **Both of these go for a viewer — found in a browser, not by a test** (Phase 20).
+          The trigger input is a payload for a run they cannot start, and the durable-run
+          button was correctly disabled and still sat there under a paragraph explaining a
+          feature they have no way to use. Two dead controls and an explanation of a third:
+          the `canRun` flag made the button honest and left the panel dishonest. */}
+      {!readOnly && (
+        <>
+          {/* The manual trigger exists to turn a payload into the first node's output, so
+              the canvas has to be able to supply one. */}
+          <TriggerInput value={triggerInput} onChange={onChangeTriggerInput} />
 
-      {/* Durable running lives here rather than in the toolbar, and the reason is the
-          explanation. "Run" and "Run in the background" are indistinguishable as two
-          adjacent buttons — the difference is what happens when the server restarts, which
-          is not something a label conveys — and the toolbar at 375 px has no room for a
-          sentence. Here there is room, so the affordance and its meaning arrive together. */}
-      <DurableRun queueing={queueing} canRun={canRun} onRun={onRunDurably} />
+          {/* Durable running lives here rather than in the toolbar, and the reason is the
+              explanation. "Run" and "Run in the background" are indistinguishable as two
+              adjacent buttons — the difference is what happens when the server restarts,
+              which is not something a label conveys — and the toolbar at 375 px has no room
+              for a sentence. Here there is room, so the affordance and its meaning arrive
+              together. */}
+          <DurableRun queueing={queueing} canRun={canRun} onRun={onRunDurably} />
+        </>
+      )}
 
       {run ? (
         <RunPanel run={run} live={live} names={names} onSelectNode={onSelectNode} />
       ) : (
-        problems.length === 0 && (
+        problems.length === 0 &&
+        (readOnly ? (
+          <p className="text-muted text-xs leading-relaxed">
+            Nobody has run this workflow recently. When somebody does, every step it takes
+            appears here — a run is visible to everybody in the workspace, whoever started it.
+          </p>
+        ) : (
           <p className="text-muted text-xs leading-relaxed">
             Press <strong className="text-ink">Run</strong> to execute this workflow. Each
             node reports on the canvas as it goes, and every step it took appears here.
           </p>
-        )
+        ))
       )}
     </div>
   );

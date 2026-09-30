@@ -40,9 +40,12 @@ landed in Phase 18: every save is a version, any version can be named and restor
 compare visually on the canvas, and every run records which version it executed. **Workspaces**
 landed in Phase 19: every workflow, run, version and credential belongs to a workspace rather than
 to a person, people are invited into one by a single-use expiring link, and `viewer` / `editor` /
-`admin` / `owner` are enforced server-side on every route. Still to come — per-workflow sharing, a
-credential vault, observability, a much larger node catalogue, and proper documentation. It stays
-free to run.
+`admin` / `owner` are enforced server-side on every route. **Sharing** landed in Phase 20: an admin
+can move a member between roles, a workflow can be made private to its author and the workspace's
+admins, and any workflow can be published as a **read-only page anybody with the link can open** —
+showing the shape of the graph and every setting, and withholding every value its author typed.
+Still to come — a credential vault, observability, a much larger node catalogue, and proper
+documentation. It stays free to run.
 
 **The redesign has landed.** Phase 14 replaced the dark Chapter 1 interface with **Toybox** — bright,
 playful and light-first, with saturated colour, thick ink outlines and hard offset shadows. It is

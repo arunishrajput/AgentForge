@@ -3081,6 +3081,804 @@ try {
     await sql.query('delete from "session" where "sessionToken" = $1', [memberToken]).catch(() => {});
   }
 
+  // --- roles, permissions and sharing (Phase 20) ------------------------------
+  //
+  // **The matrix `BUILD_PLAN.md` Phase 20 asks for: every role against every action,
+  // asserted at the API and not at the UI.**
+  //
+  // It runs in a **workspace created for it and deleted afterwards**, which is what makes it
+  // able to be exhaustive. The allowed half of a permission matrix is destructive by nature —
+  // it deletes workflows, stores credentials and renames the workspace — and pointing that at
+  // the account's real workspace would mean either skipping those rows or damaging live data.
+  // In a throwaway workspace with one throwaway workflow, nothing in it is precious.
+  //
+  // The probe account's role is moved by direct SQL rather than through the new PATCH route.
+  // That is deliberate: a role is a database fact, and driving the matrix through the very
+  // route the matrix is testing would make one bug able to hide another. The PATCH route gets
+  // its own checks below, against the same rules.
+  const MATRIX_USER_ID = "zzzz-matrix-probe";
+  const MATRIX_EMAIL = "matrix-probe@agentforge.invalid";
+  const matrixToken = crypto.randomUUID() + crypto.randomUUID();
+  let arena = null;
+  let arenaWorkflowId = null;
+
+  try {
+    await cleanUpProbe(MATRIX_USER_ID);
+
+    await sql.query('insert into "user" ("id", "name", "email") values ($1, $2, $3)', [
+      MATRIX_USER_ID,
+      "Matrix Probe",
+      MATRIX_EMAIL,
+    ]);
+    await sql.query(
+      'insert into "session" ("sessionToken", "userId", "expires") values ($1, $2, $3)',
+      [matrixToken, MATRIX_USER_ID, new Date(Date.now() + 60 * 60 * 1000)],
+    );
+    // The probe needs a personal workspace of its own, because every fallback in the
+    // product resolves one — and because removing it from the arena must leave it somewhere.
+    const [matrixHome] = await sql.query(
+      'insert into "workspace" ("id", "name", "createdBy", "personal") values (gen_random_uuid()::text, $1, $2, true) returning "id"',
+      ["Matrix probe home", MATRIX_USER_ID],
+    );
+    await sql.query(
+      'insert into "workspace_member" ("workspaceId", "userId", "role") values ($1, $2, $3)',
+      [matrixHome.id, MATRIX_USER_ID, "owner"],
+    );
+
+    const arenaCreated = await api("POST", "/api/workspaces", { name: "zzzz matrix arena" }, token);
+    arena = arenaCreated.json?.data?.id ?? null;
+    check("a throwaway workspace exists to run the matrix in", arena !== null, JSON.stringify(arenaCreated.json).slice(0, 200));
+    await sql.query(
+      'insert into "workspace_member" ("workspaceId", "userId", "role") values ($1, $2, $3)',
+      [arena, MATRIX_USER_ID, "viewer"],
+    );
+
+    /** A trivial graph: a manual trigger into a log. It runs in milliseconds and calls nothing. */
+    const cheapGraph = {
+      version: 1,
+      nodes: [
+        { id: "trigger", type: "core.manual_trigger", position: { x: 0, y: 0 }, config: {} },
+        { id: "say", type: "core.log", position: { x: 240, y: 0 }, config: { message: "matrix", level: "info" } },
+      ],
+      edges: [{ id: "e1", source: "trigger", target: "say", sourceHandle: null }],
+    };
+
+    const makeArenaWorkflowAs = async (as, name) => {
+      const created = await api("POST", "/api/workflows", { name, graph: cheapGraph }, as, arena);
+      return created.json?.data?.id ?? null;
+    };
+    const makeArenaWorkflow = (name) => makeArenaWorkflowAs(token, name);
+
+    arenaWorkflowId = await makeArenaWorkflow("zzzz matrix subject");
+    check("the matrix has a workflow to aim at", arenaWorkflowId !== null);
+
+    /**
+     * **The matrix itself.** Each row is an action and the minimum role `CONTRACT.md` →
+     * *What each role may do* says it needs. `destructive` marks a row that consumes the
+     * workflow it is aimed at, so the allowed half re-creates one first.
+     */
+    const ROLES = ["viewer", "editor", "admin", "owner"];
+    const rank = (role) => ROLES.indexOf(role);
+
+    const actions = (wfId) => [
+      // viewer — reads
+      ["read a workflow", "GET", `/api/workflows/${wfId}`, undefined, "viewer"],
+      ["list the workspace's workflows", "GET", "/api/workflows", undefined, "viewer"],
+      ["list a workflow's runs", "GET", `/api/workflows/${wfId}/runs`, undefined, "viewer"],
+      ["list every run", "GET", "/api/runs", undefined, "viewer"],
+      ["list a workflow's versions", "GET", `/api/workflows/${wfId}/versions`, undefined, "viewer"],
+      ["read one version", "GET", `/api/workflows/${wfId}/versions/1`, undefined, "viewer"],
+      ["read the provider status", "GET", "/api/settings/provider", undefined, "viewer"],
+      ["read the Discord status", "GET", "/api/integrations/discord", undefined, "viewer"],
+      ["read the Google status", "GET", "/api/integrations/google", undefined, "viewer"],
+      ["read the members list", "GET", `/api/workspaces/${arena}/members`, undefined, "viewer"],
+      ["list this account's workspaces", "GET", "/api/workspaces", undefined, "viewer"],
+
+      // editor — writes inside the workspace
+      ["create a workflow", "POST", "/api/workflows", { name: "zzzz matrix created" }, "editor"],
+      ["edit a workflow", "PATCH", `/api/workflows/${wfId}`, { description: "matrix" }, "editor"],
+      ["run a workflow", "POST", `/api/workflows/${wfId}/runs`, { input: null, mode: "sync" }, "editor"],
+      ["label a version", "PATCH", `/api/workflows/${wfId}/versions/1`, { label: "matrix" }, "editor"],
+      ["restore a version", "POST", `/api/workflows/${wfId}/versions/1/restore`, {}, "editor"],
+      ["delete a workflow", "DELETE", `/api/workflows/${wfId}`, undefined, "editor", "destructive"],
+
+      // admin — credentials, the workspace itself, and publishing
+      ["store a provider key", "PUT", "/api/settings/provider", { apiKey: "AIzaNotARealKeyAtAll123" }, "admin"],
+      ["delete the provider key", "DELETE", "/api/settings/provider", undefined, "admin"],
+      ["list provider models", "GET", "/api/settings/provider/models", undefined, "admin"],
+      ["store a Discord webhook", "PUT", "/api/integrations/discord", { webhookUrl: "https://discord.com/api/webhooks/1/matrix" }, "admin"],
+      ["disconnect Discord", "DELETE", "/api/integrations/discord", undefined, "admin"],
+      ["disconnect Google", "DELETE", "/api/integrations/google", undefined, "admin"],
+      ["rename the workspace", "PATCH", `/api/workspaces/${arena}`, { name: "zzzz matrix arena" }, "admin"],
+      ["list the invitations", "GET", `/api/workspaces/${arena}/invitations`, undefined, "admin"],
+      ["invite somebody", "POST", `/api/workspaces/${arena}/invitations`, { email: "matrix-invitee@agentforge.invalid", role: "viewer" }, "admin"],
+      ["publish a public share link", "POST", `/api/workflows/${wfId}/share`, undefined, "admin"],
+      ["revoke a public share link", "DELETE", `/api/workflows/${wfId}/share`, undefined, "admin"],
+    ];
+
+    /**
+     * **Pass A — the refusal half, run for every role below each action's minimum.**
+     *
+     * This is the security-relevant half and it is exhaustive: every cell of the lower
+     * triangle. Nothing in it mutates anything, because every call is expected to be
+     * refused — which is also what the row counts below prove rather than assume.
+     */
+    const [{ n: wfBefore }] = await sql.query(
+      'select count(*)::int as n from "workflow" where "workspaceId" = $1',
+      [arena],
+    );
+    const [{ n: runsBefore }] = await sql.query(
+      'select count(*)::int as n from "run" where "workspaceId" = $1',
+      [arena],
+    );
+    const [{ n: credsBefore }] = await sql.query(
+      'select count(*)::int as n from "credential" where "workspaceId" = $1',
+      [arena],
+    );
+
+    let refusals = 0;
+    let wrongRefusals = [];
+    for (const role of ROLES) {
+      await sql.query(
+        'update "workspace_member" set "role" = $1 where "workspaceId" = $2 and "userId" = $3',
+        [role, arena, MATRIX_USER_ID],
+      );
+      for (const [what, method, path, body, needs] of actions(arenaWorkflowId)) {
+        if (rank(role) >= rank(needs)) continue;
+        const response = await api(method, path, body, matrixToken, arena);
+        refusals += 1;
+        if (response.status !== 403 || response.json?.error?.code !== "forbidden") {
+          wrongRefusals.push(`${role} → ${what}: got ${response.status} ${JSON.stringify(response.json).slice(0, 90)}`);
+        }
+      }
+    }
+    check(
+      `every role below the bar is refused — ${refusals} cells of the matrix`,
+      wrongRefusals.length === 0,
+      wrongRefusals.slice(0, 6).join("\n        "),
+    );
+    // **The refusals refused BEFORE writing.** A route that wrote and then checked would
+    // pass every assertion above.
+    const [{ n: wfAfter }] = await sql.query(
+      'select count(*)::int as n from "workflow" where "workspaceId" = $1',
+      [arena],
+    );
+    const [{ n: runsAfter }] = await sql.query(
+      'select count(*)::int as n from "run" where "workspaceId" = $1',
+      [arena],
+    );
+    const [{ n: credsAfter }] = await sql.query(
+      'select count(*)::int as n from "credential" where "workspaceId" = $1',
+      [arena],
+    );
+    check(
+      "not one refused request changed a row",
+      wfAfter === wfBefore && runsAfter === runsBefore && credsAfter === credsBefore,
+      `workflows ${wfBefore}→${wfAfter}, runs ${runsBefore}→${runsAfter}, credentials ${credsBefore}→${credsAfter}`,
+    );
+
+    /**
+     * **Pass B — the allowed half, run at exactly the minimum role for each action.**
+     *
+     * At the boundary, because that is where the interesting failure is: a rule written one
+     * rung too high refuses the role the matrix says may do it, and nothing above the
+     * boundary would reveal that. "Not 403" is the assertion rather than "200" on purpose —
+     * `list provider models` with a fake key answers 400, `disconnect Google` with nothing
+     * connected answers 404, and a generation can answer 429. None of those is a refusal,
+     * and demanding 200 would turn this into a test of the provider's uptime.
+     */
+    let denied = [];
+    let allowed = 0;
+    for (const role of ROLES) {
+      await sql.query(
+        'update "workspace_member" set "role" = $1 where "workspaceId" = $2 and "userId" = $3',
+        [role, arena, MATRIX_USER_ID],
+      );
+      let subject = arenaWorkflowId;
+      for (const [what, method, path, body, needs, destructive] of actions(subject)) {
+        if (needs !== role) continue;
+        // A destructive row gets its own workflow, so the rows after it still have one.
+        const target = destructive ? await makeArenaWorkflow("zzzz matrix victim") : subject;
+        const response = await api(
+          method,
+          destructive ? path.replace(subject, target) : path,
+          body,
+          matrixToken,
+          arena,
+        );
+        allowed += 1;
+        if (response.status === 403) {
+          denied.push(`${role} → ${what}: ${JSON.stringify(response.json).slice(0, 90)}`);
+        }
+      }
+    }
+    check(
+      `every role at the bar is allowed — ${allowed} cells of the matrix`,
+      denied.length === 0,
+      denied.slice(0, 6).join("\n        "),
+    );
+
+    // --- changing a role, through the route (Phase 20's own) ------------------
+    await sql.query(
+      'update "workspace_member" set "role" = $1 where "workspaceId" = $2 and "userId" = $3',
+      ["viewer", arena, MATRIX_USER_ID],
+    );
+    const promote = await api(
+      "PATCH",
+      `/api/workspaces/${arena}/members/${MATRIX_USER_ID}`,
+      { role: "editor" },
+      token,
+      arena,
+    );
+    check(
+      "an owner can promote a viewer to editor",
+      promote.status === 200 && promote.json?.data?.role === "editor",
+      `got ${promote.status} ${JSON.stringify(promote.json).slice(0, 160)}`,
+    );
+    const [promoted] = await sql.query(
+      'select "role" from "workspace_member" where "workspaceId" = $1 and "userId" = $2',
+      [arena, MATRIX_USER_ID],
+    );
+    check("the promotion is in the database, not only in the response", promoted?.role === "editor");
+
+    // **The promotion takes effect on the very next request** — the role is read per
+    // request from the membership row, so there is no session to re-mint and no cache to
+    // wait out. This is the check that proves it.
+    const nowAllowed = await api(
+      "PATCH",
+      `/api/workflows/${arenaWorkflowId}`,
+      { description: "written as an editor" },
+      matrixToken,
+      arena,
+    );
+    check(
+      "a promoted member can immediately do what the new role carries",
+      nowAllowed.status === 200,
+      `got ${nowAllowed.status} ${JSON.stringify(nowAllowed.json).slice(0, 140)}`,
+    );
+
+    const demote = await api(
+      "PATCH",
+      `/api/workspaces/${arena}/members/${MATRIX_USER_ID}`,
+      { role: "viewer" },
+      token,
+      arena,
+    );
+    check("and can be demoted again", demote.status === 200 && demote.json?.data?.role === "viewer");
+    const nowRefused = await api(
+      "PATCH",
+      `/api/workflows/${arenaWorkflowId}`,
+      { description: "written as a viewer" },
+      matrixToken,
+      arena,
+    );
+    check(
+      "a demoted member loses it on the next request",
+      nowRefused.status === 403,
+      `got ${nowRefused.status}`,
+    );
+    const [{ description: afterDemotion }] = await sql.query(
+      'select "description" from "workflow" where "id" = $1',
+      [arenaWorkflowId],
+    );
+    check(
+      "and the refused write changed nothing",
+      afterDemotion === "written as an editor",
+      `description is ${afterDemotion}`,
+    );
+
+    const notARole = await api(
+      "PATCH",
+      `/api/workspaces/${arena}/members/${MATRIX_USER_ID}`,
+      { role: "root" },
+      token,
+      arena,
+    );
+    check("a role that is not a role is refused by the schema", notARole.status === 400, `got ${notARole.status}`);
+
+    const sameRole = await api(
+      "PATCH",
+      `/api/workspaces/${arena}/members/${MATRIX_USER_ID}`,
+      { role: "viewer" },
+      token,
+      arena,
+    );
+    check(
+      "changing a member to the role they already hold is a conflict, not a silent no-op",
+      sameRole.status === 409,
+      `got ${sameRole.status} ${JSON.stringify(sameRole.json).slice(0, 140)}`,
+    );
+
+    // The owner-only half of the rule, from both directions. An admin who could grant
+    // ownership would be an owner with extra steps.
+    await sql.query(
+      'update "workspace_member" set "role" = $1 where "workspaceId" = $2 and "userId" = $3',
+      ["admin", arena, MATRIX_USER_ID],
+    );
+    const adminGrantsOwner = await api(
+      "PATCH",
+      `/api/workspaces/${arena}/members/${MATRIX_USER_ID}`,
+      { role: "owner" },
+      matrixToken,
+      arena,
+    );
+    check(
+      "an admin cannot promote anybody — including itself — to owner",
+      adminGrantsOwner.status === 403,
+      `got ${adminGrantsOwner.status} ${JSON.stringify(adminGrantsOwner.json).slice(0, 140)}`,
+    );
+    const adminDemotesOwner = await api(
+      "PATCH",
+      `/api/workspaces/${arena}/members/${user.id}`,
+      { role: "viewer" },
+      matrixToken,
+      arena,
+    );
+    check(
+      "an admin cannot demote an owner",
+      adminDemotesOwner.status === 403,
+      `got ${adminDemotesOwner.status} ${JSON.stringify(adminDemotesOwner.json).slice(0, 140)}`,
+    );
+    const [{ role: ownerStill }] = await sql.query(
+      'select "role" from "workspace_member" where "workspaceId" = $1 and "userId" = $2',
+      [arena, user.id],
+    );
+    check("and the owner is still the owner", ownerStill === "owner", `role is ${ownerStill}`);
+
+    const lastOwnerDemotion = await api(
+      "PATCH",
+      `/api/workspaces/${arena}/members/${user.id}`,
+      { role: "admin" },
+      token,
+      arena,
+    );
+    check(
+      "the only owner cannot be demoted — the workspace would be unadministrable",
+      lastOwnerDemotion.status === 409,
+      `got ${lastOwnerDemotion.status} ${JSON.stringify(lastOwnerDemotion.json).slice(0, 160)}`,
+    );
+
+    // The handover: promote a second owner, then the first may step down.
+    const grantOwner = await api(
+      "PATCH",
+      `/api/workspaces/${arena}/members/${MATRIX_USER_ID}`,
+      { role: "owner" },
+      token,
+      arena,
+    );
+    check("an owner can grant ownership", grantOwner.status === 200 && grantOwner.json?.data?.role === "owner");
+    const stepDown = await api(
+      "PATCH",
+      `/api/workspaces/${arena}/members/${user.id}`,
+      { role: "admin" },
+      token,
+      arena,
+    );
+    check(
+      "and can then step down, which is the intended handover",
+      stepDown.status === 200,
+      `got ${stepDown.status} ${JSON.stringify(stepDown.json).slice(0, 160)}`,
+    );
+    // Put it back so the rest of this block runs as an owner.
+    await sql.query(
+      'update "workspace_member" set "role" = $1 where "workspaceId" = $2 and "userId" = $3',
+      ["owner", arena, user.id],
+    );
+    await sql.query(
+      'update "workspace_member" set "role" = $1 where "workspaceId" = $2 and "userId" = $3',
+      ["viewer", arena, MATRIX_USER_ID],
+    );
+
+    const strangerRole = await api(
+      "PATCH",
+      `/api/workspaces/${arena}/members/zzzz-not-a-member`,
+      { role: "editor" },
+      token,
+      arena,
+    );
+    check("changing the role of somebody not in the workspace is a 404", strangerRole.status === 404);
+
+    // --- per-workflow visibility ---------------------------------------------
+    //
+    // The workflow is owned by the main account, so `private` hides it from the probe at
+    // `viewer` and `editor` and shows it at `admin` and `owner` — the decision
+    // `lib/workflow/visibility.ts` argues for at length.
+    const madePrivate = await api(
+      "PATCH",
+      `/api/workflows/${arenaWorkflowId}`,
+      { visibility: "private" },
+      token,
+      arena,
+    );
+    check(
+      "the creator can make a workflow private",
+      madePrivate.status === 200 && madePrivate.json?.data?.visibility === "private",
+      `got ${madePrivate.status} ${JSON.stringify(madePrivate.json).slice(0, 160)}`,
+    );
+
+    // Start a run of it, so the run-visibility checks have something to look for. The run
+    // is by the creator, which is the case that matters: a colleague must not reach it.
+    const privateRun = await api(
+      "POST",
+      `/api/workflows/${arenaWorkflowId}/runs`,
+      { input: null, mode: "sync" },
+      token,
+      arena,
+    );
+    const privateRunId = privateRun.json?.data?.id ?? null;
+    check("a private workflow still runs for its creator", privateRun.status === 201 || privateRun.status === 200, `got ${privateRun.status}`);
+
+    for (const role of ["viewer", "editor"]) {
+      await sql.query(
+        'update "workspace_member" set "role" = $1 where "workspaceId" = $2 and "userId" = $3',
+        [role, arena, MATRIX_USER_ID],
+      );
+      const read = await api("GET", `/api/workflows/${arenaWorkflowId}`, undefined, matrixToken, arena);
+      check(
+        `a ${role} gets 404 on a colleague's private workflow, not 403`,
+        read.status === 404,
+        `got ${read.status} — 403 would confirm the id exists, which is the fact private hides`,
+      );
+      const list = await api("GET", "/api/workflows", undefined, matrixToken, arena);
+      check(
+        `a ${role} does not see it in the list either`,
+        list.status === 200 && !list.json.data.some((w) => w.id === arenaWorkflowId),
+        JSON.stringify(list.json).slice(0, 160),
+      );
+      // **The check the run join exists for.** A run is addressed by its own id and does not
+      // go through `getWorkflow`, so without the join a viewer would read the steps, inputs
+      // and outputs of a workflow they cannot open.
+      if (privateRunId) {
+        const run = await api("GET", `/api/runs/${privateRunId}`, undefined, matrixToken, arena);
+        check(
+          `a ${role} cannot read a run of it by run id`,
+          run.status === 404,
+          `got ${run.status} — the run carries the private workflow's steps`,
+        );
+      }
+      const runs = await api("GET", "/api/runs", undefined, matrixToken, arena);
+      check(
+        `and it is absent from the workspace's run list for a ${role}`,
+        runs.status === 200 && !runs.json.data.some((r) => r.workflowId === arenaWorkflowId),
+        JSON.stringify(runs.json).slice(0, 160),
+      );
+      const versions = await api("GET", `/api/workflows/${arenaWorkflowId}/versions`, undefined, matrixToken, arena);
+      check(`a ${role} cannot read its version history`, versions.status === 404, `got ${versions.status}`);
+      const stream = await api("GET", `/api/workflows/${arenaWorkflowId}/stream`, undefined, matrixToken, arena);
+      check(`a ${role} cannot open its stream`, stream.status === 404, `got ${stream.status}`);
+    }
+
+    for (const role of ["admin", "owner"]) {
+      await sql.query(
+        'update "workspace_member" set "role" = $1 where "workspaceId" = $2 and "userId" = $3',
+        [role, arena, MATRIX_USER_ID],
+      );
+      const read = await api("GET", `/api/workflows/${arenaWorkflowId}`, undefined, matrixToken, arena);
+      check(
+        `an ${role} CAN see a private workflow — it runs with the workspace's credentials`,
+        read.status === 200,
+        `got ${read.status}`,
+      );
+      if (privateRunId) {
+        const run = await api("GET", `/api/runs/${privateRunId}`, undefined, matrixToken, arena);
+        check(`an ${role} can read its runs`, run.status === 200, `got ${run.status}`);
+      }
+    }
+
+    // Who may flip it. An editor may edit everything else about a workflow and may not
+    // change who sees it — otherwise they could hide a colleague's work from the people it
+    // was shared with.
+    await sql.query(
+      'update "workspace_member" set "role" = $1 where "workspaceId" = $2 and "userId" = $3',
+      ["editor", arena, MATRIX_USER_ID],
+    );
+    const editorsOwn = await makeArenaWorkflowAs(matrixToken, "zzzz matrix editor's own");
+    check("an editor can create their own workflow", editorsOwn !== null);
+    if (editorsOwn) {
+      const ownPrivate = await api(
+        "PATCH",
+        `/api/workflows/${editorsOwn}`,
+        { visibility: "private" },
+        matrixToken,
+        arena,
+      );
+      check(
+        "an editor can make their OWN workflow private",
+        ownPrivate.status === 200 && ownPrivate.json?.data?.visibility === "private",
+        `got ${ownPrivate.status} ${JSON.stringify(ownPrivate.json).slice(0, 160)}`,
+      );
+      const foreignFlip = await api(
+        "PATCH",
+        `/api/workflows/${editorsOwn}`,
+        { visibility: "workspace" },
+        token,
+        arena,
+      );
+      check(
+        "an owner can flip somebody else's, because an admin is who you ask when the author has gone",
+        foreignFlip.status === 200,
+        `got ${foreignFlip.status}`,
+      );
+    }
+    // And the reverse: an editor aimed at a workflow they can see but did not create.
+    await api("PATCH", `/api/workflows/${arenaWorkflowId}`, { visibility: "workspace" }, token, arena);
+    const editorFlipsOthers = await api(
+      "PATCH",
+      `/api/workflows/${arenaWorkflowId}`,
+      { visibility: "private" },
+      matrixToken,
+      arena,
+    );
+    check(
+      "an editor cannot change the visibility of a workflow they did not create",
+      editorFlipsOthers.status === 403,
+      `got ${editorFlipsOthers.status} ${JSON.stringify(editorFlipsOthers.json).slice(0, 160)}`,
+    );
+    const stillEditable = await api(
+      "PATCH",
+      `/api/workflows/${arenaWorkflowId}`,
+      { description: "an editor may still edit it" },
+      matrixToken,
+      arena,
+    );
+    check(
+      "and can still edit everything else about it — the refusal is scoped to visibility",
+      stillEditable.status === 200,
+      `got ${stillEditable.status}`,
+    );
+    const [{ visibility: unchanged }] = await sql.query(
+      'select "visibility" from "workflow" where "id" = $1',
+      [arenaWorkflowId],
+    );
+    check("the refused visibility change wrote nothing", unchanged === "workspace", `visibility is ${unchanged}`);
+
+    // **A trigger reaches a private workflow, because visibility is about people.** The
+    // webhook has no session and derives its scope from the row (`systemScope`).
+    await api("PATCH", `/api/workflows/${arenaWorkflowId}`, { visibility: "private" }, token, arena);
+    const [{ webhookToken: privateWebhook }] = await sql.query(
+      'select "webhookToken" from "workflow" where "id" = $1',
+      [arenaWorkflowId],
+    );
+    const privateGraph = {
+      ...cheapGraph,
+      nodes: [
+        { id: "trigger", type: "core.webhook_trigger", position: { x: 0, y: 0 }, config: { requiredFields: [] } },
+        cheapGraph.nodes[1],
+      ],
+    };
+    await api("PATCH", `/api/workflows/${arenaWorkflowId}`, { graph: privateGraph }, token, arena);
+    const hookFired = await api("POST", `/api/webhook/${privateWebhook}`, { any: "thing" });
+    check(
+      "a webhook still fires a private workflow — visibility governs people, not triggers",
+      hookFired.status === 200 || hookFired.status === 201,
+      `got ${hookFired.status} ${JSON.stringify(hookFired.json).slice(0, 160)}`,
+    );
+    await api("PATCH", `/api/workflows/${arenaWorkflowId}`, { graph: cheapGraph, visibility: "workspace" }, token, arena);
+
+    // --- the public share link ------------------------------------------------
+    const shared = await api("POST", `/api/workflows/${arenaWorkflowId}/share`, undefined, token, arena);
+    check(
+      "an admin can publish a share link, and the response is a 201 the first time",
+      shared.status === 201 && typeof shared.json?.data?.shareUrl === "string",
+      `got ${shared.status} ${JSON.stringify(shared.json).slice(0, 200)}`,
+    );
+    const shareLink = shared.json?.data?.shareUrl ?? "";
+    const shareToken = shareLink.split("/s/")[1] ?? "";
+    check("the link is a /s/ URL carrying a 32-character token", shareToken.length === 32, shareLink);
+
+    const again = await api("POST", `/api/workflows/${arenaWorkflowId}/share`, undefined, token, arena);
+    check(
+      "sharing twice is idempotent — it does not rotate a URL somebody has already pasted somewhere",
+      again.status === 200 && again.json?.data?.shareUrl === shareLink,
+      `got ${again.status} ${again.json?.data?.shareUrl}`,
+    );
+
+    // **The response body is the whole point of this route.** Everything below is about
+    // what a stranger holding the URL can and cannot read.
+    const publicRead = await api("GET", `/api/share/${shareToken}`);
+    check(
+      "an unauthenticated request reads the shared graph",
+      publicRead.status === 200 && typeof publicRead.json?.data?.name === "string",
+      `got ${publicRead.status} ${JSON.stringify(publicRead.json).slice(0, 200)}`,
+    );
+    const publicBody = JSON.stringify(publicRead.json);
+    check(
+      "it carries the graph's shape — nodes and edges",
+      Array.isArray(publicRead.json?.data?.graph?.nodes) &&
+        publicRead.json.data.graph.nodes.length === 2 &&
+        publicRead.json.data.graph.edges.length === 1,
+      JSON.stringify(publicRead.json?.data?.graph).slice(0, 200),
+    );
+    check(
+      "and carries NO token of any kind",
+      !publicBody.includes(shareToken) && !publicBody.includes(privateWebhook),
+      "a token reached an unauthenticated response",
+    );
+    check(
+      "and no id — not the workflow's, not the workspace's, not the owner's",
+      !publicBody.includes(arenaWorkflowId) &&
+        !publicBody.includes(arena) &&
+        !publicBody.includes(user.id),
+      "an id reached an unauthenticated response",
+    );
+    check(
+      "and nothing about the workspace or who is in it",
+      !/workspace|member|@|ownerId|credential/i.test(publicBody),
+      publicBody.slice(0, 300),
+    );
+    check(
+      "and no run data — the graph is published, its history is not",
+      !/"runs"|"steps"|"status"|startedAt/i.test(publicBody),
+      publicBody.slice(0, 300),
+    );
+    // The redaction, end to end. The log node's `message` was authored, so it must be
+    // withheld and named as withheld; its `level` is an enum, so it is published.
+    const sharedLogNode = (publicRead.json?.data?.graph?.nodes ?? []).find((n) => n.type === "core.log");
+    check(
+      "an authored value is withheld and reported as withheld",
+      sharedLogNode && !("message" in sharedLogNode.config) && sharedLogNode.redacted.includes("message"),
+      JSON.stringify(sharedLogNode),
+    );
+    check(
+      "a setting that cannot carry a secret is published",
+      sharedLogNode?.config?.level === "info",
+      JSON.stringify(sharedLogNode?.config),
+    );
+    // **The value, not the key.** The field NAME does appear — in `redacted`, which is the
+    // whole point of that array: the reader is told a value was withheld. What must never
+    // appear is what was in it. An earlier version of this check tested for `"message"` and
+    // failed on the correct behaviour, which is a good demonstration of why "no secret
+    // leaked" has to be asserted against the secret and not against its label.
+    check(
+      "the authored value itself appears nowhere in the response",
+      !/"message"\s*:\s*"/.test(publicBody),
+      publicBody.slice(0, 300),
+    );
+
+    // An HTTP node with a bearer token in a header, which is the case the allowlist exists
+    // for. Published: the method and the header NAME. Withheld: the URL and the value.
+    const secretGraph = {
+      version: 1,
+      nodes: [
+        { id: "trigger", type: "core.manual_trigger", position: { x: 0, y: 0 }, config: {} },
+        {
+          id: "call",
+          type: "integration.http",
+          position: { x: 240, y: 0 },
+          config: {
+            method: "POST",
+            url: "https://api.example.com/v1?api_key=MATRIXSECRET",
+            headers: { authorization: "Bearer MATRIXSECRET" },
+            body: JSON.stringify({ to: "person@example.com" }),
+            timeoutMs: 15000,
+            failOnError: true,
+          },
+        },
+      ],
+      edges: [{ id: "e1", source: "trigger", target: "call", sourceHandle: null }],
+    };
+    await api("PATCH", `/api/workflows/${arenaWorkflowId}`, { graph: secretGraph }, token, arena);
+    const withSecret = await api("GET", `/api/share/${shareToken}`);
+    const secretBody = JSON.stringify(withSecret.json);
+    check(
+      "a bearer token in a request header never reaches a share link",
+      !secretBody.includes("MATRIXSECRET"),
+      secretBody.slice(0, 300),
+    );
+    check(
+      "nor does an email address in a request body",
+      !secretBody.includes("person@example.com"),
+      secretBody.slice(0, 300),
+    );
+    const httpNode = (withSecret.json?.data?.graph?.nodes ?? []).find((n) => n.type === "integration.http");
+    check(
+      "the header's NAME is published, so the reader can see that one is sent",
+      httpNode?.config?.headers?.authorization === null,
+      JSON.stringify(httpNode?.config),
+    );
+    check(
+      "and the method is published while the url is not",
+      httpNode?.config?.method === "POST" && !("url" in (httpNode?.config ?? {})),
+      JSON.stringify(httpNode?.config),
+    );
+
+    // The page itself, not only the API. The reader is told that values are hidden.
+    const sharePage = await page(`/s/${shareToken}`);
+    check(
+      "the /s/ page renders for a signed-out stranger",
+      sharePage.status === 200,
+      `got ${sharePage.status}`,
+    );
+    check(
+      "the page leaks nothing the API refused",
+      !sharePage.html.includes("MATRIXSECRET") &&
+        !sharePage.html.includes("person@example.com") &&
+        !sharePage.html.includes(arenaWorkflowId),
+      "the rendered page carries something the API withheld",
+    );
+    check(
+      "and it says out loud that values are withheld",
+      /withheld/i.test(sharePage.html),
+      "a reader could take the diagram for the whole picture",
+    );
+    check(
+      "the page is noindex — the URL is the credential",
+      /noindex/i.test(sharePage.html),
+      "a share URL could be indexed",
+    );
+
+    // Every dead or malformed token answers identically, so the endpoint cannot be probed.
+    const shortToken = await api("GET", "/api/share/short");
+    const unknownToken = await api("GET", `/api/share/${"Z".repeat(32)}`);
+    check("a malformed share token answers 404", shortToken.status === 404, `got ${shortToken.status}`);
+    check("an unknown share token answers 404", unknownToken.status === 404, `got ${unknownToken.status}`);
+    check(
+      "both answer with the same message, so a real token cannot be sorted from an invented one",
+      shortToken.json?.error?.message === unknownToken.json?.error?.message,
+      `${shortToken.json?.error?.message} vs ${unknownToken.json?.error?.message}`,
+    );
+
+    const revoked = await api("DELETE", `/api/workflows/${arenaWorkflowId}/share`, undefined, token, arena);
+    check(
+      "an admin can revoke the link",
+      revoked.status === 200 && revoked.json?.data?.shareUrl === null,
+      `got ${revoked.status} ${JSON.stringify(revoked.json).slice(0, 160)}`,
+    );
+    const afterRevoke = await api("GET", `/api/share/${shareToken}`);
+    check("the revoked link is dead immediately", afterRevoke.status === 404, `got ${afterRevoke.status}`);
+    const revokedPage = await page(`/s/${shareToken}`);
+    check("and its page 404s", revokedPage.status === 404, `got ${revokedPage.status}`);
+    const revokeAgain = await api("DELETE", `/api/workflows/${arenaWorkflowId}/share`, undefined, token, arena);
+    check("revoking twice succeeds — the caller asked for a state", revokeAgain.status === 200);
+
+    const reshared = await api("POST", `/api/workflows/${arenaWorkflowId}/share`, undefined, token, arena);
+    const newToken = (reshared.json?.data?.shareUrl ?? "").split("/s/")[1] ?? "";
+    check(
+      "re-sharing mints a NEW token rather than resurrecting the old one",
+      newToken.length === 32 && newToken !== shareToken,
+      `${shareToken} → ${newToken}`,
+    );
+    check("and the old token stays dead", (await api("GET", `/api/share/${shareToken}`)).status === 404);
+
+    // A share link is not a way in. It reads one redacted graph and nothing else.
+    const sharedWriteAttempt = await api("PATCH", `/api/workflows/${arenaWorkflowId}`, { name: "via share" }, undefined, arena);
+    check("holding a share link does not let you write", sharedWriteAttempt.status === 401, `got ${sharedWriteAttempt.status}`);
+    const sharedRunAttempt = await api("POST", `/api/workflows/${arenaWorkflowId}/runs`, { input: null }, undefined, arena);
+    check("nor run anything", sharedRunAttempt.status === 401, `got ${sharedRunAttempt.status}`);
+
+    // The invariant: one token, one workflow, enforced by the partial unique index.
+    const [{ n: duplicateTokens }] = await sql.query(
+      `select count(*)::int as n from (
+         select "shareToken" from "workflow" where "shareToken" is not null
+         group by 1 having count(*) > 1
+       ) duplicates`,
+    );
+    check("no share token names two workflows", duplicateTokens === 0, `${duplicateTokens} do`);
+    const [{ n: strandedSharedAt }] = await sql.query(
+      `select count(*)::int as n from "workflow"
+       where ("shareToken" is null) <> ("sharedAt" is null)`,
+    );
+    check(
+      "sharedAt and shareToken are null together or set together",
+      strandedSharedAt === 0,
+      `${strandedSharedAt} row(s) disagree`,
+    );
+    const [{ n: badVisibility }] = await sql.query(
+      `select count(*)::int as n from "workflow" where "visibility" not in ('workspace', 'private')`,
+    );
+    check("every workflow's visibility is one of the two values", badVisibility === 0, `${badVisibility} are not`);
+  } finally {
+    // The arena and everything in it. `workspace` cascades to its workflows, runs,
+    // versions, credentials, members and invitations, so this is the whole of it — but the
+    // probe's own personal workspace is created with `createdBy` and needs `cleanUpProbe`.
+    if (arena) await sql.query('delete from "workspace" where "id" = $1', [arena]).catch(() => {});
+    await sql.query('delete from "workspace_invitation" where "email" like $1', ["%@agentforge.invalid"]).catch(() => {});
+    await sql.query('delete from "workspace_member" where "userId" = $1', [MATRIX_USER_ID]).catch(() => {});
+    await cleanUpProbe(MATRIX_USER_ID);
+    await sql.query('delete from "session" where "sessionToken" = $1', [matrixToken]).catch(() => {});
+  }
+
+
   // --- the migration's own invariants ---------------------------------------
   //
   // Asserted against the live database rather than against the migration file, because
@@ -3125,6 +3923,22 @@ try {
      where "tokenHash" !~ '^[0-9a-f]{64}$'`,
   );
   check("every invitation stores a 64-character hex hash", badHashes === 0, `${badHashes} do not`);
+
+  // Phase 20's migration, asserted against the live database. The partial unique index is
+  // read by an unauthenticated route, so its presence is not something to take on trust —
+  // `verify-schema.mjs` exists because Phase 19A found an index that was in the .sql and
+  // not in the database.
+  const [shareIndex] = await sql.query(
+    `select indexdef from pg_indexes where indexname = 'workflow_share_token_idx'`,
+  );
+  check(
+    "the share token's unique index exists and is partial",
+    typeof shareIndex?.indexdef === "string" &&
+      /unique/i.test(shareIndex.indexdef) &&
+      /shareToken/.test(shareIndex.indexdef) &&
+      /where/i.test(shareIndex.indexdef),
+    shareIndex?.indexdef ?? "no such index",
+  );
 
   const [{ n: doubleLive }] = await sql.query(
     `select count(*)::int as n from (

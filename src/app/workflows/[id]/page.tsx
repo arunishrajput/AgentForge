@@ -83,7 +83,13 @@ export default async function WorkflowPage({
   // legitimate outcomes and a discriminated result is the only shape in which the
   // compiler agrees that each branch has what it needs.
   type Loaded =
-    | { kind: "ok"; workflow: Awaited<ReturnType<typeof getWorkflow>>; inFlight: Awaited<ReturnType<typeof liveRun>> }
+    | {
+        kind: "ok";
+        workflow: Awaited<ReturnType<typeof getWorkflow>>;
+        inFlight: Awaited<ReturnType<typeof liveRun>>;
+        /** Carried out of the try so the editor can be told what this viewer may do. */
+        scope: Awaited<ReturnType<typeof resolveScope>>;
+      }
     | { kind: "elsewhere"; workspace: { id: string; name: string } };
 
   let loaded: Loaded;
@@ -96,7 +102,7 @@ export default async function WorkflowPage({
       await readActiveWorkspaceId(),
     );
     const workflow = await getWorkflow(scope, id);
-    loaded = { kind: "ok", workflow, inFlight: await liveRun(scope, workflow.id) };
+    loaded = { kind: "ok", workflow, inFlight: await liveRun(scope, workflow.id), scope };
   } catch (error) {
     if (!(error instanceof ApiError) || error.code !== "not_found") throw error;
 
@@ -123,6 +129,11 @@ export default async function WorkflowPage({
       workflow={describeWorkflow(loaded.workflow)}
       registry={describeNodes()}
       liveRun={loaded.inFlight ? describeRun(loaded.inFlight.run, loaded.inFlight.steps) : null}
+      // **Phase 20.** The role is resolved on the server, from the membership row, and
+      // handed down — never read in the browser, and never trusted from there. It decides
+      // what the canvas draws; every control it hides is separately refused by the API.
+      role={loaded.scope.role}
+      viewerUserId={session.user.id}
     />
   );
 }

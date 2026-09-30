@@ -30,6 +30,8 @@ function described(over: Partial<Parameters<typeof toWorkflowCard>[0]> = {}) {
     runnable: true,
     problems: [],
     scheduleCron: null,
+    visibility: "workspace",
+    shareUrl: null,
     createdAt: "2026-09-01T00:00:00.000Z",
     updatedAt: "2026-09-20T00:00:00.000Z",
     ...over,
@@ -245,4 +247,27 @@ test("isDefaultView is false as soon as anything is narrowed", () => {
   assert.equal(isDefaultView(view({ query: "x" })), false);
   assert.equal(isDefaultView(view({ status: "problems" })), false);
   assert.equal(isDefaultView(view({ trigger: "webhook" })), false);
+});
+
+test("a card carries the workflow's visibility and whether a public link is live", () => {
+  // Both are labels on a card rather than anything it filters by: a card is only built for
+  // a workflow the reader may already open, so the filtering happened in SQL. What the card
+  // has to do is not let a private workflow look like a shared one.
+  const plain = toWorkflowCard(described(), LOOKUP);
+  assert.equal(plain.visibility, "workspace");
+  assert.equal(plain.shared, false);
+
+  const restricted = toWorkflowCard(
+    described({ visibility: "private", shareUrl: "https://app.example/s/abc" }),
+    LOOKUP,
+  );
+  assert.equal(restricted.visibility, "private");
+  assert.equal(restricted.shared, true);
+});
+
+test("a card never carries the share URL itself", () => {
+  // The list is a client component, so everything on a card ships to the browser. The URL
+  // has no use there and the canvas dialog is where it belongs.
+  const result = toWorkflowCard(described({ shareUrl: "https://app.example/s/SECRET" }), LOOKUP);
+  assert.doesNotMatch(JSON.stringify(result), /SECRET/);
 });

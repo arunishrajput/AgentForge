@@ -27,6 +27,9 @@ import {
   isWorkspaceRole,
   removalRefusal,
   REMOVAL_MESSAGES,
+  roleChangeRefusal,
+  ROLE_CHANGE_MESSAGES,
+  WORKSPACE_ROLES,
   type InvitableRole,
   type WorkspaceRole,
 } from "./roles";
@@ -413,6 +416,72 @@ export async function removeMember(scope: WorkspaceScope, targetUserId: string):
   if (deleted.length === 0) {
     throw new ApiError("conflict", "That membership changed while this was in flight. Try again.");
   }
+}
+
+export const changeMemberRoleSchema = z.object({ role: z.enum(WORKSPACE_ROLES) });
+
+/**
+ * Change a member's role — **Phase 20**, and what makes the four roles a thing a
+ * workspace can be administered with rather than a label an invitation fixes for ever.
+ *
+ * Built as `removeMember`'s twin on purpose, down to the two-step shape: read the members,
+ * let the pure rule in `./roles.ts` decide, then write **conditionally on the role that
+ * was read**. Without transactions (D6) that last part is the whole of the concurrency
+ * story — if the target's role changed between the read and the write, the UPDATE matches
+ * nothing and the caller is told to look again, rather than the check silently having been
+ * about a row that no longer exists. Two admins demoting the last two owners at once
+ * cannot both succeed.
+ *
+ * The status codes: `last_owner` and `no_change` are **409**, because the request was
+ * allowed and the state refused it; everything else is **403**, because the request was
+ * not. That is the same split `removeMember` makes and it is the distinction
+ * `CONTRACT.md` → *Two refusals that mean different things* exists to protect.
+ */
+export async function changeMemberRole(
+  scope: WorkspaceScope,
+  targetUserId: string,
+  nextRole: unknown,
+): Promise<Member> {
+  const members = await listMembers(scope);
+  const target = members.find((m) => m.userId === targetUserId);
+  // 404 before the rule, and it is not a leak: `requireScopeFor` has already established
+  // that the caller is a member of this workspace, and every member may read its member
+  // list — so "that person is not in here" is something they could have looked up.
+  if (!target) throw new ApiError("not_found", "That person is not in this workspace.");
+
+  const refusal = roleChangeRefusal({
+    actorRole: scope.role,
+    actorUserId: scope.userId,
+    targetUserId,
+    targetRole: target.role,
+    nextRole,
+    ownerCount: members.filter((m) => m.role === "owner").length,
+  });
+  if (refusal) {
+    throw new ApiError(
+      refusal === "last_owner" || refusal === "no_change" ? "conflict" : "forbidden",
+      ROLE_CHANGE_MESSAGES[refusal],
+    );
+  }
+
+  const [updated] = await db()
+    .update(workspaceMembers)
+    .set({ role: nextRole as WorkspaceRole })
+    .where(
+      and(
+        eq(workspaceMembers.workspaceId, scope.workspaceId),
+        eq(workspaceMembers.userId, targetUserId),
+        // The role as it was when the rule was applied. See the note above.
+        eq(workspaceMembers.role, target.role),
+      ),
+    )
+    .returning({ role: workspaceMembers.role });
+
+  if (!updated) {
+    throw new ApiError("conflict", "That membership changed while this was in flight. Try again.");
+  }
+
+  return { ...target, role: isWorkspaceRole(updated.role) ? updated.role : target.role };
 }
 
 /** The shape the members list is sent as. `you` saves the client comparing ids. */

@@ -19,11 +19,13 @@ import type { WorkspaceRole } from "./roles";
  *                a run still records who triggered it and a workflow still records who
  *                made it — neither of which `workspaceId` can answer.
  *
- * `role` is carried because **Phase 20 needs somewhere to put the authorisation check
- * and this is it**: one object, resolved once per request, already in the hand of every
- * function that mutates anything. It is not consulted in Phase 19A — see
- * `./roles.ts`, which explains why that is currently inert and exactly when it stops
- * being.
+ * `role` is carried because **the authorisation check needs somewhere to live and this is
+ * it**: one object, resolved once per request, already in the hand of every function that
+ * mutates anything. Phase 19A wrote it and consulted it nowhere; Phase 19B made
+ * `requireScope(minimumRole)` gate every route on it; Phase 20 added the two rules that
+ * are not a simple ranking — `roleChangeRefusal` in `./roles.ts` and
+ * `visibleWorkflows` in `lib/workflow/visibility.ts`, which filters *rows* rather than
+ * refusing *requests*.
  */
 export interface WorkspaceScope {
   readonly workspaceId: string;
@@ -44,7 +46,14 @@ export interface WorkspaceScope {
  *
  * The role is the workflow owner's `owner`, deliberately: the alternative is looking up
  * a membership row on a path that has no user at the keyboard, to answer a question
- * nobody is asking. Phase 20 should revisit this the moment a role gates execution.
+ * nobody is asking.
+ *
+ * **Phase 20 revisited this, as it said it would, and kept it.** Execution *is* gated on a
+ * role now — running a workflow needs `editor` — but that gate is at the route, where a
+ * person is making the request. These three paths have no person, and the thing that
+ * authorises them is the token they presented. Per-workflow `visibility` is deliberately
+ * not consulted here either: a trigger is not a person, and a private workflow still fires
+ * on its own webhook and its own schedule.
  */
 export function systemScope(workflow: {
   workspaceId: string;

@@ -1,0 +1,205 @@
+import type { Workflow } from "@/db/schema";
+import { GRAPH_VERSION, type WorkflowGraph, type WorkflowNode } from "@/lib/workflow/graph";
+
+/**
+ * **What a public share link is allowed to carry — Phase 20.**
+ *
+ * `GET /api/share/:token` is the product's fourth unauthenticated surface, after the
+ * webhook receiver, the cron tick and the invitation preview. The other three are guarded
+ * by the fact that they *do* something specific; this one hands back content, which makes
+ * it the only one where the risk is what is in the response rather than what the request
+ * can cause.
+ *
+ * So the rule is an **allowlist, and the default publishes nothing**. A denylist — "strip
+ * `headers`, strip `to`" — is the obvious shape and it fails open: the day somebody adds
+ * `integration.slack` with a `token` field, the denylist does not know about it and the
+ * link starts publishing it. This table refuses to publish a field nobody has named, so
+ * the same mistake produces a share that says too little, which somebody notices, rather
+ * than one that says too much, which nobody does.
+ *
+ * `share.test.ts` asserts that every registered node type has an entry here, so adding a
+ * node makes the test fail until its publishability is a decision somebody actually took.
+ *
+ * ---
+ *
+ * **The line the table draws is: shape and settings are published, typed-in values are
+ * not.** Read the column of redactions and it is almost entirely free text — a URL, a
+ * prompt, an email address, a message body, a spreadsheet id. There is no field of that
+ * kind whose contents can be known to be safe, because a user may put anything in one and
+ * some of them do: an API key in a query string, a bearer token in a header, a customer's
+ * address in a `to`. Enums, numbers and booleans carry no such risk, and neither does the
+ * *name* of a key — which is why `keys` exists and is how a shared HTTP node still shows
+ * that it sends an `authorization` header without showing what is in it.
+ *
+ * What a reader of a shared link therefore gets is the thing worth sharing: the graph's
+ * structure, which nodes it is built from, how they are wired, and how each is
+ * configured in every respect that is not somebody's private content. That is what
+ * `BUILD_PLAN.md` Phase 20 asks for — "a read-only public share link for a workflow
+ * graph" — and it is genuinely all of it.
+ */
+interface SharePolicy {
+  /** Config fields published verbatim. Anything absent from both lists is redacted. */
+  values?: readonly string[];
+  /**
+   * Object-shaped config fields whose **keys** are published and whose values are not.
+   * `{ authorization: "Bearer …" }` publishes as `{ authorization: null }`.
+   */
+  keys?: readonly string[];
+}
+
+const PUBLISHABLE: Readonly<Record<string, SharePolicy>> = {
+  // Triggers. `requiredFields` and `cron` describe the workflow's *interface* — when it
+  // fires and what a caller must send — which is the most useful thing on a shared graph
+  // and is not content. The webhook's token is not in the config at all (D41), and the
+  // share response never carries the workflow's `webhookToken` column either.
+  "core.manual_trigger": {},
+  "core.webhook_trigger": { values: ["requiredFields"] },
+  "core.schedule_trigger": { values: ["cron"] },
+
+  // Logic and transform. The operator is published because "is not empty" is the shape of
+  // the decision; `left` and `right` are redacted because they are as often a literal the
+  // author typed as a `{{ }}` reference, and the reader cannot tell which from here.
+  "core.branch": { values: ["operator"] },
+  "core.assert": { values: ["operator"] },
+  "core.loop": { values: ["maxIterations"] },
+  "core.delay": { values: ["ms"] },
+  "core.log": { values: ["level"] },
+  // `fields` is the clearest case for `keys`: the set of names a Set node produces is
+  // most of what it means, and every value in it is something somebody typed.
+  "core.set": { values: ["merge"], keys: ["fields"] },
+
+  // Agent nodes. The model, the temperature and the iteration cap are settings. `tools`
+  // is a list of registry node types, so it is already public information and it is the
+  // single most interesting field on an agent node — it is what the agent may reach.
+  // `choices` are the decisions it routes between, which the graph's own edges already
+  // imply. The prompts are redacted: a system prompt is the most likely place in the
+  // whole product for somebody to have pasted something they should not have.
+  "ai.llm": { values: ["model", "temperature", "json"] },
+  "ai.agent": { values: ["model", "temperature", "maxIterations", "tools", "choices"] },
+
+  // Integrations, where the redactions matter most.
+  //
+  //   http     `headers` is documented in the node's own schema as the place to put "an
+  //            authorization header", so its values can never be published. The `url` goes
+  //            too: a key in a query string is the oldest way to leak one
+  //   discord   the channel is a stored credential rather than config, so nothing here
+  //            identifies it — but `content` and `username` are both authored text
+  //   sheets    `spreadsheetId` names a real document; publishing it tells a reader which
+  //            file to go and try to open
+  //   gmail     `to` and `cc` are other people's email addresses, which are not this
+  //            workflow author's to publish. Nothing is published from this node but the
+  //            fact that it sends mail
+  "integration.http": { values: ["method", "timeoutMs", "failOnError"], keys: ["headers"] },
+  "integration.discord": {},
+  "integration.sheets": { values: ["sheet", "valueInputOption"] },
+  "integration.gmail": {},
+};
+
+/** The table itself, for the test that keeps it in step with the registry. */
+export function publishableTypes(): string[] {
+  return Object.keys(PUBLISHABLE);
+}
+
+export interface SharedNode {
+  id: string;
+  type: string;
+  label?: string;
+  position: { x: number; y: number };
+  /** Only the fields the table publishes. Redacted object fields keep their keys. */
+  config: Record<string, unknown>;
+  /**
+   * Names of the config fields that were withheld, in the order the node stored them.
+   * Present so the public canvas can say "2 values hidden" rather than quietly showing a
+   * node as though it had no configuration — a reader who cannot tell the difference
+   * between "unconfigured" and "not shown to you" is being misled by omission.
+   */
+  redacted: string[];
+}
+
+export interface SharedWorkflow {
+  name: string;
+  description: string | null;
+  graph: { version: number; nodes: SharedNode[]; edges: WorkflowGraph["edges"] };
+  /** The version number the shared graph is, so a reader can cite what they looked at. */
+  version: number;
+  updatedAt: string;
+}
+
+/**
+ * One node, redacted.
+ *
+ * An unknown node type gets `{}` — the closed default — rather than throwing. A stored
+ * graph can name a type this build does not have (a node renamed in a later phase, a row
+ * restored from an older version), and the honest response to "I do not know what this
+ * field is" on a public endpoint is to publish none of it.
+ */
+export function shareNode(node: WorkflowNode): SharedNode {
+  const policy = PUBLISHABLE[node.type] ?? {};
+  const config = node.config ?? {};
+
+  const published: Record<string, unknown> = {};
+  const redacted: string[] = [];
+
+  for (const [key, value] of Object.entries(config)) {
+    if (policy.values?.includes(key)) {
+      published[key] = value;
+      continue;
+    }
+    if (policy.keys?.includes(key)) {
+      // Keys only. A non-object in a field declared object-shaped is redacted whole
+      // rather than guessed at.
+      if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+        published[key] = Object.fromEntries(
+          Object.keys(value as Record<string, unknown>).map((name) => [name, null]),
+        );
+        // Still named as redacted: the reader is seeing names and no values, and a count
+        // that said otherwise would be the misleading-by-omission case above.
+        if (Object.keys(value as Record<string, unknown>).length > 0) redacted.push(key);
+        continue;
+      }
+    }
+    redacted.push(key);
+  }
+
+  return {
+    id: node.id,
+    type: node.type,
+    ...(node.label === undefined ? {} : { label: node.label }),
+    position: { x: node.position.x, y: node.position.y },
+    config: published,
+    redacted,
+  };
+}
+
+/**
+ * The whole response body for a share link.
+ *
+ * **Built field by field from an explicit list, never by spreading the row and deleting.**
+ * The workflow row carries `webhookToken`, `shareToken`, `ownerId`, `workspaceId`,
+ * `scheduleNextAt` and `visibility`, and a column added to that table in a later phase
+ * would arrive here too under any shape that started from the row. Nothing about a run,
+ * a credential or a member of the workspace is reachable from this function at all —
+ * it is handed one workflow and has nothing else to leak.
+ *
+ * `policy` — retry and timeout — is dropped with everything else not named: it is a
+ * setting rather than content, but it is also of no interest to a reader of a diagram,
+ * and the closed default is what keeps this list short enough to check by eye.
+ */
+export function shareWorkflow(workflow: Workflow): SharedWorkflow {
+  return {
+    name: workflow.name,
+    description: workflow.description,
+    graph: {
+      version: GRAPH_VERSION,
+      nodes: workflow.graph.nodes.map(shareNode),
+      edges: workflow.graph.edges.map((edge) => ({
+        id: edge.id,
+        source: edge.source,
+        target: edge.target,
+        sourceHandle: edge.sourceHandle ?? null,
+      })),
+    },
+    version: workflow.version,
+    updatedAt: workflow.updatedAt.toISOString(),
+  };
+}

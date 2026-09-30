@@ -596,7 +596,7 @@ Neon Postgres, free tier.
   | Table | Phase | Notes |
   |---|---|---|
   | `user`, `account`, `session`, `verificationToken` | 1 | Auth.js adapter tables |
-  | `workflow` | 3 | Owns the graph as a single `jsonb` column |
+  | `workflow` | 3 | Owns the graph as a single `jsonb` column. **`visibility` and `shareToken` since 20** — who inside the workspace may see it, and the public read-only link. Partial unique index on `shareToken where not null` |
   | `run` | 3 | One per execution; `heartbeatAt` is what makes an interrupted run observable |
   | `run_step` | 3 | One per node execution, unique on `(runId, seq)`; snapshots its resolved config |
   | `credential` | 3 | Table only. Encryption and the write-only API are Phase 6. **Unique on `(workspaceId, kind, label)` since 19A** |
@@ -638,6 +638,21 @@ Neon Postgres, free tier.
 - **Version history is append-only and capped.** Restoring writes forward; nothing renumbers.
   `VERSION_LIMIT` is 50 unlabelled versions per workflow — measured at ~737 bytes per stored
   graph, so a fully-capped workflow is ~60 KB against a 0.5 GB free tier
+- **Phase 20's migration cost nothing and changed nothing anybody can observe.** Three columns on
+  `workflow`, all with a default or nullable, so the previous revision kept serving while `0008`
+  was applied and no data migration was needed: `visibility` defaults to `workspace`, which is
+  exactly what every row already behaved as. Row counts were identical before and after, and the
+  rollback was rehearsed forward *and* backward on a throwaway copy — digest-identical —
+  before it was applied (`scripts/rehearse-0008.mjs`). That rehearsal exists because the *rollback*
+  drops columns from the table holding the user's actual workflows, not because the migration is
+  risky
+- **Authorisation reaches into the query for the first time in Phase 20.** `visibleWorkflows(scope)`
+  is a `where` fragment, not a refusal, and it returns `undefined` for an admin so that
+  `and(…, visibleWorkflows(scope))` composes with no branch at the call site. It is applied in
+  `listWorkflows` and `getWorkflow` — which every workflow-scoped route goes through — plus
+  `getRun` and `listRuns`, which are addressed by *run* id and therefore join `workflow` to reach
+  it. Those two joins are the whole of the exception list, and missing them would have meant a
+  viewer reading the steps of a workflow they cannot open
 
 ---
 
@@ -656,9 +671,35 @@ Shapes are `NOT YET DECIDED` until the phase that needs them; the surface is:
 | Webhook | `POST /api/webhook/:token`, unguessable per-workflow receiver | **8 — done** |
 | Cron | `POST /api/cron/tick`, `CRON_SECRET`-guarded, Cloud Scheduler only | **8 — done** |
 | Settings | provider/model config, credentials write-only | **6 — done** |
+| Workspaces | list, create, switch, rename, members, invitations | **19A/19B — done** |
+| Membership | `PATCH /api/workspaces/:id/members/:userId`, change a role | **20 — done** |
+| Sharing | `POST`/`DELETE /api/workflows/:id/share`, and `GET /api/share/:token` with no session | **20 — done** |
 
-Every route except the webhook receiver and the cron tick requires a session and scopes its query
-to the owner, enforced server-side.
+Every route except **four** requires a session and scopes its query to the caller's **workspace**,
+enforced server-side. The four are `GET /api/invitations/:token` and `GET /api/share/:token`, both
+reached by a link holder who may have no account, and the three machine endpoints — the webhook
+receiver, the cron tick and the run dispatcher — which authorise themselves with a token and derive
+their scope from the row it resolved to.
+
+### The authorisation layer is one funnel, and Phase 20 is where it became complete
+
+`requireScope(minimumRole)` in `src/lib/api.ts` is the single place a route's authority is
+established: it resolves the session, resolves the active workspace, and refuses when the member's
+role falls short. **The default argument is `viewer`**, so a new mutating route that forgets the
+argument fails closed rather than open.
+
+Phase 20 added the two rules that a single ranking cannot express, and both are **pure functions
+tested without a database**:
+
+- **`roleChangeRefusal`** (`lib/workspace/roles.ts`) — who may move whom to what. Ordered
+  authority → ownership → invariant, which is Phase 19B's bug fix carried across
+- **`visibleWorkflows`** (`lib/workflow/visibility.ts`) — which *rows* a member may see, as a
+  `where` fragment rather than a refusal. It is the first authorisation in the product that filters
+  rather than refuses, which is why it belongs in the query and not in a route
+
+**A hidden button is not a permission.** Phase 20 also stopped the UI offering controls the API
+refuses, and that is a usability change rather than a security one: every control it withholds was
+already refused server-side and is still asserted to be, by 56 cells of the deployed matrix.
 
 ---
 
@@ -786,8 +827,9 @@ provide, and the column would additionally make the choice global across every t
 **Authorisation is one function, called in one place.** `requireScope(minimumRole)` resolves the
 scope and calls `assertRole`; `requireScopeFor(workspaceId, minimumRole)` does the same for routes
 that name a workspace in the path. The default minimum is `viewer`, so a route that forgets the
-argument fails closed rather than open. `CONTRACT.md` → *What each role may do* holds the matrix, and
-Phase 20 replaces this floor with per-workflow sharing and a UI that hides what it refuses.
+argument fails closed rather than open. `CONTRACT.md` → *What each role may do* holds the matrix.
+**Phase 20 built on this floor rather than replacing it**: role changes, per-workflow visibility and
+the share link all go through the same funnel, and the UI now withholds what the funnel refuses.
 
 **An invitation is the product's third unauthenticated surface**, after the webhook trigger and the
 dispatch endpoint, and it is built on the same rules: a CSPRNG token, checked against a pattern
@@ -795,6 +837,13 @@ before the database is asked anything, expiring, single use — and, unlike the 
 only as a hash**, because it is shown once rather than displayed for ever. Possession is never
 sufficient: the accept path also requires a session whose provider-verified email matches the address
 invited.
+
+**The public share link is the fourth, and the only one whose risk is in the response.** A webhook
+starts a run, a tick fires schedules, an invitation preview names one workspace — each is guarded by
+what its request may *cause*. `GET /api/share/:token` hands back content, so what it may carry is
+decided by an allowlist in `lib/workflow/share.ts` whose default publishes nothing, and the route
+itself does no field selection. A node type added in a later phase therefore cannot widen this
+surface by existing; a test asserts the table covers the registry, so it fails the build instead.
 
 ---
 

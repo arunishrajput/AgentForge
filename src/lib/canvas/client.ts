@@ -7,7 +7,10 @@ import type { GraphProblem } from "@/lib/engine/validate";
 import type { DiscordStatus, GoogleStatus } from "@/lib/integrations/store";
 import type { NodeSummary } from "@/lib/nodes";
 import type { GraphDiff } from "@/lib/workflow/diff";
+import type { SharedWorkflow } from "@/lib/workflow/share";
+import type { WorkflowVisibility } from "@/lib/workflow/visibility";
 import type { InvitableRole, InvitationSummary } from "@/lib/workspace/invitations";
+import type { WorkspaceRole } from "@/lib/workspace/roles";
 import type { describeMember, describeWorkspace } from "@/lib/workspace/store";
 import type { WorkflowGraph } from "@/lib/workflow/graph";
 import type { describeWorkflow } from "@/lib/workflow/store";
@@ -42,7 +45,17 @@ export interface VersionComparison {
 /** CONTRACT.md → "Workspaces and membership". Phase 19B. */
 export type WorkspaceSummary = ReturnType<typeof describeWorkspace>;
 export type WorkspaceMemberSummary = ReturnType<typeof describeMember>;
-export type { InvitationSummary, InvitableRole };
+export type { InvitationSummary, InvitableRole, WorkspaceRole };
+
+/**
+ * CONTRACT.md → "Per-workflow sharing". Phase 20.
+ *
+ * `SharedWorkflow` is what the **unauthenticated** share endpoint answers, and it is a
+ * different type from `Workflow` on purpose: it has no ids, no tokens and a graph whose
+ * authored values are redacted. Two names for two audiences is what stops a component
+ * written for one from being pointed at the other.
+ */
+export type { SharedWorkflow, WorkflowVisibility };
 
 /** The one response that carries a live invitation link. It is never fetched twice. */
 export interface IssuedInvitation {
@@ -151,8 +164,32 @@ export const api = {
   /** The whole graph goes in one PATCH — it is a single atomic row update (D14). */
   updateWorkflow: (
     id: string,
-    body: { name?: string; description?: string | null; graph?: WorkflowGraph },
+    body: {
+      name?: string;
+      description?: string | null;
+      graph?: WorkflowGraph;
+      /**
+       * Who in the workspace may see it (Phase 20). On the same request as everything
+       * else, and **authorised separately** — the creator or an admin, not any editor. A
+       * refusal is a 403 naming why.
+       */
+      visibility?: WorkflowVisibility;
+    },
   ) => request<Workflow>(`/api/workflows/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+
+  /**
+   * Publish a read-only public link to this workflow's graph (Phase 20). Needs `admin`.
+   *
+   * Idempotent — an already-shared workflow answers with the link it already has rather
+   * than minting a second one, so this is safe to press twice. Rotating is deliberately
+   * `unshare` then `share`.
+   */
+  shareWorkflow: (id: string) =>
+    request<Workflow>(`/api/workflows/${id}/share`, { method: "POST" }),
+
+  /** Revoke the link. The token is discarded, so the URL is dead and cannot come back. */
+  unshareWorkflow: (id: string) =>
+    request<Workflow>(`/api/workflows/${id}/share`, { method: "DELETE" }),
 
   deleteWorkflow: (id: string) =>
     request<{ deleted: string }>(`/api/workflows/${id}`, { method: "DELETE" }),
@@ -294,6 +331,20 @@ export const api = {
   /** Removes a member, or — aimed at your own id — leaves the workspace. */
   removeMember: (id: string, userId: string) =>
     request<{ removed: string }>(`/api/workspaces/${id}/members/${userId}`, { method: "DELETE" }),
+
+  /**
+   * Change a member's role (Phase 20). Answers with the member as they now are.
+   *
+   * What it refuses is worth knowing at the call site, because the UI hides most of it:
+   * granting or removing ownership needs `owner`, demoting the sole owner is a 409, and a
+   * role that is already held is a 409 too — which means the list this was drawn from is
+   * stale and should be re-fetched.
+   */
+  changeMemberRole: (id: string, userId: string, role: WorkspaceRole) =>
+    request<WorkspaceMemberSummary>(`/api/workspaces/${id}/members/${userId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ role }),
+    }),
 
   listInvitations: (id: string) =>
     request<InvitationSummary[]>(`/api/workspaces/${id}/invitations`),

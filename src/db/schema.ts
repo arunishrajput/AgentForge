@@ -16,6 +16,7 @@ import type { RunCursor } from "@/lib/engine/cursor";
 import type { RunMode, RunStatus, StepStatus, TriggerKind } from "@/lib/engine/types";
 import type { StepLog } from "@/lib/nodes/types";
 import type { WorkflowGraph } from "@/lib/workflow/graph";
+import type { WorkflowVisibility } from "@/lib/workflow/visibility";
 import type { WorkspaceRole } from "@/lib/workspace/roles";
 
 /**
@@ -289,11 +290,50 @@ export const workflows = pgTable(
      * can have been given.
      */
     version: integer("version").notNull().default(1),
+    /**
+     * Who inside the workspace may see this workflow — **Phase 20**.
+     *
+     * `workspace` is every member, which is exactly what Phase 19A's scoping already
+     * did, so the column's default makes the migration a no-op for every row that
+     * existed before it. `private` narrows it to the creator plus the workspace's
+     * admins and owners. `lib/workflow/visibility.ts` holds the rule and the reasoning,
+     * including why an admin is on that list.
+     *
+     * It is **not** the public share link, and the two are deliberately independent: a
+     * private workflow with a live link is a coherent thing to want — not ready for my
+     * colleagues, ready for the person I am showing it to — and collapsing them into
+     * one three-valued column would make "published" look like a kind of privacy
+     * setting rather than the outward-facing act it is.
+     */
+    visibility: text("visibility").$type<WorkflowVisibility>().notNull().default("workspace"),
+    /**
+     * The public read-only share link's token, or null when the workflow is not shared —
+     * **Phase 20**, and the product's fourth unauthenticated surface.
+     *
+     * Plaintext, unlike an invitation's hash, for the same reason `webhookToken` is: the
+     * URL has to be displayable for as long as the link is live. That makes revocation
+     * the only way to stop it, which is why setting this column back to null is a route
+     * of its own.
+     *
+     * What the link discloses is decided entirely in `lib/workflow/share.ts` by an
+     * allowlist whose default publishes nothing — so a node type added later cannot
+     * widen this surface by existing.
+     */
+    shareToken: text("shareToken"),
+    /** When the current link was minted. Null whenever `shareToken` is. */
+    sharedAt: timestamp("sharedAt", { withTimezone: true }),
     createdAt: timestamp("createdAt", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updatedAt", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     index("workflow_owner_idx").on(table.ownerId, table.updatedAt),
+    // The share endpoint's only query, and the interlock that keeps one token naming at
+    // most one workflow. Partial, because an unshared workflow is a null here and has no
+    // business being in the index — the same argument `workflow_schedule_due_idx` is
+    // built on, and it matters more here: this index is read by an unauthenticated route.
+    uniqueIndex("workflow_share_token_idx")
+      .on(table.shareToken)
+      .where(sql`${table.shareToken} is not null`),
     // The workflow list's query since Phase 19A — the owner index above no longer
     // serves it, because the list is "every workflow in this workspace", whoever made
     // each one. Kept side by side rather than replaced: `ownerId` is still a real

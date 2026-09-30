@@ -8,6 +8,7 @@ import { getNode } from "@/lib/nodes";
 import { toWorkflowCard } from "@/lib/workflow/list";
 import { describeWorkflow, listWorkflows } from "@/lib/workflow/store";
 import { requirePageSession } from "@/lib/workspace/page";
+import { atLeast } from "@/lib/workspace/roles";
 import { describeWorkspace } from "@/lib/workspace/store";
 
 export const dynamic = "force-dynamic";
@@ -33,6 +34,12 @@ export const metadata: Metadata = { title: "Workflows" };
 export default async function WorkflowsPage() {
   const { email, scope, membership, memberships } = await requirePageSession();
   const workspace = describeWorkspace(membership, scope.userId);
+  /**
+   * **Phase 20.** Resolved here, on the server, from the membership row — and it decides
+   * what this page draws and nothing else. Every control it withholds is separately refused
+   * by the API, which is where authorisation happens.
+   */
+  const canEdit = atLeast(scope.role, "editor");
   const workflows = (await listWorkflows(scope)).map(describeWorkflow);
   const cards = workflows.map((workflow) =>
     toWorkflowCard(workflow, (type) => {
@@ -60,12 +67,24 @@ export default async function WorkflowsPage() {
                 : `${cards.length} workflow${cards.length === 1 ? "" : "s"} in ${workspace.own ? "your workspace" : workspace.name}.`}
             </p>
           </div>
-          <NewWorkflowButton />
+          {canEdit && <NewWorkflowButton />}
         </div>
 
-        <GenerateWorkflowForm />
+        {/* Generating is a write — it creates and saves a workflow — so a viewer does not
+            get the prompt box. Leaving it there and letting the 403 explain is what Phase
+            19B shipped, deliberately, and this is the phase that finishes it. */}
+        {canEdit ? (
+          <GenerateWorkflowForm />
+        ) : (
+          <p className="text-muted border-line bg-lift animate-rise mb-4 rounded-xl border-2 p-4 text-sm text-pretty">
+            You have the <strong className="font-semibold">{scope.role}</strong> role in{" "}
+            {workspace.own ? "this workspace" : workspace.name}, so you can read every
+            workflow here and its run history, and you cannot change or run one. An admin can
+            give you the editor role from Settings.
+          </p>
+        )}
 
-        <WorkflowList cards={cards} />
+        <WorkflowList cards={cards} canEdit={canEdit} />
       </main>
     </>
   );

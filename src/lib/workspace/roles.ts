@@ -11,10 +11,13 @@ import { ApiError } from "@/lib/api-error";
  * route calls it through `requireScope`, and `CONTRACT.md` → *What each role may do*
  * is the matrix it implements.
  *
- * **What is still Phase 20's**: per-workflow sharing, public share links, changing an
- * existing member's role, and hiding in the UI what the API already refuses. This is
- * the floor — an API that cannot be talked into a write the role does not carry — not
- * the finished authorisation story.
+ * **Phase 20 finished the story 19B started.** `roleChangeRefusal` below makes a role
+ * something a workspace can be administered with rather than a label an invitation fixes
+ * for ever; per-workflow visibility and the public share link are in
+ * `lib/workflow/visibility.ts`; and the UI now withholds what the API refuses rather than
+ * offering it and explaining the 403. That last part changes nothing about security — a
+ * hidden button is not a permission — and everything about whether the product is usable
+ * by somebody who was not given the matrix to read.
  *
  * The type lives in its own module rather than in `db/schema.ts` because the schema
  * imports it and so does everything above the database. A cycle through the schema
@@ -140,4 +143,83 @@ export const REMOVAL_MESSAGES: Record<RemovalRefusal, string> = {
     "This is the workspace's only owner. Make somebody else an owner first, or delete the workspace.",
   not_allowed: "Removing another member needs the admin role in this workspace, or higher.",
   owner_only: "Only an owner can remove an owner.",
+};
+
+/**
+ * May this member change that one's role? — **Phase 20**.
+ *
+ * The sibling of `removalRefusal`, and deliberately built in its shape: a pure rule with
+ * five inputs rather than five `if`s inside a store function, and **the same ordering** —
+ * authority, then ownership, then the invariant. That order is Phase 19B's bug fix, and
+ * the reason it matters is identical here: a viewer aiming *demote the owner* at the sole
+ * owner must be told they may not do this, not that the workspace would be left
+ * ownerless. The second answer describes the request as a conflict rather than as refused
+ * and leaks how many owners the workspace has.
+ *
+ * The five refusals, and why each one:
+ *
+ *   `not_allowed`  changing anybody's role needs `admin` — including your own. Unlike
+ *                  *leaving*, which any member may do, a self-demotion is not an escape
+ *                  hatch: an editor has nothing to gain from becoming a viewer, and the
+ *                  case that looks like it needs it — "I do not want to be the owner any
+ *                  more" — is precisely the case that must go through an owner's hands
+ *   `owner_only`   only an owner may **grant** `owner`, and only an owner may change an
+ *                  owner's role. Both halves are needed: without the first, an admin
+ *                  promotes themselves; without the second, an admin demotes the person
+ *                  who invited them. Either one makes `admin` into `owner` with extra
+ *                  steps, and an invitation may hand out `admin`
+ *   `last_owner`   the workspace would have no owner. The same invariant `removalRefusal`
+ *                  protects, reached by a different route — demoting the sole owner and
+ *                  removing them leave the workspace equally unadministrable, and there
+ *                  is no undo for either
+ *   `no_change`    the target already holds that role. Refused rather than silently
+ *                  succeeding, because the UI's role picker is the one caller and a
+ *                  no-op request from it means the list it was drawn from is stale
+ *   `not_a_role`   the value is not one of the four. Belongs here rather than only in the
+ *                  route's schema so the rule is total over its inputs
+ */
+export type RoleChangeRefusal =
+  | "last_owner"
+  | "no_change"
+  | "not_a_role"
+  | "not_allowed"
+  | "owner_only";
+
+export function roleChangeRefusal(input: {
+  actorRole: WorkspaceRole;
+  actorUserId: string;
+  targetUserId: string;
+  targetRole: WorkspaceRole;
+  /** What the target's role would become. */
+  nextRole: unknown;
+  /** How many members of this workspace currently hold `owner`. */
+  ownerCount: number;
+}): RoleChangeRefusal | null {
+  // Authority first — before the value is even known to be a role, so an unprivileged
+  // caller cannot use the shape of the refusal to probe what the roles are.
+  if (!atLeast(input.actorRole, "admin")) return "not_allowed";
+  if (!isWorkspaceRole(input.nextRole)) return "not_a_role";
+
+  const owner = input.actorRole === "owner";
+  if (!owner && (input.nextRole === "owner" || input.targetRole === "owner")) return "owner_only";
+
+  if (input.nextRole === input.targetRole) return "no_change";
+
+  // The invariant, last. `targetRole === "owner"` and a different `nextRole` is a
+  // demotion by definition — the equality above has already returned.
+  if (input.targetRole === "owner" && input.ownerCount <= 1) return "last_owner";
+
+  // Demoting yourself as one of several owners is allowed, and is the intended way to
+  // hand a workspace over: promote the successor, then step down. Nothing above forbids
+  // it, and stating that here is cheaper than rediscovering why it is absent.
+  return null;
+}
+
+export const ROLE_CHANGE_MESSAGES: Record<RoleChangeRefusal, string> = {
+  last_owner:
+    "This is the workspace's only owner. Make somebody else an owner first, then change this one.",
+  no_change: "That member already has that role.",
+  not_a_role: "That is not a role.",
+  not_allowed: "Changing a member's role needs the admin role in this workspace, or higher.",
+  owner_only: "Only an owner can grant or remove ownership.",
 };

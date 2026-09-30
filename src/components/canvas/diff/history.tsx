@@ -37,6 +37,7 @@ export function History({
   onClose,
   workflow,
   dirty,
+  readOnly,
   onRestored,
   onCompare,
 }: {
@@ -46,6 +47,12 @@ export function History({
   workflow: Workflow;
   /** The canvas has edits the server has not seen — restoring would discard them. */
   dirty: boolean;
+  /**
+   * The viewer's role does not carry editing — Phase 20. Reading the history and comparing
+   * two versions are reads and stay; naming a version and restoring one are writes the API
+   * refuses below `editor`, so their controls go rather than sit here disabled.
+   */
+  readOnly: boolean;
   onRestored: (workflow: Workflow) => void;
   onCompare: (from: number, to: number) => void;
 }) {
@@ -191,6 +198,7 @@ export function History({
               workflow={workflow}
               dirty={dirty}
               busy={busy}
+              readOnly={readOnly}
               onLabel={relabel}
               onRestore={restore}
               onCompare={() => {
@@ -276,6 +284,7 @@ function Detail({
   workflow,
   dirty,
   busy,
+  readOnly,
   onLabel,
   onRestore,
   onCompare,
@@ -284,6 +293,7 @@ function Detail({
   workflow: Workflow;
   dirty: boolean;
   busy: null | "restoring" | "labelling";
+  readOnly: boolean;
   onLabel: (label: string | null) => void;
   onRestore: () => void;
   onCompare: () => void;
@@ -325,31 +335,42 @@ function Detail({
         </div>
       </dl>
 
-      <div className="space-y-1.5">
-        <label htmlFor="version-label" className="eyebrow block">
-          Name this version
-        </label>
-        <div className="flex gap-2">
-          <Input
-            id="version-label"
-            value={label}
-            maxLength={80}
-            placeholder="Before the rewrite"
-            onChange={(event) => setLabel(event.target.value)}
-            onBlur={() => {
-              const next = label.trim() === "" ? null : label.trim();
-              if (next !== version.label) onLabel(next);
-            }}
-            className="min-w-0 flex-1"
-          />
+      {/* Naming a version is a write. A viewer reading the history sees what each version
+          is called and cannot rename one. */}
+      {readOnly ? (
+        version.label && (
+          <div className="space-y-1.5">
+            <span className="eyebrow block">Named</span>
+            <p className="text-sm font-semibold">{version.label}</p>
+          </div>
+        )
+      ) : (
+        <div className="space-y-1.5">
+          <label htmlFor="version-label" className="eyebrow block">
+            Name this version
+          </label>
+          <div className="flex gap-2">
+            <Input
+              id="version-label"
+              value={label}
+              maxLength={80}
+              placeholder="Before the rewrite"
+              onChange={(event) => setLabel(event.target.value)}
+              onBlur={() => {
+                const next = label.trim() === "" ? null : label.trim();
+                if (next !== version.label) onLabel(next);
+              }}
+              className="min-w-0 flex-1"
+            />
+          </div>
+          <p className="text-muted text-3xs leading-relaxed">
+            A named version is kept for ever. Unnamed ones are trimmed to the most recent 50,
+            so naming one is how you keep it.
+          </p>
         </div>
-        <p className="text-muted text-3xs leading-relaxed">
-          A named version is kept for ever. Unnamed ones are trimmed to the most recent 50,
-          so naming one is how you keep it.
-        </p>
-      </div>
+      )}
 
-      {dirty && (
+      {dirty && !readOnly && (
         <Notice tone="warn" title="You have unsaved changes">
           Restoring replaces what is on the canvas. Save first if you want to keep it.
         </Notice>
@@ -359,17 +380,19 @@ function Detail({
         <Button tone="quiet" onClick={onCompare} disabled={version.current}>
           {version.current ? "This is the current version" : `Compare with v${workflow.version}`}
         </Button>
-        <Button
-          tone="primary"
-          onClick={onRestore}
-          loading={busy === "restoring"}
-          disabled={version.current}
-        >
-          Restore this version
-        </Button>
+        {!readOnly && (
+          <Button
+            tone="primary"
+            onClick={onRestore}
+            loading={busy === "restoring"}
+            disabled={version.current}
+          >
+            Restore this version
+          </Button>
+        )}
       </div>
 
-      {!version.current && (
+      {!version.current && !readOnly && (
         <p className="text-muted text-3xs leading-relaxed">
           Restoring saves v{version.number}&rsquo;s graph as a new version on top. Nothing
           between is deleted, and every past run still points at the version it actually ran.

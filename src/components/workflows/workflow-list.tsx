@@ -39,7 +39,19 @@ import {
  * The matching itself is in `src/lib/workflow/list.ts`, with tests. This file is the
  * controls and the rows.
  */
-export function WorkflowList({ cards }: { cards: WorkflowCard[] }) {
+export function WorkflowList({
+  cards,
+  canEdit,
+}: {
+  cards: WorkflowCard[];
+  /**
+   * The viewer's role carries editing — **Phase 20**. Deleting is a write the API refuses
+   * below `editor`, and the empty state's call to action is an invitation to generate a
+   * workflow, which is also a write. Both go for a viewer, who gets copy that says what
+   * they are looking at instead.
+   */
+  canEdit: boolean;
+}) {
   const router = useRouter();
   const toast = useToast();
 
@@ -84,12 +96,19 @@ export function WorkflowList({ cards }: { cards: WorkflowCard[] }) {
       <EmptyState
         level={2}
         art={<WorkbenchArt />}
-        title="Nothing built yet"
-        description="Describe what you want in the box above and AgentForge will build it — or start from an empty canvas and wire it up by hand."
+        title={canEdit ? "Nothing built yet" : "Nothing to see here yet"}
+        description={
+          canEdit
+            ? "Describe what you want in the box above and AgentForge will build it — or start from an empty canvas and wire it up by hand."
+            : "Nobody in this workspace has built a workflow yet — or the ones here are private to the people who made them. Ask an admin for the editor role if you need to build one."
+        }
         action={
-          <a href="#generate-prompt" className="btn btn-primary">
-            Describe your first workflow
-          </a>
+          // An empty state whose call to action is refused is worse than one with none.
+          canEdit ? (
+            <a href="#generate-prompt" className="btn btn-primary">
+              Describe your first workflow
+            </a>
+          ) : undefined
         }
       />
     );
@@ -174,6 +193,7 @@ export function WorkflowList({ cards }: { cards: WorkflowCard[] }) {
               key={card.id}
               card={card}
               delay={Math.min(index * 40, 280)}
+              canEdit={canEdit}
               onDelete={() => setPendingDelete(card)}
             />
           ))}
@@ -205,10 +225,12 @@ export function WorkflowList({ cards }: { cards: WorkflowCard[] }) {
 function Row({
   card,
   delay,
+  canEdit,
   onDelete,
 }: {
   card: WorkflowCard;
   delay: number;
+  canEdit: boolean;
   onDelete: () => void;
 }) {
   const router = useRouter();
@@ -247,6 +269,20 @@ function Row({
             <Badge key={trigger}>{trigger}</Badge>
           ))}
           {card.scheduleCron && <Badge className="font-mono">{card.scheduleCron}</Badge>}
+          {/* **Both of these have to be visible from the list** (Phase 20). A workflow that
+              is private, or one that anybody with a URL can read, is a fact about it as
+              important as whether it runs — and the list is where somebody scanning their
+              workspace would expect to find out, not a dialog two clicks in. */}
+          {card.visibility === "private" && (
+            <Badge tone="pop" icon="●">
+              private
+            </Badge>
+          )}
+          {card.shared && (
+            <Badge tone="pop" icon="↗">
+              public link
+            </Badge>
+          )}
         </div>
 
         <p className="text-faint mt-2 text-2xs">
@@ -273,7 +309,9 @@ function Row({
             label: "Open on the canvas",
             onSelect: () => router.push(`/workflows/${card.id}`),
           },
-          { id: "delete", label: "Delete", tone: "danger", onSelect: onDelete },
+          ...(canEdit
+            ? [{ id: "delete", label: "Delete", tone: "danger" as const, onSelect: onDelete }]
+            : []),
         ]}
       />
     </li>

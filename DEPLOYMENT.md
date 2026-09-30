@@ -18,7 +18,7 @@ Every step is labelled **`AUTOMATED BY CLAUDE CODE`** or **`MANUAL HUMAN ACTION`
 | Service | `agentforge`, Cloud Run, `asia-southeast1` |
 | Revision | **`agentforge-00041-75x`** — 100% of traffic (Phase 19B). Last known-good before it: `agentforge-00040-7c4`, `agentforge-00039-qlr`, `agentforge-00038-cfp` (all Phase 19B), then `agentforge-00037-k7x` (Phase 19A) |
 | Scaling | `min-instances 1`, `max-instances 3`, 1 vCPU / 1 GiB, 3600 s timeout |
-| Database | Neon `super-mountain-39872886`, `aws-ap-southeast-1` — **12 tables**, migrations `0000`–`0007` applied. 9.5 MB of 0.5 GB |
+| Database | Neon `super-mountain-39872886`, `aws-ap-southeast-1` — **12 tables**, migrations `0000`–`0008` applied. 9.6 MB of 0.5 GB |
 | Last verified | **2026-09-27, after Phase 19B** — 299 API checks passed / 11 failed (all the Gemini daily free-tier quota) / 4 skipped, of which **83 are Phase 19B's own**: two real accounts, one shared workspace, the whole invitation lifecycle and a viewer refused on seventeen mutating routes. `verify-durable.mjs` all-pass including a Cloud Tasks scheduled run completing, `verify-schema.mjs` 6/6, and a real browser at 1440 px and 375 px with 0 console errors |
 
 The service also answers on a legacy hashed URL. Do not use it — see *Deploy*.
@@ -637,9 +637,11 @@ five migrations were physically applied, so the next `db:migrate` would have tri
 ### An additive migration, and one that is not
 
 An **additive** migration — new table, new nullable column, new column with a default — can be
-applied while the previous revision is still serving, which is what Phases 17, 18 and 19B did.
+applied while the previous revision is still serving, which is what Phases 17, 18, 19B and 20 did.
 `0007` adds one table and alters nothing, so it went in before the deploy and the old revision, which
-knows nothing about `workspace_invitation`, kept serving throughout.
+knows nothing about `workspace_invitation`, kept serving throughout. `0008` is the same shape in the
+other form: three columns on an existing table, each nullable or defaulted, so the previous revision
+kept inserting correctly against a table it did not know the shape of.
 
 A migration that **tightens** a constraint cannot. A `NOT NULL` column with no default makes every
 insert from the previous revision fail for the length of the deploy. Phase 19A is the worked
@@ -655,9 +657,9 @@ example, and the pattern to copy:
 | 6 | `scripts/verify-schema.mjs`, then the API and durable suites | |
 
 **Write the rollback by hand and keep it.** Drizzle has no down migrations. Phase 19A's is
-`drizzle/rollback_0005_0006.sql` and Phase 19B's is `drizzle/rollback_0007.sql`; each is applied with
-a SQL client and each also removes its ledger row, so a later `db:migrate` re-applies rather than
-believing the work is already done.
+`drizzle/rollback_0005_0006.sql`, Phase 19B's is `drizzle/rollback_0007.sql` and Phase 20's is
+`drizzle/rollback_0008.sql`; each is applied with a SQL client and each also removes its ledger row,
+so a later `db:migrate` re-applies rather than believing the work is already done.
 
 **Rehearse anything the SQL cannot obviously be read as safe.** `0007` is one `CREATE TABLE`, which
 looks trivial and carries one real risk: its **partial** unique index is the conflict target of the
@@ -666,6 +668,14 @@ match — the same 42P10 failure that made every credential write a 500 before P
 it was rehearsed on a throwaway schema first, and the ten checks included issuing, re-issuing,
 revoking and re-inviting through the real DDL. The permanent version of that proof is in
 `verify-api.mjs`, which exercises the same upsert against the deployed system every phase.
+
+**Sometimes the risk is entirely in the rollback, and it is still worth rehearsing.** Phase 20's
+`0008` is three `ADD COLUMN`s and cannot lose anything — but `rollback_0008.sql` is three
+`DROP COLUMN`s against `workflow`, the table holding the user's actual workflows, on a free-tier
+database with no point-in-time restore. `scripts/rehearse-0008.mjs` applies both directions to a copy
+and asserts the copy is digest-identical afterwards, and it additionally proves the **partial** unique
+index refuses a duplicate token and permits many nulls, against the real DDL. An index that exists is
+not an index that refuses anything, and this one is read by an unauthenticated route.
 
 > **There is one Neon database.** Local development and production share `super-mountain-39872886`
 > / `production` / `neondb`. A migration applied from a developer machine is **immediately live**.

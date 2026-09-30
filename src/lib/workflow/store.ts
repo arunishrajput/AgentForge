@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { db } from "@/db";
@@ -11,6 +11,13 @@ import { mintWebhookToken, webhookTriggerNode, webhookUrl } from "@/lib/triggers
 import type { WorkspaceScope } from "@/lib/workspace/scope";
 
 import { emptyGraph, graphsEqual, workflowGraphSchema } from "./graph";
+import {
+  mayChangeVisibility,
+  mintShareToken,
+  shareUrl,
+  visibleWorkflows,
+  workflowVisibilitySchema,
+} from "./visibility";
 import { getVersion, recordVersion } from "./versions";
 
 /**
@@ -35,6 +42,13 @@ export const updateWorkflowSchema = z
     name: z.string().min(1).max(200).optional(),
     description: z.string().max(2000).nullish(),
     graph: workflowGraphSchema.optional(),
+    /**
+     * Who in the workspace may see this — Phase 20. Carried on the ordinary update
+     * rather than on a route of its own, because it is a property of the workflow and
+     * the canvas already PATCHes the workflow; but it is **authorised separately**, by
+     * `mayChangeVisibility` below, because `editor` is not the right bar for it.
+     */
+    visibility: workflowVisibilitySchema.optional(),
   })
   .refine((body) => Object.keys(body).length > 0, {
     message: "Provide at least one field to update.",
@@ -44,7 +58,10 @@ export async function listWorkflows(scope: WorkspaceScope): Promise<Workflow[]> 
   return db()
     .select()
     .from(workflows)
-    .where(eq(workflows.workspaceId, scope.workspaceId))
+    // Two filters doing two things: the workspace boundary, and — since Phase 20 — which
+    // of that workspace's workflows this member may see. `visibleWorkflows` is
+    // `undefined` for an admin, which `and()` drops, so there is no branch here.
+    .where(and(eq(workflows.workspaceId, scope.workspaceId), visibleWorkflows(scope)))
     .orderBy(desc(workflows.updatedAt));
 }
 
@@ -52,11 +69,21 @@ export async function getWorkflow(scope: WorkspaceScope, id: string): Promise<Wo
   const [workflow] = await db()
     .select()
     .from(workflows)
-    .where(and(eq(workflows.id, id), eq(workflows.workspaceId, scope.workspaceId)))
+    .where(
+      and(
+        eq(workflows.id, id),
+        eq(workflows.workspaceId, scope.workspaceId),
+        // Phase 20. In the `where` rather than checked after the read, so there is no
+        // moment at which this function holds a row the caller may not see — which is
+        // what makes every route downstream of it correct without a second thought.
+        visibleWorkflows(scope),
+      ),
+    )
     .limit(1);
 
   // A workflow in somebody else's workspace answers 404 rather than 403, so the reply
-  // does not confirm that the id exists (D20).
+  // does not confirm that the id exists (D20). **A colleague's `private` workflow answers
+  // the same 404 for the same reason** — that it exists is the fact `private` hides.
   if (!workflow) throw new ApiError("not_found", "No such workflow.");
   return workflow;
 }
@@ -136,11 +163,46 @@ export async function updateWorkflow(
   const nameChanged = body.name !== undefined && body.name !== previous.name;
   const versioned = graphChanged || nameChanged;
 
+  /**
+   * **Visibility is on this request and is not authorised by it** — Phase 20.
+   *
+   * Every other field here needs `editor`, which `requireScope("editor")` has already
+   * established at the route. Visibility needs *the creator or an admin*
+   * (`mayChangeVisibility` says why), and that is a fact about this workflow rather than
+   * about the workspace, so it cannot be a `requireScope` argument and has to be checked
+   * where the row is in hand.
+   *
+   * It is checked **before the UPDATE**, on the row just read, which is the ordering
+   * Phase 19B's `removalRefusal` bug was about: a check after the write is not a check.
+   * And it is a `forbidden`, not a 404 — the caller can see this workflow, they simply
+   * may not change this one property of it.
+   */
+  if (
+    body.visibility !== undefined &&
+    body.visibility !== previous.visibility &&
+    !mayChangeVisibility({
+      actorRole: scope.role,
+      actorUserId: scope.userId,
+      workflowOwnerId: previous.ownerId,
+    })
+  ) {
+    throw new ApiError(
+      "forbidden",
+      "Only the person who created this workflow, or a workspace admin, can change who sees it.",
+    );
+  }
+
   const [workflow] = await db()
     .update(workflows)
     .set({
       ...(body.name === undefined ? {} : { name: body.name }),
       ...(body.description === undefined ? {} : { description: body.description ?? null }),
+      // **Not a version, deliberately** — the same rule the description follows. A
+      // version is what the workflow *is*: its graph and the name it goes by. Who is
+      // allowed to look at it is a fact about the present, it is not restored by a
+      // restore, and versioning it would fill a history with rows that say nothing about
+      // the workflow and cost metered storage to do it.
+      ...(body.visibility === undefined ? {} : { visibility: body.visibility }),
       ...(body.graph === undefined
         ? {}
         : {
@@ -210,6 +272,122 @@ export async function restoreVersion(
   );
 }
 
+/* ------------------------- the public share link ------------------------- *
+ *
+ * Phase 20. Three functions, and the split between them is the security boundary: the
+ * first two take a `WorkspaceScope` and are reached only through `requireScope("admin")`;
+ * the third takes a bare token and is reached by anybody on the internet.
+ * ------------------------------------------------------------------------ */
+
+/**
+ * Mint a link, or return the one that already exists.
+ *
+ * **Idempotent rather than rotating**, which is the opposite of the choice invitations
+ * made, and the difference is what each token is for. An invitation is delivered once and
+ * then dead, so re-issuing it should rotate — the old link sitting in somebody's chat
+ * history is a liability. A share link is a URL somebody pastes into a README or a
+ * ticket; re-minting it on every press of a Share button would break those quietly, and
+ * the user pressed a button labelled "Share", not "Rotate".
+ *
+ * Rotation is therefore `DELETE` then `POST`, which is two deliberate acts and reads as
+ * what it is.
+ */
+export async function shareWorkflowPublicly(
+  scope: WorkspaceScope,
+  id: string,
+): Promise<{ workflow: Workflow; url: string; minted: boolean }> {
+  const workflow = await getWorkflow(scope, id);
+  if (workflow.shareToken) {
+    return {
+      workflow,
+      url: shareUrl(required("APP_BASE_URL"), workflow.shareToken),
+      minted: false,
+    };
+  }
+
+  const token = mintShareToken();
+  const [updated] = await db()
+    .update(workflows)
+    .set({ shareToken: token, sharedAt: new Date() })
+    // `shareToken is null` as well as the id: two admins pressing Share at the same
+    // moment must not produce two tokens, one of which is then unreachable and live for
+    // ever. `neon-http` has no transactions (D6), so the conditional update is the
+    // interlock — the loser matches no row and re-reads.
+    .where(
+      and(
+        eq(workflows.id, id),
+        eq(workflows.workspaceId, scope.workspaceId),
+        isNull(workflows.shareToken),
+      ),
+    )
+    .returning();
+
+  if (!updated) {
+    const existing = await getWorkflow(scope, id);
+    if (!existing.shareToken) throw new ApiError("conflict", "That link could not be created. Try again.");
+    return {
+      workflow: existing,
+      url: shareUrl(required("APP_BASE_URL"), existing.shareToken),
+      minted: false,
+    };
+  }
+
+  return { workflow: updated, url: shareUrl(required("APP_BASE_URL"), token), minted: true };
+}
+
+/**
+ * Revoke the link. The token is discarded rather than remembered, so the URL can never
+ * come back — which is what "stop sharing" has to mean for it to be worth trusting.
+ *
+ * Idempotent: unsharing a workflow that is not shared succeeds. The caller asked for a
+ * state, and it is the state they get; a 404 here would only ever be two tabs racing.
+ */
+export async function unshareWorkflow(scope: WorkspaceScope, id: string): Promise<Workflow> {
+  await getWorkflow(scope, id);
+  const [updated] = await db()
+    .update(workflows)
+    .set({ shareToken: null, sharedAt: null })
+    .where(and(eq(workflows.id, id), eq(workflows.workspaceId, scope.workspaceId)))
+    .returning();
+
+  if (!updated) throw new ApiError("not_found", "No such workflow.");
+  return updated;
+}
+
+/**
+ * Resolve a share token — **the one function in this file with no `WorkspaceScope`.**
+ *
+ * It is reached from `GET /api/share/:token` and `/s/:token`, neither of which has a
+ * session, so this is where the product's fourth unauthenticated surface meets the
+ * database. Three properties, all deliberate:
+ *
+ *   the token is pattern-checked by the caller before this is reached, so a malformed one
+ *   costs no query at all — the invitation route's rule, for the same reason;
+ *
+ *   the lookup is an indexed equality on `shareToken` and names no workspace, because
+ *   nothing in the request could name one honestly. A token identifies one row through
+ *   the partial unique index and there is no second input to get wrong;
+ *
+ *   **`visibility` is not consulted.** Publishing a link is a later, more deliberate act
+ *   than marking a workflow private, and the two mean different things — see the column's
+ *   note in `db/schema.ts`. A private workflow with a live link is shared with whoever
+ *   holds the link and with nobody in the workspace, which is a coherent thing to want
+ *   and is what the settings copy describes.
+ *
+ * It returns the row, and the row is **never** handed to a client: the route passes it
+ * through `shareWorkflow` in `./share.ts`, which builds the response from an explicit
+ * field list and redacts every authored value in the graph.
+ */
+export async function findSharedWorkflow(token: string): Promise<Workflow | null> {
+  const [workflow] = await db()
+    .select()
+    .from(workflows)
+    .where(eq(workflows.shareToken, token))
+    .limit(1);
+
+  return workflow ?? null;
+}
+
 export async function deleteWorkflow(scope: WorkspaceScope, id: string): Promise<void> {
   const deleted = await db()
     .delete(workflows)
@@ -245,6 +423,24 @@ export function describeWorkflow(workflow: Workflow) {
       : null,
     /** The version the stored graph is — every save produces a new one (Phase 18). */
     version: workflow.version,
+    /**
+     * Phase 20. Both are safe to send to a member of the workspace: `visibility` is a
+     * setting they may already infer from whether they can see this at all, and
+     * `shareUrl` is a bearer URL whose holder gets a redacted read of this one graph —
+     * which every member of the workspace can already do in full.
+     *
+     * `shareUrl` rather than `shareToken`, so a client never has to know how to build
+     * the URL and `APP_BASE_URL` stays the one place the public origin is decided (D53).
+     * Null when the workflow is not shared, which is also how the UI knows which button
+     * to draw.
+     */
+    visibility: workflow.visibility,
+    /** Who created it, so the canvas knows whether the viewer may change `visibility`. */
+    ownerId: workflow.ownerId,
+    shareUrl: workflow.shareToken
+      ? shareUrl(required("APP_BASE_URL"), workflow.shareToken)
+      : null,
+    sharedAt: workflow.sharedAt?.toISOString() ?? null,
     scheduleCron: scheduleCron(workflow.graph),
     scheduleNextAt: workflow.scheduleNextAt?.toISOString() ?? null,
     scheduleLastFiredAt: workflow.scheduleLastFiredAt?.toISOString() ?? null,

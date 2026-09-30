@@ -42,6 +42,8 @@ import { useRunStream } from "@/lib/canvas/run-stream";
 import { defaultConfig } from "@/lib/canvas/schema";
 import { formatDuration } from "@/lib/format/duration";
 import { diffGraph, type GraphDiff, type NodeDiff } from "@/lib/workflow/diff";
+import { mayChangeVisibility } from "@/lib/workflow/visibility";
+import { atLeast, type WorkspaceRole } from "@/lib/workspace/roles";
 
 import { CanvasContext, type NodeRunState } from "./context";
 import { DiffBar } from "./diff/diff-bar";
@@ -49,6 +51,7 @@ import { History } from "./diff/history";
 import { Inspector } from "./inspector";
 import { Palette } from "./palette";
 import { useCollapsed } from "./panel";
+import { ShareDialog } from "./share-dialog";
 import { WorkflowNodeView } from "./workflow-node";
 
 /**
@@ -66,15 +69,36 @@ export function Editor({
   workflow,
   registry: palette,
   liveRun = null,
+  role,
+  viewerUserId,
 }: {
   workflow: Workflow;
   registry: NodeSummary[];
   /** A run of this workflow still in flight when the page was rendered. */
   liveRun?: Run | null;
+  /**
+   * The viewer's role in this workflow's workspace — **Phase 20**.
+   *
+   * It decides what this component *draws*, and it decides nothing else. Every control
+   * hidden below is separately refused by the API, which is the only place authorisation
+   * actually happens (`lib/api.ts` → `requireScope`). The reason to hide them anyway is
+   * that Phase 19B shipped the honest version of this — a viewer saw Save, pressed it,
+   * and was told "this needs the editor role" — and an affordance that can only ever
+   * fail is a worse experience than none, not a safer one.
+   */
+  role: WorkspaceRole;
+  /** Who is looking, so the canvas knows whether they created this workflow. */
+  viewerUserId: string;
 }) {
   return (
     <ReactFlowProvider>
-      <EditorInner workflow={workflow} palette={palette} liveRun={liveRun} />
+      <EditorInner
+        workflow={workflow}
+        palette={palette}
+        liveRun={liveRun}
+        role={role}
+        viewerUserId={viewerUserId}
+      />
     </ReactFlowProvider>
   );
 }
@@ -123,10 +147,14 @@ function EditorInner({
   workflow,
   palette,
   liveRun,
+  role,
+  viewerUserId,
 }: {
   workflow: Workflow;
   palette: NodeSummary[];
   liveRun: Run | null;
+  role: WorkspaceRole;
+  viewerUserId: string;
 }) {
   const initial = useMemo(() => toFlow(workflow.graph), [workflow.graph]);
   const toast = useToast();
@@ -304,6 +332,34 @@ function EditorInner({
 
   const graph = useMemo(() => fromFlow(nodes, edges), [nodes, edges]);
   const dirty = !graphsEqual(graph, saved.graph) || name !== saved.name;
+
+  /**
+   * **What this viewer may do here — Phase 20.** Three booleans, derived once, and every
+   * one of them is a mirror of a `requireScope` argument on the server rather than a
+   * decision made in the browser:
+   *
+   *   canEdit      `editor`. Save, Run, Stop, the palette, dragging, deleting. Running is
+   *                deliberately on this side of the line and not with reading: a run sends
+   *                mail and posts to Discord, so it is a write to the outside world
+   *                whatever it is to the database (`CONTRACT.md` → the roles matrix)
+   *   canShare     `admin`. Publishing to the internet is an administrative act, not an
+   *                edit — the share route says why at length
+   *   canSetVisibility  the creator, or an admin. Not any editor, because flipping a
+   *                colleague's workflow to private hides it from the people it was
+   *                shared with
+   *
+   * `mayChangeVisibility` is imported rather than re-expressed, so the button and the
+   * store cannot disagree about who may press it.
+   */
+  const canEdit = atLeast(role, "editor");
+  const canShare = atLeast(role, "admin");
+  const canSetVisibility = mayChangeVisibility({
+    actorRole: role,
+    actorUserId: viewerUserId,
+    workflowOwnerId: workflow.ownerId,
+  });
+
+  const [shareOpen, setShareOpen] = useState(false);
 
   /**
    * What the canvas draws in diff mode, and the per-node treatment that goes with it.
@@ -842,29 +898,39 @@ function EditorInner({
             <span className="max-sm:sr-only">Workflows</span>
           </Link>
 
-          <input
-            aria-label="Workflow name"
-            value={name}
-            maxLength={200}
-            onChange={(event) => setName(event.target.value)}
-            className="field min-w-0 flex-1 basis-32 border-transparent bg-transparent font-bold shadow-none"
-          />
+          {canEdit ? (
+            <input
+              aria-label="Workflow name"
+              value={name}
+              maxLength={200}
+              onChange={(event) => setName(event.target.value)}
+              className="field min-w-0 flex-1 basis-32 border-transparent bg-transparent font-bold shadow-none"
+            />
+          ) : (
+            // A text field nobody can type in is a lie about what it is, and a `readOnly`
+            // input still takes a caret and still looks like the place to start. The name
+            // is a heading to a viewer, so it is rendered as text — the `h1` above carries
+            // it for assistive technology either way.
+            <p className="min-w-0 flex-1 basis-32 truncate px-3 py-2 font-bold">{name}</p>
+          )}
 
           {/* Drawer toggles. Only below `lg`, where the panels are not columns — at
               `lg` and up each panel's own rail is the way back. */}
           <div className="flex shrink-0 items-center gap-1.5 lg:hidden">
-            <button
-              type="button"
-              aria-expanded={paletteOpen}
-              aria-controls="node-palette"
-              onClick={() => {
-                setPaletteOpen((open) => !open);
-                setInspectorOpen(false);
-              }}
-              className="btn btn-quiet px-2.5"
-            >
-              Nodes
-            </button>
+            {canEdit && (
+              <button
+                type="button"
+                aria-expanded={paletteOpen}
+                aria-controls="node-palette"
+                onClick={() => {
+                  setPaletteOpen((open) => !open);
+                  setInspectorOpen(false);
+                }}
+                className="btn btn-quiet px-2.5"
+              >
+                Nodes
+              </button>
+            )}
             <button
               type="button"
               aria-expanded={inspectorOpen}
@@ -898,21 +964,51 @@ function EditorInner({
               <span className="sr-only">Version history — currently version {saved.version}</span>
             </button>
 
-            <button
-              type="button"
-              onClick={save}
-              // Nothing on the canvas in diff mode belongs to the editing graph, so
-              // there is nothing here that Save could honestly write.
-              disabled={busy !== null || !dirty || comparing}
-              className="btn btn-quiet shrink-0"
-            >
-              Save
-            </button>
+            {/* **Read-only is stated, not merely enforced by absence** (Phase 20). A
+                canvas with no Save and no Run looks broken unless something says why, and
+                the word a viewer needs is the role they hold — that is what they would
+                have to quote to ask for more. */}
+            {!canEdit && (
+              <span className="border-line bg-lift text-muted shrink-0 rounded-lg border-2 px-2 py-1 text-2xs font-bold">
+                Read only · {role}
+              </span>
+            )}
+
+            {(canShare || canSetVisibility) && (
+              <button
+                type="button"
+                onClick={() => setShareOpen(true)}
+                aria-haspopup="dialog"
+                className="btn btn-quiet shrink-0"
+              >
+                Share
+                {/* The dot is the only place on the canvas that says a public link is
+                    live. A workflow readable by anybody holding a URL must be visible as
+                    such from the screen you edit it on, not only from inside a dialog. */}
+                {saved.shareUrl && (
+                  <span aria-hidden="true" className="bg-accent-ink size-1.5 rounded-full" />
+                )}
+                {saved.shareUrl && <span className="sr-only">— a public link is live</span>}
+              </button>
+            )}
+
+            {canEdit && (
+              <button
+                type="button"
+                onClick={save}
+                // Nothing on the canvas in diff mode belongs to the editing graph, so
+                // there is nothing here that Save could honestly write.
+                disabled={busy !== null || !dirty || comparing}
+                className="btn btn-quiet shrink-0"
+              >
+                Save
+              </button>
+            )}
 
             {/* Only while there is something to stop. A permanent, mostly-disabled Stop
                 would sit in the tab order offering nothing for the whole time a person is
                 building a workflow, which is almost all of the time. */}
-            {inFlight && (
+            {inFlight && canEdit && (
               <button
                 type="button"
                 onClick={stopRun}
@@ -923,6 +1019,9 @@ function EditorInner({
               </button>
             )}
 
+            {/* Running needs `editor`, not `viewer`, because a run writes to the outside
+                world — see the roles matrix in `CONTRACT.md`. */}
+            {canEdit && (
             <button
               type="button"
               onClick={start}
@@ -950,6 +1049,7 @@ function EditorInner({
                 "Run"
               )}
             </button>
+            )}
 
             {/* The shell's palette, mounted here rather than stacking a second bar
                 above a viewport-height graph. It is how the canvas reaches the rest
@@ -981,6 +1081,10 @@ function EditorInner({
             />
           )}
 
+          {/* No palette for a viewer: every control in it adds a node, and a 40px rail
+              that opens onto a list of things you cannot use is worse than the space it
+              costs. The inspector stays — reading a node's configuration is a read. */}
+          {canEdit && (
           <Palette
             id="node-palette"
             nodes={palette}
@@ -998,6 +1102,7 @@ function EditorInner({
               refit();
             }}
           />
+          )}
 
           <main id="main" ref={wrapper} className="min-w-0 flex-1">
             <ReactFlow
@@ -1010,14 +1115,21 @@ function EditorInner({
               nodes={diffView ? diffView.nodes : nodes}
               edges={diffView ? diffView.edges : displayEdges}
               nodeTypes={nodeTypes}
-              onNodesChange={comparing ? undefined : onNodesChange}
-              onEdgesChange={comparing ? undefined : onEdgesChange}
-              onConnect={comparing ? undefined : onConnect}
+              //
+              // **A viewer gets the same treatment diff mode gets, and for the same
+              // reason** (Phase 20). React Flow reports every edit through
+              // `onNodesChange`; a canvas that stayed draggable for somebody who cannot
+              // save would let them rearrange a graph, watch it look edited, and lose the
+              // lot on reload. `elementsSelectable` stays on either way — selecting a node
+              // opens the inspector, which is how a viewer reads its configuration.
+              onNodesChange={comparing || !canEdit ? undefined : onNodesChange}
+              onEdgesChange={comparing || !canEdit ? undefined : onEdgesChange}
+              onConnect={comparing || !canEdit ? undefined : onConnect}
               onSelectionChange={comparing ? undefined : onSelectionChange}
-              nodesDraggable={!comparing}
-              nodesConnectable={!comparing}
+              nodesDraggable={!comparing && canEdit}
+              nodesConnectable={!comparing && canEdit}
               elementsSelectable={!comparing}
-              deleteKeyCode={comparing ? null : ["Delete", "Backspace"]}
+              deleteKeyCode={comparing || !canEdit ? null : ["Delete", "Backspace"]}
               // Light, because the product is light-first. The `dark` this replaces
               // was inert for our own custom node — React Flow's node colours only
               // reach its built-in types — but it left every variable Phase 14 did
@@ -1063,7 +1175,11 @@ function EditorInner({
             triggerInput={triggerInput}
             onChangeTriggerInput={setTriggerInput}
             queueing={busy === "queueing"}
-            canRun={busy === null && !inFlight && !comparing}
+            // A viewer can never run, so the durable-run button in the panel goes too —
+            // `canRun` is the one flag it reads, so folding the role into it here keeps
+            // the two paths to a run gated in one place rather than two.
+            canRun={busy === null && !inFlight && !comparing && canEdit}
+            readOnly={!canEdit}
             onRunDurably={startDurable}
             onChangeNode={changeNode}
             onDeleteNode={deleteNode}
@@ -1077,8 +1193,21 @@ function EditorInner({
         onClose={() => setHistoryOpen(false)}
         workflow={saved}
         dirty={dirty}
+        // Reading history is a read; naming a version and restoring one are writes the API
+        // refuses below `editor`. Comparing stays available, which is the thing a viewer
+        // opening this dialog actually came for.
+        readOnly={!canEdit}
         onRestored={adoptRestored}
         onCompare={compare}
+      />
+
+      <ShareDialog
+        open={shareOpen}
+        onClose={() => setShareOpen(false)}
+        workflow={saved}
+        canShare={canShare}
+        canSetVisibility={canSetVisibility}
+        onChanged={setSaved}
       />
     </CanvasContext>
   );

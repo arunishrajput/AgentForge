@@ -16,8 +16,10 @@ import {
   type InvitationSummary,
   type IssuedInvitation,
   type WorkspaceMemberSummary,
-  type WorkspaceSummary,
+  type WorkspaceRole,
 } from "@/lib/canvas/client";
+import type { WorkspaceSummary } from "@/lib/canvas/client";
+import { WORKSPACE_ROLES } from "@/lib/workspace/roles";
 
 /**
  * The workspace tab: who is in here, who has been invited, what it is called, and how to
@@ -30,10 +32,15 @@ import {
  * once — only a hash of the token is stored, so it genuinely cannot be shown again, and
  * "Send again" is re-inviting, which rotates it.
  *
- * What is not here, and is Phase 20's: changing an existing member's role, per-workflow
- * sharing, and deleting a workspace. An invitation fixes a role at the point it is sent,
- * which is enough to make roles mean something without also shipping a promotion flow
- * this phase has nobody to test against.
+ * **Phase 20 added the role picker**, which is what 19B left behind: an invitation fixed a
+ * role at the moment it was sent and nothing could move it afterwards, so a workspace whose
+ * owner had left was unadministrable for ever. The picker is a native `<select>` on each
+ * row, and the two rules worth knowing at a glance are in the copy under it — only an owner
+ * can grant or take ownership, and the last owner cannot be demoted.
+ *
+ * Deleting a workspace is still not here and is not Phase 20's either. It is the one
+ * destructive act in membership with no undo and no partial form, and the product has no
+ * export yet — so it waits for one rather than shipping a button that loses somebody's work.
  */
 export function WorkspacePanel({
   workspace,
@@ -171,12 +178,66 @@ export function WorkspacePanel({
     }
   };
 
+  const changeRole = async (member: WorkspaceMemberSummary, role: WorkspaceRole) => {
+    start(`role:${member.userId}`);
+    try {
+      const updated = await api.changeMemberRole(workspace.id, member.userId, role);
+      setMembers((current) =>
+        current.map((m) => (m.userId === updated.userId ? updated : m)),
+      );
+      setNotice(`${member.email ?? member.name ?? "That member"} is now ${roleArticle(role)} ${role}.`);
+      // Demoting yourself changes what the rest of the page may show, and the header and
+      // every server-rendered control on it were drawn for the role you no longer have.
+      if (member.you) router.refresh();
+    } catch (caught) {
+      report(caught, "That role could not be changed.");
+      // The list this was drawn from may be what was wrong — a 409 means somebody else
+      // moved first — so re-read it rather than leaving a stale picker on screen.
+      try {
+        setMembers(await api.listMembers(workspace.id));
+      } catch {
+        // The error above is the one worth showing; a failed re-read is not a second one.
+      }
+    } finally {
+      setBusy(null);
+    }
+  };
+
   // An affordance that cannot succeed is worse than none: the sole owner's Leave button
   // could only ever return the 409 the store throws. The API still refuses regardless —
   // this hides a dead control, it does not enforce anything.
   const owners = members.filter((member) => member.role === "owner").length;
   const canLeave = (member: WorkspaceMemberSummary) =>
     !(member.role === "owner" && owners <= 1);
+
+  /**
+   * Whether to draw a picker for this row — **the client-side mirror of
+   * `roleChangeRefusal`**, and deliberately the *narrow* half of it.
+   *
+   * It withholds the picker in exactly the cases where every option in it would be refused:
+   * a viewer who is not an admin, and an admin looking at an owner. It does **not** try to
+   * reproduce the whole rule — the last-owner case is handled by `roleOptions` removing the
+   * options that would fail, and anything it gets wrong still meets the same refusal from
+   * the API. The rule lives on the server; this only decides what is worth drawing.
+   */
+  const canChangeRole = (member: WorkspaceMemberSummary) => {
+    if (!canAdminister) return false;
+    if (member.role === "owner" && workspace.role !== "owner") return false;
+    // The sole owner has nowhere to go: every other role would leave the workspace
+    // ownerless, which is the one membership state with no way back.
+    if (member.role === "owner" && owners <= 1) return false;
+    return true;
+  };
+
+  /**
+   * Which roles this viewer may move that member to. `owner` is offered only to an owner,
+   * because ownership does not arrive from an admin — the same rule that keeps it out of
+   * an invitation.
+   */
+  const roleOptions = (member: WorkspaceMemberSummary): WorkspaceRole[] =>
+    WORKSPACE_ROLES.filter(
+      (role) => role !== "owner" || workspace.role === "owner" || member.role === "owner",
+    );
 
   const live = invitations.filter((invitation) => invitation.state === "live");
   const spent = invitations.filter((invitation) => invitation.state !== "live");
@@ -272,9 +333,33 @@ export function WorkspacePanel({
                   Joined {formatUtc(member.joinedAt)}
                 </span>
               </span>
-              <Badge tone="pop" className="shrink-0" icon="◆">
-                {member.role}
-              </Badge>
+              {/* **The picker replaces the badge only where it could work.** A member
+                  whose role this viewer cannot change still has to see what it is, so the
+                  badge stays for them — a control that is absent is legible, a control that
+                  is present and refuses is not. */}
+              {canChangeRole(member) ? (
+                <label className="shrink-0">
+                  <span className="sr-only">
+                    Role for {member.name ?? member.email ?? "this member"}
+                  </span>
+                  <Select
+                    value={member.role}
+                    disabled={busy !== null}
+                    onChange={(event) => void changeRole(member, event.target.value as WorkspaceRole)}
+                    className="w-32 py-1.5 text-2xs"
+                  >
+                    {roleOptions(member).map((role) => (
+                      <option key={role} value={role}>
+                        {role}
+                      </option>
+                    ))}
+                  </Select>
+                </label>
+              ) : (
+                <Badge tone="pop" className="shrink-0" icon="◆">
+                  {member.role}
+                </Badge>
+              )}
               {(member.you || canAdminister) && canLeave(member) && (
                 <Button
                   tone="danger"
@@ -292,6 +377,14 @@ export function WorkspacePanel({
           <p className="text-faint mt-3 text-2xs text-pretty">
             It is just you in here. Invite somebody below and they will see everything in
             this workspace.
+          </p>
+        )}
+
+        {canAdminister && members.length > 1 && (
+          <p className="text-faint mt-3 text-2xs text-pretty">
+            {workspace.role === "owner"
+              ? "Only an owner can grant or take away ownership, and the last owner cannot be demoted — promote somebody else first, then step down."
+              : "An admin cannot change an owner's role. Ask an owner to do that."}
           </p>
         )}
       </Card>
