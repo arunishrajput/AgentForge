@@ -14,11 +14,11 @@ Phases 0–12 built and shipped a hackathon MVP. It was submitted on 2026-09-26
 (<https://www.youtube.com/watch?v=Suc4RV9LnLs>), and that chapter is done and not reopened.
 
 **Chapter 2 turns the MVP into a real, professional, open-source product.** Thirteen phases,
-13 → 25, defined in `BUILD_PLAN.md`. **Phases 13–22 are done** (19 was split into 19A and 19B, both
-complete). **Phase 23 is next.**
+13 → 25, defined in `BUILD_PLAN.md`. **Phases 13–22 are done, and 23A with them** (19 was split into
+19A and 19B; **23 is now split into 23A and 23B** — see *Current Phase*). **Phase 23B is next.**
 
 **The live system still works and must keep working:**
-**https://agentforge-733000675212.asia-southeast1.run.app** — revision `agentforge-00047-w65`.
+**https://agentforge-733000675212.asia-southeast1.run.app** — revision `agentforge-00050-z54`.
 
 ### Four binding decisions, made 2026-09-26
 
@@ -53,70 +53,72 @@ ceiling costing something looks like, and `SECURITY.md` states the protection gi
 
 ## Current Phase
 
-## ▶ NEXT: PHASE 23 — Node catalogue and templates
+## ▶ NEXT: PHASE 23B — Integrations and the second provider
 
-**Phase 22 is COMPLETE (2026-09-30).** Full definition of Phase 23 in `BUILD_PLAN.md`. Read
-`ARCHITECTURE.md` → *The node registry is the spine* and `CONTRACT.md` → *Node definition interface*
-before touching the registry — **it now carries four obligations, not one**.
+**Phase 23A is COMPLETE (2026-09-30), on `agentforge-00050-z54`.** Full definition of 23B in
+`BUILD_PLAN.md`. Read `CONTRACT.md` → *Node definition interface* before touching the registry —
+**it now carries five obligations**, and `src/lib/nodes/registry.test.ts` asserts all of them in one
+place.
 
-**What Phase 22 leaves you:**
+**Phase 23 was split at the start of the session, and the seam is the completion bar.** Phase 23's
+own criterion is *"proven against real services, not mocks"*. Transform nodes, node documentation
+and a template gallery reach no service and were provable the day they were written. Slack, Notion,
+GitHub, Airtable, a database node and a second LLM provider each need **an account and a credential
+only the user can create** — so shipping them together would have parked a finished half inside a
+phase marked `BLOCKED` behind six manual actions. 23B now opens with **one** manual-action block
+listing every credential at once.
 
-- **The registry's fourth obligation.** A node type already needs an entry in `PUBLISHABLE`
-  (Phase 20) and, for credential kinds, in `ROTATION_RULES` (Phase 21). Phase 22 adds a softer one
-  with teeth: **a node whose output carries `model` is counted as a model call** by the analytics
-  query, which reads the JSONB rather than a list of AI node types — so a Phase 23 node that calls a
-  model gets counted without anybody remembering to register it, and one that puts an unrelated
-  `model` field on its output will be miscounted. Name that field something else
-- **`src/lib/logging/` is the only place anything writes to stdout.** Sixteen ad-hoc `console.*`
-  calls are gone. A new node does not need to log — `context.log` already streams to the canvas and
-  persists to the step row, and the engine emits `node.finished` with the type and duration for
-  every node automatically. **Do not add a `console.log` to a node**
-- **`src/lib/logging/events.ts` is a catalogue and a test guards it.** A log-based metric is a
-  filter string in a GCP resource; renaming an event leaves its metric reporting zero forever, which
-  looks exactly like a healthy system. Add an event there first
-- **`OPERATIONS.md` exists** and is the runbook. If Phase 23 changes what can go wrong
-  operationally — a node that can wedge, a template that can be expensive — that file is where it
-  belongs, not a comment
-- **The analytics page is the first screen that shows the registry back to the user by label.**
-  `NodeStat.label` resolves through `getNode()` and is `null` for a type the registry no longer has,
-  which is deliberate: a run is a historical record and outlives a rename
+**What 23A leaves you:**
 
-**What Phase 23 must not undo:** nothing may start aggregating on a schedule, and nothing may poll.
-That is the constraint the whole zero-cost position rests on — see below.
+- **The registry is 25 nodes.** `core.switch` plus nine `transform.*` nodes. The nine transform
+  nodes are `agentCallable`; `core.switch` is not, for the same reason `core.branch` is not (D19)
+- **Two rules a new node must follow**, both in `CONTRACT.md`: a node returning a list returns
+  `{ items, count }` and reads config → bare array → `input.items`, which is what makes filter →
+  sort → unique → aggregate chain with nothing between them; and **no expression language, ever** —
+  fixed `z.enum` operator sets, a literal `replaceAll` rather than a compiled pattern, and
+  `readPath` refusing `__proto__`, `constructor` and array methods
+- **`docs` is the fifth registry obligation** — long-form help for a *person*, rendered in the
+  inspector behind a `<details>`. Deliberately not `description`, which the model reads verbatim; a
+  test asserts the two are never the same string
+- **Templates are graph literals in `src/lib/templates/catalogue.ts`, not rows.** No table, no seed
+  migration, nothing to bootstrap, and `templates.test.ts` **executes** every template that reaches
+  no service through the real engine. A node renamed in 23B fails the build here rather than
+  breaking a gallery card months later. `reachesNoService()` is derived from the node types, not
+  declared, so it cannot drift
+- **`/templates` costs no database query at all** — it reads two module constants. Nothing added
+  here may start polling or aggregating on a schedule; that is still what the whole zero-cost
+  position rests on
 
-**The phase's finding, and it is the reason the phase existed.** Within minutes of
-`agentforge_model_fallbacks` existing, it caught the deployed system doing exactly what Chapter 1
-did invisibly for days: **`gemini-3-flash-preview`, the configured default, was being answered by
-`gemini-3.5-flash-lite` on nearly every call**, having hit its free-tier quota. Every affected run
-*succeeded*. Nothing else in the system moved. A fallback is a success from the outside — that is
-the entire point of having one — which is why it needed an instrument of its own.
+**Three defects were found and fixed, and two of them were mine.**
 
-**Two defects came from verification, and both were found before the phase shipped**, which is why
-Phase 22 took one deploy rather than three:
+1. **`core.branch` had no `outputShape`** — a genuine D38 gap open since Phase 3. It has produced
+   `{ matched, input }` for twenty-two phases and never said so, so a generated graph reading
+   `{{steps.branch.output}}` got an object where it meant a boolean. Found by the new registry test
+   requiring one on every non-passthrough node; visible only because its new sibling `core.switch`
+   had one
+2. **The shell header overflowed the viewport, and my fourth nav link widened it.** The bar is
+   capped at `max-w-5xl`, so it is **1024 px wide at every viewport above that** — the space is a
+   fixed budget, not a growing one. Adding *Templates* pushed the contents to ~1062 px of a 976 px
+   content box, and the workspace switcher, as the only item carrying `min-w-0`, absorbed the entire
+   deficit and collapsed from ~200 px to **19 px**, rendering the workspace name as "A…". The nav
+   also overflowed the *page* between 640 px and 1000 px — **which it already did with three links**
+   (839 px against a 768 px viewport), so the link widened a broken range rather than creating one.
+   Fixed by moving the nav to `lg:flex` and dropping the inline account email at `lg`, where the
+   nav takes the room; the email moved into the account menu so nothing was lost. Measured clean at
+   ten widths from 375 px to 1920 px
+3. **`api.useTemplate` was a lint error, not a style question** — React 19 has a `use()` hook and
+   the hooks rule reads any `use*` call inside a function as one. Renamed `cloneTemplate`
 
-1. **A real browser found that the third nav link broke the header.** Adding *Analytics* pushed the
-   workspace switcher's trigger past its wrapper and it drew **on top of** the *Workflows* link, 22
-   px of overlap. The bounding boxes of the *containers* said there was no overlap — only
-   `getBoundingClientRect` on the `<button>` itself showed it. **The cause was a latent bug my nav
-   item merely exposed**: a flex child's `min-width` defaults to `auto`, so `Menu`'s trigger refused
-   to shrink below its content although the switcher passes it a `max-w` and a truncating label
-   intending exactly that. Fixed in the primitive, where it also fixes every future caller
-2. **`array_agg` over the Neon HTTP driver returns a Postgres array as its text literal**,
-   `{1200,34,5}`, not a JavaScript array — so the node-latency query called `.map` on a string and
-   the whole analytics route answered 500. Fixed with `jsonb_agg` *and* a tolerant coercion, with
-   tests for every shape. Writing the coercion then surfaced a second bug in it: `Number(null)` is
-   `0`, which is finite, so an absent duration became a zero-millisecond step and dragged that node
-   type's median toward nothing
+**The lesson Phase 22 wrote down held again, and cost two extra deploys.** Both UI defects were
+invisible to 37 passing deployed API checks and to 852 passing unit tests. Only
+`getBoundingClientRect` on the elements themselves, at a width nobody had thought to look at,
+showed them — and the second was found **only because the first fix prompted a check of the width
+that was not being changed**. Measure the widths you are not touching.
 
-**A third defect was found by the deployed suite** and is smaller but worth the note: the error
-fingerprinter labelled a thirteen-digit `Date.now()` as `<hex>` rather than `<n>`, because every
-decimal digit is also a hex digit. It mis-grouped nothing; it told a reader a number was an id.
-
-**Do not start Phase 24 in the same session as 23.** One phase per session still holds; `/clear`
+**Do not start Phase 24 in the same session as 23B.** One phase per session still holds; `/clear`
 between.
 
 ---
-
 
 ## Completed Phases
 
@@ -151,7 +153,8 @@ between.
 | **20** — roles, permissions and sharing | **COMPLETE** — 56 matrix cells green over HTTP against the deployed URL, the share link's redaction proved against a real bearer token in a real header, and both a viewer's canvas and the public page driven in a real browser at 1440 and 375 px, 2026-09-30 |
 | **21** — credential vault and rotation | **COMPLETE** — envelope encryption under a Secret Manager root key, all three rotations proved on the deployed URL by `verify-vault.mjs` (61 checks), and the vault driven in a real browser at 1440 and 375 px, 2026-09-30 |
 | **22** — observability and run analytics | **COMPLETE** — `verify-observability.mjs` ALL CHECKS PASSED against the deployed URL, including every analytics figure recomputed independently from SQL and an induced failure traced end to end **through Cloud Logging with the database never opened**; four log-based metrics created and all four confirmed collecting real points; the model-fallback metric caught a live degradation within minutes of existing; driven in a real browser at 1440 / 1024 / 375 px with zero console errors, 2026-09-30 |
-| **23** — node catalogue and templates | **NOT STARTED ← next** |
+| **23A** — transform, control flow, templates, node docs | **COMPLETE** — registry 15 → 25, six templates, per-node docs in the inspector. `verify-templates.mjs` **37 checks ALL PASSED** against the deployed URL, including the template's arithmetic recomputed exactly and `transform.date` proved to have full ICU time-zone data in the container; the gallery, a clone, a canvas run and the docs disclosure driven in a real browser, and the header measured clean at **ten widths from 375 to 1920 px** after two regressions were found there, 2026-09-30 |
+| **23B** — integrations and the second provider | **NOT STARTED ← next** |
 | **24** — documentation and open-source readiness | NOT STARTED |
 | **25** — launch polish | NOT STARTED |
 
@@ -165,17 +168,17 @@ between.
 | **Canonical URL** | **`https://agentforge-733000675212.asia-southeast1.run.app`** |
 | Legacy URL | `https://agentforge-i5d2u66boa-as.a.run.app` — works, do not publish it |
 | Service | `agentforge` on Cloud Run, `asia-southeast1` |
-| Revision | **`agentforge-00047-w65`** — ready, **`latestRevision: True`**, 100% of traffic (Phase 22). **Phase 22 took ONE deploy**, the first since Phase 18: both of its defects were found *before* it shipped, by a browser walk at 1440 px and by the suite running locally. Previous good revisions: `agentforge-00046-w7b`, `agentforge-00045-jj4`, `agentforge-00044-zmx` (all Phase 21), `agentforge-00043-nn2` (Phase 20, second), `agentforge-00042-5zx` (Phase 20, first), `agentforge-00041-75x` (Phase 19B). Earlier: `agentforge-00037-k7x` (19A), `agentforge-00035-vfd` (18), `agentforge-00034-54v` (17), `agentforge-00030-gv2` (16). **`00032` and `00033` were deliberately deleted** during Phase 17's verification, testing whether deleting a serving revision kills its in-flight request — it does not. Rollback was tested against `agentforge-00020-rcr` |
+| Revision | **`agentforge-00050-z54`** — ready, **`latestRevision: True`**, 100% of traffic (Phase 23A). **Phase 23A took THREE deploys, and both extra ones were the header**: `-00048-hsb` shipped the feature, `-00049-ld9` moved the nav to `lg` after a browser found the page scrolling sideways between 640 and 1000 px, and `-00050-z54` freed the width the workspace switcher had been collapsing into. Previous good revisions: `agentforge-00047-w65` (Phase 22), `agentforge-00046-w7b`, `agentforge-00045-jj4`, `agentforge-00044-zmx` (all Phase 21), `agentforge-00043-nn2` (Phase 20, second), `agentforge-00042-5zx` (Phase 20, first), `agentforge-00041-75x` (Phase 19B). Earlier: `agentforge-00037-k7x` (19A), `agentforge-00035-vfd` (18), `agentforge-00034-54v` (17), `agentforge-00030-gv2` (16). **`00032` and `00033` were deliberately deleted** during Phase 17's verification, testing whether deleting a serving revision kills its in-flight request — it does not. Rollback was tested against `agentforge-00020-rcr` |
 | Scaling | `min-instances 1`, `max-instances 3`, 1 vCPU / 1 GiB, 3600 s timeout, port 8080 |
 | Env vars set | `NODE_ENV` `AUTH_URL` `APP_BASE_URL` `DATABASE_URL` `AUTH_SECRET` `GOOGLE_CLIENT_ID` `GOOGLE_CLIENT_SECRET` `ENCRYPTION_KEY` `CRON_SECRET` `TASKS_QUEUE` `TASKS_LOCATION` **`ROOT_KEY_SECRET`** — **12 now. Phase 21 added the last one**, naming the Secret Manager secret that holds the root key. Unset it and the service silently falls back to `ENCRYPTION_KEY` as the root key, which is the Chapter 1 problem back without the Chapter 1 warning — hence `rootKey.provider` on `/api/health`. **`GCP_ACCESS_TOKEN` and `GCP_PROJECT` are script-only and must never be set here**: they exist so `scripts/rekey.mjs` can reach Secret Manager from a machine with no metadata server, and an access token in a service env var is a long-lived credential in a place that survives restarts. Phase 20 added none (a share link is built from `APP_BASE_URL`); Phase 19B added none (an invitation link likewise, and there is no mail provider); **Phase 17 added `TASKS_QUEUE` and `TASKS_LOCATION`** — `TASKS_PROJECT` is deliberately unset, because the project comes from the metadata server, which cannot be wrong the way a copied variable can. All were added with `--update-env-vars`, which **merges**, rather than `--env-vars-file`, which replaces the whole set. No Gemini key on the service: the product path is the user's own key |
-| Database | Neon `super-mountain-39872886` — **13 tables**, migrations `0000`–`0009` applied, ~10 MB of 0.5 GB. **Phase 22 added no migration, no table, no column and no index** — the analytics are computed from the `run` and `run_step` rows the engine already writes, and every query opens on `run_workspace_idx`, present since Phase 19A. That was a design constraint, not luck: a rollup table would have needed a job to fill it, and a job on a clock is the one thing Neon's free plan actually charges for. Earlier migrations are unchanged — see `DEPLOYMENT.md` for `0009` (the vault, and the only rollback in this project that can destroy data), `0008` (sharing), `0007` (invitations), `0005`/`0006` (workspaces, deliberately in two halves), `0004` (versioning) |
-| Routes | `/` `/dashboard`→`/workflows` `/workflows` `/workflows/[id]` **`/analytics`** `/settings` `/design` `/invite/[token]` `/s/[token]` + **37** API routes. **Phase 22 added one API route and one page.** The route is `GET /api/analytics` (`viewer`); the page is `/analytics`, the fourth item in the shell nav — and adding it is what exposed the `Menu` trigger's `min-width: auto` overflow, which had been latent since Phase 14. **`/api/health` was rewritten, additively**: `checks[]`, `migrations` and `registry` are new, and every field `verify-api.mjs`, `verify-durable.mjs`, `verify-vault.mjs` and `DEPLOYMENT.md` assert on kept its name and meaning. **Phase 22 added no unauthenticated surface**: still exactly four. Phase 21 added four API routes and the Vault settings tab; Phase 20 added two routes, one method and `/s/[token]`; Phase 19B added nine routes and the accept page; Phase 18 added four under `/api/workflows/[id]/versions`; Phase 14 added `/design`, public and prerendered |
+| Database | Neon `super-mountain-39872886` — **13 tables**, migrations `0000`–`0009` applied, ~10 MB of 0.5 GB. **Phase 23A added no migration, no table and no column**, by design rather than by luck: templates are graph literals in `src/lib/templates/catalogue.ts`, so the gallery costs no row, no seed step and nothing for a new deployment to bootstrap — and a test executes them, so they cannot rot. Phase 22 added none either. Earlier migrations are unchanged — see `DEPLOYMENT.md` for `0009` (the vault, and the only rollback in this project that can destroy data), `0008` (sharing), `0007` (invitations), `0005`/`0006` (workspaces, deliberately in two halves), `0004` (versioning) |
+| Routes | `/` `/dashboard`→`/workflows` `/workflows` `/workflows/[id]` **`/templates`** `/analytics` `/settings` `/design` `/invite/[token]` `/s/[token]` + **39** API routes. **Phase 23A added one page and two API routes**: `GET /api/templates` (`viewer`) and `POST /api/templates/:id` (`editor`), which clones by calling the ordinary `createWorkflow` so a cloned template gets its workspace scoping, owner, version 1 and webhook token from the one path every workflow uses. **`/templates` opens no database connection at all** — it reads two module constants, which makes it the cheapest route in the product. **No new unauthenticated surface**: still exactly four. Phase 22 added `GET /api/analytics` and `/analytics`; Phase 21 added four routes and the Vault tab; Phase 20 added two routes, one method and `/s/[token]`; Phase 19B added nine routes and the accept page; Phase 18 added four under `/api/workflows/[id]/versions`; Phase 14 added `/design`, public and prerendered |
 | Latency | **Warm**: health ~190 ms India → Singapore, database 7–11 ms. A 6-node demo-path run **4.2–7.5 s** end to end across five consecutive walks (Phase 13; it was 3.1–4.8 s in Chapter 1 when the model answered first time, and **94.5 s** when it did not — that second case is what Phase 13 removed). Generation 2.7–3.5 s. **Cold (Neon suspended)**: health **1.14 s, of which 739 ms is the database wake** — re-measured 2026-09-26 at 917 ms for a first query, 103 ms on the next. Cloud Run itself is never cold at `min-instances 1` | **Analytics, Phase 22: 21–27 ms of database time per page view** on 46 runs and ~200 steps, three statements, measured on the deployed service. The page is server-rendered and does not poll |
-| Last verified | **2026-09-30, after Phase 22.** On **`agentforge-00047-w65`**: `verify-observability.mjs` **ALL CHECKS PASSED** (1 skipped) — every analytics total, percentile, day bucket, node row and model row **recomputed independently from SQL** and compared; a probe workflow created, failed twice on purpose, and those failures found **in Cloud Logging without the database being opened**, with the right severity, an indexed `event` label, a duration, an error group and one trace per run; two identical failures proved to be ONE group in both the API and the logs; a hostile `?range=` proved to fall back rather than widen the window, with the `run` table still intact after. `verify-api.mjs` **ALL CHECKS PASSED (3 skipped)**; a second back-to-back run reported 4 failures that were **Gemini free-tier quota (20 req/min), not regression** — the provider says so in its own words. `verify-vault.mjs` ALL CHECKS PASSED. `verify-durable.mjs` ALL CHECKS PASSED, including a real Cloud Tasks scheduled run on this revision. `verify-schema.mjs` 6/6. **Four log-based metrics created and all four confirmed collecting real points** via the Monitoring API. **A real browser** at 1440, 1024 and 375 px, deployed and local: the page read, the range links driven, nothing overflowing at 375, **zero console errors**. Local `npm run check` **769 passing** (was 739), coverage **86.79 / 91.04 / 77.72** against thresholds 85 / 88 / 76 |
+| Last verified | **2026-09-30, after Phase 23A.** On **`agentforge-00050-z54`**: `verify-templates.mjs` **37 checks, ALL PASSED** — the deployed registry serving 25 nodes with their `docs` intact over the wire, all six templates cloning and validating, `rank-and-report` run through the deployed engine with its arithmetic recomputed exactly (`4 of 5 scored over 50: Katherine, Ada, Grace, Edsger`), all three `core.switch` branches proved to route and skip correctly, and `transform.date` proved to have **full ICU time-zone data in the container** (a slim Node image ships `small-icu`, where `Europe/London` would have silently failed). `verify-api.mjs` **393 passed, 0 failed, 4 skipped — ALL CHECKS PASSED**, so nothing regressed. In a **real browser**: the gallery, a clone, the canvas, a live run streaming its exact log line to the page, and the inspector's docs disclosure; plus the header measured with `getBoundingClientRect` at **ten widths from 375 to 1920 px**, zero overflow and zero overlaps, after two regressions were found there |
 | Rollback | **TESTED 2026-09-26, finally.** Traffic shifted to `agentforge-00020-rcr` in **~15 s**, health confirmed the older revision was serving, the demo path walked clean on it, then `--to-latest` restored `agentforge-00021-v4s` in ~15 s. The oldest open item in this file is closed |
 | Billing | Trial credit account `Billing - AgentForge` is **open and enabled**. Actual spend is **not queryable from the CLI** (no billing export configured) — **eyeball it in the console once before judging** |
 | Provider key stored | **Yes**, and the model was **rotated in Phase 13** from `gemini-3.5-flash-lite` to **`gemini-3-flash-preview`** — the only model healthy on both the text and tool-calling paths in all three probe passes. Confirmed persisted in Neon. Re-probe with `npm run probe:models` |
-| Registry | **15 nodes**, unchanged by Phases 10–21. **Phase 20 gave the registry a second obligation**: every node type must have an entry in `PUBLISHABLE` in `lib/workflow/share.ts` saying what a public share link may show of it, asserted by a test in both directions. **Phase 21 gave it a third obligation**: every credential *kind* must have an entry in `ROTATION_RULES` in `lib/credentials/rotation.ts` saying what rotating it means, asserted by a test in both directions — so a kind added in Phase 23 cannot become silently unrotatable. **The registry claim has now held nine times** — and the landing page now *renders* that number from the registry rather than stating it |
+| Registry | **25 nodes** — Phase 23A took it from 15, adding `core.switch` and nine `transform.*` nodes, the first registry growth since Phase 9. A node type owes **five** things now: an entry in `PUBLISHABLE` (Phase 20), an entry in `ROTATION_RULES` if it carries a credential kind (Phase 21), an output field named `model` **only** if it really is a model call (Phase 22, which counts them by reading the step's JSONB), a generator catalogue entry (automatic, from `describeNodes()`), and `docs` to explain itself in the inspector (Phase 23A). `src/lib/nodes/registry.test.ts` asserts all five in one place, and the `PUBLISHABLE` and agent-tool tests both failed the moment the ten nodes were registered — which is the obligations working as designed |
 | Fonts | **Geist + Geist Mono, self-hosted by `next/font`**, `latin` subset, variable axis. Two woff2 files in the image; no request leaves the browser for a font and there is no layout shift |
 
 **A redeploy preserves env vars.** Confirmed again on Phase 6's three deploys: `gcloud run deploy
@@ -983,6 +986,29 @@ diary** — keeping six months of "what happened when" here makes the part that 
 find, which is the failure mode it is meant to prevent.
 
 ## Last Updated
+
+**2026-09-30** — **Phase 23A complete.** Revision `agentforge-00050-z54` live, `/api/health` green
+across all five dependency checks and reporting `registry: 25`. **No migration**, no table, no
+column — templates are graph literals, not rows.
+
+**The registry went 15 → 25** (`core.switch` + nine `transform.*`), **six templates** ship as
+executable graph literals, and **every node can now document itself** to a person in the inspector,
+separately from the `description` the model reads. **852 unit tests** (+83), `npm run check` green
+with coverage above all three thresholds, **37 deployed checks** in a new `verify-templates.mjs`,
+and the full `verify-api.mjs` regression suite still at **393 passed / 0 failed**.
+
+**Phase 23 was split into 23A and 23B** along its own completion bar: 23A reaches no service and was
+provable immediately; 23B needs six credentials only the user can create, and now opens with one
+manual-action block instead of stranding a finished half in a `BLOCKED` phase.
+
+**Three defects found, two of them mine, all three fixed with a test that fails without the fix.**
+`core.branch` had been missing its `outputShape` since Phase 3 (a real D38 gap, surfaced only
+because its new sibling had one). The shell header overflowed the viewport between 640 and 1000 px —
+**already true with three nav links** — and my fourth link additionally squeezed the workspace
+switcher from ~200 px to **19 px**, rendering the workspace name as "A…", because the bar is capped
+at `max-w-5xl` and is therefore a *fixed* 1024 px budget at every larger viewport. Both UI defects
+were invisible to 37 deployed API checks and 852 unit tests; only `getBoundingClientRect` at a width
+nobody had thought to check found them. **Measure the widths you are not changing.**
 
 **2026-09-30** — **Phase 22 complete.** Revision `agentforge-00047-w65` live, `/api/health` reporting
 `status: ok` across all five dependency checks. **No migration**, so nothing to roll back at the

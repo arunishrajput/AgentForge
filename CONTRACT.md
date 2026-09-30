@@ -185,6 +185,7 @@ interface NodeDefinition<Config> {
   category: "trigger" | "logic" | "transform" | "integration" | "agent";
   outputs: { key: string | null; label: string }[];   // `key` is the edge's sourceHandle
   outputShape?: string;    // one line on the shape of `output`. READ BY THE GENERATOR
+  docs?: NodeDocs;         // Phase 23A. Long-form help for the INSPECTOR — written for a person
   configSchema: z.ZodType<Config>;
   agentCallable?: boolean; // DEFAULTS TO FALSE — widening the agent's reach is always deliberate
   execute(invocation: { config: Config; input: unknown; context: NodeContext }): Promise<NodeOutcome>;
@@ -204,6 +205,22 @@ interface NodeContext {
 
 interface NodeOutcome { output: unknown; branch?: string | null }  // `branch` must be a declared output key
 ```
+
+**`docs` — added in Phase 23A, optional.** Documentation for a *person*, shown in the inspector:
+
+```ts
+interface NodeDocs {
+  summary: string;                               // what it does, for a human. 2–3 sentences
+  accepts?: string;                              // what it reads as input when config supplies none
+  examples?: { title: string; body: string }[];  // worked examples
+}
+```
+
+**Deliberately not `description`.** That field is read verbatim by the model and is tuned for it —
+terse, imperative, about *when to call this*. A person opening the panel wants different sentences.
+Writing one string for both audiences produced a description that served neither. The inspector
+falls back to `description` plus `outputShape` when `docs` is absent, which is what every node had
+before Phase 23A. A test asserts `docs.summary !== description` for every node that declares one.
 
 **Error contract.** Throw `NodeError` to fail the step with a message the user should read.
 Anything else thrown is still recorded, but its message is not written for a user.
@@ -235,6 +252,32 @@ entries in one table.** Neither phase built a second registry and neither touche
 config forms, the validator or the generation prompt's catalogue: all four read this table. Phase 9's
 only prompt change was prose, and it was a correction rather than an addition — see
 *Integration nodes and their credentials*.
+
+**Phase 23A took the registry to 25.** One control-flow node, `core.switch`, and nine transform
+nodes: `transform.filter`, `.map`, `.sort`, `.unique`, `.aggregate`, `.json`, `.text`, `.number`
+and `.date`. None of them reaches a service, holds a credential or can have an effect outside the
+run, which is the whole argument for the nine transform nodes being `agentCallable` — `core.switch`
+is not, for the same reason `core.branch` is not (D19): a node whose entire output is the *edge* the
+run leaves through has nothing to say when called as a tool.
+
+**Two rules the transform nodes establish, and a node added later must follow:**
+
+- **A node that returns a list returns `{ items, count }`, never a bare array**, and a node that
+  consumes one reads its config, then a bare array input, then `input.items`. That is what makes
+  filter → sort → unique → aggregate chain with nothing between them. A bare array leaves nowhere
+  to put the count, and every join would then need a `core.set` to reshape it.
+- **No expression language, ever.** Every operator set is a fixed `z.enum`, `transform.text`'s
+  replace is a literal `replaceAll` and never a compiled pattern, and the dotted paths in
+  `transform.map`/`.filter`/`.sort` read own properties only — `readPath` refuses `__proto__`,
+  `constructor` and array methods, asserted in both directions. A config field is exactly where
+  arbitrary code execution would re-enter this product (`CLAUDE.md`, security rules).
+
+**A fifth registry obligation, and the count of them now.** A node type needs: an entry in
+`PUBLISHABLE` (Phase 20), an entry in `ROTATION_RULES` if it carries a credential kind (Phase 21),
+an output field named `model` **only** if it really is a model call (Phase 22 counts them by reading
+the step's JSONB), a catalogue entry the generator renders (Phase 7, automatic), and — from Phase
+23A — `docs` if it is to explain itself in the inspector. `src/lib/nodes/registry.test.ts` asserts
+all of them in one place.
 
 **`outputShape` — added in Phase 7, optional.** One line saying what `output` holds, for whoever has
 to write a `{{ }}` reference to it. Optional: a node that passes its input through has nothing to

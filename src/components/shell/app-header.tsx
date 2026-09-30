@@ -33,7 +33,7 @@ export function AppHeader({
   workspace: WorkspaceSummary;
   /** Every workspace this account is in — the switcher's list (Phase 19B). */
   workspaces: WorkspaceSummary[];
-  active?: "workflows" | "analytics" | "settings";
+  active?: "workflows" | "templates" | "analytics" | "settings";
 }) {
   async function signOutAction() {
     "use server";
@@ -49,9 +49,31 @@ export function AppHeader({
 
         <WorkspaceSwitcher active={workspace} workspaces={workspaces} />
 
-        <nav aria-label="Main" className="ml-3 hidden items-center gap-1 sm:flex">
+        {/* **`lg`, not `sm` — Phase 23A, and it fixes a bug that predates the fourth link.**
+            Measured on the deployed build, at a 768 px viewport: the page's content box came
+            to 938 px, so the whole document scrolled sideways, and it did so at every width
+            from 640 px (where `sm:flex` revealed the nav) to just under 1000 px. **With three
+            links it was 839 px — still overflowing** — so adding *Templates* widened a broken
+            range rather than creating one, which is only visible if you measure the width you
+            are NOT changing.
+
+            Above 1024 px the shortage takes the other form, because the bar is capped at
+            `max-w-5xl`: no page overflow, but a fixed 976 px content box the contents exceed,
+            which the workspace switcher silently absorbed. See `account-menu.tsx` for that
+            half and what was given up to fix it.
+
+            Below `lg` the destinations are all in the command palette, which sits in this
+            header at every width — the same pattern that already served every viewport under
+            640 px. Phase 22 fixed the switcher's trigger refusing to shrink; this is the
+            outer half of the same problem, and squeezing the switcher further was measured
+            as worse: `flex-shrink: 0` on its wrapper reintroduced the overflow at six
+            widths. */}
+        <nav aria-label="Main" className="ml-3 hidden items-center gap-1 lg:flex">
           <NavLink href="/workflows" current={active === "workflows"}>
             Workflows
+          </NavLink>
+          <NavLink href="/templates" current={active === "templates"}>
+            Templates
           </NavLink>
           <NavLink href="/analytics" current={active === "analytics"}>
             Analytics

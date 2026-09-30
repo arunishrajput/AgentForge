@@ -58,7 +58,17 @@ gets an **analytics page** — runs over time, success rate, slowest nodes, mode
 failures — computed on demand from run history, with **no rollup job and no polling**, because the
 free database plan meters time awake. It costs 21 ms of database time per page view.
 [`OPERATIONS.md`](./OPERATIONS.md) is the runbook.
-Still to come — a much larger node catalogue and proper documentation. It stays free to run.
+**Phase 23A widened the catalogue and removed the blank canvas**: the registry went from 15 nodes to
+**25**, adding a multi-way `Switch` and nine transform nodes — filter, reshape, sort, de-duplicate,
+summarise, JSON, text, maths and date — every one of which is also a tool the agent can call, because
+the registry *is* the tool surface. Each list node returns `{ items, count }` and reads the previous
+node's list, so they chain with nothing in between. Every node now **documents itself to a person**
+in the inspector, separately from the terse description the model reads. And a **template gallery**
+ships six workflows that are real graphs rather than screenshots: they clone onto the canvas, every
+node is editable, and a test *executes* the ones that reach no service, so they cannot rot.
+
+Still to come — the integrations (Slack, Notion, GitHub, Airtable), a second model provider, and
+proper documentation. It stays free to run.
 
 **The redesign has landed.** Phase 14 replaced the dark Chapter 1 interface with **Toybox** — bright,
 playful and light-first, with saturated colour, thick ink outlines and hard offset shadows. It is

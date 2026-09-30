@@ -10,7 +10,13 @@ import { defineNode } from "../types";
  * Edges leave through `sourceHandle` "true" or "false"; whichever side is not
  * taken is recorded as skipped.
  */
-const operators = [
+/**
+ * Exported since Phase 23A: `transform.filter` applies the same test to every item of
+ * a list, and it must be the *same* test. Two operator sets that drift — one where
+ * `contains` is substring and one where it is membership — is the kind of difference
+ * nobody finds until a workflow quietly keeps the wrong rows.
+ */
+export const operators = [
   "equals",
   "not_equals",
   "contains",
@@ -20,7 +26,7 @@ const operators = [
   "is_not_empty",
 ] as const;
 
-type Operator = (typeof operators)[number];
+export type Operator = (typeof operators)[number];
 
 function asNumber(value: unknown): number {
   if (typeof value === "number") return value;
@@ -80,6 +86,14 @@ export const branchNode = defineNode({
     { key: "true", label: "True" },
     { key: "false", label: "False" },
   ],
+  // Added in Phase 23A, and it was a genuine D38 gap: this node has produced
+  // `{ matched, input }` since Phase 3 and never said so, so a generated graph
+  // reading `{{steps.branch.output}}` got an object where it meant a boolean. The
+  // registry test that now requires an `outputShape` on every non-passthrough node is
+  // what found it — the sibling `core.switch` having one is what made the absence
+  // visible at all.
+  outputShape:
+    "{ matched: true or false — which output was taken, input: the data that came in, passed through }.",
   // Not agent-callable (Phase 6, D19). A branch node's whole purpose is the
   // `sourceHandle` the run leaves through; called as a tool there is no edge to
   // take, so the model would get a boolean it could have worked out itself. An

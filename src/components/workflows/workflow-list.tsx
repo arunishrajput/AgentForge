@@ -99,15 +99,26 @@ export function WorkflowList({
         title={canEdit ? "Nothing built yet" : "Nothing to see here yet"}
         description={
           canEdit
-            ? "Describe what you want in the box above and AgentForge will build it — or start from an empty canvas and wire it up by hand."
+            ? "Describe what you want in the box above and AgentForge will build it — or open a template and edit a workflow that already runs."
             : "Nobody in this workspace has built a workflow yet — or the ones here are private to the people who made them. Ask an admin for the editor role if you need to build one."
         }
         action={
           // An empty state whose call to action is refused is worse than one with none.
+          //
+          // Two actions, not one — Phase 23A. "Describe your first workflow" asks a
+          // person with nothing on screen to think of something, which is the blank-page
+          // problem the generator was supposed to solve and does not: the box is still
+          // empty. A template is the answer that requires no idea, so it sits beside the
+          // primary action rather than being hidden behind a nav link.
           canEdit ? (
-            <a href="#generate-prompt" className="btn btn-primary">
-              Describe your first workflow
-            </a>
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <a href="#generate-prompt" className="btn btn-primary">
+                Describe your first workflow
+              </a>
+              <Link href="/templates" className="btn btn-ghost">
+                Or start from a template
+              </Link>
+            </div>
           ) : undefined
         }
       />

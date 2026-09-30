@@ -29,7 +29,8 @@ test("all four integrations are registered and dispatchable by type", () => {
     assert.equal(node.category, "integration", node.type);
     assert.equal(node.kind, "action", node.type);
   }
-  assert.equal(listNodes().length, 15);
+  // 25 after Phase 23A added ten transform and control-flow nodes.
+  assert.equal(listNodes().length, 25);
 });
 
 test("every integration declares the shape of its output", () => {
@@ -53,9 +54,29 @@ test("three integrations are agent-callable and Gmail deliberately is not", () =
 
 test("the agent tool set is exactly the callable registry, projected", () => {
   const tools = agentToolSet();
+  // Pinned deliberately. `agentCallable` defaults to false so a node cannot widen the
+  // agent's reach by being added, but nothing stops somebody *setting* it — and the
+  // whole point of D19 is that widening is a decision. This list failing is that
+  // decision being asked for. Phase 23A added the eight transform nodes below: each is
+  // pure data shaping that reaches no service and can have no effect outside the run.
   assert.deepEqual(
     [...tools.byName.keys()].sort(),
-    ["core_log", "core_set", "integration_discord", "integration_http", "integration_sheets"].sort(),
+    [
+      "core_log",
+      "core_set",
+      "integration_discord",
+      "integration_http",
+      "integration_sheets",
+      "transform_aggregate",
+      "transform_date",
+      "transform_filter",
+      "transform_json",
+      "transform_map",
+      "transform_number",
+      "transform_sort",
+      "transform_text",
+      "transform_unique",
+    ].sort(),
   );
   assert.equal(toToolName("integration.http"), "integration_http");
   assert.equal(tools.rejected.length, 0);

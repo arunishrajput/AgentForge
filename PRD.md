@@ -114,11 +114,13 @@ mapped to the phase that delivers it. `BUILD_PLAN.md` is the contract; this is t
 | C6a | Workspaces: the data model and scoping | 19A — **DONE** | Post-Hackathon |
 | C6b | Membership: invitations and the switcher | 19B — **DONE** | Post-Hackathon |
 | C7 | Roles, permissions, sharing | 20 — **DONE** | Post-Hackathon |
-| C8 | Credential vault, rotation, audit log | 21 | Post-Hackathon. Rotation was the sharpest known gap |
-| C9 | Observability, metrics, run analytics | 22 | Post-Hackathon |
-| C10 | Node catalogue well beyond 15 nodes | 23 | S5, capped for time |
-| C11 | Template gallery | 23 | S4, never built |
-| C12 | A second LLM provider | 23 | S1, blocked on a key |
+| C8 | Credential vault, rotation, audit log | 21 — **DONE** | Post-Hackathon. Rotation was the sharpest known gap |
+| C9 | Observability, metrics, run analytics | 22 — **DONE** | Post-Hackathon |
+| C10a | Transform and control-flow nodes — registry to 25 | 23A — **DONE** | S5, capped for time |
+| C10b | Integration nodes: Slack, Notion, GitHub, Airtable, database | 23B | S5. Each needs an account |
+| C11 | Template gallery | 23A — **DONE** | S4, never built |
+| C12 | A second LLM provider | 23B | S1, blocked on a key |
+| C16 | Per-node documentation in the inspector | 23A — **DONE** | New in Chapter 2 |
 | C13 | Real test suite, coverage, CI | 13 | Explicitly excluded |
 | C14 | Docs site, ADRs, contributing guide, licence | 24 | Did not exist |
 | C15 | Onboarding, full a11y audit, broad error handling | 25 | Explicitly excluded |

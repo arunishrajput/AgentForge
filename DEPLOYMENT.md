@@ -21,7 +21,7 @@ Every step is labelled **`AUTOMATED BY CLAUDE CODE`** or **`MANUAL HUMAN ACTION`
 | Root key | **Secret Manager `agentforge-root-key`, version `1`.** Every credential's data key is wrapped by it; `GET /api/health` reports `rootKey.provider` so a deployment silently on `ENCRYPTION_KEY` cannot hide |
 | Database | Neon `super-mountain-39872886`, `aws-ap-southeast-1` — **13 tables**, migrations `0000`–`0009` applied. 9.9 MB of 0.5 GB |
 | Observability | **Structured JSON logging on stdout, four log-based metrics, and `/api/health` reporting five dependency checks.** `OPERATIONS.md` is the runbook |
-| Last verified | **2026-09-30, after Phase 22** — `verify-observability.mjs` **ALL CHECKS PASSED** (1 skipped), including the analytics figures recomputed independently from SQL, an induced failure traced end to end **through Cloud Logging without opening the database**, and two identical failures proved to be one error group in both the API and the logs; `verify-api.mjs` all-pass (a second back-to-back run reported 4 failures that were **Gemini free-tier quota, not regression** — 20 requests/minute); `verify-vault.mjs` all-pass; `verify-durable.mjs` all-pass including a real Cloud Tasks scheduled run; `verify-schema.mjs` 6/6. Local `npm run check`: **769 passing**, coverage 86.79 / 91.04 / 77.72. A real browser at 1440, 1024 and 375 px, deployed and local, with **zero console errors** |
+| Last verified | **2026-09-30, after Phase 23A** — `verify-templates.mjs` **37 checks ALL PASSED** on `agentforge-00050-z54`: the deployed registry serving 25 nodes with `docs` intact over the wire, all six templates cloning and validating, `rank-and-report` executed with its exact arithmetic recomputed, all three `core.switch` routes proved, and full ICU time-zone data confirmed in the container. `verify-api.mjs` **all-pass, no regression** (a second back-to-back run reports failures that are **Gemini free-tier quota, not regression** — 20 requests/minute). `verify-schema.mjs` 6/6. Local `npm run check`: **852 passing**, coverage 88.09 / 91.47 / 79.62. A **real browser** drove the gallery, a clone, a live canvas run and the inspector docs, and measured the header at **ten widths from 375 to 1920 px** — zero overflow, zero overlaps, after two regressions were found and fixed there |
 
 The service also answers on a legacy hashed URL. Do not use it — see *Deploy*.
 
@@ -1153,7 +1153,14 @@ node --env-file=.env scripts/verify-schema.mjs                      # repo schem
 APP_BASE_URL="$APP_BASE_URL" node --env-file=.env scripts/verify-durable.mjs all   # Phase 17
 node --env-file=.env scripts/verify-vault.mjs "$APP_BASE_URL"       # Phase 21
 node --env-file=.env scripts/verify-observability.mjs "$APP_BASE_URL"   # Phase 22
+APP_BASE_URL="$APP_BASE_URL" node --env-file=.env scripts/verify-templates.mjs   # Phase 23A
 ```
+
+> **`verify-templates.mjs` takes its base URL from `APP_BASE_URL`, not from `argv[2]`.** The scripts
+> disagree about this and it is worth checking before assuming a connection refused is an outage:
+> `verify-api.mjs`, `verify-vault.mjs` and `verify-observability.mjs` read the first argument and
+> **default to `http://localhost:3000`**, so passing the deployed URL as an env var silently tests
+> a laptop that is not running.
 
 `verify-vault.mjs` proves the three rotations Phase 21 exists for, and three claims that would
 otherwise be taken on trust: that the vault's response contains no part of any stored envelope
@@ -1162,6 +1169,16 @@ leaves the stored secret byte-identical, and that every rotation mints a fresh d
 re-keys the real workspace**, which is unavoidable — re-keying is a property of the whole workspace
 and cannot be rehearsed on a throwaway one that holds nothing — and every operation it performs is
 idempotent and safe to repeat.
+
+`verify-templates.mjs` proves the four things Phase 23A could not prove locally. That the
+**deployed build carries the widened registry** and that every node's `docs` survives
+`describeNode`'s JSON round trip to the client. That a template's graph **survives Postgres `jsonb`
+and comes back with its positions intact** — a template that reloads with a scrambled layout is a
+broken template. That the arithmetic is right rather than merely non-throwing: it asserts the exact
+string `4 of 5 scored over 50: Katherine, Ada, Grace, Edsger` and all three `core.switch` routes.
+And that **the container has full ICU time-zone data** — `transform.date` formats through `Intl`,
+whose zone database is a property of the *image*, and a slim Node base ships `small-icu`, where
+`Europe/London` silently degrades to UTC. It deletes every workflow it creates, pass or fail.
 
 `verify-observability.mjs` proves the three things Phase 22 would otherwise be taking on trust. It
 **recomputes every analytics figure from SQL independently** and compares — the only check that can

@@ -68,6 +68,31 @@ const PUBLISHABLE: Readonly<Record<string, SharePolicy>> = {
   // most of what it means, and every value in it is something somebody typed.
   "core.set": { values: ["merge"], keys: ["fields"] },
 
+  // Switch publishes nothing — Phase 23A, and it is the closed default rather than an
+  // oversight. Its `cases` are an array of `{ operator, value }`, so the two halves of
+  // one field have opposite answers: the operators are shape and the values are content,
+  // and neither `values` nor `keys` can publish half of an array. A reader still learns
+  // most of what a switch does from the graph, which shows five outputs and which of them
+  // are wired to anything.
+  "core.switch": {},
+
+  // Transform nodes — Phase 23A. `field` is published throughout: it is the *name* of a
+  // property, which is the same category of thing as a published header name, and it is
+  // what makes a shared graph legible ("sorted by score, descending"). What is redacted
+  // is every free-text field a value could have been typed into — a comparison value, a
+  // separator, a search string, an inline `items` list.
+  "transform.filter": { values: ["field", "operator"] },
+  // `fields` here follows `core.set`'s precedent rather than the `field` rule above: the
+  // output key names are the interesting half and the paths stay in.
+  "transform.map": { keys: ["fields"] },
+  "transform.sort": { values: ["field", "direction"] },
+  "transform.unique": { values: ["field"] },
+  "transform.aggregate": { values: ["operation", "field"] },
+  "transform.json": { values: ["mode", "pretty"] },
+  "transform.text": { values: ["operation", "start", "end"] },
+  "transform.number": { values: ["operation", "precision"] },
+  "transform.date": { values: ["shiftMinutes", "timeZone"] },
+
   // Agent nodes. The model, the temperature and the iteration cap are settings. `tools`
   // is a list of registry node types, so it is already public information and it is the
   // single most interesting field on an agent node — it is what the agent may reach.

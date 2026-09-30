@@ -8,6 +8,7 @@ import { categoryLook } from "@/lib/canvas/categories";
 import type { GraphProblem, NodeSummary, Run, Workflow } from "@/lib/canvas/client";
 
 import { ConfigForm } from "./config-form";
+import { NodeDocs } from "./node-docs";
 import { NodeIcon } from "./node-icon";
 import { Panel } from "./panel";
 import { PolicyForm } from "./policy-form";
@@ -202,7 +203,7 @@ function NodeInspector({
 
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-3 py-3.5">
         {definition ? (
-          <p className="text-muted text-xs leading-relaxed">{definition.description}</p>
+          <NodeDocs definition={definition} />
         ) : (
           <Notice tone="bad" title="This node type is not in the registry">
             Nothing is registered for <code className="font-mono">{node.data.nodeType}</code>.

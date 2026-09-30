@@ -309,6 +309,21 @@ dispatch table anyway. Phases 8 and 9 add entries to an existing registry rather
 A consequence worth stating: adding an integration automatically widens what the agent can do. No
 separate tool definitions, no drift between "nodes that exist" and "tools the agent knows about."
 
+**That consequence cuts both ways, which is why `agentCallable` defaults to false.** Phase 23A added
+ten nodes and took the registry to 25; nine of them are agent-callable and one, `core.switch`, is
+not — a node whose entire output is the *edge* the run leaves through has nothing to say when called
+as a tool (D19, the same reason `core.branch` is excluded). The agent's tool list is pinned by a
+test, so widening its reach fails the build until somebody states the decision.
+
+**The registry accumulates obligations, and there are five.** A node type needs an entry in
+`PUBLISHABLE` (Phase 20: what a public share link may show of it), an entry in `ROTATION_RULES` if
+it carries a credential kind (Phase 21), an output field named `model` **only** if it really is a
+model call (Phase 22 counts model calls by reading the step's JSONB, so a stray field is
+miscounted), a generator catalogue entry (automatic — rendered from `describeNodes()`), and `docs`
+if it is to explain itself in the inspector (Phase 23A). Four of the five are enforced a long way
+from the node file itself, which is why `src/lib/nodes/registry.test.ts` asserts them in one place
+and names them.
+
 Security boundary: the agent can call registry entries and nothing else. There is no shell tool, no
 filesystem tool, and no arbitrary-HTTP escape hatch beyond the explicit HTTP node, which is itself
 a registry entry with a schema.

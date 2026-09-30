@@ -34,12 +34,13 @@ phase is incomplete. Current position is in `PROGRESS.md`, not here.
 16  UI rebuild II — the canvas                          ✅
 17  Durable execution — a real queue, resumable runs    ✅
 18  Workflow versioning and diffing                     ✅
-19A Workspaces — the data model and scoping            ← START HERE
-19B Membership — invitations and the switcher
-20  Roles, permissions and sharing
-21  Credential vault and rotation
-22  Observability and run analytics
-23  Node catalogue and templates
+19A Workspaces — the data model and scoping             ✅
+19B Membership — invitations and the switcher           ✅
+20  Roles, permissions and sharing                      ✅
+21  Credential vault and rotation                       ✅
+22  Observability and run analytics                     ✅
+23A Transform, control flow, templates, node docs      ← START HERE
+23B Integrations and the second provider
 24  Documentation and open-source readiness
 25  Launch polish
 ```
@@ -1250,34 +1251,94 @@ CU-hour cost of the feature measured and recorded.
 
 ---
 
-## Phase 23 — Node catalogue and templates
+## Phase 23 — Node catalogue and templates — **SPLIT into 23A and 23B**
 
-**Objective.** Enough nodes that the product is useful, and a template gallery that removes the
-blank canvas.
+**The split, decided 2026-09-30 at the start of the phase.**
+
+**Why here.** The phase's completion bar is *"proven against real services, not mocks"*, and that
+line divides its own task list cleanly in two. Richer transform and control-flow nodes, per-node
+documentation and a template gallery reach **no service at all** — they are provable end to end the
+day they are written, against the deployed app, with nothing asked of anybody. Slack, Notion,
+GitHub, Airtable, a database node and a second LLM provider each need **an account and a credential
+that only the user can create**, and until those exist not one of them can meet the bar.
+
+Shipping them as one phase means the half that is finished sits inside a phase marked `BLOCKED`
+behind six manual actions — which is precisely the "a phase that is half done is not done" failure
+`CLAUDE.md` warns about, arrived at by sequencing rather than by sloppiness. Split, 23A completes
+and 23B opens with **one** manual-action block listing every credential at once, so the user does
+the account-creation work in a single sitting rather than six.
+
+**What did not change:** the objective, the completion criteria, or the scope. Every node Phase 23
+listed is still built, to the same bar, across two sessions.
+
+---
+
+## Phase 23A — Transform, control flow, templates, and node documentation
+
+**Objective.** The registry grows the vocabulary a workflow needs to do real data work without
+reaching any external service, the inspector explains every node in its own words, and the blank
+canvas is gone.
 
 **Dependencies.** Phase 16.
 
-**Tasks.** Expand the registry well beyond 15 nodes — Slack, Notion, GitHub, Airtable, a database
-node, richer transform and control-flow nodes. A template gallery that clones a known-good workflow
-into the workspace. A second LLM provider behind the existing adapter (`PRD.md` S1). Per-node
-documentation surfaced in the inspector.
+**Tasks.** Add the transform and control-flow nodes the catalogue is missing — multi-way switch,
+filter, map, sort, aggregate, unique, JSON parse/stringify, text operations, date operations, field
+pick. Add a `docs` field to the node definition and surface it in the inspector. Build a template
+gallery that clones a known-good workflow into the workspace, with the templates executed by tests
+so they cannot rot.
 
-**Primary files.** `src/lib/nodes/*`, `src/app/templates/*` (new), `src/lib/providers/*`.
+**Primary files.** `src/lib/nodes/core/*`, `src/lib/nodes/transform/*` (new),
+`src/lib/templates/*` (new), `src/app/(app)/templates/*` (new), `src/components/canvas/inspector.tsx`.
 
 **Implementation notes.** **The registry contract is the whole point** — every node added here
 automatically widens the agent's tool surface and the generator's vocabulary. Each node must declare
-an `outputShape` (Chapter 1's D38: a generated graph can be valid and still do the wrong thing), and
-`agentCallable` must stay opt-in so adding a node never silently widens the agent's reach. Templates
-should be workflows that are actually run in tests, so they cannot rot.
+an `outputShape` (Chapter 1's D38) and `agentCallable` must stay opt-in. **No expression language
+and no code node**: a config field is exactly where arbitrary code execution would sneak back in, so
+every new node uses a fixed, enumerated operator set the way `core.branch` already does. A template
+is a graph literal in the repository, not a database row — it costs no table and cannot drift from
+the registry, because a test builds and validates every one of them.
+
+**Validation steps.** Every new node executes on the deployed app inside a real run. Every
+agent-callable node is reachable as a tool and appears in generation. A template clones from the
+gallery into a workspace and runs to `succeeded`. The inspector shows a node's documentation in a
+real browser.
+
+**Completion criteria.** All of the above, on the deployed URL.
+
+**Documentation updates.** `CONTRACT.md`, `PRD.md`, `PROGRESS.md`.
+
+**Commit.** `feat: complete phase 23a transform nodes templates and node docs`
+
+---
+
+## Phase 23B — Integrations and the second provider
+
+**Objective.** The integrations a real user expects, and a second LLM provider behind the existing
+adapter.
+
+**Dependencies.** Phase 23A, and **the credentials listed in its opening manual-action block**.
+
+**Tasks.** Slack, Notion, GitHub and Airtable nodes. A database node. A second LLM provider behind
+`LanguageModel` (`PRD.md` S1, C12). Templates that use them.
+
+**Primary files.** `src/lib/nodes/integration/*`, `src/lib/integrations/*`, `src/lib/ai/*`.
+
+**Implementation notes.** Every new credential kind needs an entry in `ROTATION_RULES` (Phase 21)
+and every new node type an entry in `PUBLISHABLE` (Phase 20) — the registry's second and third
+obligations, both asserted by tests in both directions. A node that calls a model must put the model
+id on its output as `model` and nothing else may use that field name (Phase 22's fourth obligation).
+The database node reaches an arbitrary host and therefore goes through `guard.ts`, like
+`integration.http`, and is **read-only by construction** — it is not a licence to run arbitrary SQL.
 
 **Validation steps.** Every new node executes against its real service from the deployed app. Every
-new node is reachable as an agent tool and appears in generation. A template clones and runs.
+new node is reachable as an agent tool and appears in generation. The second provider answers a real
+call and a real tool call.
 
 **Completion criteria.** All of the above, proven against real services, not mocks.
 
-**Documentation updates.** `CONTRACT.md`, `PRD.md`, `PROGRESS.md`, per-node docs.
+**Documentation updates.** `CONTRACT.md`, `PRD.md`, `SECURITY.md`, `PROGRESS.md`, per-node docs.
 
-**Commit.** `feat: complete phase 23 node catalogue and templates`
+**Commit.** `feat: complete phase 23b integrations and second provider`
 
 ---
 

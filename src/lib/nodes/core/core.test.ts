@@ -9,6 +9,7 @@ import { branchNode, evaluate } from "./branch";
 import { delayNode, MAX_DELAY_MS } from "./delay";
 import { HARD_MAX_ITERATIONS, loopNode } from "./loop";
 import { setNode } from "./set";
+import { SWITCH_CASES, switchNode } from "./switch";
 import { TEST_SCOPE } from "@/lib/engine/fixtures";
 
 /**
@@ -278,4 +279,97 @@ test("a delay aborted mid-wait rejects instead of resolving late", async () => {
   // The point is that it does not sit out the full 5 s — a cancelled run must not hold
   // the engine open to its deadline.
   assert.ok(Date.now() - started < 1_000);
+});
+
+// --- switch: multi-way routing — Phase 23A ---------------------------------------
+
+test("switch takes the FIRST matching case, so order decides", async () => {
+  // The rule a chain of branches also has, made explicit: two cases that both match
+  // must resolve to the earlier one, or a config is ambiguous.
+  const outcome = await run(switchNode, {
+    config: {
+      value: 100,
+      cases: [
+        { operator: "greater_than", value: 10 },
+        { operator: "greater_than", value: 50 },
+      ],
+    },
+    input: null,
+    context: fakeContext(),
+  });
+  assert.equal(outcome.branch, "1");
+  assert.equal((outcome.output as { matched: number }).matched, 1);
+});
+
+test("switch routes to each of its four cases by index", async () => {
+  const cases = [
+    { operator: "equals" as const, value: "a" },
+    { operator: "equals" as const, value: "b" },
+    { operator: "equals" as const, value: "c" },
+    { operator: "equals" as const, value: "d" },
+  ];
+  for (const [index, value] of ["a", "b", "c", "d"].entries()) {
+    const outcome = await run(switchNode, {
+      config: { value, cases },
+      input: null,
+      context: fakeContext(),
+    });
+    assert.equal(outcome.branch, String(index + 1));
+  }
+});
+
+test("switch falls through to else when nothing matches, and when nothing is configured", async () => {
+  const unmatched = await run(switchNode, {
+    config: { value: "z", cases: [{ operator: "equals", value: "a" }] },
+    input: null,
+    context: fakeContext(),
+  });
+  assert.equal(unmatched.branch, "else");
+  assert.equal((unmatched.output as { matched: number | null }).matched, null);
+
+  const empty = await run(switchNode, {
+    config: { value: "z", cases: [] },
+    input: null,
+    context: fakeContext(),
+  });
+  assert.equal(empty.branch, "else");
+});
+
+test("every branch switch can take is a declared output", async () => {
+  // The engine records the untaken outputs as skipped by name, so a branch string that
+  // is not in `outputs` would silently route nowhere.
+  const declared = new Set(switchNode.outputs.map((output) => output.key));
+  assert.equal(declared.size, SWITCH_CASES + 1);
+  for (let index = 0; index <= SWITCH_CASES; index += 1) {
+    const cases = Array.from({ length: SWITCH_CASES }, (_unused, at) => ({
+      operator: "equals" as const,
+      value: at === index ? "hit" : `miss-${at}`,
+    }));
+    const outcome = await run(switchNode, {
+      config: { value: "hit", cases },
+      input: null,
+      context: fakeContext(),
+    });
+    assert.ok(declared.has(outcome.branch ?? null), `branch ${outcome.branch} is declared`);
+  }
+});
+
+test("switch refuses a fifth case rather than silently dropping it", () => {
+  const five = Array.from({ length: SWITCH_CASES + 1 }, () => ({ operator: "equals" as const }));
+  assert.equal(switchNode.configSchema.safeParse({ value: "a", cases: five }).success, false);
+});
+
+test("switch passes its input through so a downstream node still has the data", async () => {
+  const outcome = await run(switchNode, {
+    config: { value: "a", cases: [{ operator: "equals", value: "a" }] },
+    input: { order: 7 },
+    context: fakeContext(),
+  });
+  assert.deepEqual((outcome.output as { input: unknown }).input, { order: 7 });
+});
+
+test("switch is not agent-callable, for the same reason branch is not", () => {
+  // D19: the node's whole output is the edge taken, and a tool call has no edge.
+  assert.equal(switchNode.agentCallable, false);
+  assert.equal(branchNode.agentCallable, false);
 });

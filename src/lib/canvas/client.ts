@@ -155,6 +155,13 @@ export const api = {
   getWorkflow: (id: string) => request<Workflow>(`/api/workflows/${id}`),
 
   /**
+   * Clone a template into this workspace — Phase 23A. Answers the created workflow,
+   * exactly as `createWorkflow` does, because on the server it *is* `createWorkflow`.
+   */
+  cloneTemplate: (id: string) =>
+    request<Workflow>(`/api/templates/${encodeURIComponent(id)}`, { method: "POST" }),
+
+  /**
    * Natural language → a persisted workflow. Rejects with `invalid_graph` when the
    * model's output could not run; nothing is saved in that case.
    */

@@ -92,6 +92,33 @@ export interface NodeOutcome {
   branch?: string | null;
 }
 
+/**
+ * Long-form documentation for **a person**, shown in the inspector — Phase 23A.
+ *
+ * Deliberately not `description`. That field is read verbatim by the model and is
+ * tuned for it: terse, imperative, about *when to call this*. A user opening the
+ * panel wants different sentences — what the node expects to be handed, what it
+ * gives back, and a worked example they can copy. Writing one string for both
+ * audiences produced a description that served neither, which is why this is a
+ * second field rather than a longer first one.
+ *
+ * Optional, and its absence is not a defect: the inspector falls back to
+ * `description` plus `outputShape`, which is what every node had before this
+ * existed.
+ */
+export interface NodeDocs {
+  /** What it does and when to reach for it, for a human. Two or three sentences. */
+  summary: string;
+  /**
+   * What the node reads as its input when its config does not supply one. Say
+   * "an array" or "the object from the previous node"; say nothing if it ignores
+   * its input entirely.
+   */
+  accepts?: string;
+  /** Worked examples. `body` is a short config sketch or a `{{ }}` reference. */
+  examples?: { title: string; body: string }[];
+}
+
 export interface NodeDefinition<Config = Record<string, unknown>> {
   /** Stable identifier, namespaced. Persisted in every graph — renaming one breaks saved workflows. */
   type: string;
@@ -113,6 +140,8 @@ export interface NodeDefinition<Config = Record<string, unknown>> {
    * prompt so a node added later describes itself, the way `description` already does.
    */
   outputShape?: string;
+  /** Per-node documentation for the inspector. See `NodeDocs`. */
+  docs?: NodeDocs;
   configSchema: z.ZodType<Config>;
   /**
    * Whether the agent may call this node as a tool. Defaults to false: widening

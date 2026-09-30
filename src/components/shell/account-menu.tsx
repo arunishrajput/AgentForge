@@ -43,11 +43,29 @@ export function AccountMenu({
             >
               {email.slice(0, 1).toUpperCase()}
             </span>
-            <span className="hidden max-w-[11rem] truncate sm:inline">{email}</span>
+            {/* **Dropped at `lg`, where the nav appears — Phase 23A.**
+                The shell bar is capped at `max-w-5xl`, so it is 1024 px wide at *every*
+                viewport above that and the space is a fixed budget rather than a
+                growing one. Measured on the deployed build: with the nav shown, the
+                wordmark, the switcher, four links, Search and this email need ~1062 px
+                of a 976 px content box — and the workspace switcher, as the only item
+                carrying `min-w-0`, absorbed the whole 86 px deficit and collapsed from
+                ~200 px to 62 px, rendering the workspace name as "A…".
+
+                This address is the least informative thing on the bar for the person
+                reading it — they know their own email — and the workspace name is the
+                most, because Phase 19B made it something that changes. So this yields
+                and the name survives. It is still in the menu below, so nothing is
+                lost. */}
+            <span className="hidden max-w-[11rem] truncate sm:inline lg:hidden">{email}</span>
             <span className="sr-only">Account</span>
           </span>
         }
         items={[
+          // Carries the address the trigger stops showing at `lg`. `disabled` because it
+          // is a label rather than an action — it takes no focus and does nothing when
+          // clicked, which is what stops it behaving like a fourth menu item.
+          { id: "who", label: email, onSelect: () => {}, disabled: true },
           { id: "settings", label: "Settings", onSelect: () => router.push("/settings") },
           { id: "design", label: "Design system", onSelect: () => router.push("/design") },
           {

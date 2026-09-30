@@ -10,11 +10,21 @@ import { loopNode } from "./core/loop";
 import { manualTrigger } from "./core/manual-trigger";
 import { scheduleTrigger } from "./core/schedule-trigger";
 import { setNode } from "./core/set";
+import { switchNode } from "./core/switch";
 import { webhookTrigger } from "./core/webhook-trigger";
 import { discordNode } from "./integration/discord";
 import { gmailNode } from "./integration/gmail";
 import { httpNode } from "./integration/http";
 import { sheetsNode } from "./integration/sheets";
+import { aggregateNode } from "./transform/aggregate";
+import { dateNode } from "./transform/date";
+import { filterNode } from "./transform/filter";
+import { jsonNode } from "./transform/json";
+import { mapNode } from "./transform/map";
+import { numberNode } from "./transform/number";
+import { sortNode } from "./transform/sort";
+import { textNode } from "./transform/text";
+import { uniqueNode } from "./transform/unique";
 import type { RegisteredNode } from "./types";
 
 /**
@@ -47,9 +57,19 @@ const definitions: RegisteredNode[] = [
   setNode,
   logNode,
   branchNode,
+  switchNode,
   loopNode,
   delayNode,
   assertNode,
+  filterNode,
+  mapNode,
+  sortNode,
+  uniqueNode,
+  aggregateNode,
+  jsonNode,
+  textNode,
+  numberNode,
+  dateNode,
   llmNode,
   agentNode,
   httpNode,
@@ -91,6 +111,8 @@ export interface NodeSummary {
   outputs: RegisteredNode["outputs"];
   /** One line on the shape of `output`, when a node has one worth stating. */
   outputShape?: string;
+  /** Long-form help for the inspector — Phase 23A. Plain data, like everything here. */
+  docs?: RegisteredNode["docs"];
   agentCallable: boolean;
   configSchema: unknown;
 }
@@ -104,6 +126,7 @@ export function describeNode(definition: RegisteredNode): NodeSummary {
     category: definition.category,
     outputs: definition.outputs.map((output) => ({ key: output.key, label: output.label })),
     ...(definition.outputShape === undefined ? {} : { outputShape: definition.outputShape }),
+    ...(definition.docs === undefined ? {} : { docs: definition.docs }),
     agentCallable: definition.agentCallable ?? false,
     // Forced through JSON so the result is plain data by construction, not by
     // luck of what `toJSONSchema` happens to build. This shape crosses to the

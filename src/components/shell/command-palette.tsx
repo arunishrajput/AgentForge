@@ -136,6 +136,14 @@ export function CommandPalette({ className }: { className?: string }) {
         run: createWorkflow,
       },
       {
+        id: "templates",
+        group: "Actions",
+        title: "Start from a template",
+        subtitle: "Six workflows that already work",
+        keywords: ["template", "gallery", "example", "starter", "sample", "blank"],
+        run: () => router.push("/templates"),
+      },
+      {
         id: "workflows",
         group: "Go to",
         title: "Workflows",
