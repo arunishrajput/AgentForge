@@ -16,8 +16,8 @@ Every step is labelled **`AUTOMATED BY CLAUDE CODE`** or **`MANUAL HUMAN ACTION`
 | Field | Value |
 |---|---|
 | Service | `agentforge`, Cloud Run, `asia-southeast1` |
-| Revision | **`agentforge-00060-z9v`** — 100% of traffic (Phase 25). **Two deploys**: `00059-pd2` carried the phase, and `00060-z9v` carried one WCAG target-size fix found by measuring the first one in a browser. Migration `0011` went first and is additive, so `agentforge-00058-q2z` kept serving correctly against the migrated database throughout — confirmed by a health check on the **old** revision after the column existed, which is the claim "additive" actually makes. Previous good revisions: `agentforge-00059-pd2`, `agentforge-00058-q2z` (23D), `agentforge-00057-8jx`, `agentforge-00056-rkn`, `agentforge-00055-htp`, `agentforge-00054-8zw` (23C), `agentforge-00053-hn6` (23B), `agentforge-00051-252` (23A), `agentforge-00047-w65` (22) |
-| Scaling | `min-instances 1`, `max-instances 3`, 1 vCPU / 1 GiB, 3600 s timeout |
+| Revision | **`agentforge-00061-lwl`** — 100% of traffic. Created by **M12's turndown** (2026-10-01) with **no code change**: `00060-z9v`'s image at `min-instances 0`, so Phase 25's verification still describes the running build. Cold start measured **6.38 s**, warm 0.58–0.76 s. Previously **`agentforge-00060-z9v`** (Phase 25). **Two deploys**: `00059-pd2` carried the phase, and `00060-z9v` carried one WCAG target-size fix found by measuring the first one in a browser. Migration `0011` went first and is additive, so `agentforge-00058-q2z` kept serving correctly against the migrated database throughout — confirmed by a health check on the **old** revision after the column existed, which is the claim "additive" actually makes. Previous good revisions: `agentforge-00059-pd2`, `agentforge-00058-q2z` (23D), `agentforge-00057-8jx`, `agentforge-00056-rkn`, `agentforge-00055-htp`, `agentforge-00054-8zw` (23C), `agentforge-00053-hn6` (23B), `agentforge-00051-252` (23A), `agentforge-00047-w65` (22) |
+| Scaling | **`min-instances 0`** (M12, 2026-10-01 — was 1 through the hackathon window), `max-instances 3`, 1 vCPU / 1 GiB, 3600 s timeout |
 | Root key | **Secret Manager `agentforge-root-key`, version `1`.** Every credential's data key is wrapped by it; `GET /api/health` reports `rootKey.provider` so a deployment silently on `ENCRYPTION_KEY` cannot hide |
 | Database | Neon `super-mountain-39872886`, `aws-ap-southeast-1` — **13 tables**, migrations `0000`–`0011` applied. **Phase 25 added `0011`: one nullable column, `workspace.onboardedAt`, no backfill** — whether the workspace has finished or skipped the first-run guide. `NULL` means "not finished", so every workspace that existed when it ran is treated as new, which is correct: the guide reads live progress and an established workspace opens it already complete. `rollback_0011.sql` is symmetric and loses only that preference. ~10 MB of 0.5 GB. **Phase 23D added migration `0010`: one nullable column, `workspace.llmProvider`, and no backfill** — the safest class of change here, and the first migration since `0009`. It records which LLM provider a workspace uses; `NULL` means "nobody has chosen" and resolves to the first provider holding a key, which is Google, so no existing workspace changed behaviour. Row counts were identical before and after (workspace 1, credential 6, workflow 6, run 65) and `rollback_0010.sql` is genuinely symmetric — it touches no credential and loses only the preference |
 | Observability | **Structured JSON logging on stdout, four log-based metrics, and `/api/health` reporting five dependency checks.** `OPERATIONS.md` is the runbook |
@@ -728,7 +728,9 @@ Three things follow, and all three are implemented rather than described:
 
 ## Cloud Scheduler — **CREATED AND VERIFIED** (Phase 8)
 
-The job `agentforge-cron` exists in `asia-southeast1`, `ENABLED`. Created with:
+The job `agentforge-cron` exists in `asia-southeast1` and is **`PAUSED` as of 2026-10-01** (M12 — see
+*After judging ends* below; it was `ENABLED` from Phase 8 until then, and **nothing schedules while it
+is paused**). Created with:
 
 ```bash
 # Read the secret into a variable rather than pasting it — it must not reach a
@@ -796,13 +798,32 @@ gcloud run services logs read agentforge --region asia-southeast1 --limit 50 | g
 the 200 well before the matching Cloud Run entry appeared. Read the Scheduler log for "did it fire",
 the Cloud Run log for "what did it do" — and do not conclude a failure from the Cloud Run log alone.
 
-### After judging ends
+### After judging ends — **BOTH DONE, 2026-10-01 (M12)**
 
 `min-instances 0` is not the only thing to turn down. **Pause the job too**, or it keeps Neon awake
 for 240 hours a month for nothing:
 
 ```bash
 gcloud scheduler jobs pause agentforge-cron --location asia-southeast1
+gcloud run services update agentforge --region asia-southeast1 --min-instances 0
+```
+
+**Both were run on 2026-10-01**, five days later than they should have been — the roadmap closed
+without performing its own turndown, which is why it is now a tracked item (`PROGRESS.md` → M12)
+rather than a line of advice. Verified: the job reports `PAUSED`, the `minScale` annotation is gone,
+and revision `agentforge-00061-lwl` answers `/api/health` with `status: ok` and 5/5 checks.
+
+**What this costs you, stated plainly.** A **schedule trigger will not fire** while the job is
+paused — `/api/cron/tick` is the only clock in the product. The `cron.tick` heartbeat stops too, so
+`OPERATIONS.md` → *Is the scheduler alive* expects four an hour and will see none; that expectation
+is **suspended, not broken**, and there is no alert policy on it (0 in the project). Cloud Run's own
+cold start is now reachable at **6.38 s**.
+
+**To bring it back:**
+
+```bash
+gcloud scheduler jobs resume agentforge-cron --location asia-southeast1
+gcloud run services update agentforge --region asia-southeast1 --min-instances 1
 ```
 
 ---

@@ -12,10 +12,12 @@ client** — that is the objective Phase 22 was written against.
 
 ## The system in one paragraph
 
-One Cloud Run service (`agentforge`, `asia-southeast1`, `min-instances 1`) serving a Next.js
+One Cloud Run service (`agentforge`, `asia-southeast1`, **`min-instances 0`** since the M12
+turndown on 2026-10-01 — a cold first request costs ~6.4 s) serving a Next.js
 application against one Neon Postgres database. Runs execute either inside the request that started
 them or on a Cloud Tasks delivery. One Cloud Scheduler job pokes `/api/cron/tick` every fifteen
-minutes to fire due schedules and prune expired rows. Credentials are sealed under a root key in
+minutes to fire due schedules and prune expired rows — **that job is `PAUSED` as of 2026-10-01
+(M12), so no schedule fires until it is resumed.** Credentials are sealed under a root key in
 Secret Manager. There is no other moving part: no cache, no worker pool, no message bus, no
 third-party observability agent.
 
@@ -235,15 +237,21 @@ gcloud run services describe agentforge --region asia-southeast1 \
 
 ### The scheduler stopped firing
 
+> **First, check whether it is supposed to be firing at all.** The job was **paused on 2026-10-01**
+> (`PROGRESS.md` → M12) because nobody is watching the deployment, so **zero ticks is the expected
+> reading, not an incident.** Resume it with
+> `gcloud scheduler jobs resume agentforge-cron --location asia-southeast1` before treating silence
+> as a fault. Everything below applies once the job is `ENABLED`.
+
 `cron.tick` is logged on **every** tick, including one that finds nothing due — that is deliberate,
-because it makes the entry a heartbeat rather than an event. Expect four an hour.
+because it makes the entry a heartbeat rather than an event. Expect four an hour **while enabled**.
 
 ```bash
 gcloud logging read 'resource.type=cloud_run_revision AND jsonPayload.event="cron.tick"' \
   --limit 10 --freshness 2h --format='value(timestamp,jsonPayload.due,jsonPayload.fired)'
 
 gcloud scheduler jobs describe agentforge-cron --location asia-southeast1 \
-  --format='value(schedule,state)'    # expect: */15 * * * *   ENABLED
+  --format='value(schedule,state)'    # */15 * * * *, and ENABLED only if it was resumed
 ```
 
 **Do not "fix" a quiet tick by making it more frequent.** The fifteen-minute schedule is what keeps
@@ -282,9 +290,9 @@ will disagree with itself.
 
 | Service | Free allowance | Where it stands |
 |---|---|---|
-| **Neon compute** | **100 CU-hours/month** | ~61 committed to the fifteen-minute tick. **The binding constraint** |
+| **Neon compute** | **100 CU-hours/month** | **~0 committed while the tick is paused** (M12, 2026-10-01). It was ~61 of the 100 — **the binding constraint** — and becomes that again the moment the job is resumed |
 | Neon storage | 0.5 GB | ~10 MB |
-| Cloud Run | Always Free | `min-instances 1`, inside it |
+| Cloud Run | Always Free | **`min-instances 0`** since 2026-10-01 (M12); was `min-instances 1`, also inside it |
 | Cloud Tasks | 1,000,000 ops/month | ~2 per durable run |
 | Cloud Logging | 50 GiB/project/month | 6.34 MB per 30 days measured before Phase 22 |
 | Secret Manager | 6 versions, 10,000 access ops/month | 1 version, single-digit accesses a day |

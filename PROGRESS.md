@@ -16,9 +16,10 @@ Phases 0–12 built and shipped a hackathon MVP. It was submitted on 2026-09-26
 **Chapter 2 turned the MVP into a real, professional, open-source product. IT IS COMPLETE.**
 Thirteen phases, 13 → 25, defined in `BUILD_PLAN.md`. **Every one of them is done** (19 was split
 into 19A and 19B; **23 was split into 23A, 23B, 23C and 23D**). **Phase 25 closed on 2026-10-01.**
-**Nothing is blocked, and no action is outstanding that affects the product** — but **M12 is open and
-it costs money every day it stays open**: the post-judging turndown (`min-instances 0`, pause the
-cron) was never performed. See *Manual Actions Pending*.
+**Nothing is blocked and no action is outstanding.** M12 — the post-judging turndown that the
+roadmap closed without performing — **was done on 2026-10-01**: the cron is `PAUSED` and Cloud Run
+runs at `min-instances 0`. **The product is now idle-cheap rather than demo-warm**, and the one
+consequence worth knowing is that **schedule triggers do not fire until the job is resumed.**
 
 **25 was the last phase, and it was the one that assumed a stranger, not a demo.** A first-run
 onboarding guide read from live state, a WCAG 2.2 AA audit and an unauthenticated-surface review
@@ -30,7 +31,8 @@ existing suite had passed over — see *Current Phase*.
 rather than extending the ladder by reflex, and bring numbers.
 
 **The live system still works and must keep working:**
-**https://agentforge-733000675212.asia-southeast1.run.app** — revision `agentforge-00060-z9v`.
+**https://agentforge-733000675212.asia-southeast1.run.app** — revision `agentforge-00061-lwl`
+(`min-instances 0`; the same image as `00060-z9v`, which M12's turndown re-revisioned).
 
 ### Four binding decisions, made 2026-09-26
 
@@ -213,12 +215,12 @@ two real accounts in Phase 19B**; a second Google account was not created for th
 | **Canonical URL** | **`https://agentforge-733000675212.asia-southeast1.run.app`** |
 | Legacy URL | `https://agentforge-i5d2u66boa-as.a.run.app` — works, do not publish it |
 | Service | `agentforge` on Cloud Run, `asia-southeast1` |
-| Revision | **`agentforge-00060-z9v`** — ready, **`latestRevision: True`**, 100% of traffic (Phase 25). **Two deploys this phase**: `00059-pd2` carried the work, and `00060-z9v` carried one WCAG 2.5.8 target-size fix that only measuring the first one in a browser could find. **The migration went first**: `0011` is additive, so `agentforge-00058-q2z` kept serving correctly against the migrated database — confirmed by a health check on the *old* revision after the column existed, which is the claim "additive" actually makes. Previous good revisions: `agentforge-00059-pd2`, `agentforge-00058-q2z` (23D), `agentforge-00057-8jx`, `agentforge-00056-rkn`, `agentforge-00055-htp`, `agentforge-00054-8zw` (23C), `agentforge-00053-hn6` (23B), `agentforge-00051-252` (23A), `agentforge-00047-w65` (22), `agentforge-00044-zmx` (21), `agentforge-00042-5zx` (20), `agentforge-00041-75x` (19B). Earlier: `agentforge-00037-k7x` (19A), `agentforge-00035-vfd` (18), `agentforge-00034-54v` (17), `agentforge-00030-gv2` (16). **`00032` and `00033` were deliberately deleted** during Phase 17's verification, testing whether deleting a serving revision kills its in-flight request — it does not. Rollback was tested against `agentforge-00020-rcr` |
-| Scaling | `min-instances 1`, `max-instances 3`, 1 vCPU / 1 GiB, 3600 s timeout, port 8080 |
+| Revision | **`agentforge-00061-lwl`** — 100% of traffic, created by **M12's turndown** on 2026-10-01, **no code change**: it is `00060-z9v`'s image with `min-instances 0`. Phase 25's verification therefore still describes the running build. Previously **`agentforge-00060-z9v`** (Phase 25). **Two deploys this phase**: `00059-pd2` carried the work, and `00060-z9v` carried one WCAG 2.5.8 target-size fix that only measuring the first one in a browser could find. **The migration went first**: `0011` is additive, so `agentforge-00058-q2z` kept serving correctly against the migrated database — confirmed by a health check on the *old* revision after the column existed, which is the claim "additive" actually makes. Previous good revisions: `agentforge-00059-pd2`, `agentforge-00058-q2z` (23D), `agentforge-00057-8jx`, `agentforge-00056-rkn`, `agentforge-00055-htp`, `agentforge-00054-8zw` (23C), `agentforge-00053-hn6` (23B), `agentforge-00051-252` (23A), `agentforge-00047-w65` (22), `agentforge-00044-zmx` (21), `agentforge-00042-5zx` (20), `agentforge-00041-75x` (19B). Earlier: `agentforge-00037-k7x` (19A), `agentforge-00035-vfd` (18), `agentforge-00034-54v` (17), `agentforge-00030-gv2` (16). **`00032` and `00033` were deliberately deleted** during Phase 17's verification, testing whether deleting a serving revision kills its in-flight request — it does not. Rollback was tested against `agentforge-00020-rcr` |
+| Scaling | **`min-instances 0`** (M12, 2026-10-01 — was 1 for the hackathon window), `max-instances 3`, 1 vCPU / 1 GiB, 3600 s timeout, port 8080. **A Cloud Run cold start is now reachable and was measured: 6.38 s** on the first request after the turndown, 0.58–0.76 s warm after |
 | Env vars set | `NODE_ENV` `AUTH_URL` `APP_BASE_URL` `DATABASE_URL` `AUTH_SECRET` `GOOGLE_CLIENT_ID` `GOOGLE_CLIENT_SECRET` `ENCRYPTION_KEY` `CRON_SECRET` `TASKS_QUEUE` `TASKS_LOCATION` **`ROOT_KEY_SECRET`** — **12 now. Phase 21 added the last one**, naming the Secret Manager secret that holds the root key. Unset it and the service silently falls back to `ENCRYPTION_KEY` as the root key, which is the Chapter 1 problem back without the Chapter 1 warning — hence `rootKey.provider` on `/api/health`. **`GCP_ACCESS_TOKEN` and `GCP_PROJECT` are script-only and must never be set here**: they exist so `scripts/rekey.mjs` can reach Secret Manager from a machine with no metadata server, and an access token in a service env var is a long-lived credential in a place that survives restarts. Phase 20 added none (a share link is built from `APP_BASE_URL`); Phase 19B added none (an invitation link likewise, and there is no mail provider); **Phase 17 added `TASKS_QUEUE` and `TASKS_LOCATION`** — `TASKS_PROJECT` is deliberately unset, because the project comes from the metadata server, which cannot be wrong the way a copied variable can. All were added with `--update-env-vars`, which **merges**, rather than `--env-vars-file`, which replaces the whole set. No Gemini key on the service: the product path is the user's own key |
 | Database | Neon `super-mountain-39872886` — **13 tables**, migrations `0000`–`0011` applied, ~10 MB of 0.5 GB. **Phase 25 added migration `0011` — the same safest class as `0010`**: one nullable column, `workspace.onboardedAt`, no backfill, no index. It records whether a workspace has finished or skipped the first-run guide. `NULL` means "not finished", so every workspace that existed when it ran is treated as new — which is correct, because the guide reads live progress and an established workspace opens it already complete and dismisses it in one click. Row counts identical before and after (workspace 1, credential 7, workflow 6, run 71, member 1). `rollback_0011.sql` is symmetric: it touches no credential, no workflow and no run, and loses only that one preference. See `DEPLOYMENT.md` for `0010` (the provider choice), `0009` (the vault, and the only rollback in this project that can destroy data), `0008` (sharing), `0007` (invitations), `0005`/`0006` (workspaces, deliberately in two halves), `0004` (versioning). The second database `agentforge_demo` with its `SELECT`-only role (23C) is untouched |
 | Routes | `/` `/dashboard`→`/workflows` `/workflows` `/workflows/[id]` `/templates` `/analytics` `/settings` `/design` `/invite/[token]` `/s/[token]` + **41** API routes. **Phase 25 added exactly one**: `POST /api/onboarding`, which finishes the first-run guide. It is the **only write in the product a `viewer` may make** — what it changes is whether a checklist is drawn, it grants nothing and reveals nothing, and a viewer who has read the guide and cannot dismiss it is worse served. **No new unauthenticated surface.** What Phase 25 did change is the *count of known* ones: `scripts/verify-security.mjs` enumerates every route file and found **three that answer without a session and were missing from `SECURITY.md`** — `/api/health` and both Google OAuth legs. All three were already deliberate; none was written down. The documented set is now **nine routes and two pages**, derived and checked in both directions rather than maintained by hand. Phase 23D added none; 23C added none; 23B added exactly one, the dynamic `/api/integrations/[service]` — **a static segment beats a dynamic one**, so `/api/integrations/discord` still reaches its own file, asserted over HTTP. A slug the registry does not hold is a 404, and so is `__proto__` |
-| Latency | **Warm**: health ~190 ms India → Singapore, database 7–11 ms. A 6-node demo-path run **4.2–7.5 s** end to end across five consecutive walks (Phase 13; it was 3.1–4.8 s in Chapter 1 when the model answered first time, and **94.5 s** when it did not — that second case is what Phase 13 removed). Generation 2.7–3.5 s. **Cold (Neon suspended)**: health **1.14 s, of which 739 ms is the database wake** — re-measured 2026-09-26 at 917 ms for a first query, 103 ms on the next. Cloud Run itself is never cold at `min-instances 1` | **Analytics, Phase 22: 21–27 ms of database time per page view** on 46 runs and ~200 steps, three statements, measured on the deployed service. The page is server-rendered and does not poll |
+| Latency | **Warm**: health ~190 ms India → Singapore, database 7–11 ms. A 6-node demo-path run **4.2–7.5 s** end to end across five consecutive walks (Phase 13; it was 3.1–4.8 s in Chapter 1 when the model answered first time, and **94.5 s** when it did not — that second case is what Phase 13 removed). Generation 2.7–3.5 s. **Cold (Neon suspended)**: health **1.14 s, of which 739 ms is the database wake** — re-measured 2026-09-26 at 917 ms for a first query, 103 ms on the next. **Cloud Run's own cold start became reachable with M12 (`min-instances 0`, 2026-10-01) and measures 6.38 s** — the first request after the turndown, against 0.58–0.76 s warm. The earlier claim that it "is never cold" was true only while `min-instances` was 1 | **Analytics, Phase 22: 21–27 ms of database time per page view** on 46 runs and ~200 steps, three statements, measured on the deployed service. The page is server-rendered and does not poll |
 | Last verified | **2026-10-01, after Phase 25, on `agentforge-00060-z9v`.** **Deployed, all passing**: `verify-a11y.mjs` **92 passed / 0 failed** (WCAG 2.2 AA structure across `/`, `/design`, `/workflows`, `/templates`, `/analytics`, `/settings` and a canvas); `verify-security.mjs` **67 passed / 0 failed** (every route file under `src/app/api` called with no session, both directions); `verify-api.mjs` **ALL CHECKS PASSED (4 skipped)**; `verify-templates.mjs` **47/47**; `verify-postgres.mjs` **65/65**; `verify-providers.mjs` **55/55**; `verify-integrations.mjs` **60 passed / 2 skipped** (M10, Notion and Airtable — skipped is not passed); `verify-vault.mjs` ALL PASSED; `verify-durable.mjs` ALL PASSED; `verify-observability.mjs` ALL PASSED (**17–18 ms of database time per analytics page view on 84 runs**). `/api/health` `status: ok`, 5/5 checks, **12 migrations**, registry 30. **Local**: `npm run check` exit 0 (five gates), **992 tests**, coverage **88.25 / 90.82 / 80.13** — all three thresholds cleared without moving them. **In a real browser, which is where the two defects that mattered were found**: the onboarding guide driven on a **brand-new workspace** from 0 of 3 to 2 of 3 — a template cloned and run successfully *with no provider key at all*, proving the steps are not gated in order — then the no-key generate error showing its recovery link to `/settings?tab=provider`, then dismissal persisted to `onboardedAt` in the deployed database and confirmed to stay gone across a reload. Focus order correct through the whole guide; every control's focus ring measured (`boxShadow` `none` → 2 px). **Zero horizontal overflow and zero product console errors at 320 / 375 / 768 / 1440 / 1920 px** — the one console error seen was the deliberate 400 from the no-key path, and the only warnings came from the measurement script's own deprecated API, not from the product. **Cold-cache Core Web Vitals on the deployed service**: LCP 576–1112 ms, **CLS 0** on every page. The test workspace and its workflow and run were deleted afterwards; the real workspace is untouched with `onboardedAt` still `NULL`. |
 | Rollback | **TESTED 2026-09-26, finally.** Traffic shifted to `agentforge-00020-rcr` in **~15 s**, health confirmed the older revision was serving, the demo path walked clean on it, then `--to-latest` restored `agentforge-00021-v4s` in ~15 s. The oldest open item in this file is closed |
 | Billing | Trial credit account `Billing - AgentForge` is **open and enabled**. Actual spend is **not queryable from the CLI** (no billing export configured) — **eyeball it in the console once before judging** |
@@ -395,7 +397,7 @@ Carried forward from every phase. These are the decisions later sessions must no
 | ~~Rollback is still untested~~ | Was the oldest open item in this file | **TESTED 2026-09-26 (Phase 12).** `update-traffic --to-revisions agentforge-00020-rcr=100` shifted in **~15 s**; health confirmed the older revision was serving; the demo path walked clean on it; `--to-latest` restored `agentforge-00021-v4s`. The procedure in `DEPLOYMENT.md` is correct as written. **Know it without looking it up on demo day** |
 | **Google OAuth changes take ~90 s to propagate** | Cost 90 s in Phase 2 | Wait and retry before suspecting a typo |
 | **A curl check cannot detect `redirect_uri_mismatch`** | Nearly caused a false "verified" | Only a real browser sign-in proves the OAuth redirect |
-| **`min-instances 1` bills continuously** | Cost, after the hackathon | **Set to 0 once judging ends** — and **pause `agentforge-cron` at the same time**, or the tick keeps Neon awake ~240 h/month for nothing |
+| ~~**`min-instances 1` bills continuously**~~ **DONE 2026-10-01 (M12)** | Was: cost, after the hackathon | **Both performed**: `min-instances 0`, and `agentforge-cron` `PAUSED` so the tick no longer keeps Neon awake ~240 h/month. The cost of leaving it undone for five days after submission was budget, not an overrun. **Resuming the cron is required before a schedule trigger will fire again** |
 | **Neon free plan is 100 CU-hours/month and autosuspend cannot be disabled** | Any background polling | The 5-minute autosuspend is fixed on the free plan. Anything that touches the database more often than ~every 6 minutes pins it awake at 0.25 CU — 720 h/month ≈ 180 CU-hours, which is **over the allowance**. This is why the cron tick is `*/15` and not `* * * * *` (D43 sibling; the arithmetic is in `DEPLOYMENT.md`) |
 | **The webhook URL is a bearer secret shown in the UI** | Demo day, screen sharing | Anyone holding it can start a run, and a run can spend model quota. The inspector says so. **There is no rotation yet** — re-minting means recreating the workflow. Do not show the webhook node's inspector on a shared screen; the `curl` in `DEMO.md` uses an exported `$WEBHOOK_URL` for exactly this reason |
 | **OAuth consent screen is in `Testing`, and must stay there** | Demo day | Only listed test users can sign in, so **add each judge as a test user** (cap 100). **"Publish the app" is no longer an option**: Phase 9's Sheets and Gmail scopes are *sensitive*, and going to production with them requires Google verification, which takes days. Corrected here — the earlier note offering either is wrong. The judge never connects Google anyway: sign-in asks for identity only, and the presenter's account is connected beforehand |
@@ -455,56 +457,54 @@ Carried risks, recorded so they are not rediscovered:
 
 ## Manual Actions Pending
 
-**M12 is outstanding — see below.** M1–M11 are all resolved as of 2026-10-01 — M9 answered from the
-console, M10 answered in part and **closed deliberately**, M11 supplied. Those blocks are kept below
-with their outcomes, because what was decided matters more than that it was done.
+**None outstanding.** M1–M12 are all resolved as of 2026-10-01 — M9 answered from the console, M10
+answered in part and **closed deliberately**, M11 supplied, **M12 performed and verified**. The blocks
+are kept below with their outcomes, because what was decided matters more than that it was done.
 
-### M12 — the post-judging turndown — **OPEN, and overdue since ~2026-09-26**
+### M12 — the post-judging turndown — **DONE AND VERIFIED, 2026-10-01**
 
-**Why.** Both `CLAUDE.md`'s cost rules and `DEPLOYMENT.md` → *After judging ends* say that once
-nobody is watching, two resources cost money for nothing. **Neither was ever turned down.** Verified
-2026-10-01: Cloud Run `min-instances` is **1** (a container warm 24/7 serving nobody) and
-`agentforge-cron` is **ENABLED** at `*/15`, which keeps Neon awake ~240 h/month ≈ **61 of the 100
-free CU-hours**. The roadmap closed without anyone running the two commands it had written down.
+**Why it existed.** Both `CLAUDE.md`'s cost rules and `DEPLOYMENT.md` → *After judging ends* said that
+once nobody is watching, two resources cost money for nothing — and **the roadmap closed without
+running either command it had written down.** Found on 2026-10-01, five days after submission:
+`min-instances` was **1** (a container warm 24/7 serving nobody) and `agentforge-cron` was **ENABLED**
+at `*/15`, keeping Neon awake ~240 h/month ≈ **61 of the 100 free CU-hours**.
 
-**What it costs to leave.** Not an overrun — M9's projection of ~60/100 CU-hours already assumed the
-tick keeps running. It spends roughly two-thirds of the database budget to serve nobody.
+**What was run, by the user** (both were refused to the agent as shared-resource modifications):
 
-**What stops when it is done, stated plainly.** Pausing the cron **stops every schedule trigger**;
-`/api/cron/tick` is the only clock in the product, so a scheduled workflow will not fire until the job
-is resumed. It also ends the `cron.tick` heartbeat, which `OPERATIONS.md` → *Is the scheduler alive*
-expects at four an hour — **that runbook's expectation is suspended, not broken.** There is **no alert
-policy** on it (0 policies in the project, verified 2026-10-01), so nothing pages. `min-instances 0`
-reintroduces a Cloud Run cold start, and Neon's 1.14 s wake stops being the only cold tier.
-
-**Why it is not already done.** Attempted 2026-10-01; the sandbox refused both as shared-resource
-modifications. It needs the user to run them.
-
-**Commands.**
 ```bash
 gcloud scheduler jobs pause agentforge-cron --location asia-southeast1
 gcloud run services update agentforge --region asia-southeast1 --min-instances 0
 ```
 
-**Verification.**
-```bash
-gcloud scheduler jobs describe agentforge-cron --location asia-southeast1 --format='value(state)'
-# expect: PAUSED
-gcloud run services describe agentforge --region asia-southeast1 \
-  --format="value(spec.template.metadata.annotations['autoscaling.knative.dev/minScale'])"
-# expect: 0 (or empty)
-curl -s -o /dev/null -w '%{http_code}\n' https://agentforge-733000675212.asia-southeast1.run.app/api/health
-# expect: 200, after a cold start on the first request
-```
+**Verified, not assumed.** The job reports `PAUSED`. The `minScale` annotation is **gone** (= 0).
+Revision **`agentforge-00061-lwl`** serves 100% of traffic and answers `/api/health` with
+`status: ok`, **5/5 checks**, 12 migrations, registry 30, database reachable in 12 ms. **No code
+changed** — it is `00060-z9v`'s image with one scaling setting, so Phase 25's verification still
+describes the running build.
 
-**Undo, if the product needs to be live and scheduled again.**
+**The cold start is now real, and measured.** 6.38 s on the first request after the turndown, then
+0.58–0.76 s warm. This **falsified a line that had sat in *Notes for whoever comes next* since
+Chapter 1** — "a Cloud Run cold start is not reachable" — which was true only while `min-instances`
+was 1. Neon's 1.14 s wake is no longer the only cold tier, or even the slowest.
+
+**What is now switched off, and it is a product behaviour, not just a cost.** **Schedule triggers do
+not fire.** `/api/cron/tick` is the only clock in the product, so a scheduled workflow stays idle
+until the job is resumed. Webhooks, manual runs, generation and the canvas are all unaffected. The
+`cron.tick` heartbeat also stops, so `OPERATIONS.md` → *Is the scheduler alive* would read zero —
+that runbook now says so first, because **a paused job answering "no ticks" is the expected reading,
+not an incident.** There is **no alert policy** in the project (0, verified), so nothing pages.
+
+**To bring the product back to demo-warm and scheduled:**
+
 ```bash
 gcloud scheduler jobs resume agentforge-cron --location asia-southeast1
 gcloud run services update agentforge --region asia-southeast1 --min-instances 1
 ```
 
-**Note:** `--min-instances 0` creates a new revision, so the revision in *Deployed State* moves past
-`agentforge-00060-z9v`. Update it when this is done.
+**The lesson worth keeping.** This was written down in two documents and still did not happen, because
+nothing *owned* it — a line of advice in a "when you're done" section is not a task. It only got done
+once it was given an id, an owner and a verification command. **A turndown step belongs in the phase
+that creates the resource, with the command to undo it.**
 
 ### M11 — a second LLM provider's API key — **DONE AND EXERCISED, 2026-10-01**
 
@@ -778,7 +778,7 @@ hours).
 | **Gemini API key (free tier)** | Google Cloud | "AgentForge Gemini Free Tier" in `agentforge-gemini-free`, restricted to `generativelanguage.googleapis.com` | **VERIFIED 2026-09-26** — text generation and function calling both work. Read it with `gcloud services api-keys get-key-string` |
 | Discord server / channel / webhook | Discord | "AgentForge" · `#agentforge-demo` | **VERIFIED** |
 | **"AgentForge Demo Log" spreadsheet** | Google Sheets | id **`1iz8vjkGNvPQ1q1vpDvaWnQZ6648BNYHYauVXHHY2IBo`**, owned by `arunishrajput7@gmail.com`, tab `Sheet1`, headers `Received · From · Summary · Urgency` | **CREATED Phase 11** — through the app's own stored Google credential, because the previous sheet's id was recorded nowhere and the `spreadsheets` scope cannot search Drive. **This is `DEMO.md` Beat 8's second payoff — do not delete it** |
-| **`agentforge-cron` Scheduler job** | Google Cloud | `asia-southeast1`, `*/15 * * * *` UTC, attempt deadline 540 s | **`ENABLED`, re-confirmed Phase 13.** It commits ~61 of Neon's 100 CU-hours/month — the arithmetic is verified in `DEPLOYMENT.md` → *Free-tier headroom*. Do not shorten the tick |
+| **`agentforge-cron` Scheduler job** | Google Cloud | `asia-southeast1`, `*/15 * * * *` UTC, attempt deadline 540 s | **`PAUSED` 2026-10-01 (M12)** — it was `ENABLED` from Phase 8 through Phase 25. Enabled it commits ~61 of Neon's 100 CU-hours/month (arithmetic in `DEPLOYMENT.md` → *Free-tier headroom*); paused it commits ~0, and **no schedule trigger fires.** Resume with `gcloud scheduler jobs resume agentforge-cron --location asia-southeast1`. **Do not shorten the tick** when resuming |
 | Cloud Tasks API | Google Cloud | `cloudtasks.googleapis.com` | **ENABLED Phase 17.** Free tier verified: 1,000,000 ops/month per billing account |
 | **`agentforge-runs` Cloud Tasks queue** | Google Cloud | `asia-southeast1`, state `RUNNING` | **CREATED Phase 17.** `maxAttempts 5` (mirrors `MAX_DELIVERIES` in `lease.ts`), backoff 5 s → 60 s, `maxConcurrentDispatches 3` — which is a **Neon** decision, not a Cloud Run one, since every concurrent run spends from the same 100 CU-hours. Measured: a task is delivered in **under a second**. Nothing to pause when idle; it bills per operation, not per hour |
 | **`roles/cloudtasks.enqueuer`** | Google Cloud IAM | on `733000675212-compute@developer.gserviceaccount.com` | **GRANTED Phase 17.** The service account Cloud Run already runs as. Without it `enqueueRun` gets a 403 and every durable run silently falls back to in-process — which is why `/api/health` reports `queue.configured` |
@@ -1170,8 +1170,11 @@ re-cut) are **no longer part of this project's work** and have been dropped.
 - **Do not deploy on demo day.** A redeploy kills in-flight runs and replaces a verified build.
   If you must, **rollback is now tested**: `update-traffic --to-revisions <rev>=100`, ~15 s, then
   `--to-latest`
-- **`min-instances 1` keeps Cloud Run warm, so a Cloud Run cold start is not reachable** without
-  changing the demo's own configuration. Neon's wake is the only cold tier: 1.14 s at 13½ min idle
+- **This is no longer true, and the number is now measured.** It used to read: *`min-instances 1`
+  keeps Cloud Run warm, so a Cloud Run cold start is not reachable.* **M12 set `min-instances 0` on
+  2026-10-01**, so Cloud Run is now the *slower* cold tier — **6.38 s** on a genuinely cold first
+  request, against Neon's 1.14 s wake at 13½ min idle. Warm is 0.58–0.76 s. **If anything is ever
+  demonstrated from this URL again, warm it first**
 - **The registry claim has held eight times.** Phases 13, 14 and 15 each added no node, no palette
   entry, no config form, no dependency, no environment variable and no migration
 - **The design system is `src/app/globals.css` plus `src/components/ui/`.** Tokens in `@theme`,
@@ -1190,11 +1193,13 @@ re-cut) are **no longer part of this project's work** and have been dropped.
   ```
   Never run `next dev` against a `.next` a production build wrote — they share the directory
 
-**After judging ends, two things cost money for nothing:** set Cloud Run `min-instances 0`, and
-**pause the `agentforge-cron` Scheduler job at the same time**, or the tick keeps Neon awake ~240
-h/month. Both are in `DEPLOYMENT.md` → *After judging ends*. **Neither was ever done** — verified
-2026-10-01, `min-instances` is still 1 and the job is still ENABLED. It is now **M12**, it is the only
-action outstanding in this file, and it needs the user to run two commands.
+**The two things that cost money for nothing are now turned down — M12, 2026-10-01.** Cloud Run is
+at `min-instances 0` and `agentforge-cron` is `PAUSED`, so the tick no longer keeps Neon awake ~240
+h/month. They had been missed for five days after the roadmap closed, which is the whole reason M12
+exists as a written-down item rather than a remembered one. **What to know now:** a schedule trigger
+will not fire until `gcloud scheduler jobs resume agentforge-cron --location asia-southeast1`, and
+the first request to a cold service takes ~6.4 s. `DEPLOYMENT.md` → *After judging ends* has both,
+with the undo.
 
 ## Open, but blocking nothing
 
@@ -1242,8 +1247,21 @@ migrations and 30 nodes — and found three things.
   answered that same day. `DEPLOYMENT.md` now carries the measured 0.91 CU-hours and the ~60/100
   projection; `BUILD_PLAN.md`'s claim that `neonctl` is unauthenticated is marked **SUPERSEDED** —
   Phase 22 authenticated it, and it still cannot see the number
-- **The post-judging turndown was never performed**, and is now tracked as **M12**. It needs the
-  user: the sandbox refused both commands as shared-resource modifications
+- **The post-judging turndown had never been performed** — `min-instances` still 1, `agentforge-cron`
+  still ENABLED at `*/15` five days after submission, spending ~61 of 100 free CU-hours to serve
+  nobody. Tracked as **M12** and **done the same day**: the cron is `PAUSED`, Cloud Run is at
+  `min-instances 0`, and revision **`agentforge-00061-lwl`** (the same image, one scaling setting)
+  verified `status: ok`, 5/5 checks. **Schedule triggers are off until the job is resumed** —
+  `/api/cron/tick` is the only clock in the product
+- **The turndown falsified a Chapter 1 lesson** that had sat in *Notes for whoever comes next*
+  unchallenged: "a Cloud Run cold start is not reachable." It was true only at `min-instances 1`.
+  Measured immediately after: **6.38 s cold**, 0.58–0.76 s warm — so Cloud Run is now the slowest
+  cold tier, ahead of Neon's 1.14 s wake. `OPERATIONS.md`'s scheduler runbook now opens by saying a
+  paused job reading zero ticks is **expected, not an incident**
+- **Why M12 needed an id at all, which is the transferable part:** the two commands were written down
+  in *two* documents and still did not happen, because **a line of advice in a "when you're done"
+  section is not a task.** A turndown step belongs in the phase that creates the resource, with its
+  undo command beside it
 
 **2026-10-01 — Phase 25 closed: launch polish, and Chapter 2 with it**
 
