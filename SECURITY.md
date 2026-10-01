@@ -258,17 +258,50 @@ credential is `admin`.
 
 ## The unauthenticated surfaces
 
-Four routes and two pages answer with no session. Each one is listed here because the complete
-list is the thing worth auditing.
+**Nine routes and two pages answer with no session**, and the completeness of this list is the
+whole point of it — so it is no longer maintained by hand alone.
+`scripts/verify-security.mjs` enumerates **every** route file under `src/app/api`, calls each
+one with no session, and fails if anything outside this table answers, *or* if anything inside
+it stops answering. Run it against the deployed service; it writes nothing.
 
-| Surface | Guard | Blast radius of the token |
+| Surface | Guard | Blast radius |
 |---|---|---|
 | `POST /api/webhook/<token>` | 192-bit token on the workflow row | Runs **one** workflow. Body capped at 64 KB, pattern-checked before the database is touched |
 | `POST /api/cron/tick` | `CRON_SECRET`, compared in constant time | Fires due schedules. Idempotent by compare-and-set |
 | `POST /api/runs/dispatch` | `CRON_SECRET` **plus** the run's own 192-bit `dispatchToken` | Resumes **one** run its owner already started. The lease makes a duplicate delivery harmless (D82) |
 | `GET /api/share/<token>` + `/s/<token>` | 192-bit share token | A **redacted** read of one graph. The only surface whose risk is in the *response* |
 | `GET /api/invitations/<token>` + `/invite/<token>` | 256-bit token, stored only as `sha256` | Membership of one workspace at the invited role. 7-day expiry, single use |
+| `GET /api/health` | **none, by design** | A rollup, five dependency verdicts, two counts and the revision. Nothing belonging to any account — see below |
+| `GET /api/integrations/google/connect` | none on the route itself | Builds Google's consent URL and redirects. Grants nothing: the returning callback is what requires a session |
+| `GET /api/integrations/google/callback` | the OAuth `state`, **plus a session** | Stores the returned tokens. A callback with no session redirects home |
+| `GET POST /api/auth/[...nextauth]` | Auth.js v5 | This *is* the sign-in surface |
 | `/` and `/design` | none | Static. Nothing belonging to any account |
+
+**Three of those were found by writing the enumeration, in Phase 25** — `/api/health` and the
+two Google OAuth legs. All three were already public, already deliberate, and already correct;
+none of them was in this table, which claimed to be complete. That is the failure mode a
+hand-kept security inventory has, and it is why the list is now derived from the filesystem and
+checked rather than trusted.
+
+### `/api/health` is public, and what that costs
+
+An uptime check cannot hold a session, so this route has no guard and will not get one. The
+rule for it is therefore about the *response*: every field here is a field on the public
+internet, and the test for one is whether it helps an operator more than it helps somebody
+mapping the system.
+
+**Phase 25 applied that test to the fields already there and removed one.** The queue block
+published the GCP `project` alongside `location` and `queue`. The last two earn their place —
+both are copied environment variables, so both can point at the wrong queue while
+`configured` is perfectly true, which is the silent misconfiguration the route exists to
+expose. `project` cannot be wrong: it comes from the metadata server, which is the documented
+reason `TASKS_PROJECT` is deliberately unset. A value that cannot be wrong has no diagnostic
+value, so all it did was publish the project id — which, unlike the project *number* in this
+service's hostname, was not otherwise public.
+
+What remains is a status rollup, five named dependency verdicts, the applied-migration count,
+the registry size and the Cloud Run revision. No credential, no key, no connection string,
+and nothing belonging to any account.
 
 **Token widths are chosen, not copied.** 192 bits for a webhook and a share link, 256 for an
 invitation — wider because it grants a *workspace* rather than one workflow. All are CSPRNG,
@@ -369,16 +402,16 @@ The honest limits. Each one is a real gap, not a hedge.
    tables you want read and nothing else; the settings card says so, and that grant is the only
    part of this boundary AgentForge does not control. A superuser connection string pasted into
    the vault is a decision to let the agent read that whole database.
-4. **No MFA and no session-device binding.** Identity is whatever Google says; if a user's Google
+6. **No MFA and no session-device binding.** Identity is whatever Google says; if a user's Google
    account is compromised, so is their workspace.
-5. **The audit log is operational, not tamper-evident.** It is rows in the same database as the
+7. **The audit log is operational, not tamper-evident.** It is rows in the same database as the
    data, writable by the same credentials, pruned after 30 days, and its insert failures are
    swallowed rather than fatal.
-6. **One Neon database serves local development and production.** Convenient, and it means a
+8. **One Neon database serves local development and production.** Convenient, and it means a
    mistake on a developer machine reaches real data. `DEPLOYMENT.md` records it.
-7. **No penetration test and no third-party audit.** Everything here is one maintainer's
+9. **No penetration test and no third-party audit.** Everything here is one maintainer's
    reasoning, which is exactly why it is written down in this much detail.
-8. **The OAuth consent screen is in Testing.** Only listed test users can sign in to the
+10. **The OAuth consent screen is in Testing.** Only listed test users can sign in to the
    deployed app, which is a limit on availability rather than on security, but it is the reason
    you may not be able to reproduce a finding.
 

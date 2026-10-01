@@ -2,7 +2,7 @@ import { headers } from "next/headers";
 import { z } from "zod";
 
 import { auth } from "@/auth";
-import { ApiError, STATUS, type ApiErrorCode } from "@/lib/api-error";
+import { ApiError, STATUS, recoveryOf, type ApiErrorCode, type Recovery } from "@/lib/api-error";
 import { addLogContext, logError, traceFromHeaders, withLogContext } from "@/lib/logging";
 import { readActiveWorkspaceId } from "@/lib/workspace/active";
 import { assertRole, type WorkspaceRole } from "@/lib/workspace/roles";
@@ -16,7 +16,7 @@ import type { WorkspaceScope } from "@/lib/workspace/scope";
  * One envelope means a client can tell the two apart without inspecting the status
  * code, and one place to make sure an internal error never reaches a client.
  */
-export { ApiError, type ApiErrorCode };
+export { ApiError, recoveryOf, type ApiErrorCode, type Recovery };
 
 export function ok<T>(data: T, status = 200): Response {
   return Response.json({ data }, { status });

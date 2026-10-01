@@ -1583,7 +1583,7 @@ pages of the deployed app. Carry into Phase 25.
 
 ---
 
-## Phase 25 — Launch polish
+## Phase 25 — Launch polish ✅ COMPLETE
 
 **Objective.** The last pass. Onboarding, performance, accessibility, and the rough edges that
 survive every rewrite.
@@ -1611,6 +1611,70 @@ with a genuinely fresh account.
 **Documentation updates.** All, reconciled. `PROGRESS.md` marks Chapter 2 complete.
 
 **Commit.** `feat: complete phase 25 launch polish`
+
+### As built, 2026-10-01
+
+**Onboarding is a guide on the page, not a wizard.** Three steps read live from the database —
+a provider key, a workflow, a successful run — on `/workflows`, above the content.
+A modal has to be dismissed before the product can be looked at, and a wizard that tracks its own
+position lies to somebody who pasted a key in another tab. Migration `0011` adds
+`workspace.onboardedAt`: completion is a **milestone, not a current fact**, so a workspace that
+onboarded and later deleted every workflow is not handed the beginner's checklist again — and the
+guide costs **zero statements** once it is finished with, because the column rides along on the
+membership row the page already loads.
+
+**The steps are presented in order and deliberately not gated in order**, which was proved rather
+than asserted: in a browser, on a brand-new workspace with no key at all, a template was cloned and
+run successfully, taking the guide to *2 of 3* with step 1 still open. A key is required for
+generation, not for the product.
+
+**The real find was the dead end at the end of the primary call to action.** A new account pressing
+*Generate workflow* got a clear 400 naming Settings — and was then left to go and find Settings.
+`details.recovery` (`CONTRACT.md`) now carries an in-app path and a label that the prompt box
+renders as a button. The guard that reads it **drops anything that is not an in-app path**, and its
+test caught a hole in the first version: `//evil.example` begins with `/` and is a different origin.
+
+**The audits are enumerations, which is what makes them worth having.**
+
+- `scripts/verify-a11y.mjs` — every page, WCAG 2.2 AA structure. **92 checks.** Its first run
+  reported 6 failures; 4 were the *script's* blind spot (a control wrapped in its own `<label>` is
+  correctly labelled, and `Labelled` does exactly that), so the reader learned to track label spans.
+  An audit that cries wolf gets turned off. The 2 that survived were real: `/templates` skipped
+  `h1 → h3`, and the canvas carried **two elements with `id="dialog-title"`**, so the version-history
+  dialog was announced to a screen reader with the *share* dialog's name — live since Phase 14,
+  invisible to every suite. Fixed with `useId`, and `primitives.test.ts` now fails on a literal `id`
+  or a literal ARIA reference anywhere in `components/ui`.
+- `scripts/verify-security.mjs` — **67 checks**, every route file under `src/app/api` called with no
+  session. It found that `SECURITY.md`'s "complete list" of unauthenticated surfaces was missing
+  **three**: `/api/health` and both Google OAuth legs. All three were already deliberate and already
+  correct; none was written down. That is the failure mode of a hand-kept security inventory, and it
+  is why the list is now derived and checked in both directions.
+
+**One field was removed from the public internet.** `/api/health` published the GCP `project`
+alongside `location` and `queue`. The last two earn their place — both are copied environment
+variables, so both can point at the wrong queue while `configured` is true. `project` comes from the
+metadata server and *cannot* be wrong, which is the documented reason `TASKS_PROJECT` is unset — so
+it had no diagnostic value and was pure reconnaissance.
+
+**Accessibility behaviour was driven in a browser, because the script cannot see it.** Focus order
+through the guide is correct, every control shows a real focus ring (`boxShadow` measured `none` →
+2 px on focus), and the step rows were **20 px tall against WCAG 2.5.8's 24 px minimum**. The
+spacing exception technically rescued them; leaning on an exception for something one class fixes is
+the wrong trade, so `min-h-6`, re-measured at 320 / 375 / 1440 px.
+
+**`global-error.tsx` was the last unhandled failure.** `error.tsx` renders *inside* the root layout
+and so cannot catch the root layout failing — that case fell through to Next's white
+"Application error" page. It is the least likely failure in the product and the worst looking.
+
+**Performance was measured, not guessed.** Cold-cache CWV on the deployed service: LCP 576–1112 ms
+and **CLS 0** on every page, well inside Google's thresholds. The zero is the self-hosted-font
+decision being paid back. Numbers in `DEPLOYMENT.md` → *Verification*.
+
+**Not done, and stated rather than implied:** the validation step asks for "a new account taken from
+sign-up to first successful run". What was driven was a **brand-new workspace** — no key, no
+workflow, no runs, which is exactly the state the guide reads — on an existing Google account. Google
+sign-up itself was last proved with two real accounts in Phase 19B. A second Google account was not
+created for this.
 
 ---
 

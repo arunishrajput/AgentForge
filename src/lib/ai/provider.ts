@@ -1,3 +1,4 @@
+import type { Recovery } from "@/lib/api-error";
 import { getCredential, readSecret, type CredentialMetadata } from "@/lib/credentials";
 import type { CredentialUse } from "@/lib/credentials/audit";
 import { readWorkspaceProvider } from "@/lib/workspace/store";
@@ -52,6 +53,23 @@ export class NoProviderKeyError extends Error {
     this.name = "NoProviderKeyError";
   }
 }
+
+/**
+ * **The way out of the error above — Phase 25.**
+ *
+ * This is the one failure a brand-new account hits on the product's primary call to action,
+ * and the message naming "Settings" was a dead end: the user still had to go and find it.
+ * The constant lives here, beside the error it recovers from, so the two cannot drift —
+ * three routes and one node raise that error and every one of them should offer the same
+ * door. `Recovery`'s contract is in `lib/api-error.ts`.
+ *
+ * `?tab=provider` is honoured by the settings page's own tab table, so the link lands on the
+ * form rather than on the page that contains it.
+ */
+export const PROVIDER_KEY_RECOVERY: Recovery = {
+  href: "/settings?tab=provider",
+  label: "Add a provider key",
+};
 
 export interface ResolvedProvider {
   model: LanguageModel;

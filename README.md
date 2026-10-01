@@ -58,6 +58,10 @@ product — not sandboxed, not behind a flag.
 oracle — which is why the canvas is editable and why the product says so out loud rather than
 pretending otherwise.
 
+<img src="./docs/assets/canvas-run.png" alt="The AgentForge canvas after a run: six nodes — a manual trigger, a set node, a filter, a sort, an aggregate and a log — each outlined and marked Succeeded, with the run panel beside them showing the run succeeded on version 1 in 291 ms and every step's own duration and log line" width="100%" />
+
+<p align="center"><em>A real run on the deployed app — six nodes, each reporting as it finished, and the per-step log beside them.</em></p>
+
 ---
 
 ## Features

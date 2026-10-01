@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode, useEffect, useRef } from "react";
+import { type ReactNode, useEffect, useId, useRef } from "react";
 
 import { Button } from "./button";
 import { cn } from "./cn";
@@ -24,6 +24,16 @@ import { cn } from "./cn";
  *   - clicking the backdrop does nothing by default. The click handler compares
  *     the target to the dialog itself, which is true only for the backdrop,
  *     because the panel inside swallows its own clicks.
+ *
+ * **The title's id comes from `useId`, and that is a WCAG fix rather than tidiness
+ * (Phase 25).** It used to be a hardcoded literal, which is correct for exactly one
+ * dialog per document and wrong the moment there are two. The canvas mounts two — the
+ * share dialog and the version history — and a closed `<dialog>` still renders its
+ * heading into the DOM, a trap `DESIGN.md` → *Traps* already records. So the page
+ * carried two elements with the same id, and `aria-labelledby` resolves to the *first*
+ * match: the version-history dialog was announced to a screen reader with the share
+ * dialog's name. Nothing looked wrong, which is why it survived from Phase 14 to here.
+ * Found by `scripts/verify-a11y.mjs` as a duplicate id on the canvas.
  */
 export function Dialog({
   open,
@@ -43,6 +53,9 @@ export function Dialog({
   className?: string;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  // Stable across renders, unique per mounted dialog, and the same string on the server
+  // and in the browser — which a counter or a random id would not be.
+  const titleId = useId();
 
   useEffect(() => {
     const el = ref.current;
@@ -69,7 +82,7 @@ export function Dialog({
        keyboard already has, which is the case the rules do not model. */
     <dialog
       ref={ref}
-      aria-labelledby="dialog-title"
+      aria-labelledby={titleId}
       onClick={(event) => {
         if (event.target === ref.current) onClose();
       }}
@@ -83,7 +96,7 @@ export function Dialog({
     >
       <div className="border-line flex items-start justify-between gap-3 border-b-2 px-5 py-3.5">
         <div className="space-y-1">
-          <h2 id="dialog-title" className="text-base font-bold">
+          <h2 id={titleId} className="text-base font-bold">
             {title}
           </h2>
           {description && <p className="text-muted text-2xs">{description}</p>}

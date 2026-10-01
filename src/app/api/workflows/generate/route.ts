@@ -1,4 +1,4 @@
-import { NoProviderKeyError, resolveProvider } from "@/lib/ai/provider";
+import { NoProviderKeyError, PROVIDER_KEY_RECOVERY, resolveProvider } from "@/lib/ai/provider";
 import { ProviderError } from "@/lib/ai/types";
 import { ApiError, handle, ok, readJson, requireScope } from "@/lib/api";
 import type { WorkspaceScope } from "@/lib/workspace/scope";
@@ -90,13 +90,20 @@ export async function POST(request: Request) {
  * No key is a 404 on the settings route because the caller asked for a thing that is
  * not there. Here the caller asked to generate, and the fix is a different page, so
  * it is reported as an actionable failure with the message the provider module wrote.
+ *
+ * **Phase 25 attaches the door as well as the explanation.** This is the failure a
+ * brand-new account hits on the product's primary call to action, and naming Settings in
+ * prose left the user to go and find it. `details.recovery` carries an in-app link the
+ * prompt box renders as a button — `lib/api-error.ts` → `Recovery`.
  */
 async function resolveProviderOr422(scope: WorkspaceScope) {
   try {
     return await resolveProvider(scope);
   } catch (error) {
     if (error instanceof NoProviderKeyError) {
-      throw new ApiError("invalid_request", error.message);
+      throw new ApiError("invalid_request", error.message, {
+        recovery: PROVIDER_KEY_RECOVERY,
+      });
     }
     throw error;
   }

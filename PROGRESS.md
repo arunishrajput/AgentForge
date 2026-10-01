@@ -7,24 +7,28 @@ concise and operational — prune stale detail rather than appending forever. Th
 
 ## Project Status
 
-**CHAPTER 1 IS CLOSED. CHAPTER 2 IS THE WORK NOW.**
+**CHAPTER 1 IS CLOSED. CHAPTER 2 IS CLOSED. THE ROADMAP IS FINISHED.**
 
 Phases 0–12 built and shipped a hackathon MVP. It was submitted on 2026-09-26
 (<https://devpost.com/software/agentforge-kz832x>), the pitch video is published
 (<https://www.youtube.com/watch?v=Suc4RV9LnLs>), and that chapter is done and not reopened.
 
-**Chapter 2 turns the MVP into a real, professional, open-source product.** Thirteen phases,
-13 → 25, defined in `BUILD_PLAN.md`. **Phases 13–24 are all done** (19 was split into 19A and 19B;
-**23 was split into 23A, 23B, 23C and 23D**). **Phase 25 — launch polish — is next, and it is the
-last one.** It needs nothing from the user.
+**Chapter 2 turned the MVP into a real, professional, open-source product. IT IS COMPLETE.**
+Thirteen phases, 13 → 25, defined in `BUILD_PLAN.md`. **Every one of them is done** (19 was split
+into 19A and 19B; **23 was split into 23A, 23B, 23C and 23D**). **Phase 25 closed on 2026-10-01.**
+**No manual actions are outstanding and nothing is blocked.**
 
-**24 closed on 2026-10-01 and the repository is now the product's front door.** **The licence is
-MIT** — the user chose it, closing the oldest open decision in this file. A `docs/` site, an
-`adr/` directory, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md` and issue/PR templates all exist, and
-**documentation is now CI-enforced rather than trusted**. **No manual actions are outstanding.**
+**25 was the last phase, and it was the one that assumed a stranger, not a demo.** A first-run
+onboarding guide read from live state, a WCAG 2.2 AA audit and an unauthenticated-surface review
+that are both **enumerations derived from the repository**, Core Web Vitals measured on the deployed
+service, and the last unhandled error surface closed. Both audits found real defects that every
+existing suite had passed over — see *Current Phase*.
+
+**There is no Phase 26.** `BUILD_PLAN.md` → *After Phase 25* is explicit: re-plan deliberately
+rather than extending the ladder by reflex, and bring numbers.
 
 **The live system still works and must keep working:**
-**https://agentforge-733000675212.asia-southeast1.run.app** — revision `agentforge-00058-q2z`.
+**https://agentforge-733000675212.asia-southeast1.run.app** — revision `agentforge-00060-z9v`.
 
 ### Four binding decisions, made 2026-09-26
 
@@ -59,74 +63,103 @@ ceiling costing something looks like, and `SECURITY.md` states the protection gi
 
 ## Current Phase
 
-## ▶ PHASE 24 IS CLOSED. Next: PHASE 25 — launch polish, and it is the last one.
+## ▶ PHASE 25 IS CLOSED — AND SO IS CHAPTER 2. THE ROADMAP IS FINISHED.
 
-**Phase 24 made the repository legible to a stranger**, which is Chapter 2's stated purpose. It
-changed **no application code** — `src/` is untouched — so the deployed revision
-`agentforge-00058-q2z` is still correct and was re-verified rather than replaced.
+**Phase 25 was launch polish: onboarding, accessibility, performance, error recovery and a final
+security review.** Two deploys — `agentforge-00059-pd2` carried the phase, `agentforge-00060-z9v`
+carried one WCAG fix that only a browser could find. Migration `0011` went first.
 
-### What 24 leaves you
+### What 25 leaves you
 
-- **A licence. MIT.** `LICENSE`, `package.json`, and the README. The oldest open decision in this
-  file, and it was the user's to make
-- **A README that is a front page**, not a working document: badges, three real screenshots taken
-  from the deployed app, the one architectural idea, features, quickstart, and the licence
-- **`docs/` — five pages**: self-hosting, node reference, API reference, agent behaviour,
-  architecture. Plus `docs/README.md` as the way in
-- **`adr/` — five records**, extracted from prose that already existed. `0004` (no queue) is kept
-  **as written** with `0005` superseding it, because a decision that was right and then stopped
-  being right is the most useful thing the directory holds
-- **`CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`**, two issue forms, a PR template and an issue
-  chooser that routes security reports away from public issues
+- **A first-run onboarding guide**, on `/workflows`, read live from the database: a provider key, a
+  workflow, a successful run. Migration `0011` adds `workspace.onboardedAt`
+- **`details.recovery`** — an error may now carry an in-app way forward, and the prompt box renders
+  it as a button. `CONTRACT.md` defines it
+- **`scripts/verify-a11y.mjs`** — 92 checks, WCAG 2.2 AA structure, every page
+- **`scripts/verify-security.mjs`** — 67 checks, every route file called with no session
+- **`src/app/global-error.tsx`** — the root layout's own failure, which `error.tsx` cannot catch
+- **A real canvas-and-run screenshot in the README**, which is the asset Phase 24 carried forward
 
-### Documentation is now checked, not trusted — this is the part that lasts
+### The onboarding decision worth keeping: completion is a milestone, not a current fact
 
-`scripts/build-docs.mjs`, wired into `npm run check` and into CI as a fifth gate. Three guards,
-and **each one was proved to fail before being trusted**:
+The three steps are each separately observable, so the guide's progress could have been derived on
+every page load with no migration. It is **stored** because a workspace that onboarded and later
+deleted every workflow has still onboarded — a derived check would put the beginner's checklist back
+in front of an experienced user, which is the one failure mode a first-run flow must not have. It
+also makes "skip" real (a decision about the workspace, not about one browser) and it **ends the
+cost**: `onboardedAt` rides on the membership row the page already loads, so a workspace that
+finished on day one pays **zero statements** afterwards.
 
-1. **`docs/nodes.md` is generated from the registry.** Edit a node without regenerating and the
-   build fails on a content hash. This is the registry-is-the-spine claim applied to the docs —
-   a hand-written node reference would have been a fourth consumer maintained by hand
-2. **`docs/api.md` is coverage-checked both ways.** A route under `src/app/api` that is not
-   documented fails; so does a documented route that does not exist
-3. **Every relative link resolves — file *and* heading anchor**, across README, `docs/`, `adr/`
-   and the root documents. GitHub's anchor rule keeps underscores and drops dots, which is
-   exactly what a hand-written anchor gets wrong; the generator derives the anchor from the
-   heading so the two cannot disagree
+**The steps are presented in order and deliberately not gated in order**, and that was proved rather
+than asserted: on a brand-new workspace with no key at all, a template was cloned and run
+successfully in a browser, taking the guide to *2 of 3* with step 1 still open. A key is required for
+*generation*, not for the product.
 
-### Executing every documented command found two real defects
+### The real find was a dead end at the end of the primary call to action
 
-The phase's validation bar is *"every documented command is executed and confirmed to work"*, and
-it earned its place — both defects were **in the new documentation**, not in the product:
+A new account pressing **Generate workflow** got a clear, correct 400 that named Settings — and was
+then left to go and find Settings. That is a dead end dressed as an explanation, and it sat on the
+one button a new user is most likely to press. `details.recovery` now carries the door as well as
+the reason.
 
-1. **The self-hosting guide showed an all-`ok` health response.** A correct local install reports
-   **`degraded`**: `queue` and `rootKey` name the two Cloud-only features, and both have working
-   local fallbacks. A newcomer following the guide would have concluded they had broken it. Fixed
-   with the real response and the three checks that *must* be `ok`
-2. **`verify-api.mjs` against a local dev server reports 18 failures, and the product is fine.**
-   The same suite is **ALL CHECKS PASSED against the deployed URL**, re-confirmed this phase. Two
-   causes, both now documented in `docs/self-hosting.md` → *Verifying a local install*:
-   - **17 are the vault working correctly.** Every credential is wrapped under `keyVersion = sm:1`
-     — Secret Manager. A local process with `ROOT_KEY_SECRET` unset uses `ENCRYPTION_KEY`, sees
-     that a key is stored, and **cannot unwrap it**. A root key a copy of the database could
-     decrypt without it would not be a root key
-   - **1 is a `next dev` artefact.** A check asserts a revoked invitation and an invented one
-     render identically — a real security property. The *rendered text is identical* in both
-     environments; Next's development-mode React payload is not, so a byte comparison fails on a
-     dev server and passes on a production build. Verified by fetching both pages and comparing
+**Its guard caught a hole in itself.** `recoveryOf` refuses an `href` that is not an in-app path,
+because the value arrives in a response body and becomes something a user can click. The first
+version checked `startsWith("/")` — and `//evil.example` begins with `/` and is a **different
+origin** to a browser. The test failed before the fix, which is the rule.
 
-### Two things worth carrying forward
+### Both audits found defects every existing suite had passed over
 
-- **`ARCHITECTURE.md` → *What is intentionally simplified* had five stale rows**: single LLM
-  provider, no credential KMS, no versioning, no RBAC, four integrations — every one of them
-  delivered in Phases 18–23D and still listed as a limitation. Reconciled. The table now says
-  what each phase actually did, and the one row that stays open says so
-- **No screenshot of the authenticated canvas.** The session-cookie step is blocked by a safety
-  classifier, and the user chose to ship without it rather than drive a browser by hand. The three
-  screenshots are real pages of the deployed app, and the demonstration image carries the
-  product's own visible caption saying the message is illustrated — so nothing is overclaimed.
-  **A real canvas-and-run screenshot is the one asset the README still wants**, and Phase 25 is a
-  natural place for it
+**`verify-a11y.mjs` — 6 failures on its first run, and 4 of them were the script's fault.** A control
+wrapped in its own `<label>` is correctly labelled, and `Labelled` in `components/ui/field.tsx` does
+exactly that *on purpose*, so an unlabelled input cannot ship. The reader was counting those as
+failures. **An audit that cries wolf is worse than no audit, because the next person turns it off**
+— so it learned to track `<label>` open/close spans. The 2 that survived were real:
+
+1. **`/templates` skipped `h1 → h3`** (1.3.1). The card title was `h3` because the card is visually
+   small — a type-size decision standing in for a document-structure one
+2. **The canvas carried two elements with `id="dialog-title"`** (4.1.1 / 4.1.2). `Dialog` hardcoded
+   it, which is correct for one dialog per document; the canvas mounts two, and a closed `<dialog>`
+   still renders its heading. `aria-labelledby` resolves to the **first** match, so the
+   version-history dialog was announced to a screen reader with the **share** dialog's name. Live
+   since Phase 14. Nothing looked wrong. Fixed with `useId`, and `primitives.test.ts` now fails on a
+   literal `id` or a literal ARIA reference anywhere in `components/ui`
+
+**`verify-security.mjs` found that `SECURITY.md`'s "complete list" was missing three surfaces** —
+`/api/health` and both Google OAuth legs. All three were already deliberate and already correct;
+none was written down. **That is the failure mode of a hand-kept security inventory**, and the list
+is now derived from the filesystem and checked in both directions — a public webhook that *starts*
+refusing anonymous callers is a broken product, not a secured one.
+
+**One field left the public internet.** `/api/health` published the GCP `project` beside `location`
+and `queue`. The last two earn their place: both are copied environment variables, so both can point
+at the wrong queue while `configured` is true, which is the silent misconfiguration that route
+exists to expose. `project` comes from the metadata server and **cannot** be wrong — the documented
+reason `TASKS_PROJECT` is unset — so it had no diagnostic value and was pure reconnaissance.
+
+### The browser found what the script could not, again
+
+Focus order through the guide is correct and every control shows a real focus ring (`boxShadow`
+measured `none` → 2 px on focus). But the step rows were **20 px tall against WCAG 2.5.8's 24 px
+minimum** — in the dimension nobody checks, on a control written this phase. The spacing exception
+technically rescued them (55 px apart, so the 24 px circles never intersect); **leaning on an
+exception for something one class fixes is the wrong trade**, so `min-h-6`, re-measured at
+320 / 375 / 1440 px. That fix is the entire reason there were two deploys.
+
+### Performance: measured, and the zero is earned
+
+Cold cache, deployed service, India → Singapore. LCP **576–1112 ms**, CLS **0** on every page, all
+inside Google's thresholds with room. The zero is the self-hosted-font decision in
+`src/app/layout.tsx` being paid back: no webfont request, so no swap, so no shift. The canvas
+carries 455 KB of JavaScript because React Flow is on it. Full table in `DEPLOYMENT.md` →
+*Verification*. Measured with `PerformanceObserver` in a real browser rather than by installing a
+Lighthouse toolchain to learn numbers the browser already holds.
+
+### Stated rather than implied
+
+The phase's validation step asks for "a new account taken from sign-up to first successful run".
+What was driven is a **brand-new workspace** — no key, no workflow, no runs, which is exactly the
+state the guide reads — on an existing Google account. **Google sign-up itself was last proved with
+two real accounts in Phase 19B**; a second Google account was not created for this.
 
 ## Completed Phases
 
@@ -166,7 +199,7 @@ it earned its place — both defects were **in the new documentation**, not in t
 | **23C** — the Postgres node | **COMPLETE** — registry 29 → 30, read-only by construction. `verify-postgres.mjs` **65 passed / 0 failed / 0 skipped** against the deployed URL, including a real table read from inside the container, all seven shared operators executed by Postgres, and a write proved refused **three ways**. Driven in a real browser: the settings card, its refusal path, a template clone, the inspector's docs and a full four-node run whose total was hand-checked, at 320 / 375 / 768 / 1920 px with zero console errors. 2026-10-01 |
 | **23D** — the second LLM provider | **COMPLETE** — Groq proven against the real service: a real completion *and* a real agent tool call, and a workflow generated by Groq and run on the canvas in a browser. `verify-providers.mjs` **55 passed / 0 failed / 0 skipped**. The `llm.google` row proved byte-for-byte unchanged across a switch to Groq and back. 2026-10-01 |
 | **24** — documentation and open-source readiness | **COMPLETE** — **MIT licence applied**, README rewritten with real screenshots, `docs/` (5 pages) and `adr/` (5 records) created, `CONTRIBUTING.md` / `CODE_OF_CONDUCT.md` / issue + PR templates added. **The node reference is generated from the registry and CI fails if it drifts**; the API reference is coverage-checked both ways; every documentation link is resolved, anchors included. Every documented command was executed — which found two real defects in the new docs. 2026-10-01 |
-| **25** — launch polish | NOT STARTED ← next |
+| **25** — launch polish | **COMPLETE** — onboarding read from live state (migration `0011`), `details.recovery` closing the no-key dead end, `verify-a11y.mjs` **92 checks** and `verify-security.mjs` **67 checks** both ALL PASSED on the deployed URL, `global-error.tsx`, and CWV measured cold on the deployed service (LCP 576–1112 ms, **CLS 0**). Each audit found real defects: a skipped heading level, a **duplicate `dialog-title` id live since Phase 14** that announced the wrong dialog name, and **three unauthenticated surfaces missing from `SECURITY.md`**. Driven in a real browser on a brand-new workspace at 320 / 375 / 768 / 1440 / 1920 px with zero product console errors. 2026-10-01 |
 
 
 ---
@@ -178,13 +211,13 @@ it earned its place — both defects were **in the new documentation**, not in t
 | **Canonical URL** | **`https://agentforge-733000675212.asia-southeast1.run.app`** |
 | Legacy URL | `https://agentforge-i5d2u66boa-as.a.run.app` — works, do not publish it |
 | Service | `agentforge` on Cloud Run, `asia-southeast1` |
-| Revision | **`agentforge-00058-q2z`** — ready, **`latestRevision: True`**, 100% of traffic (Phase 23D). **One deploy, and the migration went first**: `0010` is additive, so `agentforge-00057-8jx` kept serving correctly against the migrated database — confirmed by a health check on the *old* revision after the column existed, which is the claim "additive" actually makes. Previous good revisions: `agentforge-00057-8jx`, `agentforge-00056-rkn`, `agentforge-00055-htp`, `agentforge-00054-8zw` (23C), `agentforge-00053-hn6` (23B), `agentforge-00051-252` (23A), `agentforge-00047-w65` (22), `agentforge-00044-zmx` (21), `agentforge-00042-5zx` (20), `agentforge-00041-75x` (19B). Earlier: `agentforge-00037-k7x` (19A), `agentforge-00035-vfd` (18), `agentforge-00034-54v` (17), `agentforge-00030-gv2` (16). **`00032` and `00033` were deliberately deleted** during Phase 17's verification, testing whether deleting a serving revision kills its in-flight request — it does not. Rollback was tested against `agentforge-00020-rcr` |
+| Revision | **`agentforge-00060-z9v`** — ready, **`latestRevision: True`**, 100% of traffic (Phase 25). **Two deploys this phase**: `00059-pd2` carried the work, and `00060-z9v` carried one WCAG 2.5.8 target-size fix that only measuring the first one in a browser could find. **The migration went first**: `0011` is additive, so `agentforge-00058-q2z` kept serving correctly against the migrated database — confirmed by a health check on the *old* revision after the column existed, which is the claim "additive" actually makes. Previous good revisions: `agentforge-00059-pd2`, `agentforge-00058-q2z` (23D), `agentforge-00057-8jx`, `agentforge-00056-rkn`, `agentforge-00055-htp`, `agentforge-00054-8zw` (23C), `agentforge-00053-hn6` (23B), `agentforge-00051-252` (23A), `agentforge-00047-w65` (22), `agentforge-00044-zmx` (21), `agentforge-00042-5zx` (20), `agentforge-00041-75x` (19B). Earlier: `agentforge-00037-k7x` (19A), `agentforge-00035-vfd` (18), `agentforge-00034-54v` (17), `agentforge-00030-gv2` (16). **`00032` and `00033` were deliberately deleted** during Phase 17's verification, testing whether deleting a serving revision kills its in-flight request — it does not. Rollback was tested against `agentforge-00020-rcr` |
 | Scaling | `min-instances 1`, `max-instances 3`, 1 vCPU / 1 GiB, 3600 s timeout, port 8080 |
 | Env vars set | `NODE_ENV` `AUTH_URL` `APP_BASE_URL` `DATABASE_URL` `AUTH_SECRET` `GOOGLE_CLIENT_ID` `GOOGLE_CLIENT_SECRET` `ENCRYPTION_KEY` `CRON_SECRET` `TASKS_QUEUE` `TASKS_LOCATION` **`ROOT_KEY_SECRET`** — **12 now. Phase 21 added the last one**, naming the Secret Manager secret that holds the root key. Unset it and the service silently falls back to `ENCRYPTION_KEY` as the root key, which is the Chapter 1 problem back without the Chapter 1 warning — hence `rootKey.provider` on `/api/health`. **`GCP_ACCESS_TOKEN` and `GCP_PROJECT` are script-only and must never be set here**: they exist so `scripts/rekey.mjs` can reach Secret Manager from a machine with no metadata server, and an access token in a service env var is a long-lived credential in a place that survives restarts. Phase 20 added none (a share link is built from `APP_BASE_URL`); Phase 19B added none (an invitation link likewise, and there is no mail provider); **Phase 17 added `TASKS_QUEUE` and `TASKS_LOCATION`** — `TASKS_PROJECT` is deliberately unset, because the project comes from the metadata server, which cannot be wrong the way a copied variable can. All were added with `--update-env-vars`, which **merges**, rather than `--env-vars-file`, which replaces the whole set. No Gemini key on the service: the product path is the user's own key |
-| Database | Neon `super-mountain-39872886` — **13 tables**, migrations `0000`–`0010` applied, ~10 MB of 0.5 GB. **Phase 23D added migration `0010` — the first since `0009`, and the safest class there is**: one nullable column, `workspace.llmProvider`, no backfill, no new table. It records which LLM provider a workspace uses. Row counts identical before and after (workspace 1, credential 6, workflow 6, run 65). `rollback_0010.sql` is **genuinely symmetric**, unlike `rollback_0009.sql`: it touches no credential and loses only the preference. The second database `agentforge_demo` with its `SELECT`-only role (23C) is untouched. See `DEPLOYMENT.md` for `0009` (the vault, and the only rollback in this project that can destroy data), `0008` (sharing), `0007` (invitations), `0005`/`0006` (workspaces, deliberately in two halves), `0004` (versioning) |
-| Routes | `/` `/dashboard`→`/workflows` `/workflows` `/workflows/[id]` `/templates` `/analytics` `/settings` `/design` `/invite/[token]` `/s/[token]` + **40** API routes. **Phase 23D added none** — it added a `?provider=` query parameter to two existing routes (`DELETE /api/settings/provider` and `GET /api/settings/provider/models`) rather than new paths, because they address the same resource more precisely. **No new unauthenticated surface**: still exactly four. Phase 23C added none either — `/api/integrations/postgres` is served by the dynamic route 23B added, which is the point of having built it that way. Phase 23B added exactly one, the dynamic one; **a static segment beats a dynamic one**, so `/api/integrations/discord` still reaches its own file, asserted over HTTP by `verify-integrations.mjs`. A slug the registry does not hold is a 404, and so is `__proto__` |
+| Database | Neon `super-mountain-39872886` — **13 tables**, migrations `0000`–`0011` applied, ~10 MB of 0.5 GB. **Phase 25 added migration `0011` — the same safest class as `0010`**: one nullable column, `workspace.onboardedAt`, no backfill, no index. It records whether a workspace has finished or skipped the first-run guide. `NULL` means "not finished", so every workspace that existed when it ran is treated as new — which is correct, because the guide reads live progress and an established workspace opens it already complete and dismisses it in one click. Row counts identical before and after (workspace 1, credential 7, workflow 6, run 71, member 1). `rollback_0011.sql` is symmetric: it touches no credential, no workflow and no run, and loses only that one preference. See `DEPLOYMENT.md` for `0010` (the provider choice), `0009` (the vault, and the only rollback in this project that can destroy data), `0008` (sharing), `0007` (invitations), `0005`/`0006` (workspaces, deliberately in two halves), `0004` (versioning). The second database `agentforge_demo` with its `SELECT`-only role (23C) is untouched |
+| Routes | `/` `/dashboard`→`/workflows` `/workflows` `/workflows/[id]` `/templates` `/analytics` `/settings` `/design` `/invite/[token]` `/s/[token]` + **41** API routes. **Phase 25 added exactly one**: `POST /api/onboarding`, which finishes the first-run guide. It is the **only write in the product a `viewer` may make** — what it changes is whether a checklist is drawn, it grants nothing and reveals nothing, and a viewer who has read the guide and cannot dismiss it is worse served. **No new unauthenticated surface.** What Phase 25 did change is the *count of known* ones: `scripts/verify-security.mjs` enumerates every route file and found **three that answer without a session and were missing from `SECURITY.md`** — `/api/health` and both Google OAuth legs. All three were already deliberate; none was written down. The documented set is now **nine routes and two pages**, derived and checked in both directions rather than maintained by hand. Phase 23D added none; 23C added none; 23B added exactly one, the dynamic `/api/integrations/[service]` — **a static segment beats a dynamic one**, so `/api/integrations/discord` still reaches its own file, asserted over HTTP. A slug the registry does not hold is a 404, and so is `__proto__` |
 | Latency | **Warm**: health ~190 ms India → Singapore, database 7–11 ms. A 6-node demo-path run **4.2–7.5 s** end to end across five consecutive walks (Phase 13; it was 3.1–4.8 s in Chapter 1 when the model answered first time, and **94.5 s** when it did not — that second case is what Phase 13 removed). Generation 2.7–3.5 s. **Cold (Neon suspended)**: health **1.14 s, of which 739 ms is the database wake** — re-measured 2026-09-26 at 917 ms for a first query, 103 ms on the next. Cloud Run itself is never cold at `min-instances 1` | **Analytics, Phase 22: 21–27 ms of database time per page view** on 46 runs and ~200 steps, three statements, measured on the deployed service. The page is server-rendered and does not poll |
-| Last verified | **2026-10-01, after Phase 23D.** On **`agentforge-00058-q2z`**: `verify-providers.mjs` **55 passed, 0 failed, 0 skipped**. It proves a real Groq completion and **a real agent tool call** (`integration_http`, `ok: true`) answered by `openai/gpt-oss-120b` from inside the container, the live catalogue filtered to exactly the 4 tool-capable models (Whisper, Orpheus and Prompt Guard excluded by *declared capability*, not by name), the Groq credential sealed under root-key version `sm:1`, rotation in place, and an unknown provider id — including `__proto__` — refused with a 400. **The claim the phase rests on**: the existing `llm.google` row proved **byte-for-byte unchanged** across a switch to Groq and back — ciphertext, wrapped key, `rotationCount` and `createdAt` all identical, read straight from the deployed database — and the pre-existing Gemini key still ran a workflow afterwards. Also all-pass on the same revision: `verify-api.mjs` (4 skipped), `verify-templates.mjs` **47/47**, `verify-integrations.mjs` **60 passed / 2 skipped** (M10, Notion and Airtable), `verify-postgres.mjs` **65/65**, `verify-vault.mjs` (after a stale assertion was fixed), `verify-durable.mjs`, `verify-observability.mjs` (22 ms of database time per page view on 73 runs). Local: **974 tests**, coverage **88.12 / 90.72 / 80.03**, all three thresholds cleared without moving them. In a **real browser**: both provider cards, the switch to Groq and back (confirmed in the database), the per-provider model picker, a workflow **generated by Groq**, and a four-node canvas run Groq served end to end — with **zero console errors and zero horizontal overflow at 320 / 375 / 1440 px**. **Re-verified 2026-10-01 after Phase 24 on the same revision `agentforge-00058-q2z`, which Phase 24 did not replace because it changed no application code — `src/` is untouched and `git status src/` is empty.** `verify-api.mjs` **ALL CHECKS PASSED (3 skipped)** against the deployed URL; `/api/health` `status: ok`, 5/5 checks, 11 migrations, registry 30. Locally: `npm run check` exit 0 (now five gates — the fifth is `docs:check`), `npm run build` exit 0, `npm run db:generate` reports **no schema changes**. The same `verify-api.mjs` run against a local `next dev` server reports 18 failures and **that is the environment, not the product** — see *Current Phase*. |
+| Last verified | **2026-10-01, after Phase 25, on `agentforge-00060-z9v`.** **Deployed, all passing**: `verify-a11y.mjs` **92 passed / 0 failed** (WCAG 2.2 AA structure across `/`, `/design`, `/workflows`, `/templates`, `/analytics`, `/settings` and a canvas); `verify-security.mjs` **67 passed / 0 failed** (every route file under `src/app/api` called with no session, both directions); `verify-api.mjs` **ALL CHECKS PASSED (4 skipped)**; `verify-templates.mjs` **47/47**; `verify-postgres.mjs` **65/65**; `verify-providers.mjs` **55/55**; `verify-integrations.mjs` **60 passed / 2 skipped** (M10, Notion and Airtable — skipped is not passed); `verify-vault.mjs` ALL PASSED; `verify-durable.mjs` ALL PASSED; `verify-observability.mjs` ALL PASSED (**17–18 ms of database time per analytics page view on 84 runs**). `/api/health` `status: ok`, 5/5 checks, **12 migrations**, registry 30. **Local**: `npm run check` exit 0 (five gates), **992 tests**, coverage **88.25 / 90.82 / 80.13** — all three thresholds cleared without moving them. **In a real browser, which is where the two defects that mattered were found**: the onboarding guide driven on a **brand-new workspace** from 0 of 3 to 2 of 3 — a template cloned and run successfully *with no provider key at all*, proving the steps are not gated in order — then the no-key generate error showing its recovery link to `/settings?tab=provider`, then dismissal persisted to `onboardedAt` in the deployed database and confirmed to stay gone across a reload. Focus order correct through the whole guide; every control's focus ring measured (`boxShadow` `none` → 2 px). **Zero horizontal overflow and zero product console errors at 320 / 375 / 768 / 1440 / 1920 px** — the one console error seen was the deliberate 400 from the no-key path, and the only warnings came from the measurement script's own deprecated API, not from the product. **Cold-cache Core Web Vitals on the deployed service**: LCP 576–1112 ms, **CLS 0** on every page. The test workspace and its workflow and run were deleted afterwards; the real workspace is untouched with `onboardedAt` still `NULL`. |
 | Rollback | **TESTED 2026-09-26, finally.** Traffic shifted to `agentforge-00020-rcr` in **~15 s**, health confirmed the older revision was serving, the demo path walked clean on it, then `--to-latest` restored `agentforge-00021-v4s` in ~15 s. The oldest open item in this file is closed |
 | Billing | Trial credit account `Billing - AgentForge` is **open and enabled**. Actual spend is **not queryable from the CLI** (no billing export configured) — **eyeball it in the console once before judging** |
 | Provider key stored | **Both, since Phase 23D.** `llm.google` on `gemini-3-flash-preview` (rotated in Phase 13 from `gemini-3.5-flash-lite` — the only model healthy on both the text and tool-calling paths in all three probe passes), and **`llm.groq` on `openai/gpt-oss-120b`**. Both confirmed persisted in Neon. **`workspace.llmProvider` is deliberately back at `NULL`** after verification — it means "nobody has chosen", resolves to Google, and is the state the workspace was found in. Re-probe either with `npm run probe:models`; add `--provider groq`, which defaults to Google. No Gemini and **no Groq key on the service**: the product path is the user's own key, and a second environment fallback would be a second way for a run to succeed without anybody's stored credential being exercised |
@@ -916,7 +949,35 @@ answer `42501`. It then reads the table back to prove it is intact. **Re-run it 
 **This suite takes the base URL either way** — as an argument *or* as `APP_BASE_URL` — because this
 repository has both conventions and the mismatch costs a confusing `ECONNREFUSED` against a
 localhost nobody is running. `verify-api.mjs`, `verify-vault.mjs` and `verify-observability.mjs`
-take an **argument**; `verify-integrations.mjs` and `verify-durable.mjs` read **`APP_BASE_URL`**.
+take an **argument**; `verify-integrations.mjs`, `verify-durable.mjs`, `verify-a11y.mjs` and
+`verify-security.mjs` read **`APP_BASE_URL`**. **This bit Phase 25**: two suites were reported as
+failing when the only thing wrong was the invocation. Check which convention a script uses before
+believing its `ECONNREFUSED`.
+
+**The accessibility audit and the security review** — both added in Phase 25, and both **derive what
+they check from the repository**, so neither can go stale as pages and routes are added:
+
+```bash
+APP_BASE_URL="https://agentforge-733000675212.asia-southeast1.run.app" \
+  node --env-file=.env scripts/verify-a11y.mjs       # 92 checks — WCAG 2.2 AA structure
+APP_BASE_URL="https://agentforge-733000675212.asia-southeast1.run.app" \
+  node --env-file=.env scripts/verify-security.mjs   # 67 checks — every unauthenticated surface
+```
+
+`verify-a11y.mjs` fetches every page signed in and asserts `lang`, one `h1`, no skipped heading
+level, the `main` landmark and the skip link, an accessible name on every control, no duplicate id,
+no dangling ARIA reference, no positive `tabindex` and no invented `role`. **It deliberately does
+not check colour** — `src/lib/design/contrast.test.ts` already computes every token pair on every
+`npm run check`, and a second implementation would be a worse one — **and it cannot check
+behaviour**: focus order, focus visibility, reflow and target size need a browser and are driven by
+hand.
+
+`verify-security.mjs` enumerates every `route.ts` under `src/app/api`, calls each with no session,
+and fails if anything outside `SECURITY.md`'s table answers **or** if anything inside it stops
+answering. The second direction matters: a public webhook that starts refusing anonymous callers is
+a broken product, not a secured one.
+
+**Re-run both after adding a page, a route, or anything in `components/ui`.**
 
 **The registry count is pinned in four scripts and they must move together** —
 `verify-api.mjs`, `verify-templates.mjs`, `verify-integrations.mjs` and `verify-observability.mjs`.
@@ -1015,14 +1076,21 @@ decorators anywhere in `src`.
 
 ## Notes for whoever comes next
 
-**Start Phase 22 — observability and run analytics.** It is defined in `BUILD_PLAN.md` and
-summarised under *Current Phase* above. **Read `DEPLOYMENT.md` → *Free-tier headroom* first**: Neon
-compute is the binding resource, analytics queries spend from the ~39 spare CU-hours a month, and
-Phase 22 is the phase that has to be designed against that number rather than around it.
+**There is no next phase. Chapter 2's ladder is finished**, and `BUILD_PLAN.md` → *After Phase 25*
+is deliberate about what follows: **re-plan, rather than extending the ladder by reflex — and bring
+numbers.** It also names what Chapter 2 stopped short of on purpose: a plugin marketplace with
+external publishing, mobile apps, real-time multiplayer editing, billing, and a self-hosted
+installer beyond the documented Docker path.
 
-*(This line said "Start Phase 19" from Phase 19 until Phase 21 found it — a heading that names a
-phase goes stale the moment that phase ends, so it is corrected at the end of every phase now, the
-same way the Cloud Run revision row is.)*
+**So the honest answer to "what now" is: keep it alive, or plan Chapter 3 with evidence.** The
+product works, the repository is legible, the deployment is verified, and nothing is blocked. If
+this project is going to sit idle, read *After judging ends* below — two resources cost money for
+nothing once nobody is watching.
+
+*(This line said "Start Phase 22" from Phase 22 until Phase 25 found it — **a heading that names a
+phase goes stale the moment that phase ends.** It was supposed to be corrected at the end of every
+phase, the same way the Cloud Run revision row is, and it was not. If a Chapter 3 begins, this is
+the line to rewrite first.)*
 
 Chapter 1 is closed; the hackathon items that used to live here (the Fallback B recording, the deck
 re-cut) are **no longer part of this project's work** and have been dropped.
@@ -1088,6 +1156,34 @@ still documents a path known to work end to end, which is a useful smoke referen
 ---
 
 ## Recent Changes
+
+**2026-10-01 — Phase 25 closed: launch polish, and Chapter 2 with it**
+
+- **A first-run onboarding guide** on `/workflows`, read live from the database — a provider key, a
+  workflow, a successful run. Migration `0011` adds `workspace.onboardedAt`, because **completion is
+  a milestone, not a current fact**, and because it ends the cost: the column rides on the membership
+  row the page already loads, so a finished workspace pays **zero statements**
+- **`details.recovery`** — an error may carry an in-app way forward (`CONTRACT.md`). Built for the
+  dead end at the end of the primary call to action: a new account pressing *Generate workflow* got a
+  correct 400 naming Settings and was left to find Settings. **Its own guard had a hole the test
+  caught**: `//evil.example` begins with `/` and is a different origin
+- **`scripts/verify-a11y.mjs`, 92 checks** — WCAG 2.2 AA structure on every page. Found a skipped
+  heading level on `/templates` and a **duplicate `dialog-title` id on the canvas, live since Phase
+  14**, which announced the version-history dialog with the *share* dialog's name. Fixed with
+  `useId`; guarded by `primitives.test.ts`. **4 of its first 6 failures were the script's own blind
+  spot** and were fixed in the script — an audit that cries wolf gets turned off
+- **`scripts/verify-security.mjs`, 67 checks** — every route file called with no session, both
+  directions. Found **three unauthenticated surfaces missing from `SECURITY.md`'s "complete" list**:
+  `/api/health` and both Google OAuth legs. The list is now derived, not hand-kept
+- **`/api/health` no longer publishes the GCP project id.** `location` and `queue` can be wrong and
+  earn their place; `project` comes from the metadata server and cannot be
+- **`src/app/global-error.tsx`** — the root layout's own failure, which `error.tsx` cannot catch
+- **WCAG 2.5.8 fix**: the guide's step rows were 20 px tall against a 24 px minimum. The spacing
+  exception technically covered it; `min-h-6` removes the argument. **Found only by measuring in a
+  browser**, and the sole reason there were two deploys
+- **CWV measured cold on the deployed service**: LCP 576–1112 ms, **CLS 0** everywhere
+- **A real canvas-and-run screenshot in the README** — the asset Phase 24 carried forward
+- **992 tests** (was 974), coverage **88.25 / 90.82 / 80.13**, thresholds unmoved
 
 **2026-10-01 — Phase 24 closed: the repository became the front door, and the licence is MIT**
 
@@ -1372,6 +1468,30 @@ diary** — keeping six months of "what happened when" here makes the part that 
 find, which is the failure mode it is meant to prevent.
 
 ## Last Updated
+
+**2026-10-01** — **PHASE 25 COMPLETE, AND CHAPTER 2 IS FINISHED.** Revision `agentforge-00060-z9v`
+live, `/api/health` `status: ok` across all five dependency checks, **12 migrations**, registry 30.
+Migration `0011` applied first and additively — row counts identical, and the *old* revision
+confirmed still serving against the migrated database.
+
+**Onboarding reads live state** (three steps, `workspace.onboardedAt`), **`details.recovery` closes
+the no-key dead end**, and **two new audits are enumerations derived from the repository**:
+`verify-a11y.mjs` (92 checks) and `verify-security.mjs` (67 checks), both ALL PASSED on the deployed
+URL. Each found real defects nothing else had: a skipped heading level, a **duplicate `dialog-title`
+id live since Phase 14** that announced the wrong dialog to a screen reader, and **three
+unauthenticated surfaces missing from `SECURITY.md`'s "complete" list**. A WCAG 2.5.8 target-size
+miss was found only by measuring in a browser, and is why there were two deploys.
+
+**992 tests**, coverage **88.25 / 90.82 / 80.13**, five gates green. CWV cold on the deployed
+service: LCP 576–1112 ms, **CLS 0**. Driven in a real browser on a brand-new workspace at
+320–1920 px with zero product console errors; the test workspace was deleted afterwards.
+
+*(Note for whoever reads this file next: the `Last Updated` sections below have accreted — there are
+two of them, and older entries repeat what the status board above already says. `CLAUDE.md` asks for
+pruning rather than appending. Phase 25 did not restructure them, because rewriting the history of
+closed phases was not its job; a Chapter 3 should prune them in its first session.)*
+
+---
 
 **2026-10-01** — **Phase 23B closed out; no manual actions outstanding.** Slack and GitHub proven
 against the real services (**60 passed / 0 failed / 2 skipped**); Notion and Airtable deliberately

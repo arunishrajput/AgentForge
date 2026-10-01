@@ -504,6 +504,31 @@ loop.
 | `conflict` | 409 | A state the caller can see but not change by retrying the same request: the last owner of a workspace leaving, a spent invitation, a membership that moved underfoot |
 | `internal` | 500 | Unexpected. The detail goes to the server log, never to the client |
 
+### `details.recovery` — **DEFINED** (Phase 25)
+
+An error whose fix is on a *different page* may carry a recovery hint inside `details`. It
+**extends the surface, not the envelope** — a client that does not know about it ignores one
+extra key, which is the rule at the top of this section.
+
+```jsonc
+{ "error": { "code": "invalid_request", "message": "...",
+  "details": { "recovery": { "href": "/settings?tab=provider", "label": "Add a provider key" } } } }
+```
+
+| Field | Rule |
+|---|---|
+| `href` | **An in-app path, always.** Must begin `/` and must not begin `//`. A recovery is rendered as a button, and a button in a product's own error state that leaves for another origin is not a recovery |
+| `label` | Non-empty. Imperative, and it names where it goes |
+
+`recoveryOf` in `src/lib/api-error.ts` is the only reader, and it **drops** anything failing
+those rules rather than trusting it: the value arrives in a response body and becomes something
+a user can click. `ApiRequestError.recovery` on the client is its narrowed output.
+
+It is deliberately **optional and rare**. The case it was built for is a new account pressing
+*Generate workflow* with no provider key stored — a clear 400 that named Settings and still left
+the user to go and find it. An error about the field already on screen does not get one, because
+attaching a link everywhere makes the ones that matter invisible.
+
 ### Two refusals that mean different things — **read this before adding a route**
 
 `403` and `404` are not interchangeable here, and the difference is the whole of the tenancy model:

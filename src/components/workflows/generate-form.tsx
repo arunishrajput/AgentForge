@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
@@ -12,6 +13,7 @@ import {
   type GenerationErrorDetails,
   type GenerationIssue,
 } from "@/lib/canvas/client";
+import type { Recovery } from "@/lib/api-error";
 
 /**
  * The prompt box — BUILD_PLAN.md Phase 7, task 1.
@@ -46,6 +48,12 @@ export function GenerateWorkflowForm() {
   const [elapsedMs, setElapsedMs] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [issues, setIssues] = useState<GenerationIssue[]>([]);
+  /**
+   * **The way forward out of this error, when the server sent one — Phase 25.** The case
+   * that matters is a brand-new account with no provider key: the message always named
+   * Settings and the user still had to go and find it. See `lib/api-error.ts` → `Recovery`.
+   */
+  const [recovery, setRecovery] = useState<Recovery | null>(null);
   // A workflow that was built but could not do everything asked. It is saved and
   // valid, so this is a note rather than an error — and the user goes to it when they
   // have read the note, instead of arriving at a canvas that quietly does less.
@@ -71,6 +79,7 @@ export function GenerateWorkflowForm() {
     setBusy(true);
     setError(null);
     setIssues([]);
+    setRecovery(null);
     setGaps(null);
 
     try {
@@ -86,6 +95,7 @@ export function GenerateWorkflowForm() {
     } catch (caught) {
       if (caught instanceof ApiRequestError) {
         setError(caught.message);
+        setRecovery(caught.recovery);
         const details = caught.details as GenerationErrorDetails | undefined;
         setIssues(details?.issues ?? []);
       } else {
@@ -185,7 +195,18 @@ export function GenerateWorkflowForm() {
       )}
 
       {error && (
-        <Notice tone="bad" className="mt-4" title={error}>
+        <Notice
+          tone="bad"
+          className="mt-4"
+          title={error}
+          action={
+            recovery && (
+              <Link href={recovery.href} className="btn btn-quiet px-2.5 py-1 text-2xs">
+                {recovery.label}
+              </Link>
+            )
+          }
+        >
           {issues.length > 0 && (
             <ul className="list-disc space-y-0.5 pl-4">
               {issues.slice(0, 6).map((issue) => (

@@ -56,6 +56,20 @@ interface Check {
  * credential, never a key, never a connection string. It is unauthenticated, so every
  * field added here is a field added to the public internet; the test for a new one is
  * whether it would help an operator more than it would help somebody mapping the system.
+ *
+ * **Phase 25 applied that test to the fields already here, and one failed it.** The queue
+ * block published `project` as well as `location` and `queue`. The last two earn their
+ * place: `TASKS_QUEUE` and `TASKS_LOCATION` are copied environment variables, so they
+ * *can* point at the wrong queue while `configured` is perfectly true, and that is the
+ * silent misconfiguration this route exists to expose. `project` cannot — it comes from
+ * the metadata server, which is the documented reason `TASKS_PROJECT` is deliberately
+ * left unset (`PROGRESS.md` → *Env vars set*). A value that cannot be wrong has no
+ * diagnostic value, so all it did was publish the GCP project id — which, unlike the
+ * project *number* in this service's hostname, was not otherwise public. Removed.
+ *
+ * This route is itself one of the unauthenticated surfaces and is now listed as one in
+ * `SECURITY.md`; `scripts/verify-security.mjs` enumerates every route and fails if that
+ * table and reality disagree in either direction.
  */
 export async function GET() {
   const startedAt = Date.now();
@@ -153,7 +167,10 @@ export async function GET() {
     database: "reachable",
     databaseLatencyMs,
     queue: queue
-      ? { configured: true, ...queue }
+      ? // `project` is deliberately dropped: see the note above. Spelled out field by field
+        // rather than spread-and-delete, so a field added to `QueueConfig` later has to be
+        // named here before it reaches the public internet.
+        { configured: true, location: queue.location, queue: queue.queue }
       : { configured: false, reason: "TASKS_QUEUE is not set, or its location is unknown" },
     rootKey: { provider },
     checks,

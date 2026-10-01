@@ -61,6 +61,29 @@ An unexpected throw never reaches the client as a stack. It is logged with the r
 trace id and answered as `internal` — see [`../OPERATIONS.md`](../OPERATIONS.md) for how
 to find it again.
 
+### `details.recovery` — a way forward
+
+Some failures cannot be fixed on the page that raised them. Those carry a `recovery` in
+`details`: an **in-app** path and a label, which the interface renders as a button beside
+the message.
+
+```jsonc
+// 400 — generating a workflow with no model provider key stored
+{
+  "error": {
+    "code": "invalid_request",
+    "message": "No model provider key configured. Add one in Settings — it is encrypted before it is stored.",
+    "details": {
+      "recovery": { "href": "/settings?tab=provider", "label": "Add a provider key" }
+    }
+  }
+}
+```
+
+It is optional and most errors do not carry one — a message about the field you are looking
+at does not need a link to the field you are looking at. `href` is always a path beginning
+`/`; a client should discard anything else rather than navigate to it.
+
 ---
 
 ## Workflows
@@ -192,10 +215,18 @@ own routes. Full posture, and what is deliberately *not* claimed, in
 | Method | Route | Role | What it does |
 |---|---|---|---|
 | `GET` | `/api/health` | none | Five dependency checks: database, schema, queue, root key, registry. Plus the live revision, migration count and registry size |
+| `POST` | `/api/onboarding` | viewer | Finishes the first-run guide for this workspace, for good. Idempotent, and takes no body |
 | `GET` | `/api/analytics` | viewer | Runs over time, success rate, slowest nodes, model usage and grouped failures — computed on demand |
 
 `/api/health` is deliberately unauthenticated and deliberately boring: it names which
-dependency is unhealthy, and nothing about any account.
+dependency is unhealthy, and nothing about any account. The queue block reports
+`location` and `queue` — both copied from environment variables, so both can be wrong —
+and deliberately **not** the GCP project, which comes from the metadata server and
+therefore cannot be. See [`../SECURITY.md`](../SECURITY.md) for the full list of surfaces
+that answer without a session.
+
+`POST /api/onboarding` is the only write in the product that a `viewer` may make. What it
+changes is whether a checklist is drawn; it grants nothing and reveals nothing.
 
 ## Auth
 

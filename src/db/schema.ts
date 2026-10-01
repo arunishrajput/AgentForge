@@ -138,6 +138,32 @@ export const workspaces = pgTable(
      * degrades to the default instead of failing a query — `providerOrDefault`.
      */
     llmProvider: text("llmProvider"),
+    /**
+     * **When this workspace finished first-run setup — Phase 25, migration `0011`.**
+     *
+     * The onboarding guide on `/workflows` is shown while this is null and never again
+     * once it is set. Three things make a stored timestamp the right shape rather than a
+     * derived check over "has a key, has a workflow, has a successful run":
+     *
+     *   • **Completion is a milestone, not a current fact.** A workspace that onboarded
+     *     and later deleted every workflow has still onboarded. Deriving the answer would
+     *     put the beginner's checklist back in front of an experienced user, which is the
+     *     one failure mode a first-run flow must not have.
+     *   • **It makes "skip" real.** Dismissing is a decision about the workspace, so it
+     *     belongs to the workspace and not to one browser's `localStorage` — the same
+     *     person on their phone should not be told to set up again.
+     *   • **It ends the cost.** The two existence queries that compute live progress run
+     *     only while this is null, so a long-lived workspace pays nothing for a feature it
+     *     finished with on its first day. On a database metered by compute time awake
+     *     (`DEPLOYMENT.md` → *Free-tier headroom*) that is the distinction that matters.
+     *
+     * Nullable with no backfill, exactly like `llmProvider` above, and null is again the
+     * meaningful value rather than a gap: it means "not finished". **Every workspace that
+     * exists when this runs is therefore treated as new**, which is correct — the guide
+     * reads live progress, so an established workspace opens it already complete and
+     * dismisses it in one click rather than being told to do work it has already done.
+     */
+    onboardedAt: timestamp("onboardedAt", { withTimezone: true }),
     createdAt: timestamp("createdAt", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updatedAt", { withTimezone: true }).notNull().defaultNow(),
   },

@@ -1,7 +1,13 @@
 import type { ProviderSettings, ProviderState } from "@/lib/ai/settings";
 import type { GenerationAttempt, GenerationIssue } from "@/lib/generate/generate";
 import type { ModelInfo } from "@/lib/ai/types";
-import type { ApiErrorCode } from "@/lib/api";
+/**
+ * **From `api-error`, not from `api` — and `recoveryOf` is why the split exists.** It is a
+ * *value*, so importing it through `@/lib/api` would drag `@/auth` and `next-auth` into
+ * every client bundle that touches this module. The type-only imports above are erased and
+ * can come from anywhere; this one cannot.
+ */
+import { recoveryOf, type ApiErrorCode, type Recovery } from "@/lib/api-error";
 import type { RekeyOutcome } from "@/lib/credentials/rekey";
 import type { Vault, VaultEntry } from "@/lib/credentials/vault";
 import type { StreamRun } from "@/lib/engine/stream";
@@ -107,12 +113,20 @@ export type { NodePolicy } from "@/lib/engine/policy";
 export class ApiRequestError extends Error {
   readonly code: ApiErrorCode | "network";
   readonly details?: unknown;
+  /**
+   * **A way forward, when the server sent one — Phase 25.** Narrowed on construction by
+   * `recoveryOf`, so a component renders a link it has already been told is an in-app path
+   * rather than trusting an `href` that arrived in a response body. Null for the great
+   * majority of errors, which are fixable where they are shown.
+   */
+  readonly recovery: Recovery | null;
 
   constructor(code: ApiErrorCode | "network", message: string, details?: unknown) {
     super(message);
     this.name = "ApiRequestError";
     this.code = code;
     this.details = details;
+    this.recovery = recoveryOf(details);
   }
 }
 
@@ -164,6 +178,13 @@ export const api = {
    */
   cloneTemplate: (id: string) =>
     request<Workflow>(`/api/templates/${encodeURIComponent(id)}`, { method: "POST" }),
+
+  /**
+   * Put the first-run guide away for good — Phase 25. Idempotent: a second call writes
+   * nothing, so this is safe to press twice.
+   */
+  finishOnboarding: () =>
+    request<{ onboarded: boolean }>("/api/onboarding", { method: "POST" }),
 
   /**
    * Natural language → a persisted workflow. Rejects with `invalid_graph` when the

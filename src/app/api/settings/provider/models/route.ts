@@ -1,6 +1,6 @@
 import { handle, ok, requireScope } from "@/lib/api";
 import { listModelsFor } from "@/lib/ai/settings";
-import { NoProviderKeyError } from "@/lib/ai/provider";
+import { NoProviderKeyError, PROVIDER_KEY_RECOVERY } from "@/lib/ai/provider";
 import { ApiError } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
@@ -27,7 +27,9 @@ export async function GET(request: Request) {
       return ok(await listModelsFor(scope, provider ?? undefined));
     } catch (error) {
       if (error instanceof NoProviderKeyError) {
-        throw new ApiError("not_found", error.message);
+        // Phase 25: the same door the generation route offers, for the same reason —
+        // the fix for a missing key is never on the page that noticed it was missing.
+        throw new ApiError("not_found", error.message, { recovery: PROVIDER_KEY_RECOVERY });
       }
       throw error;
     }

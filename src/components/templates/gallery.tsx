@@ -98,9 +98,17 @@ function TemplateCard({
       style={{ animationDelay: `${Math.min(index, 5) * 45}ms` }}
     >
       <div className="space-y-1.5">
-        <h3 className="text-ink text-base leading-tight font-bold text-balance">
+        {/* **`h2`, not `h3` — WCAG 1.3.1, fixed in Phase 25.** The page's only other
+            heading is its `h1`, so an `h3` here skipped a level and told a screen reader
+            that every card was a subsection of a section that does not exist. It was
+            `h3` because the card is visually small, which is a type-size decision and
+            not a document-structure one. The convention the rest of the product already
+            follows: a card directly under the page heading is an `h2`, and a subsection
+            inside one is an `h3` — see every panel in `components/settings`. Found by
+            `scripts/verify-a11y.mjs`. */}
+        <h2 className="text-ink text-base leading-tight font-bold text-balance">
           {template.name}
-        </h3>
+        </h2>
         <p className="text-muted text-xs leading-relaxed text-pretty">{template.description}</p>
       </div>
 

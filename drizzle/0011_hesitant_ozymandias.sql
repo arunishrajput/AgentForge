@@ -1,0 +1,48 @@
+-- ---------------------------------------------------------------------------
+-- Phase 25 — first-run onboarding.
+--
+-- **One nullable column, no backfill, no data migration** — the same safest class of
+-- change as `0010`. The previous revision does not know this column exists and keeps
+-- serving correctly while it is applied, and nothing any user can observe changes when
+-- it runs.
+--
+-- ## What it records
+--
+-- When a workspace finished first-run setup. The onboarding guide on `/workflows` is
+-- shown while this is null and never again once it is set, either because the workspace
+-- completed all three steps or because somebody skipped it.
+--
+-- ## Why a stored timestamp rather than deriving it
+--
+-- The three steps are each separately observable — a provider key exists, a workflow
+-- exists, a run has succeeded — so the guide's progress could be computed on every page
+-- load and no column would be needed. Three reasons it is stored anyway:
+--
+--   1. **Completion is a milestone, not a current fact.** A workspace that onboarded and
+--      later deleted every workflow has still onboarded. A derived check would put the
+--      beginner's checklist back in front of an experienced user, which is the one
+--      failure mode a first-run flow must not have.
+--   2. **It makes "skip" real.** Dismissing is a decision about the workspace, not about
+--      one browser, so `localStorage` is the wrong home for it: the same person on their
+--      phone should not be told to set up again.
+--   3. **It ends the cost.** The two existence queries that compute live progress run
+--      only while this column is null. A workspace that finished onboarding on its first
+--      day pays nothing for the feature afterwards — which is the distinction that
+--      matters on a database metered by compute time awake (`DEPLOYMENT.md` →
+--      *Free-tier headroom*).
+--
+-- ## Why NULL rather than backfilling the workspaces that already exist
+--
+-- NULL means "not finished", so **every workspace that exists when this runs is treated
+-- as new.** That is the correct answer rather than a convenient one: the guide reads live
+-- progress, so an established workspace opens it with all three steps already ticked and
+-- dismisses it in one click. It is never told to do work it has already done.
+--
+-- Backfilling `now()` would have been defensible and was rejected for one reason: it
+-- records that those workspaces were *shown* an onboarding flow that did not exist when
+-- they were created, and the column is the only evidence anybody would later have.
+--
+-- Rollback: `rollback_0011.sql`. It drops one nullable column and loses one preference
+-- per workspace; no secret, no credential and no workflow is touched.
+-- ---------------------------------------------------------------------------
+ALTER TABLE "workspace" ADD COLUMN "onboardedAt" timestamp with time zone;

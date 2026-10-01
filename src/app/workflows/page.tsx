@@ -3,8 +3,10 @@ import type { Metadata } from "next";
 import { AppHeader } from "@/components/shell/app-header";
 import { NewWorkflowButton } from "@/components/workflows/actions";
 import { GenerateWorkflowForm } from "@/components/workflows/generate-form";
+import { OnboardingGuide } from "@/components/workflows/onboarding-guide";
 import { WorkflowList } from "@/components/workflows/workflow-list";
 import { getNode } from "@/lib/nodes";
+import { readOnboarding } from "@/lib/onboarding/onboarding";
 import { toWorkflowCard } from "@/lib/workflow/list";
 import { describeWorkflow, listWorkflows } from "@/lib/workflow/store";
 import { requirePageSession } from "@/lib/workspace/page";
@@ -48,6 +50,19 @@ export default async function WorkflowsPage() {
     }),
   );
 
+  /**
+   * **First-run progress — Phase 25.** Null once the workspace has finished or skipped the
+   * guide, and in that case it costs no query at all: `onboardedAt` arrives on the
+   * membership row `requirePageSession` already loaded. `cards.length > 0` is handed over
+   * rather than re-queried — the list above is the same question, already answered and
+   * scoped the same way.
+   *
+   * A viewer is deliberately included. They cannot do step 1 or step 2, and the card still
+   * tells them truthfully what the workspace is missing, which is better than a page that
+   * silently does less for them.
+   */
+  const onboarding = await readOnboarding(scope, membership.workspace, cards.length > 0);
+
   return (
     <>
       <AppHeader
@@ -69,6 +84,8 @@ export default async function WorkflowsPage() {
           </div>
           {canEdit && <NewWorkflowButton />}
         </div>
+
+        {onboarding && <OnboardingGuide progress={onboarding} />}
 
         {/* Generating is a write — it creates and saves a workflow — so a viewer does not
             get the prompt box. Leaving it there and letting the 403 explain is what Phase
