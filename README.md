@@ -17,8 +17,7 @@
 **[Live app](https://agentforge-733000675212.asia-southeast1.run.app)** ·
 **[Design system](https://agentforge-733000675212.asia-southeast1.run.app/design)** ·
 **[Docs](./docs)** ·
-**[Demo video](https://www.youtube.com/watch?v=3txmpCPEWd4)** ·
-**[Pitch video](https://www.youtube.com/watch?v=Suc4RV9LnLs)**
+**[Demo video](https://www.youtube.com/watch?v=3txmpCPEWd4)**
 
 </div>
 
