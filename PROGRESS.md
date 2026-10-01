@@ -1279,6 +1279,13 @@ migrations and 30 nodes — and found three things.
   report FAILED on a correctly configured system — the Beat 7 problem, moved. Beat 1 now **reports**
   the duration and **`--expect-warm` asserts** it, which is the flag the pre-demo checklist passes.
   The 5 s threshold did not change; what a breach of it *means* did
+- **Both fixes then proved themselves on a live walk**, which is what the earlier sessions could not
+  do from inside the sandbox: `smoke.mjs` against revision `agentforge-00061-lwl` reported
+  **`CLEAN — 0 failure(s), 1 skipped, 13 s`**, with Beat 7 passing under its note and Beat 1 passing
+  as *"first interaction answered"*. Generation 5613 ms, a 6-node run in 2452 ms — **the turndown
+  degraded nothing**. Stated precisely: **Beat 1 passed on warmth, not through the excuse**, because
+  the service was warm by then; the cold path is covered by the unit test built from the real
+  11446 ms reading
 - **The pattern worth naming:** both bugs were a check whose premise had quietly expired. Beat 7's
   premise was "a generated Sheets node will have a spreadsheet"; Beat 1's was "Cloud Run is never
   cold". **Neither check was wrong when written, and neither failed when the premise changed** — they
