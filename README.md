@@ -17,6 +17,7 @@
 **[Live app](https://agentforge-733000675212.asia-southeast1.run.app)** ·
 **[Design system](https://agentforge-733000675212.asia-southeast1.run.app/design)** ·
 **[Docs](./docs)** ·
+**[Demo video](https://www.youtube.com/watch?v=3txmpCPEWd4)** ·
 **[Pitch video](https://www.youtube.com/watch?v=Suc4RV9LnLs)**
 
 </div>
@@ -27,6 +28,12 @@ Type a sentence. AgentForge produces a **real, executable, visually editable wor
 connections, editable configuration — not a mockup and not a suggestion. It runs, it streams
 per-node status and logs live, and its **agent nodes call other nodes as tools and decide what to
 do at runtime** instead of following a fixed script.
+
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=3txmpCPEWd4"><img src="./docs/assets/demo-video.png" alt="Watch the AgentForge demo video on YouTube: type it, AI builds it, it runs" width="640" /></a>
+  <br />
+  <em>The 1:46 demo: one sentence becomes a workflow, it runs, and the agent picks the branch. <a href="https://www.youtube.com/watch?v=3txmpCPEWd4">Watch on YouTube</a></em>
+</p>
 
 <img src="./docs/assets/workflow-demo.png" alt="A sentence becomes a five-node workflow — webhook trigger, an LLM summary, an agent that picks a branch, a Discord post and a log node — and then a live run log streaming beneath it" width="100%" />
 

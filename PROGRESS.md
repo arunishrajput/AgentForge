@@ -13,6 +13,13 @@ Phases 0–12 built and shipped a hackathon MVP. It was submitted on 2026-09-26
 (<https://devpost.com/software/agentforge-kz832x>), the pitch video is published
 (<https://www.youtube.com/watch?v=Suc4RV9LnLs>), and that chapter is done and not reopened.
 
+**The launch demo video is published: <https://www.youtube.com/watch?v=3txmpCPEWd4>** (2026-10-01).
+A 1:46 motion-graphics walkthrough in the Toybox language — sentence → build → a live run where the
+agent picks the branch — with an original, synthesised soundtrack. It is linked from the README
+header and its thumbnail is `docs/assets/demo-video.png`. The Remotion source lives **outside the
+repo**, beside it, in `../AgentForge-demo-video/`; the rendered MP4 and upload copy sit in
+`presentation/demo/`, which is gitignored like the rest of `presentation/`.
+
 **Chapter 2 turned the MVP into a real, professional, open-source product. IT IS COMPLETE.**
 Thirteen phases, 13 → 25, defined in `BUILD_PLAN.md`. **Every one of them is done** (19 was split
 into 19A and 19B; **23 was split into 23A, 23B, 23C and 23D**). **Phase 25 closed on 2026-10-01.**
