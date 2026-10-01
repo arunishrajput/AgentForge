@@ -24,6 +24,14 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Added 2026-10-01, for a reason worth recording: a push to `main` (a530b29) was
+  # accepted by GitHub and **no workflow run was ever created for it** — no path
+  # filter exists, the workflow was `active`, the repository public, and
+  # githubstatus.com reported Actions operational. Without `workflow_dispatch` there
+  # was no way to ask for a run on an existing commit, so the only recovery was to
+  # push another commit. A red pipeline is a stop-work condition here; a *missing*
+  # one is worse, because nothing signals it. This makes re-running it one click.
+  workflow_dispatch:
 
 # A second push to the same branch makes the first run irrelevant. Cancelling it keeps
 # the free Actions minutes for runs whose answer somebody still wants.
