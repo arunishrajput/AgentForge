@@ -50,6 +50,21 @@
  * State is per process, deliberately. It costs no storage, no query budget against
  * Neon's 100 CU-hours/month, and a Cloud Run instance lives long enough to be useful.
  * A cold instance simply starts optimistic and learns within one request.
+ *
+ * ## Why every entry point takes a provider — Phase 23D
+ *
+ * Records are keyed on `provider` **and** `model`, never on the model name alone, and the
+ * reordering in {@link orderChain} only ever sees one provider's chain.
+ *
+ * With one provider that distinction was invisible. With two it is the difference between
+ * a working fallback and a broken one: **a Groq outage must not reorder Gemini's chain.**
+ * Groq answers 429 on a free-tier burst, which is exactly what opens a breaker, and if the
+ * records were shared by name the next Gemini call would inherit a reordering caused by a
+ * rate limit on a different company's API.
+ *
+ * It also stops a collision that is no longer hypothetical. Two providers may serve the
+ * same model name — an OpenAI-compatible gateway and its upstream, say — and health read
+ * by name would merge two different endpoints' reliability into one verdict.
  */
 
 /** Consecutive retryable failures before a model is taken out of the front of the chain. */
@@ -65,6 +80,8 @@ export const GONE_COOLDOWN_MS = MAX_COOLDOWN_MS;
 export type ModelState = "healthy" | "degraded" | "unavailable" | "unknown";
 
 export interface ModelHealth {
+  /** Which provider this record is about. Half of the key — see the header. */
+  provider: string;
   model: string;
   state: ModelState;
   /** Consecutive failures since the last success. Reset to 0 by any success. */
@@ -84,8 +101,18 @@ export interface ModelHealth {
 
 const records = new Map<string, ModelHealth>();
 
-function blank(model: string): ModelHealth {
+/**
+ * The map key. Never exposed: callers pass `provider` and `model` separately and read them
+ * back as separate fields, so this format is free to change and nothing can come to depend
+ * on parsing it. A provider id has no colon in it, so there is no ambiguity to resolve.
+ */
+function key(provider: string, model: string): string {
+  return `${provider}:${model}`;
+}
+
+function blank(provider: string, model: string): ModelHealth {
   return {
+    provider,
     model,
     state: "unknown",
     failures: 0,
@@ -101,11 +128,12 @@ function blank(model: string): ModelHealth {
   };
 }
 
-function record(model: string): ModelHealth {
-  const existing = records.get(model);
+function record(provider: string, model: string): ModelHealth {
+  const id = key(provider, model);
+  const existing = records.get(id);
   if (existing) return existing;
-  const fresh = blank(model);
-  records.set(model, fresh);
+  const fresh = blank(provider, model);
+  records.set(id, fresh);
   return fresh;
 }
 
@@ -124,8 +152,13 @@ export function countsAgainstModel(status: number): boolean {
   return false;
 }
 
-export function recordSuccess(model: string, latencyMs: number, now = Date.now()): void {
-  const entry = record(model);
+export function recordSuccess(
+  provider: string,
+  model: string,
+  latencyMs: number,
+  now = Date.now(),
+): void {
+  const entry = record(provider, model);
   entry.state = "healthy";
   entry.failures = 0;
   entry.openUntil = null;
@@ -138,13 +171,14 @@ export function recordSuccess(model: string, latencyMs: number, now = Date.now()
 }
 
 export function recordFailure(
+  provider: string,
   model: string,
   failure: { status: number; error: string; latencyMs: number },
   now = Date.now(),
 ): void {
   if (!countsAgainstModel(failure.status)) return;
 
-  const entry = record(model);
+  const entry = record(provider, model);
   entry.failures += 1;
   entry.totalFailures += 1;
   entry.lastStatus = failure.status;
@@ -167,8 +201,8 @@ export function recordFailure(
 }
 
 /** True while this model's breaker is open. */
-export function isOpen(model: string, now = Date.now()): boolean {
-  const entry = records.get(model);
+export function isOpen(provider: string, model: string, now = Date.now()): boolean {
+  const entry = records.get(key(provider, model));
   if (!entry || entry.openUntil === null) return false;
   if (entry.openUntil > now) return true;
 
@@ -189,16 +223,20 @@ export function isOpen(model: string, now = Date.now()): boolean {
  * explicit choice and the measured latency ranking, neither of which this file knows
  * better than the caller does.
  */
-export function orderChain(models: string[], now = Date.now()): string[] {
+export function orderChain(provider: string, models: string[], now = Date.now()): string[] {
   const open: string[] = [];
   const ready: string[] = [];
 
   for (const model of models) {
-    if (isOpen(model, now)) open.push(model);
+    if (isOpen(provider, model, now)) open.push(model);
     else ready.push(model);
   }
 
-  open.sort((a, b) => (records.get(a)?.openUntil ?? 0) - (records.get(b)?.openUntil ?? 0));
+  open.sort(
+    (a, b) =>
+      (records.get(key(provider, a))?.openUntil ?? 0) -
+      (records.get(key(provider, b))?.openUntil ?? 0),
+  );
 
   // Everything is open: honour the caller's order rather than inventing one. Some model
   // has to be tried, and the caller's first choice is as good a guess as any.
@@ -208,8 +246,12 @@ export function orderChain(models: string[], now = Date.now()): string[] {
 /**
  * Health as of now, for surfacing. Ordered healthiest first so the top of the list is
  * the answer to "what should I be using?".
+ *
+ * `provider` narrows it to one provider's models, which is what the settings page wants:
+ * showing a workspace on Groq the health of three Gemini models it is not using would be
+ * noise presented as diagnosis.
  */
-export function modelHealthSnapshot(now = Date.now()): ModelHealth[] {
+export function modelHealthSnapshot(now = Date.now(), provider?: string): ModelHealth[] {
   const rank: Record<ModelState, number> = {
     healthy: 0,
     unknown: 1,
@@ -218,6 +260,7 @@ export function modelHealthSnapshot(now = Date.now()): ModelHealth[] {
   };
 
   return [...records.values()]
+    .filter((entry) => provider === undefined || entry.provider === provider)
     .map((entry) => ({
       ...entry,
       // A stale `openUntil` would read as unavailable long after it recovered.
@@ -227,7 +270,12 @@ export function modelHealthSnapshot(now = Date.now()): ModelHealth[] {
           : entry.state,
       openUntil: entry.openUntil !== null && entry.openUntil > now ? entry.openUntil : null,
     }))
-    .sort((a, b) => rank[a.state] - rank[b.state] || a.model.localeCompare(b.model));
+    .sort(
+      (a, b) =>
+        rank[a.state] - rank[b.state] ||
+        a.provider.localeCompare(b.provider) ||
+        a.model.localeCompare(b.model),
+    );
 }
 
 /** Test seam. Nothing in the application should call this. */

@@ -115,6 +115,29 @@ export const workspaces = pgTable(
      */
     createdBy: text("createdBy").references(() => users.id, { onDelete: "set null" }),
     personal: boolean("personal").notNull().default(false),
+    /**
+     * **Which LLM provider this workspace uses — Phase 23D, migration `0010`.**
+     *
+     * The one thing a second provider genuinely needed a stored home for. The credential
+     * *kind* was already provider-qualified (`llm.google`, `llm.groq`), so no existing row
+     * changed meaning and no credential needed migrating; what had nowhere to live was the
+     * answer to "which of them does this workspace use", because with one provider the
+     * question could only be answered "the one".
+     *
+     * **Nullable, and null is the meaningful default rather than a gap to backfill.** It
+     * means "nobody has chosen", and `resolveProvider` answers it with the first provider in
+     * `lib/ai/providers.ts` that this workspace holds a key for — Google, which is what
+     * every existing workspace was already using. So the migration is additive with no
+     * backfill, every workspace keeps the behaviour it had, and `BUILD_PLAN.md`'s
+     * requirement that the second provider must not quietly become the default is a
+     * property of the data rather than of a code path somebody has to remember.
+     *
+     * Deliberately **not** a foreign key or an enum: the provider registry lives in code,
+     * and a database constraint on it would mean a migration every time a provider is added
+     * and a broken deploy if one is ever removed. An id the registry no longer knows
+     * degrades to the default instead of failing a query — `providerOrDefault`.
+     */
+    llmProvider: text("llmProvider"),
     createdAt: timestamp("createdAt", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updatedAt", { withTimezone: true }).notNull().defaultNow(),
   },

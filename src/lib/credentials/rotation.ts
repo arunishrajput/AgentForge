@@ -1,12 +1,11 @@
 import { z } from "zod";
 
 import { ApiError } from "@/lib/api-error";
+import { PROVIDERS, providerByKind } from "@/lib/ai/providers";
 import { DISCORD_CREDENTIAL_KIND } from "@/lib/integrations/discord";
 import { GOOGLE_CREDENTIAL_KIND } from "@/lib/integrations/google";
 import { TOKEN_INTEGRATIONS, tokenIntegrationByKind } from "@/lib/integrations/tokens";
 import type { WorkspaceScope } from "@/lib/workspace/scope";
-
-import { LLM_CREDENTIAL_KIND } from "./index";
 
 /**
  * **What rotation means for each kind of credential — Phase 21.**
@@ -70,14 +69,31 @@ export interface RotationRule {
 }
 
 export const ROTATION_RULES: Record<string, RotationRule> = {
-  [LLM_CREDENTIAL_KIND]: {
-    mode: "value",
-    title: "Model provider key",
-    secretLabel: "New API key",
-    help: "The new key is checked against the provider before it replaces the old one. Nothing changes if it fails.",
-    connectHref: "/settings?tab=provider",
-    schema: z.string().trim().min(10).max(400),
-  },
+  /**
+   * **One entry per LLM provider, generated from `lib/ai/providers.ts` — Phase 23D.**
+   *
+   * This was a single hand-written `llm.google` entry until there were two providers to
+   * rotate. Spreading the registry is the same move Phase 23B made for its four token
+   * integrations, for the same reason and with the same evidence behind it: a kind added
+   * without an entry here is **silently unrotatable**, which breaks nothing and so is never
+   * noticed. There is now nowhere to forget it.
+   *
+   * Every provider is `mode: "value"` and that is the criterion rather than a coincidence —
+   * an API key is one secret string a user can paste, which one `models.list` call can prove.
+   */
+  ...Object.fromEntries(
+    PROVIDERS.map((provider) => [
+      provider.kind,
+      {
+        mode: "value" as const,
+        title: `${provider.label} key`,
+        secretLabel: "New API key",
+        help: `The new key is checked against ${provider.label} before it replaces the old one. Nothing changes if it fails.`,
+        connectHref: "/settings?tab=provider",
+        schema: provider.schema,
+      },
+    ]),
+  ),
   [DISCORD_CREDENTIAL_KIND]: {
     mode: "value",
     title: "Discord webhook",
@@ -129,7 +145,7 @@ export const ROTATION_RULES: Record<string, RotationRule> = {
 
 /** Every kind the product stores. The registry this table must cover. */
 export const CREDENTIAL_KINDS = [
-  LLM_CREDENTIAL_KIND,
+  ...PROVIDERS.map((provider) => provider.kind),
   DISCORD_CREDENTIAL_KIND,
   GOOGLE_CREDENTIAL_KIND,
   ...TOKEN_INTEGRATIONS.map((integration) => integration.kind),
@@ -184,11 +200,13 @@ export async function rotateCredential(options: {
   }
   const secret = parsed?.success ? parsed.data : options.secret;
 
-  if (options.kind === LLM_CREDENTIAL_KIND) {
+  const provider = providerByKind(options.kind);
+  if (provider) {
     // Already answers with an `ApiError` carrying the provider's own words, which are the words
-    // that tell a user what to fix.
+    // that tell a user what to fix. **One branch for every provider** — it takes the kind rather
+    // than assuming Google, so adding a third provider needs no edit here.
     const { rotateProviderKey } = await import("@/lib/ai/settings");
-    await rotateProviderKey(options.scope, secret);
+    await rotateProviderKey(options.scope, provider, secret);
   } else if (options.kind === DISCORD_CREDENTIAL_KIND) {
     // Throws `IntegrationError`, which is Discord's own words and belongs to the client; the
     // mapping happens here, where the service's name is known, rather than in the route.

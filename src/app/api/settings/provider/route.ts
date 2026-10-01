@@ -27,9 +27,16 @@ export async function PUT(request: Request) {
   });
 }
 
-export async function DELETE() {
+/**
+ * Delete one provider's key. **`?provider=` names which** — Phase 23D. Without it, the
+ * active one, which is what the single-provider version always did.
+ *
+ * The workspace's *choice* of provider is deliberately not cleared: see `clearSettings`.
+ */
+export async function DELETE(request: Request) {
   return handle(async () => {
     const scope = await requireScope("admin");
-    return ok(await clearSettings(scope));
+    const provider = new URL(request.url).searchParams.get("provider");
+    return ok(await clearSettings(scope, provider ?? undefined));
   });
 }

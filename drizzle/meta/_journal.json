@@ -71,6 +71,13 @@
       "when": 1790760859908,
       "tag": "0009_jazzy_alex_power",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790845217801,
+      "tag": "0010_worthless_baron_zemo",
+      "breakpoints": true
     }
   ]
 }

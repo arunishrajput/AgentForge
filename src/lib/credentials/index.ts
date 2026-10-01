@@ -41,8 +41,18 @@ import { type CredentialUse, recordCredentialEvent } from "./audit";
  * that cannot miss a use.
  */
 
-/** The user's own LLM provider key. One per workspace. */
-export const LLM_CREDENTIAL_KIND = "llm.google";
+/**
+ * **The LLM provider kinds moved to `lib/ai/providers.ts` in Phase 23D.**
+ *
+ * There used to be a `LLM_CREDENTIAL_KIND = "llm.google"` here, and removing it *is* the
+ * phase's "which provider is a stored fact rather than a literal": one hardcoded kind cannot
+ * name two providers. Each provider now carries its own `kind` in the registry — still
+ * `llm.google` for Google, so **no existing row changed and none needed migrating** — and
+ * everything that used the constant reads the registry instead.
+ *
+ * It is not re-exported as an alias. A deprecated name pointing at one of two providers is
+ * exactly the thing that would quietly keep working while meaning the wrong thing.
+ */
 export const DEFAULT_CREDENTIAL_LABEL = "default";
 
 /**
@@ -54,7 +64,7 @@ export const DEFAULT_CREDENTIAL_LABEL = "default";
  * enforce, and every consumer already knows which kind it asked for.
  */
 export interface CredentialMetadata {
-  /** `llm.google` — the model chosen in the settings UI. */
+  /** `llm.google` / `llm.groq` — the model chosen in the settings UI, for that provider. */
   model?: string;
   /** `integration.discord` — what the stored webhook is attached to. */
   webhookName?: string | null;

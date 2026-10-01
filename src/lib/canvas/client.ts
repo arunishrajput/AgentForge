@@ -1,4 +1,4 @@
-import type { ProviderSettings } from "@/lib/ai/settings";
+import type { ProviderSettings, ProviderState } from "@/lib/ai/settings";
 import type { GenerationAttempt, GenerationIssue } from "@/lib/generate/generate";
 import type { ModelInfo } from "@/lib/ai/types";
 import type { ApiErrorCode } from "@/lib/api";
@@ -71,7 +71,7 @@ export interface IssuedInvitation {
 
 export type { GraphDiff, NodeChange, NodeDiff, DiffSummary } from "@/lib/workflow/diff";
 export type { NodeSummary, GraphProblem };
-export type { ProviderSettings, ModelInfo };
+export type { ProviderSettings, ProviderState, ModelInfo };
 export type { DiscordStatus, GoogleStatus, TokenIntegrationStatus };
 export type { Vault, VaultEntry, RekeyOutcome };
 export type { GenerationIssue, GenerationAttempt };
@@ -276,19 +276,31 @@ export const api = {
    */
   getProviderSettings: () => request<ProviderSettings>("/api/settings/provider"),
 
-  saveProviderSettings: (body: { apiKey?: string; model?: string }) =>
+  /**
+   * `provider` names which provider the change is about — Phase 23D. Sent alone it switches
+   * provider and verifies nothing; sent with a key it stores that key for that provider and
+   * switches to it in one request, which is what pasting a key into a card means.
+   */
+  saveProviderSettings: (body: { provider?: string; apiKey?: string; model?: string }) =>
     request<ProviderSettings>("/api/settings/provider", {
       method: "PUT",
       body: JSON.stringify(body),
     }),
 
-  deleteProviderSettings: () =>
-    request<ProviderSettings>("/api/settings/provider", { method: "DELETE" }),
+  deleteProviderSettings: (provider?: string) =>
+    request<ProviderSettings>(
+      provider
+        ? `/api/settings/provider?provider=${encodeURIComponent(provider)}`
+        : "/api/settings/provider",
+      { method: "DELETE" },
+    ),
 
-  /** Live from the provider, using the caller's stored key. */
-  listProviderModels: () =>
-    request<{ models: ModelInfo[]; source: "user" | "environment" }>(
-      "/api/settings/provider/models",
+  /** Live from the provider, using the caller's stored key for it. */
+  listProviderModels: (provider?: string) =>
+    request<{ models: ModelInfo[]; source: "user" | "environment"; provider: string }>(
+      provider
+        ? `/api/settings/provider/models?provider=${encodeURIComponent(provider)}`
+        : "/api/settings/provider/models",
     ),
 
   /**
