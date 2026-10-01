@@ -1,0 +1,56 @@
+name: Feature request
+description: Something the product should do and does not
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Two things are worth knowing before you write this.
+
+        **Adding a node is cheap** — one object in the registry widens the canvas, the generator
+        and the agent's tools at once. If what you want is "AgentForge should talk to X", that is
+        a small ask and a good one.
+
+        **Adding infrastructure is not.** This project runs at zero cost on free tiers, and that
+        ceiling is binding. A feature that needs a paid service is very likely to be declined,
+        however good it is.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: >
+        The problem, not the solution. "I want to pull rows from Airtable every morning and
+        summarise them" tells us more than "add a cron field to the Airtable node".
+    validations:
+      required: true
+
+  - type: textarea
+    id: today
+    attributes:
+      label: What do you do today instead?
+      description: Including "nothing, I gave up" — that is a useful answer.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you have in mind
+      description: Optional. Skip it if you would rather describe the problem and leave the shape to us.
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Roughly what kind of thing is this?
+      options:
+        - A new node or integration
+        - Something about the canvas or the editor
+        - Something about how the agent behaves
+        - Generation — turning a sentence into a workflow
+        - Workspaces, roles or sharing
+        - Self-hosting or operations
+        - Documentation
+        - Something else
+    validations:
+      required: true

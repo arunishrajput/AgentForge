@@ -1,0 +1,83 @@
+name: Bug report
+description: Something behaves differently from what it says it does
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing this. The two fields that make a bug report actionable here are
+        **what you expected** and **how to reproduce it** — everything else is a bonus.
+
+        If this is a security problem, please **stop** and use
+        [SECURITY.md](https://github.com/arunishrajput/AgentForge/blob/main/SECURITY.md)
+        instead. Do not file it publicly.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, and what the product did back.
+      placeholder: |
+        I added a Filter node after an HTTP request node and ran the workflow.
+        The Filter step failed with "Filter list expected a list".
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce it
+      description: >
+        Numbered steps. If a generated workflow is involved, **the sentence you typed** is the
+        most useful thing you can give us — a graph can be valid and still do the wrong thing,
+        and that is exactly the bug class we cannot catch from our side.
+      placeholder: |
+        1. Type "fetch the GitHub issues and keep the open ones" on the dashboard
+        2. Run the generated workflow
+        3. The Filter step fails
+    validations:
+      required: true
+
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where
+      options:
+        - The hosted instance
+        - My own deployment
+        - Running locally
+    validations:
+      required: true
+
+  - type: input
+    id: revision
+    attributes:
+      label: Revision or commit
+      description: >
+        `curl -fsS <your-url>/api/health` reports the running revision. On the hosted instance,
+        just say "hosted" and roughly when.
+      placeholder: agentforge-00058-q2z
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Anything from the run view or the browser console
+      description: Pasted text is easier to search than a screenshot. This is automatically formatted as code.
+      render: shell
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you file
+      options:
+        - label: This is not a security vulnerability (those go through SECURITY.md)
+          required: true
+        - label: I have removed any API key, token or connection string from what I pasted
+          required: true

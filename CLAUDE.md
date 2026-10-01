@@ -103,7 +103,7 @@ done is not done, and there is no longer any reason to cut corners to reach one.
 | `SUBMISSION.md` | **ARCHIVED.** Devpost submission copy as submitted | Rarely |
 | `SECURITY.md` | Security posture, rotation procedures, disclosure, **and what the product does not claim**. Created in Phase 21 | Before touching auth or crypto |
 | `OPERATIONS.md` | Running it in production — the signals, the runbooks, the budget. **Created in Phase 22** | Before an operational change, and when something is wrong |
-| `docs/`, `adr/` | The docs site and decision records. **Created in Phase 24** | When documenting |
+| `docs/`, `adr/` | The docs site (5 pages) and the decision records (5). **Created in Phase 24.** `docs/nodes.md` is generated — run `npm run docs:build`, never edit it | When documenting |
 | `README.md` | Practical entry point | When orienting from scratch |
 
 ### Framework docs — read them, do not recall them

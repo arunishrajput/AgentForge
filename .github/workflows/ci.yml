@@ -4,13 +4,15 @@
 # ran when someone remembered to run them; from Phase 13 on, a red pipeline is a
 # stop-work condition (CLAUDE.md → "Testing expectations").
 #
-# Four gates, in the order that fails fastest and cheapest:
+# Five gates, in the order that fails fastest and cheapest:
 #
 #   lint       oxlint, ~50 ms. A single prebuilt binary rather than 305 packages of
 #              ESLint — the same reasoning that kept this project off the `ai` SDK and
 #              on Node's built-in test runner (A15 / D64).
 #   typecheck  tsc --noEmit.
 #   test       Node's built-in runner, with coverage thresholds that fail the build.
+#   docs       Phase 24. The generated node reference must match the registry, and the
+#              API reference must name every route and invent none.
 #   build      next build. Catches what typecheck cannot: a bad route export, a server
 #              component importing client-only code, a failed static analysis pass.
 #
@@ -44,7 +46,7 @@ permissions:
 
 jobs:
   check:
-    name: lint · typecheck · test · build
+    name: lint · typecheck · test · docs · build
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -69,6 +71,13 @@ jobs:
 
       - name: Test with coverage
         run: npm run test:coverage
+
+      - name: Documentation is current
+        # Phase 24. `docs/nodes.md` is generated from the node registry, and this fails
+        # if somebody adds or edits a node without regenerating it. It also asserts that
+        # `docs/api.md` names every route under src/app/api and invents none — the two
+        # ways an API reference rots. Cheap, and it runs before the build for that reason.
+        run: npm run docs:check
 
       - name: Build
         run: npm run build

@@ -1527,7 +1527,7 @@ building the second implementation could show which half.
 
 ---
 
-## Phase 24 — Documentation and open-source readiness
+## Phase 24 — Documentation and open-source readiness ✅ COMPLETE
 
 **Objective.** The repository reads like a serious open-source project to someone who arrives
 knowing nothing.
@@ -1555,9 +1555,31 @@ alone. Every documented command is executed and confirmed to work.
 
 **Completion criteria.** Docs build and deploy, licence applied, every README claim verified.
 
-**Documentation updates.** Effectively all of them.
-
 **Commit.** `docs: complete phase 24 documentation and open-source readiness`
+
+### As built, 2026-10-01
+
+**Licence: MIT**, chosen by the user — the oldest open decision in `PROGRESS.md`.
+
+**"Docs build and deploy" was answered without a static-site generator**, deliberately. Markdown
+in `docs/` renders on GitHub and deploys on every push, at zero cost and zero dependencies — which
+is the same reasoning that keeps this project off a test framework and an LLM SDK. What *is* built
+is the part that would otherwise rot: **`docs/nodes.md` is generated from the node registry**, and
+`npm run docs:check` is a fifth CI gate that fails on a stale node reference, on an undocumented
+or invented API route, and on any documentation link or heading anchor that does not resolve.
+Each guard was proved to fail before being relied on.
+
+**Validation found two defects, both in the new documentation**: the self-hosting guide showed an
+all-`ok` local health response when a correct local install reports `degraded`, and
+`verify-api.mjs` fails 18 checks against a local dev server for two environment reasons — stated
+in `PROGRESS.md` → *Current Phase*. The deployed suite is ALL CHECKS PASSED throughout.
+
+**No deploy.** `src/` is untouched, so `agentforge-00058-q2z` remains current and was re-verified
+rather than replaced.
+
+**Not done:** a screenshot of the authenticated canvas. The session-cookie step is blocked by a
+safety classifier and the user chose to ship without it. The three screenshots that ship are real
+pages of the deployed app. Carry into Phase 25.
 
 ---
 

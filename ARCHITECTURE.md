@@ -1161,10 +1161,10 @@ in a step log.
 | ~~No queue or worker~~ | **DONE in Phase 17** — Cloud Tasks, no second service and no dependency | — |
 | ~~No partial run resume~~ | **DONE in Phase 17.** The recovery path this table predicted is what was built: "step records already hold enough state to resume later" turned out to be exactly true, and the cursor stores only the frontier because the outputs were already there | — |
 | A node with several incoming edges has no join semantics | A diamond's merge point runs once per arriving branch | Still open. The cursor makes it expressible — a queue entry could carry several `fromSeq` — but nothing asks for it yet |
-| Single LLM provider wired | "Provider-agnostic" is architectural, not shown | Adapter exists; add a key and a config entry |
-| No credential KMS | Encryption key lives in the environment | Move to Secret Manager / KMS post-hackathon |
-| No workflow versioning | Editing a workflow changes what past runs referenced | Run steps snapshot their own config |
+| ~~Single LLM provider wired~~ | **DONE in Phase 23D** — Gemini and Groq behind one interface. The claim that a second provider was "a new file; nothing above it changes" held above the interface and failed below it, where the retry and fallback machinery lived inside `gemini.ts`. It moved to `chain.ts` | — |
+| ~~No credential KMS~~ | **DONE in Phase 21** — envelope encryption under a versioned root key in Secret Manager. Not KMS: that is ~$0.06 per key per month and the ceiling is zero (A18), and `SECURITY.md` → *What we do not claim* states what that gives up | Cloud KMS, if a budget ever exists |
+| ~~No workflow versioning~~ | **DONE in Phase 18** — every save is a version, any version restores as a *new* version, two versions diff visually, and every run records which one it executed | — |
 | No parallel node execution | Wide DAGs run slower than necessary | Engine is a loop; parallelising is local |
-| No RBAC or sharing | Single-owner workflows only | Ownership is already enforced per row |
-| Four integrations | Not comparable to n8n's catalogue | Registry makes each new one additive |
+| ~~No RBAC or sharing~~ | **DONE in Phases 19A–20** — workspaces own every row, four roles enforced server-side through one funnel, and a workflow can be published as a redacted read-only page | — |
+| Nine integrations, 30 nodes | Still not comparable to n8n's catalogue, and this is the row that stays open | Exactly as predicted: the registry makes each one additive. Phase 23C added Postgres as one table row and wrote no route, no settings card and no rotation rule |
 | Bounded loops only | No unbounded iteration | Deliberate; also a safety property |
