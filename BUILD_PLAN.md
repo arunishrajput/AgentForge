@@ -39,9 +39,10 @@ phase is incomplete. Current position is in `PROGRESS.md`, not here.
 20  Roles, permissions and sharing                      ✅
 21  Credential vault and rotation                       ✅
 22  Observability and run analytics                     ✅
-23A Transform, control flow, templates, node docs      ✅
-23B SaaS integrations — Slack, Notion, GitHub, Airtable ← START HERE
-23C The database node and the second provider
+23A Transform, control flow, templates, node docs       ✅
+23B SaaS integrations — Slack, Notion, GitHub, Airtable ⏸  BLOCKED on M10
+23C The Postgres node                                   ✅
+23D The second LLM provider                             ← START HERE (needs a key)
 24  Documentation and open-source readiness
 25  Launch polish
 ```
@@ -1252,7 +1253,7 @@ CU-hour cost of the feature measured and recorded.
 
 ---
 
-## Phase 23 — Node catalogue and templates — **SPLIT into 23A, 23B and 23C**
+## Phase 23 — Node catalogue and templates — **SPLIT into 23A, 23B, 23C and 23D**
 
 **The split, decided 2026-09-30 at the start of the phase.**
 
@@ -1386,44 +1387,106 @@ docs.
 
 ---
 
-## Phase 23C — The database node and the second provider
+## Phase 23C/23D — the third split, decided 2026-10-01
 
-**Objective.** A read-only database node, and a second LLM provider behind the existing
-adapter.
+**The same test that split 23 and then split 23B, applied once more, and it is the one
+about credentials rather than the one about mechanism.**
 
-**Dependencies.** Phase 23B. A Postgres connection string and a second provider's API key,
-both in this phase's opening manual-action block.
+23C as written held two deliverables. **The Postgres node needs no account anybody has to
+create**: this project already owns a Postgres server — Neon — and a read-only role inside
+it is four statements of SQL, so the phase's own bar, *"proven against real services, not
+mocks"*, is reachable in the session that writes the code. **The second provider is not**:
+it needs an API key from a provider the user must sign up to, and no amount of engineering
+produces one.
 
-**Tasks.** A database node. A second LLM provider behind `LanguageModel` (`PRD.md` S1,
-C12), including the credential-kind change that makes "which provider" a stored fact rather
-than a literal. Templates that use them.
+Shipping them together would have put a finished, fully proven node inside a phase marked
+`BLOCKED` behind a manual action — which is exactly the failure the 23A/23B split was
+created to avoid, and the reasoning there is quoted rather than re-derived: *"a phase that
+is half done is not done"*, arrived at by sequencing rather than by sloppiness. 23B is
+already waiting on M10. Stacking a second blocked phase behind it would have left two
+phases open, both complete in code, neither complete by its own definition.
 
-**Primary files.** `src/lib/integrations/*`, `src/lib/ai/*`, `src/lib/credentials/*`,
+**What did not change:** the objective, the completion criteria, or the scope. Both things
+Phase 23 listed are still built, to the same bar.
+
+**What this split cost, stated honestly:** the credential-kind migration that 23D carries
+(`LLM_CREDENTIAL_KIND` is still the literal `"llm.google"`) would have been cheaper to do
+in the same sitting as 23C's credential work, because both touch `tokens.ts` and
+`rotation.ts`. That is a real cost and it was accepted, because the alternative was a node
+that works, is deployed, and cannot be called finished.
+
+---
+
+## Phase 23C — The Postgres node ✅ COMPLETE
+
+**Objective.** A read-only database node.
+
+**Dependencies.** Phase 23A. (Not 23B: the token-credential registry it extends was built
+in 23B and is already deployed, and nothing here needs 23B's four services to be
+*connected*.)
+
+**Tasks.** A Postgres node, read-only by construction. A connection-string credential in the
+Phase 23B token registry. A template that uses it.
+
+**Primary files.** `src/lib/integrations/postgres.ts`, `src/lib/nodes/integration/postgres.ts`,
+`src/lib/integrations/tokens.ts`, `src/lib/templates/catalogue.ts`,
+`scripts/setup-demo-db.mjs`, `scripts/verify-postgres.mjs`.
+
+**Implementation notes.** The node reaches an arbitrary host and therefore needs `guard.ts`'s
+address classification, which is written for URLs and had to be reached for a connection
+string instead — the classification was reused exactly, the *parsing* is separate, because
+`parseTarget` refuses credentials in a URL and a connection string exists to carry them. It
+is **read-only by construction**: no SQL field exists, and Phase 23A's rule applies
+unchanged — **no expression language, ever** — so the query is built from enumerated parts.
+**The new runtime dependency was taken as an `ARCHITECTURE.md` decision** (A21): `postgres`
+rather than `pg`, one lockfile entry and zero transitive dependencies.
+
+**Validation steps.** The node reads a real table from the deployed app and is proved unable
+to write. ✅
+
+**Completion criteria.** All of the above, proven against a real server, not mocks. ✅
+`scripts/verify-postgres.mjs` — **65 passed, 0 failed, 0 skipped** against
+`agentforge-00057-8jx`.
+
+**Documentation updates.** `ARCHITECTURE.md`, `CONTRACT.md`, `PRD.md`, `SECURITY.md`,
+`DEPLOYMENT.md`, `PROGRESS.md`, per-node docs. ✅
+
+**Commit.** `feat: complete phase 23c postgres node`
+
+---
+
+## Phase 23D — The second LLM provider
+
+**Objective.** A second LLM provider behind the existing adapter, so "which provider" is a
+stored fact rather than a literal.
+
+**Dependencies.** Phase 23C, and **a second provider's API key** — Groq's free tier is the
+intended one (<https://console.groq.com/keys>). Flagged to the user alongside M10 so both
+sittings can be one.
+
+**Tasks.** A second provider behind `LanguageModel` (`PRD.md` S1, C12), including the
+credential-kind change that makes "which provider" a stored fact. Migrate the existing
+`llm.google` rows. The model picker, the observed-health table and the vault all follow.
+
+**Primary files.** `src/lib/ai/*`, `src/lib/credentials/*`,
 `src/components/settings/provider-form.tsx`.
 
-**Implementation notes.** The database node reaches an arbitrary host and therefore needs
-`guard.ts`'s address classification, which is written for URLs and will have to be reached
-for a connection string instead. It is **read-only by construction** — it is not a licence
-to run arbitrary SQL, and Phase 23A's rule applies unchanged: **no expression language,
-ever**, so the query is built from enumerated parts rather than typed as text. **A new
-runtime dependency is an `ARCHITECTURE.md` decision** and must be taken as one, not assumed:
-the installed `@neondatabase/serverless` driver speaks only to Neon hosts, so "any Postgres"
-and "no new dependency" are in genuine conflict here. The second provider must not quietly
-become the default, and `llm.google` being a literal today means the migration of existing
-rows is part of the work rather than a follow-up.
+**Implementation notes.** **`LLM_CREDENTIAL_KIND` is the literal `"llm.google"`**, so
+migrating existing rows is part of the work, not a follow-up — a workspace with a working
+Gemini key must not lose it. The second provider must not quietly become the default. The
+circuit breaker and `FALLBACK_MODELS` are per-provider concepts today and will have to
+become per-provider facts rather than one global chain.
 
-**Validation steps.** The database node reads a real table from the deployed app and is
-proved unable to write. The second provider answers a real call **and a real tool call** —
-the second is the one that matters, because Phase 13 found a model that answered prose in
-1.4 s and hung on tool calls. Existing `llm.google` credentials keep working across the
-change.
+**Validation steps.** The second provider answers a real call **and a real tool call** — the
+second is the one that matters, because Phase 13 found a model that answered prose in 1.4 s
+and hung on tool calls. Existing `llm.google` credentials keep working across the change,
+proved on the deployed database rather than asserted.
 
 **Completion criteria.** All of the above, proven against real services, not mocks.
 
-**Documentation updates.** `ARCHITECTURE.md`, `CONTRACT.md`, `PRD.md`, `SECURITY.md`,
-`PROGRESS.md`, per-node docs.
+**Documentation updates.** `ARCHITECTURE.md`, `CONTRACT.md`, `PRD.md`, `PROGRESS.md`.
 
-**Commit.** `feat: complete phase 23c database node and second provider`
+**Commit.** `feat: complete phase 23d second llm provider`
 
 ---
 

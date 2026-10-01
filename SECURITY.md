@@ -105,7 +105,7 @@ code that proved the original: a key with one `models.list` call, a webhook with
 Discord. The alternative is a route whose failure mode is *your workspace is now broken and the
 old secret is gone*, and there is no undo for that, because the old secret is not kept.
 
-Rotation is per-kind, and one of the seven is not a text box:
+Rotation is per-kind, and one of the eight is not a text box:
 
 | Kind | Mode | Rotation is |
 |---|---|---|
@@ -116,6 +116,7 @@ Rotation is per-kind, and one of the seven is not a text box:
 | `integration.notion` | `value` | Supply a new internal integration secret. Which pages the integration can see is unchanged |
 | `integration.github` | `value` | Supply a new token. **The old token is not revoked** — do that in GitHub |
 | `integration.airtable` | `value` | Supply a new token. **The old token is not revoked** — do that in Airtable |
+| `integration.postgres` | `value` | Supply a new connection string. It is dialled and proved with one read-only query first, and **nothing is written** to the database to check it |
 
 `ROTATION_RULES` in `src/lib/credentials/rotation.ts` is the table, and **a test asserts it
 covers the credential registry in both directions** — so a kind added in a later phase fails the
@@ -303,6 +304,7 @@ boundary, and it is drawn in three places.
 | **`agentCallable` defaults to `false`** | `src/lib/nodes/types.ts`. Widening the agent's reach is a deliberate act per node, never a side effect of adding one |
 | **`integration.gmail` is closed to the agent**; every other integration is open | A sent email leaves the account, reaches a third party and cannot be recalled — and an agent-callable Gmail means a model chooses **both** recipient and body from text that may have arrived on an unauthenticated webhook (D44) |
 | **Phase 23B's four are open, and each had to earn it** | The test is the same every time: *can the model choose the destination?* Slack — **no**, the channel is fixed by the stored webhook and Slack refuses to let a caller override it at all. Notion — **no**, an integration sees only pages a human explicitly connected to it. GitHub — **no**, a fine-grained token reaches only the repositories it was minted against, and the node files issues and comments but never touches code. Airtable — **no**, a token is granted per base and per scope, and a token without `data.records:write` makes the node read-only whatever its config says. **In every case the boundary is the credential the user created, not a check in this repository** |
+| **Phase 23C's Postgres node is open, and it answers the same test** | **Can the model choose the destination? No.** The server, the database and the privileges are all fixed by the connection string the user stored; the model picks a table inside them. It is the same answer Airtable gives with a read-only token, and the node adds two barriers Airtable cannot: **there is no SQL field to write into** — the statement is assembled from enumerated parts — and **every query runs inside `BEGIN READ ONLY`**, so a write is refused by the server even if something asks for one. The settings card tells the user to connect a role that may only `SELECT`, and that grant is the real boundary |
 | **A node's authority is its run's workspace and nothing else** | `NodeContext.scope` is the whole of it. Nothing a node's config says can widen it, which is what keeps tool-calling inside the tenant it started in |
 | **No arbitrary user code execution** | Not in any form, not sandboxed, not for a demo. `PRD.md` → *Out of scope*, and it is not negotiable |
 | **Template references are lookups, not an expression language** | `{{steps.x.output}}` resolves a path. There is no `eval` anywhere in the request path (D17) |
@@ -311,6 +313,16 @@ boundary, and it is drawn in three places.
 credentials in a URL, and refuses the cloud metadata server by address, by name and by scheme —
 which is the SSRF that matters on Cloud Run, because that endpoint mints service-account tokens.
 The HTTP node is the reason this exists: its URL comes from a graph a model may have written.
+
+**The same guard covers the Postgres node, reached a different way — Phase 23C.**
+`assertPublicTarget` only ever reads a URL's hostname, so the address classification was reused
+exactly; what could not be reused is `parseTarget`, which requires `https:` and **refuses
+credentials in a URL** — and a connection string is the one URL in this product whose purpose is
+to carry them. So `parseConnectionString` is separate: it refuses any scheme but
+`postgres`/`postgresql`, refuses `localhost`, `.internal`, `.local` and the metadata names, refuses
+a string naming no database, and **refuses `sslmode=disable`, `allow` and `prefer` rather than
+silently upgrading them** — a user who wrote `disable` has said something about their
+expectations, and a product that overrides it without a word has lied to them.
 
 ---
 
@@ -342,6 +354,20 @@ The honest limits. Each one is a real gap, not a hedge.
    against code execution inside the app.
 3. **No rate limiting.** The webhook and share endpoints are unauthenticated and unthrottled.
    Cloud Run's `max-instances 3` is a cost ceiling, not a security control.
+4. **`sslmode=require` encrypts a database connection but does not verify the certificate.**
+   That is what `require` means in Postgres, and it is the default this product uses because
+   demanding `verify-full` would refuse the self-signed certificates most self-hosted servers
+   present. A user who passes `sslmode=verify-full` gets it, honoured rather than downgraded.
+   The residual risk is an active network attacker able to present a certificate for a host that
+   already resolves to a public address — narrow, and narrowed further by the address guard, but
+   not eliminated. Pinning the resolved address into the connection is still unbuilt, for the
+   Postgres node and the HTTP node alike.
+5. **A Postgres connection string is as powerful as the role inside it.** The node cannot write —
+   three independent barriers see to that — but it *can read anything the role can read*, and an
+   agent-callable node means a model picks the table. Connect a role granted `SELECT` on the
+   tables you want read and nothing else; the settings card says so, and that grant is the only
+   part of this boundary AgentForge does not control. A superuser connection string pasted into
+   the vault is a decision to let the agent read that whole database.
 4. **No MFA and no session-device binding.** Identity is whatever Google says; if a user's Google
    account is compromised, so is their workspace.
 5. **The audit log is operational, not tamper-evident.** It is rows in the same database as the

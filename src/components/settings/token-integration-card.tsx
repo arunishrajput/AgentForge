@@ -144,7 +144,20 @@ export function TokenIntegrationCard({
           size="sm"
           onClick={remove}
           disabled={busy !== null}
-          className="hover:text-bad mt-3 -ml-2.5"
+          /**
+           * `whitespace-normal` and the left alignment undo `.btn`'s `white-space: nowrap`
+           * for this one control — **Phase 23C, and it is a Phase 23B defect that could not
+           * be seen until now.** This button carries a whole sentence rather than a verb, so
+           * at 375 px it ran 433 px wide and pushed the entire page into horizontal scroll.
+           * Nothing caught it in 23B because the button only renders for a *connected*
+           * credential, and M10 meant none of that phase's four was ever connected at a
+           * narrow width — the browser pass saw four empty cards with no delete button at all.
+           *
+           * Fixed here rather than in `@utility btn`: a button that wraps by default is a
+           * worse design system, and every other button in the product is a verb that should
+           * stay on one line.
+           */
+          className="hover:text-bad mt-3 -ml-2.5 justify-start text-left whitespace-normal"
         >
           {busy === "remove"
             ? "Deleting…"

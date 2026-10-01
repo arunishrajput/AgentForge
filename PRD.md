@@ -118,9 +118,9 @@ mapped to the phase that delivers it. `BUILD_PLAN.md` is the contract; this is t
 | C9 | Observability, metrics, run analytics | 22 — **DONE** | Post-Hackathon |
 | C10a | Transform and control-flow nodes — registry to 25 | 23A — **DONE** | S5, capped for time |
 | C10b | Integration nodes: Slack, Notion, GitHub, Airtable — registry to 29 | 23B — **DONE** | S5. Each needs an account |
-| C10c | A database node | 23C | S5. Reaches a wire protocol, not an HTTPS API |
+| C10c | A Postgres node, read-only — registry to 30 | 23C — **DONE** | S5. Reaches a wire protocol, not an HTTPS API. **Read-only by construction: no SQL field, and every query runs in a read-only transaction** |
 | C11 | Template gallery | 23A — **DONE** | S4, never built |
-| C12 | A second LLM provider | 23C | S1, blocked on a key |
+| C12 | A second LLM provider | 23D | S1, blocked on a key only the user can create |
 | C16 | Per-node documentation in the inspector | 23A — **DONE** | New in Chapter 2 |
 | C13 | Real test suite, coverage, CI | 13 | Explicitly excluded |
 | C14 | Docs site, ADRs, contributing guide, licence | 24 | Did not exist |

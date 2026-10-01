@@ -685,6 +685,60 @@ const notionRunLog: WorkflowTemplate = {
   ),
 };
 
+const postgresRollup: WorkflowTemplate = {
+  id: "postgres-rollup",
+  name: "Summarise a table in Postgres",
+  description: "Reads rows from a connected Postgres table and totals a column.",
+  about:
+    "What a read-only database credential is actually for. Set the table and the column you want totalled, and the query runs inside a read-only transaction — it cannot write, whatever the configuration says. The Postgres node hands back items and count like every other list node, which is why the Summarise node needs nothing between them.",
+  requires: [
+    "A Postgres connection string in Settings → Integrations, for a role that may only SELECT",
+  ],
+  graph: build(
+    [
+      { id: "start", type: "core.manual_trigger", label: "Run it", at: at(0) },
+      {
+        id: "rows",
+        type: "integration.postgres",
+        label: "Read the rows",
+        config: {
+          operation: "select",
+          schema: "public",
+          table: "",
+          columns: [],
+          where: [],
+          orderBy: "",
+          direction: "asc",
+          limit: 50,
+        },
+        at: at(1),
+      },
+      {
+        id: "total",
+        type: "transform.aggregate",
+        label: "Total a column",
+        config: { operation: "sum", field: "" },
+        at: at(2),
+      },
+      {
+        id: "report",
+        type: "core.log",
+        label: "Report it",
+        config: {
+          message:
+            "Read {{steps.rows.output.count}} row(s) from {{steps.rows.output.table}}; the total is {{steps.total.output.value}}.",
+        },
+        at: at(3),
+      },
+    ],
+    [
+      { from: "start", to: "rows" },
+      { from: "rows", to: "total" },
+      { from: "total", to: "report" },
+    ],
+  ),
+};
+
 /** Gallery order: the two that run instantly first, then shape, then the ambitious ones. */
 export const TEMPLATES: readonly WorkflowTemplate[] = [
   rankAndReport,
@@ -699,6 +753,9 @@ export const TEMPLATES: readonly WorkflowTemplate[] = [
   notionRunLog,
   webhookToGithub,
   airtableInbox,
+  // Phase 23C. Last for the same reason as the four above — it does nothing until a
+  // credential exists — and it is the only one whose credential is a database.
+  postgresRollup,
 ];
 
 /**

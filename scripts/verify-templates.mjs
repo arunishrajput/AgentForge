@@ -87,13 +87,13 @@ async function main() {
   /* 1 — the deployed build carries the widened registry ------------------------- */
   console.log("1. The registry the deployed build is actually serving");
   const health = await api("/api/health");
-  // 29 since Phase 23B added four integration nodes to Phase 23A's 25.
-  check(data(health)?.registry === 29, `health reports 29 nodes (${data(health)?.registry})`);
+  // 30 since Phase 23C added the Postgres node to Phase 23B's 29.
+  check(data(health)?.registry === 30, `health reports 30 nodes (${data(health)?.registry})`);
   console.log(`   revision ${data(health)?.revision}`);
 
   const nodes = data(await api("/api/nodes"));
   const list = Array.isArray(nodes) ? nodes : (nodes?.nodes ?? []);
-  check(list.length === 29, `GET /api/nodes returns 29 definitions (${list.length})`);
+  check(list.length === 30, `GET /api/nodes returns 30 definitions (${list.length})`);
 
   const expected = [
     "core.switch",
@@ -130,7 +130,7 @@ async function main() {
   /* 2 — the gallery ------------------------------------------------------------- */
   console.log("\n2. The template gallery");
   const gallery = data(await api("/api/templates"));
-  check(Array.isArray(gallery) && gallery.length === 10, `GET /api/templates returns 10 (${gallery?.length})`);
+  check(Array.isArray(gallery) && gallery.length === 11, `GET /api/templates returns 11 (${gallery?.length})`);
   check(
     gallery?.every((template) => template.uses?.length > 0 && template.nodeCount > 0),
     "every card carries its node chips and a node count",
@@ -138,14 +138,20 @@ async function main() {
   check(!gallery?.some((template) => "graph" in template), "the gallery response carries no graphs");
   const needing = gallery?.filter((template) => template.requires.length > 0).map((template) => template.id);
   check(
-    // Five since Phase 23B: its four each need a credential only the user can create. What
-    // this really asserts is the promise the other five make — clone it, press Run, it works
-    // — so the important half is that the list has not *grown* by accident.
-    needing?.length === 5 &&
-      ["classify-and-route", "slack-standup", "notion-run-log", "webhook-to-github", "airtable-inbox"].every(
-        (id) => needing.includes(id),
-      ),
-    `five templates declare a prerequisite (${needing?.join(", ") || "none"})`,
+    // Six since Phase 23C: Phase 23B's four and this phase's one each need a credential only
+    // the user can create, and `classify-and-route` needs a model key. What makes this worth
+    // pinning is the inverse — a template that quietly loses its `requires` becomes a card
+    // promising that cloning and pressing Run works.
+    needing?.length === 6 &&
+      [
+        "classify-and-route",
+        "slack-standup",
+        "notion-run-log",
+        "webhook-to-github",
+        "airtable-inbox",
+        "postgres-rollup",
+      ].every((id) => needing.includes(id)),
+    `six templates declare a prerequisite (${needing?.join(", ") || "none"})`,
   );
 
   const unknown = await api("/api/templates/does-not-exist", { method: "POST" });

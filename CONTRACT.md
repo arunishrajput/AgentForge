@@ -1447,7 +1447,7 @@ shortly after its slot, never on the second.
 
 ## Integration nodes and their credentials — **DEFINED** (Phase 9, extended in Phase 23B)
 
-Eight integrations, eight registry entries. Nothing else was added: no palette code, no config form,
+Nine integrations, nine registry entries. Nothing else was added: no palette code, no config form,
 no validator rule, no second tool list. `src/lib/integrations/` holds the protocol modules (no
 database, no session — so they are asserted with no network) and `store.ts` holds the one module
 that reads credentials.
@@ -1462,8 +1462,27 @@ that reads credentials.
 | `integration.notion` | Appends to a page, or adds a database row | **yes** | `integration.notion` |
 | `integration.github` | Files an issue, or comments on one | **yes** | `integration.github` |
 | `integration.airtable` | Creates a record, or reads a page of them | **yes** | `integration.airtable` |
+| `integration.postgres` | Reads rows from a Postgres database, or counts them. **Cannot write** | **yes** | `integration.postgres` |
 
-### The token-credential registry — **Phase 23B**
+**`integration.postgres` is the only node that speaks a protocol other than HTTPS** — Phase 23C,
+and the reason it needed a phase of its own. Three things follow and all three are contract:
+
+- **It is read-only by construction, and there is no SQL field.** A caller supplies a schema, a
+  table, column names, an enumerated comparison and a limit; `buildSelect` assembles the only
+  statement it knows how to write. Phase 23A's rule is unchanged — **no expression language,
+  ever** — and a config field that accepted SQL would be arbitrary code execution under another
+  name. The table is **always schema-qualified**, because an unqualified name is resolved through
+  a `search_path` that a connection string can set
+- **Its operators are the seven `core.branch` and `transform.filter` use**, translated to SQL to
+  match `evaluate()`'s own semantics rather than approximately — `equals` casts to text because
+  `evaluate` compares strings, `not_equals` is `is distinct from` so a NULL row is not silently
+  dropped, `contains` is `strpos` because `LIKE` would make a `%` in a value a wildcard. The one
+  deliberate divergence: `greater_than` and `less_than` compare using the **column's own type**,
+  so they work on dates and text as well as numbers, which the in-process pair cannot
+- **Its output follows Phase 23A's list convention**, `{ items, count }`, so `transform.filter`,
+  `.sort` and `.aggregate` chain onto it with nothing in between
+
+### The token-credential registry — **Phase 23B, extended in Phase 23C**
 
 Phase 9's note on `nodes/integration/shared.ts` said it existed "so a fifth integration is a node
 file and nothing else". That was true of the node and false of everything around it: Discord needed
@@ -1556,6 +1575,23 @@ the Google flow reuses `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `APP_BASE_
 | `integration.notion` | `default` | the internal integration secret | `{ botName, workspaceName }` |
 | `integration.github` | `default` | the personal access token | `{ login }` |
 | `integration.airtable` | `default` | the personal access token | `{ userId, email }` |
+| `integration.postgres` | `default` | the whole connection string | `{ serverVersion }` — see below |
+
+**Postgres stores only a server version, and that is the same rule as Slack's, reached from the
+other direction.** The two facts a card would most like to show — the host and the database name —
+are both *inside the connection string*, which is the secret, so neither may become metadata
+however non-secret a hostname feels. The server's version number is the one identifying fact that
+belongs to the server rather than to the string. `verify-postgres.mjs` asserts that no status
+response contains the password, the host, the role or the database name.
+
+**The criterion for membership in the token registry widened by one word in Phase 23C**, and it is
+worth saying which. It read "a bearer secret the user pastes, which one HTTPS request can prove";
+a connection string is proved over a TLS socket speaking a binary protocol. Nothing in the table's
+shape was ever about the transport — not `schema`, not `verify`, not `detail` — so the criterion
+was narrower than the mechanism, and the fifth member is what made that visible. It now reads:
+**one secret string the user pastes, which one round trip to the service can prove.** What still
+excludes Google is unchanged and is not about transport either: there is nothing for a user to
+paste.
 
 **Slack stores no metadata, and that is the write-only rule holding rather than a gap.** Every
 identifying part of an incoming webhook — the team id, the hook id — is a path segment *of the

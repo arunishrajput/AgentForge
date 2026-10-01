@@ -243,11 +243,18 @@ test("the templates that need setup say so, and the rest say nothing", () => {
   const needing = TEMPLATES.filter((template) => template.requires.length > 0);
   assert.deepEqual(
     needing.map((template) => template.id),
-    // Phase 23B's four each need a credential only the user can create, so each one says so
-    // on its card. Pinned rather than counted: a template that quietly loses its `requires`
-    // becomes a promise that cloning and pressing Run works, which is the one thing a card
-    // must not claim falsely.
-    ["classify-and-route", "slack-standup", "notion-run-log", "webhook-to-github", "airtable-inbox"],
+    // Phase 23B's four and Phase 23C's one each need a credential only the user can create,
+    // so each one says so on its card. Pinned rather than counted: a template that quietly
+    // loses its `requires` becomes a promise that cloning and pressing Run works, which is
+    // the one thing a card must not claim falsely.
+    [
+      "classify-and-route",
+      "slack-standup",
+      "notion-run-log",
+      "webhook-to-github",
+      "airtable-inbox",
+      "postgres-rollup",
+    ],
   );
   for (const template of needing) {
     for (const line of template.requires) assert.ok(line.length > 10, template.id);

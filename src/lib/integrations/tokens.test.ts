@@ -29,10 +29,13 @@ import {
  * The registry, and the obligations it is supposed to make unmissable
  * ------------------------------------------------------------------ */
 
-test("the registry is the four Phase 23B services, keyed uniquely by slug and by kind", () => {
-  assert.equal(TOKEN_INTEGRATIONS.length, 4);
-  assert.equal(new Set(TOKEN_INTEGRATIONS.map((entry) => entry.slug)).size, 4);
-  assert.equal(new Set(TOKEN_INTEGRATIONS.map((entry) => entry.kind)).size, 4);
+test("the registry is five services, keyed uniquely by slug and by kind", () => {
+  // Four from Phase 23B, and Phase 23C's Postgres — which joined by adding a row and nothing
+  // else: no route, no settings card, no rotation rule and no vault entry were written for it.
+  // That is the claim this table was built to make, and this is where it is checked.
+  assert.equal(TOKEN_INTEGRATIONS.length, 5);
+  assert.equal(new Set(TOKEN_INTEGRATIONS.map((entry) => entry.slug)).size, 5);
+  assert.equal(new Set(TOKEN_INTEGRATIONS.map((entry) => entry.kind)).size, 5);
 
   for (const entry of TOKEN_INTEGRATIONS) {
     assert.equal(tokenIntegrationBySlug(entry.slug), entry);

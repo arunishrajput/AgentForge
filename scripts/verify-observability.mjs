@@ -169,7 +169,12 @@ try {
   const [{ applied }] = await sql`select count(*)::int as applied from drizzle.__drizzle_migrations`;
   check("the migration count it reports matches the database", h?.migrations === applied,
     `health says ${h?.migrations}, database has ${applied}`);
-  check("it reports the node registry size", h?.registry === 15, `registry=${h?.registry}`);
+  // 30 since Phase 23C. **This pin was stale from Phase 23A to 23C** and this check was
+  // therefore red for two phases without anybody seeing it, because this suite is not part of
+  // the per-phase routine the way `verify-api.mjs` is. The number now lives in four scripts;
+  // when it changes, all four move together — `verify-api.mjs`, `verify-templates.mjs`,
+  // `verify-integrations.mjs` and here.
+  check("it reports the node registry size", h?.registry === 30, `registry=${h?.registry}`);
 
   check("it still names no credential, key or connection string",
     !/ciphertext|authTag|wrappedKey|ENCRYPTION_KEY|postgres:\/\/|AIza/.test(health.text),
@@ -246,8 +251,23 @@ try {
     skip("a cancelled run holds the rate below 100%", "no cancelled runs in the window");
   }
 
+  /**
+   * **Truncate each endpoint to whole milliseconds, then subtract** — the definition the
+   * product uses, recomputed here in SQL rather than a different definition that happens to
+   * be close.
+   *
+   * It was `round(extract(epoch from (finishedAt - startedAt)) * 1000)` and that disagreed
+   * with the page by exactly 1 ms, which is measured and not hypothetical: a run of
+   * 94569.014 ms rounds to 94569, while `analytics/shape.ts` computes
+   * `finishedAt.getTime() - startedAt.getTime()` and a JavaScript `Date` holds whole
+   * milliseconds, so each endpoint truncates independently and the difference came out
+   * 94570. Neither number is wrong; they are answers to different questions, and only one of
+   * them is the question the page answers. `floor(epoch * 1000)` per endpoint reproduces
+   * `Date.getTime()` exactly — checked against all three of the longest runs in the database.
+   */
   const durationRows = await sql.query(
-    `select round(extract(epoch from ("finishedAt" - "startedAt")) * 1000)::bigint as ms
+    `select (floor(extract(epoch from "finishedAt") * 1000)::bigint
+             - floor(extract(epoch from "startedAt") * 1000)::bigint) as ms
        from "run"
       where "workspaceId" = $1 and "startedAt" >= $2
         and status in ('succeeded','failed') and "finishedAt" is not null

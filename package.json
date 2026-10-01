@@ -2,7 +2,7 @@
   "name": "agentforge",
   "version": "0.1.0",
   "private": true,
-  "description": "Agentic workflow automation \u2014 describe what you want, get a real executable workflow",
+  "description": "Agentic workflow automation — describe what you want, get a real executable workflow",
   "engines": {
     "node": ">=20.9.0"
   },
@@ -29,6 +29,7 @@
     "drizzle-orm": "0.45.3",
     "next": "16.3.6",
     "next-auth": "5.0.0-beta.32",
+    "postgres": "3.4.9",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "zod": "4.6.5"

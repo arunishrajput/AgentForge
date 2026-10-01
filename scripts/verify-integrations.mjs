@@ -152,12 +152,15 @@ async function main() {
   /* 1 — the deployed build carries the widened registry ------------------------- */
   console.log("1. The registry the deployed build is actually serving");
   const health = await api("/api/health");
-  check(data(health)?.registry === 29, `health reports 29 nodes (${data(health)?.registry})`);
+  // 30 since Phase 23C added the Postgres node. This suite pins the count as well as
+  // `verify-templates.mjs` does, on purpose: either one failing says the deployed image is
+  // not the tree that was tested.
+  check(data(health)?.registry === 30, `health reports 30 nodes (${data(health)?.registry})`);
   console.log(`   revision ${data(health)?.revision}`);
 
   const nodes = data(await api("/api/nodes"));
   const list = Array.isArray(nodes) ? nodes : (nodes?.nodes ?? []);
-  check(list.length === 29, `GET /api/nodes returns 29 definitions (${list.length})`);
+  check(list.length === 30, `GET /api/nodes returns 30 definitions (${list.length})`);
 
   const added = [
     "integration.slack",
@@ -610,7 +613,7 @@ async function main() {
   /* 7 — the four new templates still clone and validate on the deployed build --- */
   console.log("\n7. The four Phase 23B templates clone and validate on the deployed build");
   const gallery = data(await api("/api/templates"));
-  check(Array.isArray(gallery) && gallery.length === 10, `GET /api/templates returns 10 (${gallery?.length})`);
+  check(Array.isArray(gallery) && gallery.length === 11, `GET /api/templates returns 11 (${gallery?.length})`);
   for (const id of ["slack-standup", "notion-run-log", "webhook-to-github", "airtable-inbox"]) {
     const card = (gallery ?? []).find((template) => template.id === id);
     check(card?.requires?.length > 0, `${id} tells the user what it needs first`);

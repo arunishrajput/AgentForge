@@ -52,11 +52,12 @@ test("every rotation rule names a kind the product actually stores", () => {
   }
 });
 
-test("the seven kinds are the seven the product stores, and no more", () => {
-  // Pinned deliberately, and it did its job: it said "a fourth kind arriving in Phase 23
-  // should fail this and be a decision, not a diff nobody reads", and Phase 23B's four made
-  // it fail. The list is spelled out rather than derived from TOKEN_INTEGRATIONS on purpose —
-  // deriving it from the same table `CREDENTIAL_KINDS` is built from would assert nothing.
+test("the eight kinds are the eight the product stores, and no more", () => {
+  // Pinned deliberately, and it keeps doing its job: it said "a fourth kind arriving in Phase 23
+  // should fail this and be a decision, not a diff nobody reads", Phase 23B's four made it fail,
+  // and Phase 23C's one made it fail again. The list is spelled out rather than derived from
+  // TOKEN_INTEGRATIONS on purpose — deriving it from the same table `CREDENTIAL_KINDS` is built
+  // from would assert nothing.
   assert.deepEqual([...CREDENTIAL_KINDS].sort(), [
     DISCORD_CREDENTIAL_KIND,
     GOOGLE_CREDENTIAL_KIND,
@@ -65,6 +66,7 @@ test("the seven kinds are the seven the product stores, and no more", () => {
     "integration.notion",
     "integration.github",
     "integration.airtable",
+    "integration.postgres",
   ].sort());
 });
 

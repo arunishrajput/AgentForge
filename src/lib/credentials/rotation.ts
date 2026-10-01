@@ -104,9 +104,13 @@ export const ROTATION_RULES: Record<string, RotationRule> = {
    * credential's shape and its verification defines what rotating it means.
    *
    * Every one of them is `mode: "value"`. That is not a coincidence to be noticed later —
-   * it is the criterion for being in that table at all: a secret the user can paste, which
-   * one HTTPS request can prove. An OAuth credential could not join it, which is why Google
-   * is still written out above.
+   * it is the criterion for being in that table at all: **one secret string the user can
+   * paste, which one round trip to the service can prove.** An OAuth credential could not
+   * join it, which is why Google is still written out above.
+   *
+   * Phase 23C added a fifth row, `integration.postgres`, and this entry absorbed it without a line
+   * changing — which is the whole claim the spread was making. The round trip that proves a
+   * connection string is a TLS socket rather than an HTTPS request; nothing here ever cared.
    */
   ...Object.fromEntries(
     TOKEN_INTEGRATIONS.map((integration) => [

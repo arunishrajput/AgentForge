@@ -146,6 +146,15 @@ const PUBLISHABLE: Readonly<Record<string, SharePolicy>> = {
     values: ["operation", "maxRecords", "typecast"],
     keys: ["fields"],
   },
+
+  // Phase 23C. `operation`, `direction`, `limit` and `timeoutMs` are settings: they say this
+  // node counts rather than lists, and how much it reads. Everything that names the user's data
+  // is withheld, and the reasoning is `integration.sheets`' `spreadsheetId` reasoning twice
+  // over — `schema`, `table`, `columns` and `orderBy` together are a map of a private database's
+  // structure, which is more than "which file to go and try to open". `where` goes for
+  // `core.switch`'s reason: it is an array whose objects hold a column name *and* a value
+  // somebody typed, and neither `values` nor `keys` can publish half of an array.
+  "integration.postgres": { values: ["operation", "direction", "limit", "timeoutMs"] },
 };
 
 /** The table itself, for the test that keeps it in step with the registry. */

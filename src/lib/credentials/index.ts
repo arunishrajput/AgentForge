@@ -77,6 +77,16 @@ export interface CredentialMetadata {
   workspaceName?: string | null;
   login?: string | null;
   userId?: string | null;
+  /**
+   * `integration.postgres` — Phase 23C. The server's version number and nothing else.
+   *
+   * The host and the database name are the two facts a settings card would most like to
+   * show, and **both are inside the connection string**, which is the secret. So neither may
+   * be stored here however non-secret a hostname feels: `verify-integrations.mjs` asserts
+   * that no status response carries a fragment of a stored credential, and that assertion is
+   * worth more than a nicer-looking card. A server version is the server's own fact.
+   */
+  serverVersion?: string | null;
 }
 
 export interface CredentialSummary {

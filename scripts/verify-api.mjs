@@ -1658,11 +1658,11 @@ try {
     (node) => node.category === "integration",
   );
   check(
-    // 8 since Phase 23B added Slack, Notion, GitHub and Airtable. Pinned rather than
-    // counted loosely, because this check's job is to make a new integration a decision
-    // somebody takes rather than a line in a diff.
+    // 9 since Phase 23C added Postgres to Phase 23B's eight. Pinned rather than counted
+    // loosely, because this check's job is to make a new integration a decision somebody
+    // takes rather than a line in a diff.
     "every integration declares an output shape for the generator to read",
-    integrationNodes.length === 8 &&
+    integrationNodes.length === 9 &&
       integrationNodes.every(
         (node) => typeof node.outputShape === "string" && node.outputShape.length > 20,
       ),

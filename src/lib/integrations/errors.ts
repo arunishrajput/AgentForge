@@ -1,6 +1,7 @@
 import { logError } from "@/lib/logging";
 import { ApiError } from "@/lib/api-error";
 
+import { HttpTargetError } from "./guard";
 import { IntegrationError } from "./net";
 
 /**
@@ -30,10 +31,19 @@ import { IntegrationError } from "./net";
  * Fixed here rather than at that one call site, because the defect is a class: an `ApiError` is
  * by construction a refusal that already carries its own code and its own client-safe message,
  * so re-deciding either of those is always wrong, in every caller, present and future.
+ *
+ * **`HttpTargetError` joins it in Phase 23C, and for the same reason.** A guard refusal — a
+ * scheme this product will not dial, a host that resolves into a private range, an `sslmode`
+ * that would run unencrypted — is a judgement about *the request*, made here, before anything
+ * left the process. It is the clearest possible 400. Until Phase 23C nothing routed one through
+ * here, because the guard only ever ran inside `integration.http`, where a node's `asNodeError`
+ * already handled it; a Postgres connection string is the first credential whose own shape is
+ * checked by the guard, so a `.internal` host pasted into the settings card would have been
+ * reported as "Something went wrong" with a 500.
  */
 export function integrationApiError(service: string, error: unknown): ApiError {
   if (error instanceof ApiError) return error;
-  if (error instanceof IntegrationError) {
+  if (error instanceof IntegrationError || error instanceof HttpTargetError) {
     return new ApiError("invalid_request", error.message);
   }
   logError("api.error", `An unexpected error came out of the ${service} integration.`, error, {

@@ -9,6 +9,11 @@ import {
 import { GITHUB_CREDENTIAL_KIND, verifyToken as verifyGitHubToken } from "./github";
 import { NOTION_CREDENTIAL_KIND, verifyToken as verifyNotionToken } from "./notion";
 import {
+  parseConnectionString,
+  POSTGRES_CREDENTIAL_KIND,
+  verifyConnectionString,
+} from "./postgres";
+import {
   normaliseWebhookUrl as normaliseSlackWebhook,
   SLACK_CREDENTIAL_KIND,
   verifyWebhook as verifySlackWebhook,
@@ -37,8 +42,15 @@ import {
  * with provider-supplied metadata this shape has no room for, and Google is OAuth — a
  * refresh token nobody can type, which `RotationRule`'s `reconnect` mode exists for. Bending
  * either into this table would make the table about two special cases instead of about the
- * thing all four of these genuinely share: **a bearer secret the user pastes, which one HTTPS
- * request can prove.**
+ * thing every row genuinely shares: **one secret string the user pastes, which one round trip
+ * to the service can prove.**
+ *
+ * **Phase 23C widened that sentence by one word, and it is worth saying which.** It used to
+ * read "which one HTTPS request can prove", and a Postgres connection string is proved over a
+ * TLS socket speaking a binary protocol instead. Nothing in this table's shape was about the
+ * transport — not `schema`, not `verify`, not `detail` — so the criterion was narrower than
+ * the mechanism, and the fifth member is what made that visible. What still excludes Google
+ * is unchanged and is not about transport either: there is nothing for a user to paste.
  *
  * **No `@/db` import, and the `CredentialMetadata` import is `import type`** so it is erased
  * at compile time. That keeps this module loadable by the test runner with no connection
@@ -173,6 +185,39 @@ export const TOKEN_INTEGRATIONS: readonly TokenIntegration[] = [
     rotationHelp:
       "The new token is checked against Airtable before it replaces the old one. The old token is not revoked — do that in Airtable.",
     nodes: ["integration.airtable"],
+  },
+  {
+    slug: "postgres",
+    kind: POSTGRES_CREDENTIAL_KIND,
+    service: "Postgres",
+    secretLabel: "Connection string",
+    secretNoun: "connection string",
+    placeholder: "postgresql://user:password@host:5432/database?sslmode=require",
+    // Wider than the four above because a connection string legitimately is: a host, a
+    // database, a role, a password and a query string. The shape is checked properly by
+    // `normalise` below, which parses it and refuses the scheme, the host and the sslmode this
+    // product will not accept — a length range is only the cheap first pass.
+    schema: z.string().trim().min(12).max(2000),
+    /**
+     * **The one entry whose `normalise` can refuse.** Every other row here tidies and returns;
+     * this one parses, and parsing a connection string is where `sslmode=disable` and a
+     * `.internal` host get turned away — before a round trip, and before anything is stored.
+     * `storeTokenSecret` runs `normalise` ahead of `verify`, so the refusal arrives as the
+     * sentence the user needs rather than as a connection timeout they have to interpret.
+     */
+    normalise: (raw) => parseConnectionString(raw).url.toString(),
+    verify: async (secret, signal) => {
+      const identity = await verifyConnectionString(secret, signal);
+      return { serverVersion: identity.serverVersion };
+    },
+    detail: (metadata) => (metadata.serverVersion ? `Postgres ${metadata.serverVersion}` : null),
+    blurb:
+      "Connect a database and a workflow can read from it. Give it a role that may only SELECT, and only on the tables you want read — that grant is the real boundary, and it is the one this product cannot weaken. Every query runs inside a read-only transaction, so a write is refused even if something asks for one. TLS is required: sslmode=disable is turned away rather than quietly upgraded.",
+    docsHref: "https://www.postgresql.org/docs/current/sql-grant.html",
+    docsLabel: "How to grant a role SELECT and nothing else",
+    rotationHelp:
+      "The new connection string is dialled and proved before it replaces the old one, with one read-only query and nothing written.",
+    nodes: ["integration.postgres"],
   },
 ];
 

@@ -18,6 +18,7 @@ import { githubNode } from "./integration/github";
 import { gmailNode } from "./integration/gmail";
 import { httpNode } from "./integration/http";
 import { notionNode } from "./integration/notion";
+import { postgresNode } from "./integration/postgres";
 import { sheetsNode } from "./integration/sheets";
 import { slackNode } from "./integration/slack";
 import { aggregateNode } from "./transform/aggregate";
@@ -84,6 +85,7 @@ const definitions: RegisteredNode[] = [
   notionNode,
   githubNode,
   airtableNode,
+  postgresNode,
 ];
 
 const byType = new Map<string, RegisteredNode>();

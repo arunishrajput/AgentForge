@@ -7,6 +7,7 @@ import { validateGraph } from "@/lib/engine/validate";
 import { describeNode, getNode, listAgentTools, listNodes } from "@/lib/nodes";
 
 import { airtableNode } from "./airtable";
+import { postgresNode } from "./postgres";
 import { discordNode } from "./discord";
 import { githubNode } from "./github";
 import { gmailNode } from "./gmail";
@@ -17,8 +18,8 @@ import { sheetsNode } from "./sheets";
 import { slackNode } from "./slack";
 
 /**
- * The registry-level properties of every integration node — four from Phase 9, four more
- * from Phase 23B.
+ * The registry-level properties of every integration node — four from Phase 9, four from
+ * Phase 23B, one from Phase 23C.
  *
  * These are the assertions that would have caught Phase 6's worst bug — a config
  * schema Gemini rejects with a 400, which surfaces only when an agent node first runs
@@ -35,17 +36,18 @@ const integrations = [
   notionNode,
   githubNode,
   airtableNode,
+  postgresNode,
 ];
 
-test("all eight integrations are registered and dispatchable by type", () => {
+test("all nine integrations are registered and dispatchable by type", () => {
   for (const node of integrations) {
     assert.equal(getNode(node.type), node, node.type);
     assert.equal(node.category, "integration", node.type);
     assert.equal(node.kind, "action", node.type);
   }
-  assert.equal(integrations.length, 8);
-  // 29 after Phase 23B added Slack, Notion, GitHub and Airtable to Phase 23A's 25.
-  assert.equal(listNodes().length, 29);
+  assert.equal(integrations.length, 9);
+  // 30 after Phase 23C added the database node to Phase 23B's 29.
+  assert.equal(listNodes().length, 30);
 });
 
 test("every integration declares the shape of its output", () => {
@@ -69,6 +71,9 @@ test("every integration but Gmail is agent-callable, and Gmail deliberately is n
   assert.ok(callable.has("integration.notion"));
   assert.ok(callable.has("integration.github"));
   assert.ok(callable.has("integration.airtable"));
+  // Phase 23C. The server, the database and the role's grants are all fixed by the stored
+  // connection string; the model picks a table inside them and cannot write to any of it.
+  assert.ok(callable.has("integration.postgres"));
   // D19/D36. A model-chosen recipient plus a model-chosen body is the one capability
   // here whose effect leaves the user's own account and cannot be recalled.
   assert.equal(callable.has("integration.gmail"), false);
@@ -84,13 +89,15 @@ test("the agent tool set is exactly the callable registry, projected", () => {
   // pure data shaping that reaches no service and can have no effect outside the run.
   // Phase 23B added four that very much do reach a service, and each was a decision recorded
   // on its own node definition — the boundary in every case is the stored credential, not
-  // this list.
+  // this list. Phase 23C's `integration_postgres` is the fifth of those: it reads the user's
+  // own database and can write to nothing, which is the test `integration.gmail` fails.
   assert.deepEqual(
     [...tools.byName.keys()].sort(),
     [
       "core_log",
       "core_set",
       "integration_airtable",
+      "integration_postgres",
       "integration_discord",
       "integration_github",
       "integration_http",
@@ -170,6 +177,26 @@ test("every integration's config renders as form fields, none falling back to ra
     "sheet:string",
     "values:json",
     "valueInputOption:enum",
+  ]);
+  // Phase 23C, and the two `json` entries are the same acknowledged fallback as `values`
+  // above rather than a new one. `columns` is a list of names, which is the shape
+  // `core.webhook_trigger.requiredFields` has had since Phase 8; `where` is a list of
+  // objects, which is `core.switch.cases` since Phase 23A. Both were kept as lists on
+  // purpose: flattening `where` to one condition would have made a two-condition read
+  // fetch `limit` rows and *then* narrow them, which silently returns the wrong rows —
+  // the exact class of defect `outputShape` exists to prevent. **A generic list editor
+  // is the fix and it belongs to a UI phase**, where it would also collect those two
+  // older fields, not to the phase that happened to add a third.
+  assert.deepEqual(kindsByNode["integration.postgres"], [
+    "operation:enum",
+    "schema:string",
+    "table:string",
+    "columns:json",
+    "where:json",
+    "orderBy:string",
+    "direction:enum",
+    "limit:number",
+    "timeoutMs:number",
   ]);
 });
 

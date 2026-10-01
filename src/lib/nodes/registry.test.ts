@@ -28,9 +28,9 @@ import { describeNodes, getNode, listAgentTools, listNodes } from "./index";
 
 const nodes = listNodes();
 
-test("the registry is 29 nodes and every type is unique", () => {
-  assert.equal(nodes.length, 29);
-  assert.equal(new Set(nodes.map((node) => node.type)).size, 29);
+test("the registry is 30 nodes and every type is unique", () => {
+  assert.equal(nodes.length, 30);
+  assert.equal(new Set(nodes.map((node) => node.type)).size, 30);
 });
 
 test("every node type is namespaced, and its namespace exists", () => {
@@ -63,12 +63,12 @@ test("every node that produces data declares its output shape — D38", () => {
   }
 });
 
-test("every node Phase 23A and 23B added documents itself for a person", () => {
+test("every node Phase 23A onward added documents itself for a person", () => {
   // `description` is for the model and is tuned for it. `docs.summary` is the sentence
   // the inspector shows a user who has just dragged the node onto a canvas.
   const documented = nodes.filter((node) => node.docs !== undefined);
-  // Ten from Phase 23A, four from Phase 23B.
-  assert.ok(documented.length >= 14, "Phase 23A's ten and Phase 23B's four all carry docs");
+  // Ten from Phase 23A, four from Phase 23B, one from Phase 23C.
+  assert.ok(documented.length >= 15, "every node added from Phase 23A onward carries docs");
 
   for (const node of documented) {
     assert.ok(node.docs, node.type);

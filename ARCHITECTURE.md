@@ -115,6 +115,7 @@ to `NOASSERTION` under GitHub's licence detection, so the label is not usable ev
 | **React Flow** (`@xyflow/react`) | MIT | **Yes — adopted** |
 | **Vercel AI SDK** (`ai`) | Apache-2.0 | Licence-wise yes; **`SUPERSEDED` at Phase 6 (D32) and never installed** — the provider adapter is a `fetch` client we own |
 | **Auth.js** (`next-auth`) | ISC | **Yes — adopted** |
+| **postgres.js** (`postgres`) | **The Unlicense** — a public-domain dedication. Read from the repository's own file on 2026-10-01, which is named `UNLICENSE`, not `LICENSE`; the published npm tarball ships **no licence file at all** and only declares `"license": "Unlicense"` in its manifest | **Yes — adopted in Phase 23C.** Strictly more permissive than MIT and imposes nothing on this repository's own licence, which Phase 24 still has to choose |
 
 #### Correction: the n8n claim in the original brief was imprecise
 
@@ -160,7 +161,8 @@ this build.
 | `next-auth` | **5.0.0-beta.32** | see the note below |
 | `@auth/drizzle-adapter` | 1.11.3 | |
 | `drizzle-orm` / `drizzle-kit` | 0.45.3 / 0.31.11 | peers include `@neondatabase/serverless >= 0.10.0` |
-| `@neondatabase/serverless` | 1.1.0 | |
+| `@neondatabase/serverless` | 1.1.0 | The application's own driver. Speaks only to Neon hosts, which is why it could not serve `integration.postgres` — see A24 |
+| `postgres` | **3.4.9** | **Added in Phase 23C**, the first new runtime dependency since Phase 4. One lockfile entry, **zero transitive dependencies**, ships its own types. Unlicense. See A24 |
 | `zod` | 4.6.5 | |
 | `tailwindcss` | 4.3.3 | Tokens in `@theme`, component classes as `@utility`. **No component library** — see *Design system* |
 | `next/font` (Geist, Geist Mono) | bundled with Next | **Added in Phase 10.** Self-hosted, `latin` subset, variable axis. Not a dependency: `next/font` is part of Next |
@@ -1132,6 +1134,8 @@ in a step log.
 | A21 | **The correlation id is Cloud Run's trace, and no request log is written** | Binding at Phase 22 | Cloud Run logs method, path, status and latency for every request for free. Emitting its trace id joins ours to that record; writing our own would pay to duplicate it. This is why there is **no `api.request` event and no Next 16 `proxy`** — a proxy was considered solely to put the route path on every entry, and rejected |
 | A22 | **Analytics is computed on demand from `run`/`run_step`; nothing runs on a clock** | **BINDING** while the zero-cost ceiling holds | Neon meters compute time *awake*. A rollup job, a cache warmer or a polling page is a new reason to wake an idle database; three statements when a signed-in person opens a page is not. Measured at 21–27 ms of database time per page view against a ~39 CU-hour monthly margin. Revisit only if the run table outgrows a 2,000-row window |
 | A23 | **Error grouping is one normaliser, shared by the logs and the analytics page** | Binding at Phase 22 | Two fingerprinters would mean a group id read off a chart could not be pasted into the Logs Explorer, which is the only thing that makes either of them useful. It over-groups deliberately: one problem scattered over forty rows is invisible, two problems in one row is noticed on reading the sample |
+| A24 | **`postgres` (postgres.js) is the Postgres driver, not `pg`, and a new runtime dependency was the right answer** | Binding at Phase 23C | The first new runtime dependency since Phase 4, and it was forced: `@neondatabase/serverless` is already installed and speaks **only to Neon's own endpoints**, so "any Postgres" and "no new dependency" were in genuine conflict — `BUILD_PLAN.md` flagged it as a decision to take rather than assume. Writing the wire protocol by hand was considered and rejected: D32's "one file of wire-format knowledge" works for JSON over `fetch`, and does not scale to SCRAM-SHA-256 over a raw TLS socket, which is security-critical code nobody should hand-roll to avoid one dependency. Between the two real candidates the measurement decided it: **`postgres@3.4.9` adds one lockfile entry and zero transitive dependencies and ships its own types; `pg@8.23.1` adds six packages plus `@types/pg`.** This project's dependency posture has always been about package *count* — no AI SDK (D32), Cloud Tasks by `fetch` (A4), no exporter (A20), no Radix (A16) — so one package beat seven. Counted against it honestly: postgres.js is essentially a single-maintainer project, where node-postgres is not |
+| A25 | **A read-only transaction, not a session parameter, is what makes the Postgres node read-only** | Binding at Phase 23C | **Measured against the real endpoint on 2026-10-01**: setting `default_transaction_read_only` as a startup parameter connected cleanly and then *allowed a `CREATE TABLE`*, because a PgBouncer-style pooler silently drops startup GUCs it does not know — which would have shipped a node that claimed read-only and was not. `BEGIN READ ONLY` answers `25006` on the pooled and the direct endpoint alike. The node therefore has three independent barriers: no statement but `select` exists to build, the transaction, and the grants on the user's own role — and the documentation points at the third, because it is the only one this product cannot weaken |
 
 ---
 

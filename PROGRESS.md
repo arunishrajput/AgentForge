@@ -14,12 +14,12 @@ Phases 0–12 built and shipped a hackathon MVP. It was submitted on 2026-09-26
 (<https://www.youtube.com/watch?v=Suc4RV9LnLs>), and that chapter is done and not reopened.
 
 **Chapter 2 turns the MVP into a real, professional, open-source product.** Thirteen phases,
-13 → 25, defined in `BUILD_PLAN.md`. **Phases 13–22 are done, and 23A and 23B with them** (19 was
-split into 19A and 19B; **23 is split into 23A, 23B and 23C** — see *Current Phase*).
-**Phase 23C is next.**
+13 → 25, defined in `BUILD_PLAN.md`. **Phases 13–22 are done, plus 23A and 23C** (19 was split
+into 19A and 19B; **23 is split into 23A, 23B, 23C and 23D** — see *Current Phase*).
+**23B is built and deployed but BLOCKED on M10. Phase 23D is next, and it needs a key.**
 
 **The live system still works and must keep working:**
-**https://agentforge-733000675212.asia-southeast1.run.app** — revision `agentforge-00053-hn6`.
+**https://agentforge-733000675212.asia-southeast1.run.app** — revision `agentforge-00057-8jx`.
 
 ### Four binding decisions, made 2026-09-26
 
@@ -54,84 +54,84 @@ ceiling costing something looks like, and `SECURITY.md` states the protection gi
 
 ## Current Phase
 
-## ▶ PHASE 23B — BLOCKED ON M10. Then PHASE 23C.
+## ▶ PHASE 23C — COMPLETE. Next: PHASE 23D (needs a key). 23B still BLOCKED on M10.
 
-**Phase 23B is built, deployed and verified as far as it can be without the user**, on
-`agentforge-00053-hn6`. It is **not complete**, and the distinction matters: the phase's own
-completion bar is *"proven against real services, not mocks"*, and four of those proofs need an
-account only the user can create. See **M10** in *Manual Actions Pending* — it is one block listing
-all four credentials, and the resume path is one command.
+**Phase 23C shipped the Postgres node, deployed on `agentforge-00057-8jx`, and it is complete by
+its own bar**: *"proven against a real server, not mocks"*. `scripts/verify-postgres.mjs` reports
+**65 passed, 0 failed, 0 skipped** — and zero skipped is the number that matters, because this is
+the first Chapter 2 integration phase that needed nothing from the user.
 
-**What is proved, on the deployed service:** 39 checks in `verify-integrations.mjs`, 404 in
-`verify-api.mjs`, 45 in `verify-templates.mjs`, `verify-vault.mjs` all-pass, and 898 unit tests with
-coverage above all three thresholds. A **real browser** at 1440 and 375 px drove all four settings
-cards, and submitting a deliberately fake Slack webhook went **all the way to api.slack.com**, which
-answered `no_team`; the classification table turned that into "Slack could not identify the
-workspace for that webhook" on screen, and nothing was stored. That is a real-service proof of
-Slack's *failure* path. What is missing is the *success* path, four times.
+**That is also why 23C was split from 23D, and the split is the headline.** 23C as written held
+two deliverables. The Postgres node needs no account anybody has to create — *this project already
+owns a Postgres server*, and a read-only role inside it is four statements of SQL. The second
+provider needs an API key from a provider the user must sign up to. Shipping them together would
+have put a finished, fully proven node inside a phase marked `BLOCKED`, which is precisely what the
+23A/23B split exists to prevent, with 23B already waiting on M10. See `BUILD_PLAN.md` →
+*Phase 23C/23D, the third split*, which also records what the split **cost**: 23D's credential-kind
+migration touches `tokens.ts` and `rotation.ts`, which 23C had open.
 
-**What 23B leaves you:**
+### What 23C leaves you
 
-- **The registry is 29 nodes.** `integration.slack`, `.notion`, `.github`, `.airtable`, all four
-  agent-callable. The D19 argument is the same each time and it is worth knowing in one line:
-  **the destination is fixed by the credential the user created, not chosen by the model** — a
-  Slack webhook cannot be re-pointed, a Notion integration sees only pages a human connected, and a
-  fine-grained GitHub or Airtable token reaches only what it was minted against
-- **`src/lib/integrations/tokens.ts` is the table a fifth integration is one row in.**
-  `ROTATION_RULES`, the `/api/integrations/[service]` route and the settings cards are all *derived*
-  from it. Phase 9's comment promised "a node file and nothing else" and was only true of the node;
-  this is what makes it true of the rest. **Membership is a criterion**: a bearer secret the user can
-  paste, which one HTTPS request can prove. Discord and Google are deliberately outside it
-- **Two fields, `secretLabel` and `secretNoun`**, because the first version derived the second with
-  `.toLowerCase()` and shipped "Slack incoming webhook url" into the vault
-- **The four services' API shapes were read, not recalled**, and two of them would have been wrong
-  from memory: Slack **cannot** override a webhook's channel *or username* (so the node has no
-  `username` field, unlike Discord's), and Notion's `2025-09-03` version **refuses**
-  `parent: { database_id }` — a data source has to be resolved first, which costs one extra GET per
-  database write and is why the user can still paste the id they can actually see
+- **The registry is 30 nodes.** `integration.postgres` — agent-callable, and it had to earn that
+  the same way the others did. The model picks a table; the **server, database and privileges are
+  fixed by the connection string the user stored**. It is `integration.airtable`-with-a-read-only-
+  token, with two barriers Airtable cannot offer
+- **Read-only is true three independent ways**, and only two of them are this product's: there is
+  **no SQL field** (the statement is assembled from enumerated parts — Phase 23A's *no expression
+  language, ever*), every query runs inside **`BEGIN READ ONLY`**, and the role in the user's own
+  connection string grants what it grants. The settings card points at the third, because it is
+  the only one AgentForge cannot weaken
+- **The token registry took a fifth row and nothing else was written for it.** No route, no
+  settings card, no rotation rule, no vault entry, no `CREDENTIAL_KINDS` edit — all five derive
+  from `src/lib/integrations/tokens.ts`. `tokens.test.ts` now asserts that claim directly. This is
+  the clearest evidence yet that 23B's table was the right shape
+- **`scripts/setup-demo-db.mjs`** creates the verification target — free, inside the Neon project
+  this product already uses, as a **separate database** with a **`SELECT`-only role**
 
-**Three defects were found, and two were mine.**
+### Three measurements worth carrying forward
 
-1. **`normaliseId` ate the end of any Notion id whose page title ended in hex letters.** It stripped
-   every `-` before matching 32 hex characters, so `…/Cafe-1f2e…` started the window at the `e` of
-   "Cafe" and dropped the id's last digit — producing a **well-formed id for a page that does not
-   exist**, and a 404 that reads like a permissions problem. "Cafe", "Decade", "Facade", "Deadbeef"
-   all trigger it. Fixed by splitting the slug off structurally instead of by pattern
-2. **`rotationRule` resolved inherited properties** — a pre-existing hole from Phase 21, not this
-   phase's. `POST /api/credentials/toString/rotate` found `Object.prototype.toString`, walked past
-   the route's own 404 and answered **500 where 404 belonged**. It failed closed and wrote nothing,
-   which is why it survived unnoticed; it surfaced only because Phase 23B builds that table with a
-   spread, which changed the wrong answer's *shape*. Fixed with `Object.hasOwn`
-3. **Two standing tests used `integration.slack` as their example of "a type that does not exist".**
-   Both passed for six phases and then, the moment the node was registered, asserted the opposite of
-   their own names. Replaced with an identifier nobody would build
+1. **A startup GUC does not make a connection read-only, and fails silently.** Setting
+   `default_transaction_read_only` as a startup parameter connected cleanly to the real endpoint
+   and then **allowed a `CREATE TABLE`** — a PgBouncer-style pooler drops startup parameters it
+   does not know and says nothing. That would have shipped a node *claiming* read-only that was
+   not. `BEGIN READ ONLY` answers `25006` on pooled and direct endpoints alike (`ARCHITECTURE.md`
+   → A25)
+2. **`postgres` sends string parameters untyped**, so `col > $1` compares using the **column's own
+   type** — measured working on integer, date and text columns. That is why `greater_than` and
+   `less_than` are more capable here than their in-process counterparts, which coerce to number
+3. **The analytics page and a hand-recomputation can disagree by 1 ms and both be right.** A run
+   of 94569.014 ms: the page computes `finishedAt.getTime() - startedAt.getTime()` and a JS `Date`
+   holds whole milliseconds, so each endpoint truncates independently → 94570; `round(extract(epoch
+   …))` of the exact interval → 94569. The **verifier** was wrong, not the product
 
-**One measurement worth carrying forward: the generation prompt is at 23,685 characters for 29
-nodes — ~817 each.** The ceiling was 24,000, sized in 23A for 25 nodes, leaving 315 characters. The
-rendering was examined and there is no fat that is free, so the ceiling was re-based to 26,000 and
-the test now also asserts a **per-node average**, which is the property a person can act on. **When
-that fails again the answer is to stop sending the whole catalogue on every call** — that is a
-design change and deserves its own phase, not whichever phase trips the ceiling.
+### Three defects were found, and only one was this phase's
 
----
+1. **A 375 px horizontal overflow, and it is Phase 23B's.** The delete button carries a whole
+   sentence against `.btn`'s `white-space: nowrap`: 433 px inside a 375 px viewport, pushing the
+   entire page into horizontal scroll. **Nothing caught it in 23B because the button only renders
+   for a *connected* credential, and M10 means none of 23B's four has ever been connected** — that
+   phase's browser pass saw four empty cards with no delete button at all. Fixed locally
+   (`whitespace-normal`), not in `@utility btn`: every other button is a verb that should stay on
+   one line
+2. **`verify-observability.mjs` had been red since Phase 23A** on a registry count pinned at `15`
+   in Phase 22. Phases 23A and 23B both raised the registry and neither re-ran this suite. **The
+   count now lives in four scripts and they must move together.** This is the real lesson: a
+   verification suite that is not part of the per-phase routine rots silently
+3. **A guard refusal reached the credential route as a 500.** `parseConnectionString` throws
+   `HttpTargetError`, which `integrationApiError` did not map — so a `.internal` host pasted into
+   the settings card would have read "Something went wrong". New surface rather than a regression:
+   until now the guard only ran inside `integration.http`, where `asNodeError` already handled it
 
-## Then: PHASE 23C — the database node and the second provider
+### Then: PHASE 23D — the second LLM provider
 
-Full definition in `BUILD_PLAN.md`. Both are **new mechanisms behind an existing seam**, which is
-why they are not in 23B — see *Phase 23B/23C, the second split*.
+Full definition in `BUILD_PLAN.md`. **It needs a Groq API key (<https://console.groq.com/keys>) —
+flagged alongside M10 so both sittings can be one.** Two things to decide deliberately rather than
+drift into:
 
-Two things to decide deliberately rather than drift into:
-
-- **The database node needs a dependency decision.** The installed `@neondatabase/serverless` speaks
-  only to Neon hosts, so "any Postgres" and "no new dependency" are in genuine conflict. Read
-  `ARCHITECTURE.md` before answering, and note that `guard.ts` is written for URLs — a connection
-  string needs its address classification reached a different way
-- **`LLM_CREDENTIAL_KIND` is the literal `"llm.google"`.** A second provider makes "which provider"
-  a stored fact, so migrating existing rows is part of the work, not a follow-up
-
-It needs a Groq (or other) API key and a Postgres connection string — flagged to the user alongside
-M10 so both sittings can be one.
-
+- **`LLM_CREDENTIAL_KIND` is the literal `"llm.google"`.** Migrating existing rows is part of the
+  work, not a follow-up: a workspace with a working Gemini key must not lose it
+- **`FALLBACK_MODELS` and the circuit breaker are one global chain today.** With two providers
+  they have to become per-provider facts, or a Groq outage will reorder Gemini's chain
 
 ## Completed Phases
 
@@ -168,7 +168,8 @@ M10 so both sittings can be one.
 | **22** — observability and run analytics | **COMPLETE** — `verify-observability.mjs` ALL CHECKS PASSED against the deployed URL, including every analytics figure recomputed independently from SQL and an induced failure traced end to end **through Cloud Logging with the database never opened**; four log-based metrics created and all four confirmed collecting real points; the model-fallback metric caught a live degradation within minutes of existing; driven in a real browser at 1440 / 1024 / 375 px with zero console errors, 2026-09-30 |
 | **23A** — transform, control flow, templates, node docs | **COMPLETE** — registry 15 → 25, six templates, per-node docs in the inspector. `verify-templates.mjs` **37 checks ALL PASSED** against the deployed URL, including the template's arithmetic recomputed exactly and `transform.date` proved to have full ICU time-zone data in the container; the gallery, a clone, a canvas run and the docs disclosure driven in a real browser, and the header measured clean at **ten widths from 375 to 1920 px** after two regressions were found there, 2026-09-30 |
 | **23B** — SaaS integrations: Slack, Notion, GitHub, Airtable | **BLOCKED — WAITING FOR MANUAL ACTION (M10).** Everything is built, deployed and verified *except the one thing the phase is judged on*: its completion bar is "proven against real services, not mocks", and four success paths need credentials only the user can create. Built and proved: registry 25 → 29, four credential kinds derived from one table, four templates, `verify-integrations.mjs` **39 passed / 0 failed / 4 skipped**, `verify-api.mjs` **404/404**, `verify-templates.mjs` **45/45**, `verify-vault.mjs` all-pass, four settings cards driven in a browser at 1440 and 375 px, and a bad Slack webhook driven end to end to **real Slack**. 2026-10-01 |
-| **23C** — the database node and the second provider | **NOT STARTED ← next** |
+| **23C** — the Postgres node | **COMPLETE** — registry 29 → 30, read-only by construction. `verify-postgres.mjs` **65 passed / 0 failed / 0 skipped** against the deployed URL, including a real table read from inside the container, all seven shared operators executed by Postgres, and a write proved refused **three ways**. Driven in a real browser: the settings card, its refusal path, a template clone, the inspector's docs and a full four-node run whose total was hand-checked, at 320 / 375 / 768 / 1920 px with zero console errors. 2026-10-01 |
+| **23D** — the second LLM provider | **NOT STARTED ← next.** Needs a Groq API key — see M11 |
 | **24** — documentation and open-source readiness | NOT STARTED |
 | **25** — launch polish | NOT STARTED |
 
@@ -182,17 +183,17 @@ M10 so both sittings can be one.
 | **Canonical URL** | **`https://agentforge-733000675212.asia-southeast1.run.app`** |
 | Legacy URL | `https://agentforge-i5d2u66boa-as.a.run.app` — works, do not publish it |
 | Service | `agentforge` on Cloud Run, `asia-southeast1` |
-| Revision | **`agentforge-00053-hn6`** — ready, **`latestRevision: True`**, 100% of traffic (Phase 23B). **Phase 23B took TWO deploys and only one of them was the feature**: `-00052-8xs` shipped it and passed every check, and `-00053-hn6` redeployed the tree after a whitespace-only correction, the same closing move Phase 23A made. **The running image is built from the committed source**; two test files changed afterwards, when GitHub's push protection refused a realistic-looking Slack fixture, and they are deliberately *not* a third deploy — `next build` does not include `*.test.ts`, so the artifact is byte-for-byte what the commit produces and a redeploy would change nothing. No defect reached the deployed service: both were found by the unit suite the moment the test was written. Previous good revisions: `agentforge-00051-252` (23A), `agentforge-00047-w65` (22), `agentforge-00046-w7b`, `agentforge-00045-jj4`, `agentforge-00044-zmx` (21), `agentforge-00043-nn2`, `agentforge-00042-5zx` (20), `agentforge-00041-75x` (19B). Earlier: `agentforge-00037-k7x` (19A), `agentforge-00035-vfd` (18), `agentforge-00034-54v` (17), `agentforge-00030-gv2` (16). **`00032` and `00033` were deliberately deleted** during Phase 17's verification, testing whether deleting a serving revision kills its in-flight request — it does not. Rollback was tested against `agentforge-00020-rcr` |
+| Revision | **`agentforge-00057-8jx`** — ready, **`latestRevision: True`**, 100% of traffic (Phase 23C). **Phase 23C took four deploys and each earned it**: `-00054-8zw` shipped the Postgres node and passed all 65 deployed checks; `-00055-htp` fixed a 375 px horizontal overflow that a real browser found *afterwards* — CLAUDE.md's first hardened lesson arriving again, because 65 green deployed checks said nothing about a viewport; `-00056-rkn` shipped an error-message fix that writing a test for the error mapping surfaced, where a non-Error throw reached a failed step as `[object Object].`; and `-00057-8jx` rebuilt the tree after two import reorders, the same closing move 23A and 23B made, so **the running image is built from the committed source** rather than nearly so Previous good revisions: `agentforge-00056-rkn`, `agentforge-00055-htp`, `agentforge-00054-8zw` (this phase), `agentforge-00053-hn6` (23B), `agentforge-00051-252` (23A), `agentforge-00047-w65` (22), `agentforge-00046-w7b`, `agentforge-00045-jj4`, `agentforge-00044-zmx` (21), `agentforge-00043-nn2`, `agentforge-00042-5zx` (20), `agentforge-00041-75x` (19B). Earlier: `agentforge-00037-k7x` (19A), `agentforge-00035-vfd` (18), `agentforge-00034-54v` (17), `agentforge-00030-gv2` (16). **`00032` and `00033` were deliberately deleted** during Phase 17's verification, testing whether deleting a serving revision kills its in-flight request — it does not. Rollback was tested against `agentforge-00020-rcr` |
 | Scaling | `min-instances 1`, `max-instances 3`, 1 vCPU / 1 GiB, 3600 s timeout, port 8080 |
 | Env vars set | `NODE_ENV` `AUTH_URL` `APP_BASE_URL` `DATABASE_URL` `AUTH_SECRET` `GOOGLE_CLIENT_ID` `GOOGLE_CLIENT_SECRET` `ENCRYPTION_KEY` `CRON_SECRET` `TASKS_QUEUE` `TASKS_LOCATION` **`ROOT_KEY_SECRET`** — **12 now. Phase 21 added the last one**, naming the Secret Manager secret that holds the root key. Unset it and the service silently falls back to `ENCRYPTION_KEY` as the root key, which is the Chapter 1 problem back without the Chapter 1 warning — hence `rootKey.provider` on `/api/health`. **`GCP_ACCESS_TOKEN` and `GCP_PROJECT` are script-only and must never be set here**: they exist so `scripts/rekey.mjs` can reach Secret Manager from a machine with no metadata server, and an access token in a service env var is a long-lived credential in a place that survives restarts. Phase 20 added none (a share link is built from `APP_BASE_URL`); Phase 19B added none (an invitation link likewise, and there is no mail provider); **Phase 17 added `TASKS_QUEUE` and `TASKS_LOCATION`** — `TASKS_PROJECT` is deliberately unset, because the project comes from the metadata server, which cannot be wrong the way a copied variable can. All were added with `--update-env-vars`, which **merges**, rather than `--env-vars-file`, which replaces the whole set. No Gemini key on the service: the product path is the user's own key |
-| Database | Neon `super-mountain-39872886` — **13 tables**, migrations `0000`–`0009` applied, ~10 MB of 0.5 GB. **Phase 23B added no migration, no table and no column**, and that is the `credentials` table's design working as intended: a new credential kind is a new `kind` string in the existing row shape, sealed by the existing envelope and rotated by the existing route. Phases 23A and 22 added none either. See `DEPLOYMENT.md` for `0009` (the vault, and the only rollback in this project that can destroy data), `0008` (sharing), `0007` (invitations), `0005`/`0006` (workspaces, deliberately in two halves), `0004` (versioning) |
-| Routes | `/` `/dashboard`→`/workflows` `/workflows` `/workflows/[id]` `/templates` `/analytics` `/settings` `/design` `/invite/[token]` `/s/[token]` + **40** API routes. **Phase 23B added exactly one**: the dynamic `/api/integrations/[service]`, serving connect, read and revoke for all four new credentials rather than twelve handlers across four files. **A static segment beats a dynamic one**, so `/api/integrations/discord` still reaches its own file — asserted over HTTP by `verify-integrations.mjs`, because that is documented for the Pages router and merely conventional for the App one. A slug the registry does not hold is a 404, and so is `__proto__`. **No new unauthenticated surface**: still exactly four. Phase 23A added `/templates` and two API routes; Phase 22 added `GET /api/analytics` and `/analytics`; Phase 21 added four routes and the Vault tab; Phase 20 added two routes, one method and `/s/[token]`; Phase 19B added nine routes and the accept page; Phase 18 added four under `/api/workflows/[id]/versions`; Phase 14 added `/design`, public and prerendered |
+| Database | Neon `super-mountain-39872886` — **13 tables**, migrations `0000`–`0009` applied, ~10 MB of 0.5 GB. **Phase 23C added no migration, no table and no column**, same as 23A, 23B and 22 — a connection-string credential is a new `kind` string in the existing `credentials` row shape, sealed by the existing envelope and rotated by the existing route. It *did* add a **second database inside the same Neon project**, `agentforge_demo`, with a `SELECT`-only role `agentforge_demo_reader`: verification scaffolding rather than product data, costing nothing (same compute endpoint, one five-row table), created by the idempotent `scripts/setup-demo-db.mjs`. A separate database rather than a schema, so the application's own 13 tables are unreachable from that credential at all. See `DEPLOYMENT.md` for `0009` (the vault, and the only rollback in this project that can destroy data), `0008` (sharing), `0007` (invitations), `0005`/`0006` (workspaces, deliberately in two halves), `0004` (versioning) |
+| Routes | `/` `/dashboard`→`/workflows` `/workflows` `/workflows/[id]` `/templates` `/analytics` `/settings` `/design` `/invite/[token]` `/s/[token]` + **40** API routes. **Phase 23C added none** — `/api/integrations/postgres` is served by the dynamic `/api/integrations/[service]` route Phase 23B added, which is the point of having built it that way. **No new unauthenticated surface**: still exactly four. Phase 23B added exactly one route, the dynamic one, serving connect, read and revoke for every token credential rather than three handlers apiece; **a static segment beats a dynamic one**, so `/api/integrations/discord` still reaches its own file, asserted over HTTP by `verify-integrations.mjs` because that is documented for the Pages router and merely conventional for the App one. A slug the registry does not hold is a 404, and so is `__proto__`. Phase 23A added `/templates` and two API routes; Phase 22 added `GET /api/analytics` and `/analytics`; Phase 21 added four routes and the Vault tab; Phase 20 added two routes, one method and `/s/[token]`; Phase 19B added nine routes and the accept page; Phase 18 added four under `/api/workflows/[id]/versions`; Phase 14 added `/design`, public and prerendered |
 | Latency | **Warm**: health ~190 ms India → Singapore, database 7–11 ms. A 6-node demo-path run **4.2–7.5 s** end to end across five consecutive walks (Phase 13; it was 3.1–4.8 s in Chapter 1 when the model answered first time, and **94.5 s** when it did not — that second case is what Phase 13 removed). Generation 2.7–3.5 s. **Cold (Neon suspended)**: health **1.14 s, of which 739 ms is the database wake** — re-measured 2026-09-26 at 917 ms for a first query, 103 ms on the next. Cloud Run itself is never cold at `min-instances 1` | **Analytics, Phase 22: 21–27 ms of database time per page view** on 46 runs and ~200 steps, three statements, measured on the deployed service. The page is server-rendered and does not poll |
-| Last verified | **2026-10-01, after Phase 23B.** On **`agentforge-00053-hn6`**: `verify-integrations.mjs` **39 passed, 0 failed, 4 skipped** — the deployed registry serving 29 nodes with `docs` over the wire, all four new nodes agent-callable and declaring an output shape and none carrying a `model` field, `/api/integrations/discord` proved still to beat the new dynamic route, `__proto__`/`toString`/`constructor` all 404, every status response proved to carry no part of a secret, a Slack webhook on another host refused before storage, all four new templates cloning and validating, and **a real model call generating a graph that reached for `integration.slack`**. `verify-api.mjs` **404 passed, 0 failed, 4 skipped**; `verify-templates.mjs` **45/45**; `verify-vault.mjs` all-pass after the rotation table changed. Local: **898 tests**, coverage **87.91 / 90.68 / 79.39**, all three thresholds cleared without moving them. In a **real browser** at 1440 and 375 px: all four settings cards, zero horizontal overflow and zero elements past the viewport at 375 px, and a deliberately fake Slack webhook submitted through the card's own form — the deployed app reached **api.slack.com**, Slack answered `no_team`, the right sentence reached the screen, nothing was stored. **The four success paths are NOT verified: that is M10** |
+| Last verified | **2026-10-01, after Phase 23C.** On **`agentforge-00057-8jx`**: `verify-postgres.mjs` **65 passed, 0 failed, 0 skipped** — and zero skipped is the number that matters, because this is the first Chapter 2 integration phase needing nothing from the user. It proves a real table read from inside the container, every one of the seven shared operators executed by Postgres against hand-counted expectations, a `date` column arriving as an ISO string rather than a `Date`, **a write refused three ways** (a `double quote` refusal before the statement is built, `25006` from `BEGIN READ ONLY`, `42501` from the role's grants) with the table read back intact afterwards, the credential rotated in place and sealed under root-key version `sm:1`, the public share link withholding the schema, table, columns and filter values, and **a real model call generating a graph that reached for the Postgres node**. Also all-pass on the same revision: `verify-api.mjs` (4 skipped), `verify-templates.mjs` **47/47**, `verify-integrations.mjs` **39 passed / 4 skipped** (M10), `verify-vault.mjs`, `verify-durable.mjs`, `verify-observability.mjs`. Local: **936 tests**, coverage **87.69 / 91.07 / 79.17**, all three thresholds cleared without moving them. In a **real browser**: the settings card and its refusal path, a template clone, the inspector's docs disclosure, and a full four-node run totalling **20216130** — hand-checked against the five seeded rows — with zero console errors and **zero horizontal overflow at 320 / 375 / 768 / 1920 px**, after one overflow was found there and fixed. **The four Phase 23B success paths are still NOT verified: that is M10** |
 | Rollback | **TESTED 2026-09-26, finally.** Traffic shifted to `agentforge-00020-rcr` in **~15 s**, health confirmed the older revision was serving, the demo path walked clean on it, then `--to-latest` restored `agentforge-00021-v4s` in ~15 s. The oldest open item in this file is closed |
 | Billing | Trial credit account `Billing - AgentForge` is **open and enabled**. Actual spend is **not queryable from the CLI** (no billing export configured) — **eyeball it in the console once before judging** |
 | Provider key stored | **Yes**, and the model was **rotated in Phase 13** from `gemini-3.5-flash-lite` to **`gemini-3-flash-preview`** — the only model healthy on both the text and tool-calling paths in all three probe passes. Confirmed persisted in Neon. Re-probe with `npm run probe:models` |
-| Registry | **29 nodes** — Phase 23B added `integration.slack`, `.notion`, `.github` and `.airtable` to Phase 23A's 25, all four agent-callable, each bounded by the credential the user created rather than by a check here. A node type owes **five** things: an entry in `PUBLISHABLE` (Phase 20), an entry in `ROTATION_RULES` if it carries a credential kind (Phase 21), an output field named `model` **only** if it really is a model call (Phase 22, which counts them by reading the step's JSONB), a generator catalogue entry (automatic, from `describeNodes()`), and `docs` to explain itself in the inspector (Phase 23A). `src/lib/nodes/registry.test.ts` asserts all five. **Phase 23B made the second one impossible to forget rather than merely tested**: `ROTATION_RULES` spreads `src/lib/integrations/tokens.ts`, so the row that defines a credential defines its rotation. **29 nodes cost 23,685 characters of generation prompt, ~817 each** — see *Current Phase* |
+| Registry | **30 nodes** — Phase 23C added `integration.postgres` to 23B's 29, agent-callable, bounded by the connection string the user stored rather than by a check here. A node type owes **five** things: an entry in `PUBLISHABLE` (Phase 20), an entry in `ROTATION_RULES` if it carries a credential kind (Phase 21), an output field named `model` **only** if it really is a model call (Phase 22, which counts them by reading the step's JSONB), a generator catalogue entry (automatic, from `describeNodes()`), and `docs` to explain itself in the inspector (Phase 23A). `src/lib/nodes/registry.test.ts` asserts all five. **Phase 23B made the second impossible to forget rather than merely tested** — `ROTATION_RULES` spreads `src/lib/integrations/tokens.ts` — and **Phase 23C proved that claim by adding a credential kind and writing no rotation code at all**. **30 nodes cost 24,876 characters of generation prompt, 829 each**, against the 26,000 ceiling re-based in 23B: **1,124 characters of headroom, which is one more node.** When it fails, the answer is to stop sending the whole catalogue on every call — a design change deserving its own phase, not whichever phase trips the ceiling |
 | Fonts | **Geist + Geist Mono, self-hosted by `next/font`**, `latin` subset, variable axis. Two woff2 files in the image; no request leaves the browser for a font and there is no layout shift |
 
 **A redeploy preserves env vars.** Confirmed again on Phase 6's three deploys: `gcloud run deploy
@@ -423,8 +424,43 @@ Carried risks, recorded so they are not rediscovered:
 
 ## Manual Actions Pending
 
-**Two outstanding: M10 (blocking) and M9 (blocking nothing).** M1–M8 are all done and verified with
-live calls.
+**Three outstanding: M10 and M11 (both blocking), and M9 (blocking nothing).** M1–M8 are all done
+and verified with live calls. **M10 and M11 are one sitting** — do them together.
+
+### M11 — a second LLM provider's API key — **OPEN, and it is what blocks Phase 23D**
+
+**Why.** Phase 23D puts a second provider behind the `LanguageModel` adapter so "which provider" is
+a stored fact rather than the literal `"llm.google"`. Its completion bar is a **real call and a real
+tool call** — the second being the one that matters, because Phase 13 found a model that answered
+prose in 1.4 s and hung on tool calls. Neither can be faked, and no engineering produces an API key
+for a service that requires signing up.
+
+**Do not paste it into the chat.** It goes in the local `.env`, which is gitignored.
+
+**Location and steps.**
+
+1. Go to <https://console.groq.com/keys> and sign in (GitHub or Google works).
+2. *Create API Key*, name it `agentforge`, copy it. It is shown **once**.
+
+Groq is the intended provider because its free tier needs no card and it serves open models with
+real tool-calling. Any OpenAI-compatible provider would do; say so if you would rather use another,
+because it changes which adapter gets written.
+
+**Values to enter** — append to `.env`:
+
+```bash
+GROQ_API_KEY=gsk_...
+```
+
+**Expected result.** One line in `.env`.
+
+**Verification.** Phase 23D writes `scripts/probe-models.mjs` support for the second provider and
+runs it; the next session verifies rather than assumes.
+
+**Resume by:** saying "the Groq key is in .env".
+
+---
+
 
 ### M10 — four integration credentials — **OPEN, and it is what blocks Phase 23B**
 
@@ -481,9 +517,12 @@ APP_BASE_URL="https://agentforge-733000675212.asia-southeast1.run.app" \
 
 It will leave a Slack message, a Notion page and a GitHub issue behind on purpose, and name them.
 
-**Resume by:** saying "credentials are in .env". **Phase 23C also wants a Groq API key
-(<https://console.groq.com/keys>) and any Postgres connection string** — worth doing in the same
-sitting, though 23B does not need them.
+**Resume by:** saying "credentials are in .env".
+
+**Phase 23C no longer needs anything from you** — it shipped on 2026-10-01. The Postgres connection
+string this block used to ask for turned out to be unnecessary: `scripts/setup-demo-db.mjs` creates
+a read-only database inside the Neon project this product already owns, for free. **The Groq key is
+still wanted, and is now M11 above.**
 
 ---
 
@@ -783,6 +822,41 @@ only proof it ran.
 
 **Re-run it after touching `lib/integrations/` or the node registry.**
 
+**The Postgres node, against a real server** — added in Phase 23C:
+
+```bash
+node --env-file=.env scripts/verify-postgres.mjs \
+  "https://agentforge-733000675212.asia-southeast1.run.app"
+```
+
+**All 65 checks pass and none skip**, because this is the one integration whose real service this
+project already owns. It needs `DEMO_DATABASE_URL` in `.env`; if that is ever lost, recreate it:
+
+```bash
+DATABASE_URL_UNPOOLED="<from .env>" DEMO_DB_PASSWORD="<24+ chars>" \
+  node scripts/setup-demo-db.mjs
+```
+
+The script is idempotent — it resets the role's password and re-seeds the five rows — and it
+provisions nothing: `agentforge_demo` is a second database on the Neon compute endpoint this product
+already runs, and `agentforge_demo_reader` is granted `SELECT` on one table and nothing else.
+
+**It proves a write is impossible three separate ways**, which is the claim the whole node rests on:
+no statement but `select` can be built, `BEGIN READ ONLY` answers `25006`, and the role's grants
+answer `42501`. It then reads the table back to prove it is intact. **Re-run it after touching
+`lib/integrations/postgres.ts`, `guard.ts` or the node registry.**
+
+**This suite takes the base URL either way** — as an argument *or* as `APP_BASE_URL` — because this
+repository has both conventions and the mismatch costs a confusing `ECONNREFUSED` against a
+localhost nobody is running. `verify-api.mjs`, `verify-vault.mjs` and `verify-observability.mjs`
+take an **argument**; `verify-integrations.mjs` and `verify-durable.mjs` read **`APP_BASE_URL`**.
+
+**The registry count is pinned in four scripts and they must move together** —
+`verify-api.mjs`, `verify-templates.mjs`, `verify-integrations.mjs` and `verify-observability.mjs`.
+Phase 23C found the last of those still pinned at **15**, which Phase 22 wrote and Phases 23A and
+23B both walked past: that suite is not part of the per-phase routine, so its failure was invisible
+for two phases. **Run every suite at the end of a phase, not just the ones the phase touched.**
+
 `npm run check` is what CI runs, so a green local run means a green pipeline. `probe:models` needs a
 key: `GEMINI_API_KEY=$(gcloud services api-keys get-key-string <key> --format='value(keyString)')` —
 the resource path is in the script's own header.
@@ -943,6 +1017,46 @@ still documents a path known to work end to end, which is a useful smoke referen
 ---
 
 ## Recent Changes
+
+**2026-10-01 — Phase 23C COMPLETE: the Postgres node, read-only by construction**
+
+- **The registry is 30 nodes.** `integration.postgres` reads rows or counts them and **cannot
+  write**. Agent-callable on the same D19 argument as the others: the server, the database and the
+  privileges are fixed by the connection string the user stored, and the model picks a table inside
+  them
+- **Read-only is true three independent ways, and only two of them are ours.** There is **no SQL
+  field** — the statement is assembled from enumerated parts, which is Phase 23A's *no expression
+  language, ever* applied to the one node where SQL would have been the obvious design. Every query
+  runs inside **`BEGIN READ ONLY`**. And the role in the user's own connection string grants what it
+  grants — the settings card points at that one, because it is the only barrier AgentForge cannot
+  weaken
+- **One new runtime dependency, the first since Phase 4, and it was forced.**
+  `@neondatabase/serverless` speaks only to Neon hosts, so "any Postgres" and "no new dependency"
+  were in genuine conflict. `postgres@3.4.9` won on the measurement this project's dependency
+  posture has always cared about: **one lockfile entry and zero transitive dependencies**, against
+  `pg`'s six plus `@types/pg`. Hand-writing the wire protocol was considered and rejected — D32's
+  "one file of wire-format knowledge" works for JSON over `fetch` and does not scale to
+  SCRAM-SHA-256 over a raw TLS socket (`ARCHITECTURE.md` → A24)
+- **The token registry took a fifth row and nothing else was written.** No route, no settings card,
+  no rotation rule, no vault entry, no `CREDENTIAL_KINDS` edit. `tokens.test.ts` now asserts that
+  claim in so many words. Its membership criterion widened by one word — "one HTTPS request can
+  prove" became "one round trip can prove" — because nothing in the table's shape was ever about
+  the transport
+- **The node is named for the server it speaks to.** `integration.database` was the first name and
+  it promised generality this node does not have; the credential registry's own test caught it,
+  because every kind there matches `integration.<service>`. One service, one node, one credential
+  kind
+- **A 375 px horizontal overflow was found in a real browser, and it was Phase 23B's.** The delete
+  button carries a whole sentence against `.btn`'s `white-space: nowrap` — 433 px in a 375 px
+  viewport. **It was invisible in 23B because that button only renders for a *connected* credential,
+  and M10 means none of 23B's four has ever been connected.** Sixty-five green deployed checks said
+  nothing about it
+- **`verify-observability.mjs` had been red since Phase 23A**, on a registry count Phase 22 pinned
+  at 15. Two phases raised the registry and neither re-ran that suite. The count lives in four
+  scripts now and they must move together
+- **Measured, not recalled:** a startup `default_transaction_read_only` connected cleanly to the
+  real endpoint and then allowed a `CREATE TABLE` — poolers drop unknown startup GUCs silently, so
+  that design would have shipped a node *claiming* read-only that was not
 
 **2026-10-01 — Phase 23B built, deployed and verified except its four real-service proofs. BLOCKED
 on M10**
@@ -1138,6 +1252,27 @@ diary** — keeping six months of "what happened when" here makes the part that 
 find, which is the failure mode it is meant to prevent.
 
 ## Last Updated
+
+**2026-10-01** — **Phase 23C COMPLETE.** Revision `agentforge-00057-8jx` live, `/api/health` green
+across all five dependency checks and reporting `registry: 30`. **No migration**, no table, no
+column, no new API route, no new environment variable on the service, no new unauthenticated
+surface. One new runtime dependency — `postgres@3.4.9`, one lockfile entry, zero transitive.
+
+**The registry went 29 → 30**: `integration.postgres`, read-only by construction. The deployed proof
+is `scripts/verify-postgres.mjs` — **65 passed, 0 failed, 0 skipped**, and the zero is the point:
+this is the first Chapter 2 integration phase that needed nothing from the user, because the real
+service it proves against is a Neon database this project already owns.
+
+**936 unit tests** (+38), coverage 87.69 / 91.07 / 79.17 with **no threshold moved**. Deployed, all
+on the same revision: `verify-postgres.mjs` 65/65, `verify-templates.mjs` 47/47,
+`verify-integrations.mjs` 39 passed / 4 skipped (M10), and `verify-api.mjs`, `verify-vault.mjs`,
+`verify-durable.mjs` and `verify-observability.mjs` all passing — **the last of which had been red
+since Phase 23A** and nobody had run it.
+
+**23C was split from 23D** on the same test that split 23 and 23B, and the next phase needs a key:
+see **M11**.
+
+---
 
 **2026-10-01** — **Phase 23B built and deployed; BLOCKED on M10 for its four real-service proofs.**
 Revision `agentforge-00053-hn6` live, `/api/health` green across all five dependency checks and
