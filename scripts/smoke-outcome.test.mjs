@@ -12,7 +12,13 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { runOutcome, SHEETS_NODE, UNCONFIGURED_SHEETS } from "./smoke-outcome.mjs";
+import {
+  coldStartVerdict,
+  runOutcome,
+  SHEETS_NODE,
+  UNCONFIGURED_SHEETS,
+  WARM_THRESHOLD_MS,
+} from "./smoke-outcome.mjs";
 
 const BORN_EMPTY = `This node ${UNCONFIGURED_SHEETS}. Open it and paste the Google Sheet's URL or id.`;
 
@@ -94,5 +100,42 @@ describe("runOutcome", () => {
   it("tolerates a run with no steps array at all", () => {
     assert.equal(runOutcome({ status: "failed" }, "").acceptable, false);
     assert.equal(runOutcome(null, "").acceptable, false);
+  });
+});
+
+describe("coldStartVerdict", () => {
+  /**
+   * The regression: the real walk at 2026-10-01 15:5x took **11446 ms** on its first
+   * `/api/health` because M12 had just set `min-instances 0` and both tiers were
+   * asleep. The old Beat 7 fix had made the walk clean; this made it FAILED again, on
+   * a deployment that was configured exactly as intended.
+   */
+  it("accepts the 11446 ms cold start that M12 made the designed steady state", () => {
+    const verdict = coldStartVerdict(11446);
+    assert.deepEqual(verdict, { warm: false, acceptable: true, excused: true });
+  });
+
+  it("still fails a cold start when the caller asserted the deployment is warm", () => {
+    const verdict = coldStartVerdict(11446, { expectWarm: true });
+    assert.deepEqual(verdict, { warm: false, acceptable: false, excused: false });
+  });
+
+  it("passes a warm reading either way, and never calls it excused", () => {
+    for (const expectWarm of [false, true]) {
+      assert.deepEqual(coldStartVerdict(761, { expectWarm }), {
+        warm: true,
+        acceptable: true,
+        excused: false,
+      });
+    }
+  });
+
+  it("puts the boundary where the threshold says, not a millisecond either side", () => {
+    assert.equal(coldStartVerdict(WARM_THRESHOLD_MS - 1).warm, true);
+    assert.equal(coldStartVerdict(WARM_THRESHOLD_MS).warm, false);
+  });
+
+  it("keeps 5 s as the threshold — the number did not change, its meaning did", () => {
+    assert.equal(WARM_THRESHOLD_MS, 5000);
   });
 });

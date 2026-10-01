@@ -1082,11 +1082,17 @@ VERIFY_DISCORD_WEBHOOK="$(grep '^DISCORD_WEBHOOK_URL=' .env | cut -d= -f2-)" \
 #
 # The nine outbound-guard checks and everything else in Phase 9 run without either variable.
 
-# The demo path only, beat by beat, in ~10 s. This is the pre-demo check (D56) and the
-# first thing to run when asking "does the product still work end to end?".
+# The demo path only, beat by beat. This is the pre-demo check (D56) and the first
+# thing to run when asking "does the product still work end to end?".
 # It posts a REAL Discord message and appends a REAL row per walk — clear them after.
+# Expect ~10 s warm and ~35 s on a cold service (min-instances 0 since M12).
 SMOKE_SPREADSHEET_ID=1iz8vjkGNvPQ1q1vpDvaWnQZ6648BNYHYauVXHHY2IBo \
   node --env-file=.env scripts/smoke.mjs https://agentforge-733000675212.asia-southeast1.run.app
+
+# Add --expect-warm ONLY when the service is supposed to already be warm — i.e. the
+# pre-demo checklist, after warming it. Beat 1 then asserts the 5 s threshold instead
+# of just reporting the number, because at min-instances 0 a cold first request is the
+# designed state, not a fault.
 
 # --loop 10 is Phase 11's bar: ten consecutive clean walks, ~2 min. It stops at the
 # first failing walk, because "ten in a row" is the claim, not "ten attempts".
@@ -1162,9 +1168,12 @@ re-cut) are **no longer part of this project's work** and have been dropped.
 
 - **Run `scripts/smoke.mjs` first, every session.** Ten seconds, names the beat that broke.
   `verify-api.mjs` is the regression suite for a code change (D56). `seed-demo.mjs --check` says
-  whether the demo account is still in its demo state. **Without `SMOKE_SPREADSHEET_ID` the Sheets
-  half SKIPs and Beat 7 excuses that one node** — a clean walk, not a failure. Everything else still
-  has to pass; `scripts/smoke-outcome.mjs` is how narrow the excuse is
+  whether the demo account is still in its demo state. **Two things are reported rather than failed,
+  and both are deliberate:** without `SMOKE_SPREADSHEET_ID` the Sheets half SKIPs and **Beat 7
+  excuses that one node**, and since M12 set `min-instances 0` **Beat 1 reports the first
+  interaction's duration instead of failing a cold start**. Everything else still has to pass.
+  `scripts/smoke-outcome.mjs` holds both policies and how narrow they are, and **`--expect-warm`
+  turns the cold-start reading back into an assertion** for the pre-demo checklist
 - **Drive a real browser before believing a UI claim.** Phase 12's worst find passed 178 API checks
   and ten smoke walks (D59). The suites cannot see the page
 - **Do not deploy on demo day.** A redeploy kills in-flight runs and replaces a verified build.
@@ -1262,6 +1271,19 @@ migrations and 30 nodes — and found three things.
   in *two* documents and still did not happen, because **a line of advice in a "when you're done"
   section is not a task.** A turndown step belongs in the phase that creates the resource, with its
   undo command beside it
+- **Then the first real walk after the turndown found the same bug one beat earlier — in a check M12
+  had just invalidated.** Beat 1 failed with *"took 11446 ms — Cloud Run or Neon was asleep"*. The
+  check was right when it was written: at `min-instances 1` Cloud Run could not be cold, so a slow
+  first request genuinely meant somebody had forgotten to warm Neon. **At `min-instances 0` a cold
+  first request is the designed state of an idle service**, so the hard failure made the script
+  report FAILED on a correctly configured system — the Beat 7 problem, moved. Beat 1 now **reports**
+  the duration and **`--expect-warm` asserts** it, which is the flag the pre-demo checklist passes.
+  The 5 s threshold did not change; what a breach of it *means* did
+- **The pattern worth naming:** both bugs were a check whose premise had quietly expired. Beat 7's
+  premise was "a generated Sheets node will have a spreadsheet"; Beat 1's was "Cloud Run is never
+  cold". **Neither check was wrong when written, and neither failed when the premise changed** — they
+  kept asserting it. A threshold or a status equality that encodes an assumption about the
+  environment should say so where it is written, so that changing the environment is what finds it
 
 **2026-10-01 — Phase 25 closed: launch polish, and Chapter 2 with it**
 

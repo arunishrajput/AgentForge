@@ -51,3 +51,45 @@ export function runOutcome(run, spreadsheetId) {
 
   return { acceptable: excused, excused };
 }
+
+/* ------------------------------------------------------------------ *
+ * Beat 1 — the cold-start reading
+ * ------------------------------------------------------------------ */
+
+/**
+ * Warm enough that nobody watching would call it a stall.
+ *
+ * It was always 5 s and it stays 5 s. What changed is what a breach *means*.
+ */
+export const WARM_THRESHOLD_MS = 5000;
+
+/**
+ * Beat 1 measured the first interaction and **failed** past 5 s, advising "warm both
+ * before demoing". That was sound while Cloud Run ran at `min-instances 1`, because
+ * then Cloud Run could not be cold and the only sleeping tier was Neon — a slow first
+ * request really did mean somebody had forgotten to warm the database.
+ *
+ * **M12 (2026-10-01) set `min-instances 0`**, so a cold first request is now the
+ * *designed* steady state of an idle deployment rather than an oversight. Keeping the
+ * hard failure would have made the script report FAILED on a correctly configured
+ * system — the same cry-wolf failure that Beat 7 had, one beat earlier.
+ *
+ * So the reading is now a **measurement by default** and an **assertion on request**.
+ * `--expect-warm` is what the pre-demo checklist passes, because fifteen minutes before
+ * a demo "is it warm?" is a real question with a real answer. A session asking the
+ * ordinary question — does the product still work end to end — gets the number and no
+ * false alarm.
+ *
+ * @param elapsedMs  how long the first `/api/health` took
+ * @param expectWarm whether the caller asserted this deployment should already be warm
+ */
+export function coldStartVerdict(elapsedMs, { expectWarm = false } = {}) {
+  const warm = elapsedMs < WARM_THRESHOLD_MS;
+  return {
+    warm,
+    // Only an explicit expectation can fail this.
+    acceptable: warm || !expectWarm,
+    // True when it was cold and the caller did not mind — worth printing, not failing.
+    excused: !warm && !expectWarm,
+  };
+}

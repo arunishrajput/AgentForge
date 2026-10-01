@@ -3,6 +3,7 @@
  *
  *   node --env-file=.env scripts/smoke.mjs https://<the deployed url>
  *   node --env-file=.env scripts/smoke.mjs <url> --loop 10
+ *   node --env-file=.env scripts/smoke.mjs <url> --expect-warm   # pre-demo only
  *
  * **This is not `verify-api.mjs`.** That suite is 178 checks over the whole API
  * surface and takes ~2 minutes. This walks the eight beats of `DEMO.md` in order,
@@ -21,6 +22,11 @@
  * and a real row in the demo spreadsheet, once per iteration. Clear both before
  * demoing (`DEMO.md` → pre-demo checklist).
  *
+ * Since M12 set `min-instances 0`, a cold first request is the *designed* state of an
+ * idle deployment, so Beat 1 reports the first interaction's duration rather than
+ * failing on it. **`--expect-warm` turns it back into an assertion** — that is the flag
+ * the pre-demo checklist passes, fifteen minutes after warming the service.
+ *
  * Environment:
  *   DATABASE_URL            required — to mint the session
  *   APP_BASE_URL            unused here; the target is argv[2]
@@ -34,7 +40,7 @@
 import { neon } from "@neondatabase/serverless";
 
 import { adaptPayload, DEMO_PROMPT, URGENT_PAYLOAD } from "./demo-payload.mjs";
-import { runOutcome } from "./smoke-outcome.mjs";
+import { coldStartVerdict, runOutcome } from "./smoke-outcome.mjs";
 
 /* ------------------------------------------------------------------ *
  * Arguments
@@ -45,6 +51,12 @@ const base = (args.find((a) => !a.startsWith("--")) ?? "http://localhost:3000").
 const loops = Number(flag("--loop") ?? 1);
 const gapMs = Number(flag("--gap") ?? 3000);
 const spreadsheetId = flag("--sheet") ?? process.env.SMOKE_SPREADSHEET_ID ?? "";
+/**
+ * Assert that the deployment is already warm. The pre-demo checklist passes this;
+ * an ordinary "does it still work" walk does not, because since M12 set
+ * `min-instances 0` a cold first request is the designed state of an idle service.
+ */
+const expectWarm = args.includes("--expect-warm");
 
 function flag(name) {
   const at = args.indexOf(name);
@@ -190,11 +202,19 @@ async function walk(cookie, iteration) {
       health.status === 200 && health.json?.database === "reachable",
       `status ${health.status}, body ${health.text.slice(0, 160)}`,
     );
+    const firstByteMs = Date.now() - healthAt;
+    const cold = coldStartVerdict(firstByteMs, { expectWarm });
     check(
-      "first interaction is not a cold-start stall",
-      Date.now() - healthAt < 5000,
-      `took ${ms(healthAt)} — Cloud Run or Neon was asleep. Warm both before demoing.`,
+      expectWarm ? "the deployment is warm, as asserted" : "first interaction answered",
+      cold.acceptable,
+      `took ${firstByteMs} ms — Cloud Run or Neon was asleep. Warm both before demoing.`,
     );
+    if (cold.excused) {
+      note(
+        `first interaction took ${firstByteMs} ms — cold, which is expected at ` +
+          `min-instances 0 (M12). Pass --expect-warm to make this a failure.`,
+      );
+    }
 
     const landing = await api("/");
     check(
