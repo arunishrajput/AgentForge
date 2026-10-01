@@ -156,3 +156,32 @@ test("create honours the two seams verifyModel depends on", async () => {
     }
   }
 });
+
+test("a placeholder is never mistakable for a real credential", () => {
+  /**
+   * **This test exists because of a bug it would have caught**, in
+   * `scripts/verify-providers.mjs`: that script scanned a settings response for the vendor
+   * prefixes `AIza` and `gsk_` to prove no key had leaked, and Groq's placeholder is literally
+   * `gsk_…`. The first deployed run reported a leak that was not there.
+   *
+   * The script's assertion was the thing that was wrong and it has been fixed. What is pinned
+   * here is the product property underneath it: **a placeholder is a hint shown in an empty
+   * input, so it must never be long enough or complete enough to read as a credential** — not
+   * to a scanner, and not to a person looking at a screenshot.
+   */
+  for (const provider of PROVIDERS) {
+    // Real keys are 39 characters (Google) and 56 (Groq). A hint has no business being close.
+    assert.ok(
+      provider.placeholder.length <= 24,
+      `${provider.id}'s placeholder is ${provider.placeholder.length} characters — long enough to be mistaken for a key`,
+    );
+    // If it borrows a vendor prefix to look familiar, it must be visibly truncated.
+    if (/^(gsk_|AIza|sk-)/.test(provider.placeholder)) {
+      assert.match(
+        provider.placeholder,
+        /[….]/,
+        `${provider.id}'s placeholder starts with a real key prefix and must show an ellipsis`,
+      );
+    }
+  }
+});

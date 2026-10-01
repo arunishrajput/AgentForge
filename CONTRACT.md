@@ -738,8 +738,30 @@ interface LanguageModel {
 }
 ```
 
-Gemini is the only implementation wired. A second provider is a new file implementing this
-interface; nothing above it changes.
+**Phase 23D made that claim true by exercising it.** There are two implementations —
+`lib/ai/gemini.ts` and `lib/ai/groq.ts` — and **nothing above this interface changed** to add the
+second. What *did* change is below it: the retry, fallback, budget and circuit-breaker machinery
+moved from `gemini.ts` into `lib/ai/chain.ts`, which both adapters share. A provider file now owns
+exactly four things — how a request is built, how a 200 is read, how an error message is found, and
+what its catalogue is.
+
+**Which provider a workspace uses is a stored fact**, `workspace.llmProvider` (migration `0010`),
+resolved by `lib/ai/provider.ts` in this order: the stored choice *if that provider holds a key*,
+else the first provider in registry order that does, else the development environment key, else
+`NoProviderKeyError`. `PROVIDERS[0]` is Google, so **a workspace that has never chosen behaves
+exactly as it did before a second provider existed** — `null` in that column means "nobody has
+chosen", not "not yet backfilled".
+
+**The credential kind was already provider-qualified** and did not move: Google's rows are
+`llm.google`, as they have been since Phase 6, and Groq's are `llm.groq`. No credential row was
+rewritten, which `scripts/verify-providers.mjs` proves on the deployed database by comparing the
+ciphertext, the wrapped key, the rotation count and `createdAt` before and after a provider switch.
+
+**One rule is honoured more strictly than either provider requires.** `json: true` is sent only
+when a request carries no tools. Gemini forbids the combination; Groq allows it. The stricter rule
+is the contract, so a workflow behaves the same whichever provider runs it. The tool parameter
+schema is narrowed the same way, by `toToolParameters`, for the same reason — Groq would accept
+richer JSON Schema and is deliberately given the Gemini-compatible subset.
 
 ### A model turn is carried back verbatim — the one rule that shapes the rest
 
@@ -1143,6 +1165,9 @@ re-key moved anything — otherwise the phase's central claim would have to be t
 
 Phase 6 added one kind, `llm.google`, label `default`, `metadata: { model }`. Phase 9 added two
 more — see *Integration nodes and their credentials* for `integration.discord` and `google.oauth`.
+**Phase 23D added `llm.groq`, in the same shape**: one key, `metadata: { model }`, one per
+workspace. The kinds are generated from `lib/ai/providers.ts`, so a third provider is a registry
+row and no edit to the vault, the rotation table or `CREDENTIAL_KINDS`.
 
 ### A credential belongs to a workspace — **Phase 19A, and it widens a surface**
 
@@ -1194,6 +1219,7 @@ and nothing would break, so nobody would notice.
 | Kind | `mode` | Rotation is |
 |---|---|---|
 | `llm.google` | `value` | A new API key, proved with one `models.list` call before anything is written |
+| `llm.groq` | `value` | The same, against Groq. **Phase 23D wrote no rotation code for it** — the row is generated from the provider registry, which is the claim the generation was making |
 | `integration.discord` | `value` | A new webhook URL, called before anything is written. **The old webhook is not deleted at Discord** — nothing here can do that |
 | `google.oauth` | `reconnect` | Re-running the consent flow. A refresh token can only be minted by Google, so there is nothing to paste |
 

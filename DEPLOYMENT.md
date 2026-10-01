@@ -16,12 +16,12 @@ Every step is labelled **`AUTOMATED BY CLAUDE CODE`** or **`MANUAL HUMAN ACTION`
 | Field | Value |
 |---|---|
 | Service | `agentforge`, Cloud Run, `asia-southeast1` |
-| Revision | **`agentforge-00057-8jx`** — 100% of traffic (Phase 23C). **Phase 23C took four deploys and each was warranted**: `-00054-8zw` shipped the Postgres node and passed all 65 checks, `-00055-htp` fixed a 375 px horizontal overflow a real browser found afterwards, `-00056-rkn` shipped an error-message fix found by writing a test for the error mapping, and `-00057-8jx` rebuilt the tree after two import reorders so the running image is built from the committed source — a delete button carrying a whole sentence against `.btn`'s `white-space: nowrap`. That defect was Phase 23B's, not this phase's, and it had been invisible because the button only renders for a *connected* credential and M10 means none of 23B's four is connected. Last known-good before it: `agentforge-00056-rkn`, `agentforge-00055-htp` and `agentforge-00054-8zw` (this phase), then `agentforge-00053-hn6` (Phase 23B), then `agentforge-00051-252` (23A), `agentforge-00047-w65` (22), `agentforge-00046-w7b` (21), `agentforge-00043-nn2` (20) |
+| Revision | **`agentforge-00058-q2z`** — 100% of traffic (Phase 23D). **One deploy, and it was clean**: migration `0010` was applied first and is additive, so `agentforge-00057-8jx` kept serving correctly against the migrated database throughout — confirmed by a health check on the old revision after the column existed. Previous good revisions: `agentforge-00057-8jx`, `agentforge-00056-rkn`, `agentforge-00055-htp`, `agentforge-00054-8zw` (23C), `agentforge-00053-hn6` (23B), `agentforge-00051-252` (23A), `agentforge-00047-w65` (22) |
 | Scaling | `min-instances 1`, `max-instances 3`, 1 vCPU / 1 GiB, 3600 s timeout |
 | Root key | **Secret Manager `agentforge-root-key`, version `1`.** Every credential's data key is wrapped by it; `GET /api/health` reports `rootKey.provider` so a deployment silently on `ENCRYPTION_KEY` cannot hide |
-| Database | Neon `super-mountain-39872886`, `aws-ap-southeast-1` — **13 tables**, migrations `0000`–`0009` applied. ~10 MB of 0.5 GB. **Phase 23C added no migration, no table and no column either** — a connection-string credential is a `kind` string in the existing `credentials` table, exactly as 23B's four were. It did add a **second database inside the same Neon project**, `agentforge_demo`, which is verification scaffolding rather than product data — see *Services and resources* |
+| Database | Neon `super-mountain-39872886`, `aws-ap-southeast-1` — **13 tables**, migrations `0000`–`0010` applied. ~10 MB of 0.5 GB. **Phase 23D added migration `0010`: one nullable column, `workspace.llmProvider`, and no backfill** — the safest class of change here, and the first migration since `0009`. It records which LLM provider a workspace uses; `NULL` means "nobody has chosen" and resolves to the first provider holding a key, which is Google, so no existing workspace changed behaviour. Row counts were identical before and after (workspace 1, credential 6, workflow 6, run 65) and `rollback_0010.sql` is genuinely symmetric — it touches no credential and loses only the preference |
 | Observability | **Structured JSON logging on stdout, four log-based metrics, and `/api/health` reporting five dependency checks.** `OPERATIONS.md` is the runbook |
-| Last verified | **2026-10-01, after Phase 23C** — on `agentforge-00057-8jx`: `verify-postgres.mjs` **65 passed / 0 failed / 0 skipped**, including a real table read from inside the container, all seven shared operators executed by Postgres against hand-counted expectations, a date column proved to arrive as an ISO string, **a write proved refused three ways** (no statement but `select` exists to build; `BEGIN READ ONLY` answering `25006`; the role's grants answering `42501`), the credential rotated in place and sealed under root-key version `sm:1`, and **a real model call generating a graph that reached for the Postgres node**. Also all-pass: `verify-api.mjs` (4 skipped), `verify-templates.mjs` **47/47**, `verify-integrations.mjs` **39 passed / 4 skipped** (M10), `verify-vault.mjs`, `verify-durable.mjs`, and `verify-observability.mjs` — **the last of which had been red since Phase 23A** on a registry count pinned at 15, plus a p95 recomputation that disagreed with the page by 1 ms. Local `npm run check`: **936 passing**, coverage 87.69 / 91.07 / 79.17. A **real browser** drove the new settings card, its refusal path, the template clone, the inspector's docs and a full four-node run (`20216130`, hand-checked against the five seeded rows), with **zero console errors and zero horizontal overflow at 320 / 375 / 768 / 1920 px** |
+| Last verified | **2026-10-01, after Phase 23D** — on `agentforge-00058-q2z`: `verify-providers.mjs` **55 passed / 0 failed / 0 skipped**, including a real Groq completion and **a real agent tool call** (`integration_http`, `ok: true`) answered by `openai/gpt-oss-120b` from inside the container, the live catalogue filtered to the 4 tool-capable models, and — the claim the phase rests on — **the existing `llm.google` row proved byte-for-byte unchanged** across a provider switch and back: ciphertext, wrapped key, `rotationCount` and `createdAt` all identical, read straight from the deployed database. Also all-pass on the same revision: `verify-api.mjs` (4 skipped), `verify-templates.mjs` **47/47**, `verify-integrations.mjs` **60 passed / 2 skipped** (M10), `verify-postgres.mjs` **65/65**, `verify-vault.mjs`, `verify-durable.mjs`, `verify-observability.mjs` (22 ms/page view on 73 runs). Local `npm run check`: **974 passing**, coverage 88.12 / 90.72 / 80.03. A **real browser** drove both provider cards, the switch to Groq and back, the per-provider model picker, a workflow **generated by Groq** and a four-node canvas run that Groq served end to end — zero console errors, zero horizontal overflow at 320 / 375 / 1440 px |
 
 The service also answers on a legacy hashed URL. Do not use it — see *Deploy*.
 
@@ -1155,13 +1155,29 @@ APP_BASE_URL="$APP_BASE_URL" node --env-file=.env scripts/verify-durable.mjs all
 node --env-file=.env scripts/verify-vault.mjs "$APP_BASE_URL"       # Phase 21
 node --env-file=.env scripts/verify-observability.mjs "$APP_BASE_URL"   # Phase 22
 APP_BASE_URL="$APP_BASE_URL" node --env-file=.env scripts/verify-templates.mjs   # Phase 23A
+APP_BASE_URL="$APP_BASE_URL" node --env-file=.env scripts/verify-integrations.mjs # Phase 23B
+node --env-file=.env scripts/verify-postgres.mjs "$APP_BASE_URL"    # Phase 23C
+APP_BASE_URL="$APP_BASE_URL" node --env-file=.env scripts/verify-providers.mjs    # Phase 23D
 ```
 
-> **`verify-templates.mjs` takes its base URL from `APP_BASE_URL`, not from `argv[2]`.** The scripts
-> disagree about this and it is worth checking before assuming a connection refused is an outage:
-> `verify-api.mjs`, `verify-vault.mjs` and `verify-observability.mjs` read the first argument and
-> **default to `http://localhost:3000`**, so passing the deployed URL as an env var silently tests
-> a laptop that is not running.
+> **Run all of them every phase, not just the one you changed.** Phase 23C found
+> `verify-observability.mjs` had been red since 23A on a stale registry count, and Phase 23D found
+> `verify-vault.mjs` had been red since 23B on a stale assertion that used `integration.slack` as a
+> stand-in for "a kind this product does not store" — which Phase 23B made into a real kind. **A
+> suite that is not part of the per-phase routine rots silently**, and then fails in whichever phase
+> happens to run it next, looking exactly like that phase's regression.
+
+> **The scripts disagree about where the base URL comes from**, and it is worth checking before
+> assuming a connection refused is an outage. `verify-templates.mjs` and `verify-durable.mjs` read
+> `APP_BASE_URL`; `verify-api.mjs`, `verify-vault.mjs` and `verify-observability.mjs` read the first
+> argument and **default to `http://localhost:3000`**, so passing the deployed URL as an env var
+> silently tests a laptop that is not running. `verify-postgres.mjs` and `verify-providers.mjs`
+> accept **either**, which is the pattern to copy.
+>
+> **`node --env-file=.env` overrides a shell `export`.** `.env` sets `APP_BASE_URL=http://localhost:3000`,
+> so `export APP_BASE_URL=https://… && node --env-file=.env …` runs against localhost. Measured in
+> Phase 23D, where it read as `TypeError: fetch failed`. Pass the URL as an argument where the script
+> accepts one.
 
 `verify-vault.mjs` proves the three rotations Phase 21 exists for, and three claims that would
 otherwise be taken on trust: that the vault's response contains no part of any stored envelope

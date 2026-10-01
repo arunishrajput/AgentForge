@@ -193,17 +193,51 @@ async function main() {
   const googleState = before.providers.find((entry) => entry.id === "google");
   const groqState = before.providers.find((entry) => entry.id === "groq");
   check(Boolean(googleState?.configured), "the existing Gemini key is still reported stored");
+  // Not `configured` — whether Groq holds a key depends on whether this script has run before,
+  // and asserting either way would make the suite order-dependent. What must be true is that the
+  // provider is *offered* with everything a settings card needs to render it.
+  check(
+    Boolean(groqState) &&
+      typeof groqState.label === "string" &&
+      typeof groqState.keyUrl === "string" &&
+      typeof groqState.model === "string",
+    `Groq is offered with a label, a key URL and a default model (${groqState?.label}, ${groqState?.model})`,
+  );
   check(
     before.provider === "google",
     `the active provider is google (${before.provider})`,
     `the active provider is ${before.provider}, not google — Groq must not become the default`,
   );
 
-  // No part of a key, for either provider, in a response the client receives.
+  /**
+   * No part of a stored key in a response the client receives.
+   *
+   * **This assertion used to scan for the vendor prefixes `AIza` and `gsk_`, and it was wrong
+   * — it failed on the first deployed run.** Groq's *placeholder* is the string `gsk_…`, a
+   * hint rendered in an empty input, so a prefix scan reported a leak where there was none.
+   *
+   * The replacement tests the actual claim rather than a proxy for it: the **real stored
+   * secret** must not appear. That is both stronger (a key whose format changes is still
+   * caught) and narrower in the right way (a UI hint is not key material). The prefix scan is
+   * kept as a second net, with the registry's own placeholders removed from the haystack
+   * first, so it can still catch a key that this script does not hold.
+   */
   const serialised = JSON.stringify(before);
+  if (GROQ_KEY) {
+    check(
+      !serialised.includes(GROQ_KEY) && !serialised.includes(GROQ_KEY.slice(0, 12)),
+      "the real Groq key does not appear in the settings response, in whole or in part",
+    );
+  } else {
+    skip("no Groq key held, so its absence from the response cannot be proved");
+  }
+  const withoutHints = (before.providers ?? []).reduce(
+    (text, provider) => text.split(provider.placeholder).join(""),
+    serialised,
+  );
   check(
-    !serialised.includes("AIza") && !serialised.includes("gsk_"),
-    "no fragment of either key appears in the settings response",
+    !withoutHints.includes("AIza") && !withoutHints.includes("gsk_"),
+    "no vendor key prefix appears once the placeholders are discounted",
   );
   for (const key of ["apiKey", "secret", "ciphertext"]) {
     check(!serialised.includes(`"${key}"`), `the response carries no "${key}" field`);
@@ -465,8 +499,21 @@ async function main() {
       "the vault lists llm.groq, with no rotation code written for it",
       `the vault does not list llm.groq: ${kinds.join(", ")}`,
     );
+    // `mode` is flattened onto a vault entry by `readVault`, not nested under a `rotation`
+    // object — this assertion read `entry.rotation.mode` and failed against a correct product
+    // on the first deployed run. The same shape of mistake Phase 23B made with `credentials`
+    // vs `entries`, which is why it is worth naming twice: a wrong path on an optional chain
+    // is indistinguishable from a missing feature.
     const groqEntry = entries.find((entry) => entry.kind === "llm.groq");
-    check(groqEntry?.rotation?.mode === "value", "llm.groq is rotatable by value");
+    check(
+      groqEntry?.mode === "value",
+      `llm.groq is rotatable by value (${groqEntry?.mode})`,
+      `llm.groq's rotation mode is ${JSON.stringify(groqEntry?.mode)}`,
+    );
+    check(
+      typeof groqEntry?.secretLabel === "string" && groqEntry.secretLabel.length > 0,
+      `and the vault knows what to call its secret ("${groqEntry?.secretLabel}")`,
+    );
 
     // The rotation path, exercised for real: the same key again, which must be accepted and
     // must count as a rotation rather than a first connection.

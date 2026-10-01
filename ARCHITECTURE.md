@@ -530,8 +530,10 @@ Agent node
             → repeat until the model answers or the step cap is hit
 ```
 
-- **Provider-agnostic by construction.** One adapter interface; Gemini is the only implementation
-  wired at MVP. Model selection is real across Gemini tiers. See `PRD.md` → *Deviations*
+- **Provider-agnostic by construction, and proved so in Phase 23D.** One adapter interface, now
+  with **two implementations — Gemini and Groq** — and nothing above the interface changed to add
+  the second. Which provider a workspace uses is stored in `workspace.llmProvider`; model selection
+  is real within each. See *The adapter as built* below and A26
 - **Keys are the user's.** Supplied in-app, AES-256-GCM encrypted at rest with a key from
   `ENCRYPTION_KEY`, never returned to the client in plaintext. No KMS — that is post-hackathon
 - **Bounded.** A hard cap on tool-calling iterations per agent node. An agent that will not
@@ -574,14 +576,26 @@ verification measures.
 
 ```
 src/lib/ai/
-  types.ts     provider-agnostic interface + the lossless ChatTurn
-  schema.ts    JSON Schema → Gemini's OpenAPI subset (allow-list, pure, tested)
-  tools.ts     registry → tool definitions (pure, tested)
-  loop.ts      the bounded tool-calling loop (pure, tested against a fake model)
-  gemini.ts    the one HTTP implementation: retry, model fallback, wire parsing
-  provider.ts  stored key → a usable LanguageModel
-  settings.ts  the write-only settings API's logic
+  types.ts      provider-agnostic interface + the lossless ChatTurn
+  schema.ts     JSON Schema → Gemini's OpenAPI subset (allow-list, pure, tested)
+  tools.ts      registry → tool definitions (pure, tested)
+  loop.ts       the bounded tool-calling loop (pure, tested against a fake model)
+  chain.ts      retry, model fallback, the time budget, the breaker — NO provider in it
+  health.ts     the circuit breaker, keyed on (provider, model)
+  gemini.ts     Gemini's wire format
+  groq.ts       Groq's wire format (OpenAI-compatible)
+  providers.ts  the registry: one row per provider, everything else derived from it
+  provider.ts   stored key + stored choice → a usable LanguageModel
+  settings.ts   the write-only settings API's logic
 ```
+
+**`chain.ts` is the Phase 23D split, and the reason for it is drift, not tidiness.** Everything in
+it was written and measured in Phase 13 to fix one incident — a wedged model costing a run 91.9 s —
+and none of it mentions Google: the budget arithmetic, the rule that a timed-out attempt is never
+retried on the same model, the breaker bookkeeping and the fallback metric are reliability
+properties. Copying them into a second adapter would have produced two copies of that fix, and the
+copies are where a hard-won fix rots. **The evidence the extraction was faithful is that
+`gemini.test.ts` — 687 lines pinning exactly those behaviours — passes unedited.**
 
 `ai` and `@ai-sdk/google` were in the adopted stack and are **not installed**. Four reasons, each
 one discovered by calling the real API rather than reasoning about it:
@@ -1117,7 +1131,7 @@ in a step log.
 | A4 | ~~No queue; in-process executor~~ → **Cloud Tasks for durable runs, in-process for synchronous ones** | **SUPERSEDED at Phase 17.** The in-process path is retained, not replaced | The original rationale — "fewer moving parts, and the MVP's runs are short and user-initiated" — was right for a hackathon and wrong for a product: a scheduled run at 03:00 has nobody to press Run again. Cloud Tasks adds **no service and no dependency** (one authenticated `fetch`, free tier 1,000,000 ops/month), which is why this was affordable inside the zero-cost ceiling where Redis and a worker were not. See *Queue — Cloud Tasks for durability* |
 | A5 | Cloud Scheduler for cron | **BINDING** | Scale-to-zero makes in-process timers non-functional |
 | A6 | SSE, not WebSocket | Binding at Phase 5 | No affinity config, native reconnect, one-directional suffices |
-| A7 | Gemini only, behind a provider-agnostic adapter | **BINDING** for MVP | Only available key. Second provider is `PRD.md` S1 |
+| A7 | ~~Gemini only, behind a provider-agnostic adapter~~ → **Gemini and Groq, behind the same adapter** | **SUPERSEDED at Phase 23D.** The adapter interface is unchanged; what changed is that it has two implementations | The original rationale — "only available key" — expired when a Groq key existed. The claim that a second provider was "a new file implementing this interface; nothing above it changes" had never been tested, and testing it is what the phase was for: it held above the interface and failed below it, where the retry and fallback machinery lived inside `gemini.ts`. See A26 |
 | A8 | ~~AES-256-GCM under one `ENCRYPTION_KEY`~~ → **envelope encryption: per-credential data keys under a versioned root key in Secret Manager** | **SUPERSEDED at Phase 21.** AES-256-GCM is unchanged; what changed is which key the data is under | The original met "encrypted at rest" without KMS setup and shipped with the accurate warning that rotating the key destroyed every credential. A key that cannot be rotated is not a control. One layer of indirection makes a root key rotation re-wrap ~60 bytes per row instead of re-encrypting the database, and makes it resumable — see *Secrets at rest* |
 | A9 | Discord instead of Slack | **BINDING** | Webhooks need no app review; Slack cannot be authorised for this build |
 | A10 | Foundation: harvest, single Next.js app | **BINDING** | Decided in Phase 0 Part A, 2026-09-25, against verified licences and repo sizes |
@@ -1136,6 +1150,7 @@ in a step log.
 | A23 | **Error grouping is one normaliser, shared by the logs and the analytics page** | Binding at Phase 22 | Two fingerprinters would mean a group id read off a chart could not be pasted into the Logs Explorer, which is the only thing that makes either of them useful. It over-groups deliberately: one problem scattered over forty rows is invisible, two problems in one row is noticed on reading the sample |
 | A24 | **`postgres` (postgres.js) is the Postgres driver, not `pg`, and a new runtime dependency was the right answer** | Binding at Phase 23C | The first new runtime dependency since Phase 4, and it was forced: `@neondatabase/serverless` is already installed and speaks **only to Neon's own endpoints**, so "any Postgres" and "no new dependency" were in genuine conflict — `BUILD_PLAN.md` flagged it as a decision to take rather than assume. Writing the wire protocol by hand was considered and rejected: D32's "one file of wire-format knowledge" works for JSON over `fetch`, and does not scale to SCRAM-SHA-256 over a raw TLS socket, which is security-critical code nobody should hand-roll to avoid one dependency. Between the two real candidates the measurement decided it: **`postgres@3.4.9` adds one lockfile entry and zero transitive dependencies and ships its own types; `pg@8.23.1` adds six packages plus `@types/pg`.** This project's dependency posture has always been about package *count* — no AI SDK (D32), Cloud Tasks by `fetch` (A4), no exporter (A20), no Radix (A16) — so one package beat seven. Counted against it honestly: postgres.js is essentially a single-maintainer project, where node-postgres is not |
 | A25 | **A read-only transaction, not a session parameter, is what makes the Postgres node read-only** | Binding at Phase 23C | **Measured against the real endpoint on 2026-10-01**: setting `default_transaction_read_only` as a startup parameter connected cleanly and then *allowed a `CREATE TABLE`*, because a PgBouncer-style pooler silently drops startup GUCs it does not know — which would have shipped a node that claimed read-only and was not. `BEGIN READ ONLY` answers `25006` on the pooled and the direct endpoint alike. The node therefore has three independent barriers: no statement but `select` exists to build, the transaction, and the grants on the user's own role — and the documentation points at the third, because it is the only one this product cannot weaken |
+| A26 | **Groq is the second provider, and the shared machinery moved to `chain.ts` rather than being copied** | Binding at Phase 23D | Groq was chosen for the ceiling and for the test: free tier with no card, open models with real tool-calling, and **OpenAI-compatible**, so the same adapter serves any OpenAI-compatible gateway — the second provider proves the interface generalises instead of proving it fits one more vendor. Measured against Gemini on the same probe it is **2–7× faster** (three passes, 2026-10-01). Two things were decided deliberately against the obvious: **the shared chain is one copy, not two**, because Phase 13's fix is exactly the kind of thing that rots in duplicate — `gemini.test.ts` passing unedited is the proof the move was faithful; and **health is keyed on `(provider, model)`**, because Groq answers 429 on a free-tier burst, which is what opens a breaker, and shared-by-name records would let one company's rate limit reorder the other's fallback chain. The cost accepted: Groq is handed the Gemini-compatible *subset* of JSON Schema for tool parameters and is denied JSON-mode-with-tools, which it would allow — one contract for both providers beats a workflow that behaves differently depending on who is running it |
 
 ---
 

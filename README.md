@@ -308,7 +308,7 @@ Details, and the full list of what is intentionally simplified and what that cos
 | Cron | Cloud Scheduler |
 | Queue | None. The executor runs in-process |
 | Auth | Google OAuth |
-| LLM | Google Gemini, behind a provider-agnostic adapter, with a model fallback chain |
+| LLM | **Google Gemini and Groq**, behind one provider-agnostic adapter, each with its own measured model fallback chain and its own circuit breaker |
 | Framework | Next.js 16 App Router (React 19) — one container serving UI and API |
 | ORM | Drizzle + `@neondatabase/serverless` |
 | Canvas | React Flow (`@xyflow/react`) |

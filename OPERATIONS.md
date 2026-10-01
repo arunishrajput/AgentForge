@@ -128,20 +128,32 @@ success rate says.
 
 ```bash
 # What is actually being asked for, and what is actually answering.
+# `provider` was added in Phase 23D — ask it first, because with two providers the first
+# question is whether the degradation is one vendor's or ours.
 gcloud logging read \
   'resource.type=cloud_run_revision AND jsonPayload.event="model.call" AND jsonPayload.fallback=true' \
   --limit 20 --freshness 6h \
-  --format='value(timestamp,jsonPayload.requested,jsonPayload.answered,jsonPayload.attempts,jsonPayload.durationMs)'
+  --format='value(timestamp,jsonPayload.provider,jsonPayload.requested,jsonPayload.answered,jsonPayload.attempts,jsonPayload.durationMs)'
 ```
+
+**The metric's filter did not change in Phase 23D** — it is still `jsonPayload.fallback=true` — so
+the log-based metric kept collecting across the change rather than needing to be recreated.
 
 **When it fires:**
 
-1. Check whether it is a quota wall rather than a dead model — the free tier is 20 requests a minute
-   per model, and a burst of verification traffic hits it. `jsonPayload.detail` says so in the
-   provider's own words.
-2. If it persists, re-measure rather than guess: `npm run probe:models` makes real calls on both the
-   text and tool-calling paths and prints a table.
-3. Move the healthy model to the front of `FALLBACK_MODELS` in `src/lib/ai/gemini.ts`, **from the
+1. **Look at `provider` first.** A fallback rate confined to one provider is that vendor degrading;
+   a rate across both is far more likely to be us — a network path, a budget, or a deploy. The
+   circuit breakers are per provider (`health.ts`), so one provider's outage cannot reorder the
+   other's chain and the two signals are genuinely independent.
+2. Check whether it is a quota wall rather than a dead model — Gemini's free tier is 20 requests a
+   minute per model, and Groq answers 429 on a free-tier burst; a burst of verification traffic hits
+   either. `jsonPayload.detail` says so in the provider's own words.
+3. If it persists, re-measure rather than guess: `npm run probe:models` makes real calls on both the
+   text and tool-calling paths and prints a table. **Pass `--provider groq` for the other one** —
+   it defaults to Google.
+4. Move the healthy model to the front of that provider's chain — `FALLBACK_MODELS` in
+   `src/lib/ai/gemini.ts`, or `GROQ_FALLBACK_MODELS` in `src/lib/ai/groq.ts`; `providers.ts` reads
+   both rather than restating them — **from the
    measurement, never from memory**, and redeploy.
 
 > **Observed 2026-09-30, on the deployed service, within minutes of this metric existing.**
