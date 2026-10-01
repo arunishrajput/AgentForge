@@ -46,7 +46,13 @@ permissions:
 
 jobs:
   check:
-    name: lint · typecheck · test · docs · build
+    # NAME IS A CONTRACT, not a label — Phase 24 learned this the hard way. Branch
+    # protection requires the status check context "lint · typecheck · test · build",
+    # and a context is identified by this string. Renaming the job to mention the docs
+    # gate made the required check unsatisfiable, which would have blocked every PR into
+    # main while direct pushes still passed (enforce_admins is false). The docs gate runs
+    # as a step below; the job name stays exactly as the protection rule expects it.
+    name: lint · typecheck · test · build
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
