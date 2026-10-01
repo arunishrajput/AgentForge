@@ -344,6 +344,7 @@ Carried forward from every phase. These are the decisions later sessions must no
 
 | Issue | Impact | Action |
 |---|---|---|
+| **GitHub may accept a push to `main` and create no workflow run at all** | HEAD sits with no CI result, and **nothing signals it** — a missing pipeline is quieter than a red one | **Seen twice in a row on 2026-10-01** (`a530b29`, `5ee52ef`). Not explicable from this side: no `paths` filter, workflow `active`, repository public, Actions `enabled`, and githubstatus.com reporting Actions operational. **Do not assume a push triggers CI — check.** `workflow_dispatch` was added to `ci.yml` that day precisely so the recovery is not "push another commit": run `gh workflow run ci.yml --ref main`, which worked immediately and went green. Confirm with `gh api repos/arunishrajput/AgentForge/commits/$(git rev-parse HEAD)/check-runs --jq .total_count` — **`0` means CI never ran, not that it passed** |
 | **A table indexed by a URL path segment must be own-property only** | A 500 where a 404 belonged, live since Phase 21 | **Phase 23B, and it was found by a test written for something else.** `rotationRule(kind)` indexed a plain object, so `POST /api/credentials/toString/rotate` resolved `Object.prototype.toString` — truthy — walked past the route's own 404 and answered 500. It **failed closed and wrote nothing**, which is precisely why nobody noticed for two phases: the damage was to the error, not to the data. It surfaced only because Phase 23B builds that table with a spread, which changes `__proto__` from `Object.prototype` to a null-prototype object and made the wrong answer a *different shape*. `getNode` has used a `Map` since Phase 3 for exactly this reason. Fixed with `Object.hasOwn`, asserted for three prototype keys on both routes against the deployed service |
 | **A test whose example of "does not exist" later starts existing asserts nothing** | Two tests passed for six phases while checking the opposite of their names | **Phase 23B.** `generate.test.ts` and `credentials.test.ts` both used `integration.slack` as a stand-in for an unregistered type; registering the node made "output naming a node type that does not exist is rejected" a test that rejected nothing. **The failure is silent by construction** — a green test. Both now use an identifier nobody would build. Worth a glance whenever a phase registers something: search the suite for the new name before adding it |
 | **Lower-casing a user-facing string is wrong exactly as often as it holds an acronym** | "Slack incoming webhook url" in the vault and in three error messages | **Phase 23B.** `secretLabel.toLowerCase()` built the vault's title and two refusals. Replaced with a second explicit field, `secretNoun`, so each string is authored for where it is used. A test asserts the acronym survives. The general rule: derive prose from prose only when the transformation is total |
@@ -932,7 +933,11 @@ Phase 23C found the last of those still pinned at **15**, which Phase 22 wrote a
 23B both walked past: that suite is not part of the per-phase routine, so its failure was invisible
 for two phases. **Run every suite at the end of a phase, not just the ones the phase touched.**
 
-`npm run check` is what CI runs, so a green local run means a green pipeline. `probe:models` needs a
+`npm run check` is what CI runs, so a green local run means a green pipeline — **but only if the
+pipeline actually ran.** GitHub silently created no run for two consecutive pushes on 2026-10-01;
+see *Known Issues*. After pushing, confirm with
+`gh api repos/arunishrajput/AgentForge/commits/$(git rev-parse HEAD)/check-runs --jq .total_count`,
+and if it is `0`, ask for one with `gh workflow run ci.yml --ref main`. `probe:models` needs a
 key: `GEMINI_API_KEY=$(gcloud services api-keys get-key-string <key> --format='value(keyString)')` —
 the resource path is in the script's own header.
 
