@@ -409,9 +409,38 @@ try {
     `got ${google.status}: ${JSON.stringify(google.json).slice(0, 200)}`,
   );
 
-  const unknown = await api("POST", "/api/credentials/integration.slack/rotate",
+  /**
+   * **This check was stale and failed on 2026-10-01, against a correct product.**
+   *
+   * It used `integration.slack` as its stand-in for "a kind this product does not store",
+   * which was true when Phase 21 wrote it and stopped being true in Phase 23B, where Slack
+   * became a real credential kind with a real shape check. The route then answered 400
+   * ("That is not a Slack incoming webhook URL") — the right answer to a different question.
+   *
+   * It is the defect class Phase 23C named: **a verification suite that is not re-run every
+   * phase rots silently**, and a stale assertion fails later in a way that looks like a
+   * regression in whatever phase happens to run it next. The fix is a kind that cannot
+   * become real by accident, and the distinction the check was always about is now asserted
+   * on both sides.
+   */
+  const unknown = await api("POST", "/api/credentials/integration.no_such_service/rotate",
+    { secret: "a-secret-long-enough-to-pass-any-shape-check" }, token, workspaceId);
+  check(
+    "a kind this product does not store is 404, not 400",
+    unknown.status === 404,
+    `got ${unknown.status}: ${JSON.stringify(unknown.json).slice(0, 160)}`,
+  );
+
+  // The other half, which is what made the stale assertion look plausible for so long: a
+  // kind that IS known, handed a secret of the wrong shape, is a 400 — refused before the
+  // service is ever called.
+  const malformed = await api("POST", "/api/credentials/integration.slack/rotate",
     { secret: "https://hooks.slack.com/services/x" }, token, workspaceId);
-  check("an unknown kind is 404, not 400", unknown.status === 404, `got ${unknown.status}`);
+  check(
+    "a known kind with a malformed secret is 400, refused before the service is called",
+    malformed.status === 400,
+    `got ${malformed.status}: ${JSON.stringify(malformed.json).slice(0, 160)}`,
+  );
 
   const empty = await api("POST", "/api/credentials/llm.google/rotate", { secret: "" }, token, workspaceId);
   check("an empty secret is refused by the schema", empty.status === 400, `got ${empty.status}`);

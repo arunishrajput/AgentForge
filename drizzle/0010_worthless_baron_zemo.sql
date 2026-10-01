@@ -1,0 +1,36 @@
+-- ---------------------------------------------------------------------------
+-- Phase 23D — the second LLM provider.
+--
+-- **One nullable column, no backfill, no data migration.** The safest class of change in
+-- this project: the previous revision does not know this column exists and keeps serving
+-- correctly while it is applied, and nothing any user can observe changes when it runs.
+--
+-- ## Why there is no credential migration here, which the plan expected
+--
+-- `BUILD_PLAN.md` → *Phase 23D* says migrating the existing `llm.google` rows is "part of
+-- the work, not a follow-up". Implementing it showed the premise was half wrong in the
+-- helpful direction: **the credential kind was already provider-qualified.** It is
+-- `llm.google`, not `llm.key`, so Google's existing rows are already named after the
+-- provider they belong to and Groq's new ones are `llm.groq`. No row changes meaning, so no
+-- row is rewritten, and a workspace with a working Gemini key cannot lose it to a migration
+-- that never runs.
+--
+-- What genuinely had no home was *which provider a workspace uses* — a question that could
+-- only be answered "the one" while there was one. That is this column.
+--
+-- ## Why NULL rather than a backfilled 'google'
+--
+-- NULL means "nobody has chosen", which is the truth about every row that exists when this
+-- runs. `resolveProvider` reads it as "the first provider in the registry this workspace
+-- holds a key for", and the registry's first entry is Google — exactly what every one of
+-- those workspaces is already using.
+--
+-- Backfilling `'google'` would have recorded a decision nobody made, and it would have been
+-- wrong for a workspace whose only key is a Groq one added later. So: additive, no backfill,
+-- and `BUILD_PLAN.md`'s requirement that the second provider must not quietly become the
+-- default becomes a property of the data rather than of a code path.
+--
+-- Rollback: `rollback_0010.sql`. It drops one nullable column and loses one preference per
+-- workspace; no secret and no credential is touched.
+-- ---------------------------------------------------------------------------
+ALTER TABLE "workspace" ADD COLUMN "llmProvider" text;

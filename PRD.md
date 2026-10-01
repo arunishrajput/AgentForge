@@ -120,7 +120,7 @@ mapped to the phase that delivers it. `BUILD_PLAN.md` is the contract; this is t
 | C10b | Integration nodes: Slack, Notion, GitHub, Airtable — registry to 29 | 23B — **DONE** | S5. Each needs an account |
 | C10c | A Postgres node, read-only — registry to 30 | 23C — **DONE** | S5. Reaches a wire protocol, not an HTTPS API. **Read-only by construction: no SQL field, and every query runs in a read-only transaction** |
 | C11 | Template gallery | 23A — **DONE** | S4, never built |
-| C12 | A second LLM provider | 23D | S1, blocked on a key only the user can create |
+| C12 | A second LLM provider | 23D | **DONE 2026-10-01.** Groq, behind the same adapter. Proved on the deployed app with a real completion *and* a real tool call; existing `llm.google` credentials proved unchanged on the deployed database |
 | C16 | Per-node documentation in the inspector | 23A — **DONE** | New in Chapter 2 |
 | C13 | Real test suite, coverage, CI | 13 | Explicitly excluded |
 | C14 | Docs site, ADRs, contributing guide, licence | 24 | Did not exist |
@@ -268,13 +268,22 @@ Ranked. Earlier items are not tradeable for later ones.
 
 Recorded so no future session treats these as oversights.
 
-**Two LLM providers → one.** The brief required at least two providers so model selection would be
-a real feature. Only Gemini keys are available. Rather than ship a dropdown with one entry and
-call it provider-agnostic: the adapter layer is genuinely provider-agnostic, Gemini is the only
-provider wired at MVP, and model selection is real across Gemini tiers (Pro / Flash / Flash-Lite).
-A second provider is **S1**, reachable in well under an hour once a key exists.
-*Cost:* provider-agnosticism is architectural at MVP, not demonstrated.
-*Benefit:* Gemini's free tier holds LLM spend at zero.
+**~~Two LLM providers → one.~~ CLOSED at Phase 23D, 2026-10-01.** The brief required at least two
+providers so model selection would be a real feature. At MVP only Gemini keys were available, so
+rather than ship a dropdown with one entry and call it provider-agnostic, the adapter layer was
+made genuinely provider-agnostic with Gemini the only implementation wired.
+
+**Groq is now the second**, behind the same `LanguageModel` interface, chosen for its free tier
+and because it is OpenAI-compatible — so the adapter also serves any OpenAI-compatible gateway.
+Which provider a workspace uses is stored, per workspace, and a workspace that has never chosen
+still gets Gemini: the second provider was not allowed to become the default by arriving.
+
+*What the deviation actually cost, now that it is closed:* the claim "a second provider is a new
+file; nothing above the interface changes" was half right, and the half that was wrong was only
+discoverable by doing it. Nothing above the interface changed. **Below it, the retry, fallback,
+budget and circuit-breaker machinery was sitting inside `gemini.ts`** and had to be lifted into a
+shared `chain.ts`, because two copies of Phase 13's wedged-model fix would have drifted. An
+untested abstraction was *approximately* right, which is the honest general lesson.
 
 **Slack → Discord.** The brief's demo spine posted to Slack. A Slack workspace cannot be
 authorised for this build; Discord webhooks need no app review. Same demo beat, same shape, no

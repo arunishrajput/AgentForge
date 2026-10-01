@@ -17,7 +17,7 @@ import {
   EVENT_RETENTION_DAYS,
   retentionCutoff,
 } from "./audit";
-import { describeCredential, LLM_CREDENTIAL_KIND } from "./index";
+import { describeCredential } from "./index";
 import {
   CREDENTIAL_KINDS,
   ROTATION_RULES,
@@ -52,16 +52,21 @@ test("every rotation rule names a kind the product actually stores", () => {
   }
 });
 
-test("the eight kinds are the eight the product stores, and no more", () => {
+test("the nine kinds are the nine the product stores, and no more", () => {
   // Pinned deliberately, and it keeps doing its job: it said "a fourth kind arriving in Phase 23
   // should fail this and be a decision, not a diff nobody reads", Phase 23B's four made it fail,
-  // and Phase 23C's one made it fail again. The list is spelled out rather than derived from
-  // TOKEN_INTEGRATIONS on purpose — deriving it from the same table `CREDENTIAL_KINDS` is built
-  // from would assert nothing.
+  // Phase 23C's one made it fail again, and **Phase 23D's `llm.groq` made it fail a third time**.
+  // The list is spelled out rather than derived from TOKEN_INTEGRATIONS or PROVIDERS on purpose —
+  // deriving it from the same tables `CREDENTIAL_KINDS` is built from would assert nothing.
+  //
+  // `llm.google` is written as a literal here for a second reason now: it is the **stored** kind
+  // in rows that already exist, and this line is the thing that would fail if a later phase
+  // renamed it and silently orphaned every Gemini key in the database.
   assert.deepEqual([...CREDENTIAL_KINDS].sort(), [
     DISCORD_CREDENTIAL_KIND,
     GOOGLE_CREDENTIAL_KIND,
-    LLM_CREDENTIAL_KIND,
+    "llm.google",
+    "llm.groq",
     "integration.slack",
     "integration.notion",
     "integration.github",
@@ -119,8 +124,12 @@ test("google.oauth is reconnect, because only Google can mint a refresh token", 
   assert.equal(rotationRule(GOOGLE_CREDENTIAL_KIND)?.mode, "reconnect");
 });
 
-test("the provider key and the Discord webhook are both rotatable by value", () => {
-  assert.equal(rotationRule(LLM_CREDENTIAL_KIND)?.mode, "value");
+test("every provider key and the Discord webhook are rotatable by value", () => {
+  // Both providers, not just the first: Phase 23D generates these entries from the provider
+  // registry, and the claim that generation makes is that a provider cannot be added without
+  // one. Asserting only Google would pass even if Groq's entry were missing.
+  assert.equal(rotationRule("llm.google")?.mode, "value");
+  assert.equal(rotationRule("llm.groq")?.mode, "value");
   assert.equal(rotationRule(DISCORD_CREDENTIAL_KIND)?.mode, "value");
 });
 
@@ -142,7 +151,7 @@ test("an unknown kind has no rule, rather than a permissive default", () => {
 });
 
 test("a rotation schema refuses an obviously wrong secret before the provider is called", () => {
-  const key = ROTATION_RULES[LLM_CREDENTIAL_KIND]!.schema!;
+  const key = ROTATION_RULES["llm.google"]!.schema!;
   assert.equal(key.safeParse("short").success, false);
   assert.equal(key.safeParse("x".repeat(500)).success, false);
   assert.equal(key.safeParse("AIzaSyExampleLookingKeyNotReal_0123456789").success, true);
@@ -184,7 +193,7 @@ test("retention is a bounded number of days, not unlimited", () => {
 /** A credential row as the database hands it over, envelope columns and all. */
 const ROW = {
   id: "cred-1",
-  kind: LLM_CREDENTIAL_KIND,
+  kind: "llm.google",
   label: "default",
   metadata: { model: "gemini-3-flash-preview" },
   ciphertext: "CIPHERTEXT-WOULD-BE-HERE",
@@ -259,7 +268,7 @@ test("describeEvent never projects who did it", () => {
   const described = describeEvent({
     id: "ev-1",
     event: "rotated",
-    kind: LLM_CREDENTIAL_KIND,
+    kind: "llm.google",
     label: "default",
     runId: null,
     nodeId: null,
@@ -279,7 +288,7 @@ test("an event whose credential is gone is marked orphaned, not hidden", () => {
   const described = describeEvent({
     id: "ev-2",
     event: "revoked",
-    kind: LLM_CREDENTIAL_KIND,
+    kind: "llm.google",
     label: "default",
     runId: null,
     nodeId: null,
@@ -289,7 +298,7 @@ test("an event whose credential is gone is marked orphaned, not hidden", () => {
     credentialId: null,
   });
   assert.equal(described.orphaned, true);
-  assert.equal(described.kind, LLM_CREDENTIAL_KIND);
+  assert.equal(described.kind, "llm.google");
 });
 
 test("the retention cutoff is exactly the retention window, in days", () => {
@@ -345,7 +354,7 @@ test("a reconnect credential refuses with the reason, and reaches no provider", 
 
 test("a secret that fails the shape check never reaches the provider", async () => {
   await assert.rejects(
-    () => rotateCredential({ scope: SCOPE, kind: LLM_CREDENTIAL_KIND, secret: "short" }),
+    () => rotateCredential({ scope: SCOPE, kind: "llm.google", secret: "short" }),
     (error: unknown) => {
       assert.ok(error instanceof ApiError);
       assert.equal(error.code, "invalid_request");

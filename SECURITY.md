@@ -41,7 +41,7 @@ interesting the code is.
 
 | Asset | Where it lives | Worst case |
 |---|---|---|
-| **A user's LLM API key** | `credential` row, kind `llm.google` | Somebody else spends their quota, or their money if the key is a paid one |
+| **A user's LLM API key** | `credential` row, kind `llm.google` or `llm.groq` | Somebody else spends their quota, or their money if the key is a paid one |
 | **A Google refresh token** | `credential` row, kind `google.oauth` | Mail sent as them; their spreadsheets written to. **The sharpest asset in the product** |
 | **A Discord webhook URL** | `credential` row, kind `integration.discord` | Messages posted to their channel as their bot |
 | **A workflow's webhook trigger token** | `workflow.webhookToken` | Arbitrary runs of one workflow started by anybody holding the URL |
@@ -110,6 +110,7 @@ Rotation is per-kind, and one of the eight is not a text box:
 | Kind | Mode | Rotation is |
 |---|---|---|
 | `llm.google` | `value` | Supply a new API key. Checked against the provider first |
+| `llm.groq` | `value` | The same, against Groq. **Phase 23D added the kind and wrote no rotation code**: the rule is generated from the provider registry |
 | `integration.discord` | `value` | Supply a new webhook URL. Called first. **The old webhook is not deleted at Discord** — nothing here can do that, and the vault says so |
 | `google.oauth` | `reconnect` | Re-run the consent flow. A refresh token can only be minted by Google, so there is nothing to paste and the vault offers a link instead of a control that could not work |
 | `integration.slack` | `value` | Supply a new incoming webhook URL. **The check posts nothing to your channel** — it sends a payload with no `text`, which Slack answers `no_text` only after it has resolved the webhook |

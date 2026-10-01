@@ -323,6 +323,45 @@ export async function renameWorkspace(
   return workspace;
 }
 
+/**
+ * **Which LLM provider this workspace uses — Phase 23D.**
+ *
+ * Two functions rather than a field on `resolveScope`'s result, because the scope is read on
+ * every authenticated request and this is read only when a model is about to be called. A
+ * column nobody looks at on the hot path is a column that does not need to be selected
+ * there, and Neon's free tier is metered on compute time awake (Phase 19A).
+ *
+ * `null` is a real answer and means "nobody has chosen" — see migration `0010` and
+ * `lib/ai/provider.ts` for how it resolves. The id is **not validated against the registry
+ * here**: a provider removed in a later phase would make a stored id unknown, and
+ * `providerOrDefault` degrading to the default is better than a query that throws on data
+ * that was valid when it was written.
+ */
+export async function readWorkspaceProvider(scope: WorkspaceScope): Promise<string | null> {
+  const [row] = await db()
+    .select({ llmProvider: workspaces.llmProvider })
+    .from(workspaces)
+    .where(eq(workspaces.id, scope.workspaceId))
+    .limit(1);
+
+  return row?.llmProvider ?? null;
+}
+
+/**
+ * Record the choice. Gated on `admin` at the route, like every other provider setting —
+ * switching provider changes which model every run in the workspace uses, which is not a
+ * viewer's or an editor's decision.
+ */
+export async function writeWorkspaceProvider(
+  scope: WorkspaceScope,
+  providerId: string,
+): Promise<void> {
+  await db()
+    .update(workspaces)
+    .set({ llmProvider: providerId, updatedAt: new Date() })
+    .where(eq(workspaces.id, scope.workspaceId));
+}
+
 export interface Member {
   userId: string;
   name: string | null;

@@ -15,11 +15,16 @@ export const dynamic = "force-dynamic";
  * Save button that `viewer` and `editor` cannot press. Read access here would be the
  * ability to burn somebody else's rate limit for no reachable outcome.
  */
-export async function GET() {
+export async function GET(request: Request) {
   return handle(async () => {
     const scope = await requireScope("admin");
+    // **Phase 23D: `?provider=` lists from a named provider's own stored key.** Without it
+    // the settings page could only ever fill the active provider's picker, so choosing a
+    // model for the provider you are about to switch to would be impossible — you would have
+    // to switch first, on a model you had not checked.
+    const provider = new URL(request.url).searchParams.get("provider");
     try {
-      return ok(await listModelsFor(scope));
+      return ok(await listModelsFor(scope, provider ?? undefined));
     } catch (error) {
       if (error instanceof NoProviderKeyError) {
         throw new ApiError("not_found", error.message);

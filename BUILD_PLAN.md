@@ -42,8 +42,8 @@ phase is incomplete. Current position is in `PROGRESS.md`, not here.
 23A Transform, control flow, templates, node docs       ✅
 23B SaaS integrations — Slack, Notion, GitHub, Airtable ✅ (2 of 4 real-service proven)
 23C The Postgres node                                   ✅
-23D The second LLM provider                             ← START HERE
-24  Documentation and open-source readiness
+23D The second LLM provider                             ✅
+24  Documentation and open-source readiness            ← START HERE
 25  Launch polish
 ```
 
@@ -1467,7 +1467,7 @@ to write. ✅
 
 ---
 
-## Phase 23D — The second LLM provider
+## Phase 23D — The second LLM provider ✅ COMPLETE
 
 **Objective.** A second LLM provider behind the existing adapter, so "which provider" is a
 stored fact rather than a literal.
@@ -1494,9 +1494,34 @@ second is the one that matters, because Phase 13 found a model that answered pro
 and hung on tool calls. Existing `llm.google` credentials keep working across the change,
 proved on the deployed database rather than asserted.
 
-**Completion criteria.** All of the above, proven against real services, not mocks.
+**Completion criteria.** All of the above, proven against real services, not mocks. ✅
+`scripts/verify-providers.mjs` — **55 passed, 0 failed, 0 skipped** against
+`agentforge-00058-q2z`, including a real completion, a real agent tool call, and the
+existing `llm.google` row proved byte-for-byte unchanged on the deployed database.
 
-**Documentation updates.** `ARCHITECTURE.md`, `CONTRACT.md`, `PRD.md`, `PROGRESS.md`.
+**What the plan got wrong, recorded rather than quietly corrected.** This phase was
+written expecting a credential migration, on the reading that `LLM_CREDENTIAL_KIND` was a
+literal standing where a provider belonged. **The kind string was already
+provider-qualified** — `llm.google`, not `llm.key` — so Google's rows keep their meaning,
+Groq's are `llm.groq`, and **no credential row needed rewriting**. What genuinely had no
+home was *which provider a workspace uses*: migration `0010`, one nullable column, no
+backfill.
+
+The split's stated cost was that 23D's credential-kind migration "would have been cheaper
+to do in the same sitting as 23C's credential work". **That cost did not materialise**,
+because the migration it referred to did not exist. The split was still right for its own
+reason — 23C was provable without the user and 23D was not.
+
+**What the plan under-estimated instead**, and this is the useful half: *"a second provider
+is a new file implementing this interface; nothing above it changes"* was true above the
+interface and wrong below it. The retry, fallback, budget and breaker machinery was inside
+`gemini.ts`, and had to be lifted into `chain.ts` so both providers share one copy of
+Phase 13's wedged-model fix. **An untested abstraction was approximately right**, and only
+building the second implementation could show which half.
+
+**Documentation updates.** `ARCHITECTURE.md` (A7 superseded, A26 added), `CONTRACT.md`,
+`PRD.md` (the two-providers deviation CLOSED, C12 done), `SECURITY.md`, `OPERATIONS.md`,
+`DEPLOYMENT.md`, `README.md`, `PROGRESS.md`. ✅
 
 **Commit.** `feat: complete phase 23d second llm provider`
 

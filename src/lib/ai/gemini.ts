@@ -1,21 +1,11 @@
-import { logError, logInfo, logWarn } from "@/lib/logging";
-
-import {
-  countsAgainstModel,
-  orderChain,
-  recordFailure,
-  recordSuccess,
-} from "./health";
+import { chainedModel, type FetchLike, type ProviderWire, type WireAnswer } from "./chain";
 import { toGeminiSchema, toToolParameters } from "./schema";
 import {
   isRetryableStatus,
   ProviderError,
-  type Attempt,
   type ChatTurn,
   type GenerateRequest,
-  type GenerateResult,
   type LanguageModel,
-  type ModelInfo,
   type ToolCall,
   type ToolSpec,
   type Usage,
@@ -37,6 +27,12 @@ import {
  *     a model turn from its parsed fields.
  *   • Gemini emits several `functionCall` parts in one turn, so a caller must expect a
  *     batch, not a single call.
+ *
+ * **Phase 23D moved the retry, fallback, budget and breaker machinery to `chain.ts`**,
+ * where a second provider could share it, and left this file holding only Gemini's wire
+ * format: the endpoint, the auth header, `contents`, `functionDeclarations`, and how to
+ * read a candidate. `gemini.test.ts` was not edited for that move, which is the evidence
+ * it preserved behaviour rather than merely looking like it did.
  */
 
 const BASE = "https://generativelanguage.googleapis.com/v1beta";
@@ -63,6 +59,10 @@ const BASE = "https://generativelanguage.googleapis.com/v1beta";
  * A fallback is a reliability property — a 503 on one model must not end a run — so the
  * chain stays short, is always logged, and is reordered live by the circuit breaker in
  * `health.ts` so a model known to be failing is tried last rather than first.
+ *
+ * **Phase 23D made the chain a per-provider fact** and `providers.ts` is where both
+ * chains now live side by side. This export is kept because it is Gemini's own list and
+ * this is Gemini's file; the registry reads it rather than restating it.
  */
 export const FALLBACK_MODELS = [
   "gemini-3-flash-preview",
@@ -71,42 +71,6 @@ export const FALLBACK_MODELS = [
 ];
 
 export const DEFAULT_MODEL = FALLBACK_MODELS[0];
-
-/**
- * The time budget — Phase 13's headline fix.
- *
- * Chapter 1 used a 45 s per-request timeout with two attempts per model and no overall
- * deadline, so a single wedged model cost 90 s before a fallback was tried. That is
- * exactly the 91.9 s step Phase 12 measured.
- *
- * Now: every attempt is capped, the whole `generate` call is capped, and **a timed-out
- * attempt is never retried on the same model.** A model that accepted the request and
- * went quiet has told you what it is going to do; asking it twice just buys the same
- * silence again. Retrying in place is reserved for failures that come back *fast* —
- * a 503 usually returns in under a second, and a retry there often succeeds.
- *
- * 12 s is deliberately tighter than the slowest healthy model measured (10.2 s on the
- * text path). That is a trade made with the numbers in hand: a model needing more than
- * 12 s for one agent step is losing to the fallback anyway, and the budget is what keeps
- * degradation under 15 s. A caller that knows it is doing something large can raise it
- * per request with `GenerateRequest.timeoutMs`.
- */
-const ATTEMPT_TIMEOUT_MS = 12_000;
-
-/**
- * The ceiling on one `generate`, across every model and retry. Sits well inside the
- * engine's 120 s run deadline so a node that also calls an integration still has room.
- */
-const TOTAL_BUDGET_MS = 30_000;
-
-/**
- * An attempt with less than this left of the total budget is not worth starting: it
- * would time out by construction and report a model failure that never happened.
- */
-const MIN_ATTEMPT_MS = 1_500;
-
-const MAX_ATTEMPTS_PER_MODEL = 2;
-const BACKOFF_MS = [600, 1800];
 
 interface GeminiPart {
   text?: string;
@@ -136,6 +100,12 @@ function isContent(value: unknown): value is GeminiContent {
  * with, and the next request fails with 400 — so the reconstruction path exists only
  * for a turn that never came from Gemini (a test fake, or a different provider's
  * history) and is marked as such.
+ *
+ * **That last clause stopped being hypothetical in Phase 23D.** A workspace that switches
+ * provider mid-conversation hands this function Groq's turns, whose `raw` is an OpenAI
+ * message rather than a Gemini content — `isContent` returns false for it and the
+ * reconstruction path is what runs. It loses nothing, because a Groq turn never had a
+ * `thoughtSignature` to lose.
  */
 export function toContents(turns: ChatTurn[]): GeminiContent[] {
   const contents: GeminiContent[] = [];
@@ -249,10 +219,7 @@ function errorMessage(payload: unknown, status: number): string {
   return `Gemini returned HTTP ${status}.`;
 }
 
-export type FetchLike = (
-  input: string,
-  init: { method: string; headers: Record<string, string>; body?: string; signal?: AbortSignal },
-) => Promise<{ status: number; json: () => Promise<unknown> }>;
+export type { FetchLike };
 
 export interface GeminiOptions {
   apiKey: string;
@@ -264,7 +231,7 @@ export interface GeminiOptions {
   fetchImpl?: FetchLike;
   /** Backoff between attempts. Overridden in tests so they do not actually wait. */
   backoffMs?: number[];
-  /** Per-attempt cap. Defaults to 12 s — see the budget note above. */
+  /** Per-attempt cap. Defaults to 12 s — see `chain.ts`. */
   attemptTimeoutMs?: number;
   /** Cap on the whole chain. Defaults to 30 s. */
   totalBudgetMs?: number;
@@ -277,311 +244,109 @@ export interface GeminiOptions {
   ignoreHealth?: boolean;
 }
 
+/** Gemini's wire format, and nothing else. The chain in `chain.ts` does the rest. */
+function geminiWire(apiKey: string): ProviderWire {
+  return {
+    provider: "google",
+    label: "Gemini",
+
+    prepare(request: GenerateRequest): Record<string, unknown> {
+      const tools = request.tools ?? [];
+      return {
+        contents: toContents(request.turns),
+        ...(request.system
+          ? { systemInstruction: { parts: [{ text: request.system }] } }
+          : {}),
+        ...(tools.length > 0
+          ? { tools: [{ functionDeclarations: toFunctionDeclarations(tools) }] }
+          : {}),
+        generationConfig: {
+          ...(request.temperature === undefined ? {} : { temperature: request.temperature }),
+          ...(request.maxOutputTokens === undefined
+            ? {}
+            : { maxOutputTokens: request.maxOutputTokens }),
+          // JSON mode and function calling are mutually exclusive on Gemini, so the
+          // caller's `json` is honoured only when it asked for no tools.
+          ...(request.json && tools.length === 0
+            ? { responseMimeType: "application/json" }
+            : {}),
+        },
+      };
+    },
+
+    // The model is in the path, so the body is the same for every attempt.
+    target: (model, prepared) => ({
+      url: `${BASE}/models/${model}:generateContent`,
+      method: "POST",
+      headers: { "x-goog-api-key": apiKey, "content-type": "application/json" },
+      body: prepared,
+    }),
+
+    parse(payload): WireAnswer {
+      const parsed = parseCandidate(payload);
+      return { ...parsed, usage: readUsage(payload) };
+    },
+
+    errorMessage,
+
+    async listModels(call) {
+      const response = await call(`${BASE}/models?pageSize=200`, {
+        method: "GET",
+        headers: { "x-goog-api-key": apiKey },
+      });
+      const payload = await response.json();
+
+      if (response.status !== 200) {
+        throw new ProviderError(errorMessage(payload, response.status), {
+          status: response.status,
+          retryable: isRetryableStatus(response.status),
+        });
+      }
+
+      const models = (payload as { models?: Array<Record<string, unknown>> }).models ?? [];
+
+      return models
+        .filter((model) => {
+          const methods = (model.supportedGenerationMethods as string[] | undefined) ?? [];
+          const id = String(model.name ?? "").replace(/^models\//, "");
+          // Text generation only. The catalogue also carries image, TTS, music and
+          // embedding models, none of which can serve an LLM or agent node.
+          return (
+            methods.includes("generateContent") &&
+            id.startsWith("gemini-") &&
+            !/-(tts|image|transcribe|embedding)\b/.test(id) &&
+            !id.includes("computer-use") &&
+            !id.includes("robotics")
+          );
+        })
+        .map((model) => ({
+          id: String(model.name ?? "").replace(/^models\//, ""),
+          label: String(model.displayName ?? model.name ?? ""),
+          inputTokenLimit: numberOrNull(model.inputTokenLimit),
+          outputTokenLimit: numberOrNull(model.outputTokenLimit),
+        }));
+    },
+  };
+}
+
 export function geminiModel(options: GeminiOptions): LanguageModel {
   const { apiKey } = options;
   if (!apiKey) throw new ProviderError("No Gemini API key.", { status: 401, retryable: false });
 
-  const defaultModel = options.defaultModel ?? DEFAULT_MODEL;
-  const fallbacks = options.fallbacks ?? FALLBACK_MODELS;
-  const backoff = options.backoffMs ?? BACKOFF_MS;
-  const attemptTimeout = options.attemptTimeoutMs ?? ATTEMPT_TIMEOUT_MS;
-  const totalBudget = options.totalBudgetMs ?? TOTAL_BUDGET_MS;
-  const useHealth = options.ignoreHealth !== true;
-  const call: FetchLike =
-    options.fetchImpl ??
-    (async (url, init) => {
-      const response = await fetch(url, init);
-      return { status: response.status, json: () => response.json() };
-    });
-
-  /**
-   * The order models are tried in: the requested one first, then the chain with the
-   * requested one removed so it is never attempted twice in a row — and then the whole
-   * thing reordered by the circuit breaker, which moves a model that is currently
-   * failing to the back.
-   *
-   * The requested model keeps its place at the front *whenever its breaker is closed*.
-   * Only a model already known to be failing loses that position, and the caller still
-   * learns which model answered from `GenerateResult.model` and the attempt list.
-   */
-  function chain(requested: string): string[] {
-    const ordered = [requested, ...fallbacks.filter((model) => model !== requested)];
-    return useHealth ? orderChain(ordered) : ordered;
-  }
-
-  async function post(
-    model: string,
-    body: unknown,
-    signal: AbortSignal | undefined,
-    budgetMs: number,
-  ): Promise<{ status: number; payload: unknown; ms: number }> {
-    const started = Date.now();
-    const timeout = AbortSignal.timeout(budgetMs);
-    const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
-
-    const response = await call(`${BASE}/models/${model}:generateContent`, {
-      method: "POST",
-      headers: { "x-goog-api-key": apiKey, "content-type": "application/json" },
-      body: JSON.stringify(body),
-      signal: combined,
-    });
-
-    return { status: response.status, payload: await response.json(), ms: Date.now() - started };
-  }
-
-  async function attemptChain(request: GenerateRequest): Promise<GenerateResult> {
-    const tools = request.tools ?? [];
-    const body: Record<string, unknown> = {
-      contents: toContents(request.turns),
-      ...(request.system
-        ? { systemInstruction: { parts: [{ text: request.system }] } }
-        : {}),
-      ...(tools.length > 0
-        ? { tools: [{ functionDeclarations: toFunctionDeclarations(tools) }] }
-        : {}),
-      generationConfig: {
-        ...(request.temperature === undefined ? {} : { temperature: request.temperature }),
-        ...(request.maxOutputTokens === undefined
-          ? {}
-          : { maxOutputTokens: request.maxOutputTokens }),
-        // JSON mode and function calling are mutually exclusive on Gemini, so the
-        // caller's `json` is honoured only when it asked for no tools.
-        ...(request.json && tools.length === 0
-          ? { responseMimeType: "application/json" }
-          : {}),
-      },
-    };
-
-    const attempts: Attempt[] = [];
-    let lastError: ProviderError | null = null;
-
-    // One clock for the whole chain. Without it, "two attempts per model, three models"
-    // multiplies into a number nobody budgeted for — which is how Phase 12 got 91.9 s.
-    //
-    // `request.timeoutMs` sets the **per-attempt** budget, not the total. The total then
-    // stretches to hold at least two full-length attempts, because a caller raising the
-    // per-attempt budget for a large prompt still needs room for a fallback afterwards —
-    // capping both at the same number would spend the entire budget on one model and
-    // reintroduce the single point of failure this whole mechanism exists to remove.
-    const perAttempt = request.timeoutMs ?? attemptTimeout;
-    const ceiling = Math.max(totalBudget, perAttempt * 2);
-    const deadline = Date.now() + ceiling;
-    const remaining = () => deadline - Date.now();
-
-    for (const model of chain(request.model || defaultModel)) {
-      for (let tries = 0; tries < MAX_ATTEMPTS_PER_MODEL; tries += 1) {
-        if (request.signal?.aborted) {
-          throw new ProviderError("The run stopped before the model answered.", {
-            status: 0,
-            retryable: false,
-            attempts,
-          });
-        }
-
-        // Out of budget. Stop rather than start an attempt that cannot finish — a
-        // 300 ms sliver of a 12 s call is a guaranteed timeout dressed as an attempt.
-        // The floor is capped by `perAttempt` so a deliberately short budget (tests,
-        // and a caller passing `timeoutMs`) still gets its one honest attempt.
-        const floor = Math.min(MIN_ATTEMPT_MS, perAttempt);
-        const budget = Math.min(perAttempt, remaining());
-        if (budget < floor) {
-          lastError ??= new ProviderError(
-            `No model answered within ${Math.round(ceiling / 1000)} s.`,
-            { status: 0, retryable: true, attempts },
-          );
-          throw lastError;
-        }
-
-        let status = 0;
-        let payload: unknown = null;
-        let ms = 0;
-        try {
-          const result = await post(model, body, request.signal, budget);
-          status = result.status;
-          payload = result.payload;
-          ms = result.ms;
-        } catch (error) {
-          // A transport failure or a timeout. Retryable: it says nothing about the
-          // request being wrong.
-          const message = error instanceof Error ? error.message : String(error);
-          const timedOut = /timeout|aborted|timed out/i.test(message);
-          const detail = timedOut ? `no answer within ${budget} ms` : message;
-          attempts.push({ model, status: 0, ms: budget, error: detail });
-          if (useHealth) recordFailure(model, { status: 0, error: detail, latencyMs: budget });
-          lastError = new ProviderError(`Could not reach Gemini: ${detail}`, {
-            status: 0,
-            retryable: true,
-            attempts,
-          });
-
-          // **The Phase 13 fix.** A model that swallowed the whole budget and said
-          // nothing gets no second chance here — the chain moves on. Retrying in place
-          // is what turned one wedged model into 90 s.
-          if (timedOut) break;
-
-          if (tries + 1 < MAX_ATTEMPTS_PER_MODEL) {
-            await sleep(Math.min(backoff[tries] ?? 1800, Math.max(0, remaining())));
-          }
-          continue;
-        }
-
-        if (status === 200) {
-          attempts.push({ model, status, ms });
-          if (useHealth) recordSuccess(model, ms);
-          const parsed = parseCandidate(payload);
-          return {
-            model,
-            text: parsed.text,
-            toolCalls: parsed.toolCalls,
-            raw: parsed.raw,
-            usage: readUsage(payload),
-            finishReason: parsed.finishReason,
-            attempts,
-          };
-        }
-
-        const message = errorMessage(payload, status);
-        attempts.push({ model, status, ms, error: message });
-        const retryable = isRetryableStatus(status);
-        // 404 is not retryable, but it *is* a fact about the model — three names in the
-        // Chapter 1 chain went "no longer available to new users" mid-project. The
-        // breaker wants to know; the chain still moves on, because another model can
-        // absolutely fix a 404.
-        if (useHealth && countsAgainstModel(status)) {
-          recordFailure(model, { status, error: message, latencyMs: ms });
-        }
-        lastError = new ProviderError(message, { status, retryable, attempts });
-
-        // 400/401/403 are facts about the request or the key. Another model will not
-        // fix a bad key, so those end the call outright.
-        if (!retryable && status !== 404) throw lastError;
-        if (status === 404) break;
-
-        if (tries + 1 < MAX_ATTEMPTS_PER_MODEL) {
-          await sleep(Math.min(backoff[tries] ?? 1800, Math.max(0, remaining())));
-        }
-      }
-    }
-
-    throw (
-      lastError ??
-      new ProviderError("Gemini could not be reached.", {
-        status: 0,
-        retryable: true,
-        attempts,
-      })
-    );
-  }
-
-  /**
-   * **The model-fallback metric — Phase 22, and the one this phase exists for.**
-   *
-   * Chapter 1's 92-second regression was a healthy-looking system: runs succeeded, the
-   * canvas streamed, nothing errored. What had happened was that the requested model had
-   * started timing out and every call was quietly being answered by the second or third
-   * model in the chain, at the cost of a wedged 45-second attempt first. Nothing reported
-   * it, because from the outside a fallback *is* a success — that is the entire point of
-   * having one.
-   *
-   * So a fallback is recorded as an event in its own right. `fallback: true` is the
-   * filter behind `agentforge_model_fallbacks` in `OPERATIONS.md`; a rate above zero for
-   * any sustained period means the head of the chain is degrading and
-   * `npm run probe:models` should be run before the numbers in `FALLBACK_MODELS` are
-   * trusted again.
-   *
-   * It wraps the chain rather than living inside it so that the loop, which is delicate
-   * and well tested, did not have to be edited to be observed. **No prompt and no
-   * completion is logged** — only which model was asked, which answered, how long, and
-   * how many attempts it took.
-   */
-  async function generate(request: GenerateRequest): Promise<GenerateResult> {
-    const requested = request.model || defaultModel;
-    const startedAt = Date.now();
-
-    try {
-      const result = await attemptChain(request);
-      const fallback = result.model !== requested;
-      const fields = {
-        requested,
-        answered: result.model,
-        fallback,
-        attempts: result.attempts.length,
-        durationMs: Date.now() - startedAt,
-        finishReason: result.finishReason,
-        toolCalls: result.toolCalls.length,
-        inputTokens: result.usage?.inputTokens ?? null,
-        outputTokens: result.usage?.outputTokens ?? null,
-      };
-      if (fallback) {
-        logWarn("model.call", `${requested} did not answer; ${result.model} did.`, fields);
-      } else {
-        logInfo("model.call", `${result.model} answered.`, fields);
-      }
-      return result;
-    } catch (error) {
-      const attempts = error instanceof ProviderError ? error.attempts : [];
-      logError("model.call", `No model answered a request for ${requested}.`, error, {
-        requested,
-        answered: null,
-        // A call that reached no model at all is the limiting case of a fallback, and it
-        // belongs in the same metric: the chain was exercised and did not deliver.
-        fallback: true,
-        failed: true,
-        attempts: attempts.length,
-        triedModels: attempts.map((attempt) => attempt.model).join(",") || null,
-        status: error instanceof ProviderError ? error.status : null,
-        durationMs: Date.now() - startedAt,
-      });
-      throw error;
-    }
-  }
-
-  async function listModels(): Promise<ModelInfo[]> {
-    const response = await call(`${BASE}/models?pageSize=200`, {
-      method: "GET",
-      headers: { "x-goog-api-key": apiKey },
-    });
-    const payload = await response.json();
-
-    if (response.status !== 200) {
-      throw new ProviderError(errorMessage(payload, response.status), {
-        status: response.status,
-        retryable: isRetryableStatus(response.status),
-      });
-    }
-
-    const models = (payload as { models?: Array<Record<string, unknown>> }).models ?? [];
-
-    return models
-      .filter((model) => {
-        const methods = (model.supportedGenerationMethods as string[] | undefined) ?? [];
-        const id = String(model.name ?? "").replace(/^models\//, "");
-        // Text generation only. The catalogue also carries image, TTS, music and
-        // embedding models, none of which can serve an LLM or agent node.
-        return (
-          methods.includes("generateContent") &&
-          id.startsWith("gemini-") &&
-          !/-(tts|image|transcribe|embedding)\b/.test(id) &&
-          !id.includes("computer-use") &&
-          !id.includes("robotics")
-        );
-      })
-      .map((model) => ({
-        id: String(model.name ?? "").replace(/^models\//, ""),
-        label: String(model.displayName ?? model.name ?? ""),
-        inputTokenLimit: numberOrNull(model.inputTokenLimit),
-        outputTokenLimit: numberOrNull(model.outputTokenLimit),
-      }));
-  }
-
-  return { provider: "google", defaultModel, generate, listModels };
+  return chainedModel(geminiWire(apiKey), {
+    defaultModel: options.defaultModel ?? DEFAULT_MODEL,
+    fallbacks: options.fallbacks ?? FALLBACK_MODELS,
+    ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
+    ...(options.backoffMs ? { backoffMs: options.backoffMs } : {}),
+    ...(options.attemptTimeoutMs === undefined
+      ? {}
+      : { attemptTimeoutMs: options.attemptTimeoutMs }),
+    ...(options.totalBudgetMs === undefined ? {} : { totalBudgetMs: options.totalBudgetMs }),
+    ...(options.ignoreHealth === undefined ? {} : { ignoreHealth: options.ignoreHealth }),
+  });
 }
 
 function numberOrNull(value: unknown): number | null {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
