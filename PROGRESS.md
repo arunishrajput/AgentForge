@@ -14,9 +14,14 @@ Phases 0–12 built and shipped a hackathon MVP. It was submitted on 2026-09-26
 (<https://www.youtube.com/watch?v=Suc4RV9LnLs>), and that chapter is done and not reopened.
 
 **Chapter 2 turns the MVP into a real, professional, open-source product.** Thirteen phases,
-13 → 25, defined in `BUILD_PLAN.md`. **Phases 13–22 are done, plus 23A and 23C** (19 was split
-into 19A and 19B; **23 is split into 23A, 23B, 23C and 23D** — see *Current Phase*).
-**23B is built and deployed but BLOCKED on M10. Phase 23D is next, and it needs a key.**
+13 → 25, defined in `BUILD_PLAN.md`. **Phases 13–23C are all done** (19 was split into 19A and 19B;
+**23 is split into 23A, 23B, 23C and 23D**). **Phase 23D is next, and its key is already in `.env`.**
+
+**23B closed on 2026-10-01 with two of its four integrations proven against the real service** —
+Slack and GitHub — and **Notion and Airtable deliberately left unproven**, because the user does not
+use those products and will not create accounts for them. The code ships; the *claim* was narrowed
+instead, in `README.md`, where a stranger can read which integrations have met a real server and
+which have only met a stub. **No manual actions are outstanding.**
 
 **The live system still works and must keep working:**
 **https://agentforge-733000675212.asia-southeast1.run.app** — revision `agentforge-00057-8jx`.
@@ -54,7 +59,7 @@ ceiling costing something looks like, and `SECURITY.md` states the protection gi
 
 ## Current Phase
 
-## ▶ PHASE 23C — COMPLETE. Next: PHASE 23D (needs a key). 23B still BLOCKED on M10.
+## ▶ PHASES 23B AND 23C BOTH CLOSED. Next: PHASE 23D — its key is already in `.env`.
 
 **Phase 23C shipped the Postgres node, deployed on `agentforge-00057-8jx`, and it is complete by
 its own bar**: *"proven against a real server, not mocks"*. `scripts/verify-postgres.mjs` reports
@@ -124,9 +129,9 @@ migration touches `tokens.ts` and `rotation.ts`, which 23C had open.
 
 ### Then: PHASE 23D — the second LLM provider
 
-Full definition in `BUILD_PLAN.md`. **It needs a Groq API key (<https://console.groq.com/keys>) —
-flagged alongside M10 so both sittings can be one.** Two things to decide deliberately rather than
-drift into:
+Full definition in `BUILD_PLAN.md`. **`GROQ_API_KEY` is already in `.env`** (M11, 2026-10-01) and has
+**not been exercised** — 23D proves it with a real call *and* a real tool call rather than trusting
+that a key which exists works. Two things to decide deliberately rather than drift into:
 
 - **`LLM_CREDENTIAL_KIND` is the literal `"llm.google"`.** Migrating existing rows is part of the
   work, not a follow-up: a workspace with a working Gemini key must not lose it
@@ -167,7 +172,7 @@ drift into:
 | **21** — credential vault and rotation | **COMPLETE** — envelope encryption under a Secret Manager root key, all three rotations proved on the deployed URL by `verify-vault.mjs` (61 checks), and the vault driven in a real browser at 1440 and 375 px, 2026-09-30 |
 | **22** — observability and run analytics | **COMPLETE** — `verify-observability.mjs` ALL CHECKS PASSED against the deployed URL, including every analytics figure recomputed independently from SQL and an induced failure traced end to end **through Cloud Logging with the database never opened**; four log-based metrics created and all four confirmed collecting real points; the model-fallback metric caught a live degradation within minutes of existing; driven in a real browser at 1440 / 1024 / 375 px with zero console errors, 2026-09-30 |
 | **23A** — transform, control flow, templates, node docs | **COMPLETE** — registry 15 → 25, six templates, per-node docs in the inspector. `verify-templates.mjs` **37 checks ALL PASSED** against the deployed URL, including the template's arithmetic recomputed exactly and `transform.date` proved to have full ICU time-zone data in the container; the gallery, a clone, a canvas run and the docs disclosure driven in a real browser, and the header measured clean at **ten widths from 375 to 1920 px** after two regressions were found there, 2026-09-30 |
-| **23B** — SaaS integrations: Slack, Notion, GitHub, Airtable | **BLOCKED — WAITING FOR MANUAL ACTION (M10).** Everything is built, deployed and verified *except the one thing the phase is judged on*: its completion bar is "proven against real services, not mocks", and four success paths need credentials only the user can create. Built and proved: registry 25 → 29, four credential kinds derived from one table, four templates, `verify-integrations.mjs` **39 passed / 0 failed / 4 skipped**, `verify-api.mjs` **404/404**, `verify-templates.mjs` **45/45**, `verify-vault.mjs` all-pass, four settings cards driven in a browser at 1440 and 375 px, and a bad Slack webhook driven end to end to **real Slack**. 2026-10-01 |
+| **23B** — SaaS integrations: Slack, Notion, GitHub, Airtable | **COMPLETE, with a stated limitation.** Registry 25 → 29, four credential kinds derived from one table, four templates, one dynamic route. **Slack and GitHub proven against the real services on 2026-10-01** — a real message in a real channel; a real issue filed, commented on and read back from GitHub's own API, plus the fine-grained-token failure path. **Notion and Airtable are shipped and unit-tested but have never been run against the real service**, by the user's decision not to create those accounts; `README.md` says so plainly and `verify-integrations.mjs` still reports `2 skipped`, because skipped is not passed. Deployed tally: **60 passed / 0 failed / 2 skipped**. Closing it out found one defect — a vault property read as `credentials` rather than `entries`, which made the acronym assertion beneath it pass vacuously since 23B |
 | **23C** — the Postgres node | **COMPLETE** — registry 29 → 30, read-only by construction. `verify-postgres.mjs` **65 passed / 0 failed / 0 skipped** against the deployed URL, including a real table read from inside the container, all seven shared operators executed by Postgres, and a write proved refused **three ways**. Driven in a real browser: the settings card, its refusal path, a template clone, the inspector's docs and a full four-node run whose total was hand-checked, at 320 / 375 / 768 / 1920 px with zero console errors. 2026-10-01 |
 | **23D** — the second LLM provider | **NOT STARTED ← next.** Needs a Groq API key — see M11 |
 | **24** — documentation and open-source readiness | NOT STARTED |
@@ -424,10 +429,19 @@ Carried risks, recorded so they are not rediscovered:
 
 ## Manual Actions Pending
 
-**Three outstanding: M10 and M11 (both blocking), and M9 (blocking nothing).** M1–M8 are all done
-and verified with live calls. **M10 and M11 are one sitting** — do them together.
+**None outstanding.** M1–M11 are all resolved as of 2026-10-01 — M9 answered from the console, M10
+answered in part and **closed deliberately**, M11 supplied. The three blocks are kept below with
+their outcomes, because what was decided matters more than that it was done.
 
-### M11 — a second LLM provider's API key — **OPEN, and it is what blocks Phase 23D**
+### M11 — a second LLM provider's API key — **DONE, 2026-10-01**
+
+`GROQ_API_KEY` is in `.env`. **Not yet exercised** — Phase 23D is what uses it, and that phase
+verifies it with a real call and a real tool call rather than assuming a key that exists works.
+The original block is kept below.
+
+---
+
+#### The original block
 
 **Why.** Phase 23D puts a second provider behind the `LanguageModel` adapter so "which provider" is
 a stored fact rather than the literal `"llm.google"`. Its completion bar is a **real call and a real
@@ -462,7 +476,44 @@ runs it; the next session verifies rather than assumes.
 ---
 
 
-### M10 — four integration credentials — **OPEN, and it is what blocks Phase 23B**
+### M10 — four integration credentials — **CLOSED, 2026-10-01, two of four and that is final**
+
+**Slack and GitHub are proven against the real services.** A real message in a real channel; a real
+issue filed, commented on, and **read back from GitHub's own API** — plus the failure path, where a
+repository the fine-grained token cannot reach produces an error explaining exactly that.
+
+**Notion and Airtable will not be proven, by the user's decision on 2026-10-01: they do not use
+those products and will not create accounts for them.** That is a legitimate call and it is recorded
+rather than left as a block somebody re-reads every session.
+
+**What was decided, and why the code stayed.** The nodes are **not** being removed. They are built,
+unit-tested against a stub, deployed, documented, and their wire formats were read from each
+service's current API docs rather than recalled — Notion's `2025-09-03` data-source parent and
+Slack's refusal to let a caller override a channel both came from reading, not memory. This is an
+open-source showpiece: a stranger who uses Notion loses a working integration and gains nothing if
+it is deleted because the author happens not to use it. **What changes is the claim, not the code**
+— `README.md` now says in plain words which integrations have been run against the real service and
+which have only been run against a stub, and points a Notion or Airtable user at that gap first.
+
+**`verify-integrations.mjs` still reports `2 skipped` and that is correct.** The rule stays:
+*skipped is not passed.* The script was not weakened to make a tally look green; two services
+genuinely were not verified, and the suite should keep saying so to anyone who runs it.
+
+**If you ever do want them proven**, the original steps are below — `NOTION_TOKEN`,
+`NOTION_PAGE_ID`, `NOTION_DATABASE_ID`, `AIRTABLE_TOKEN`, `AIRTABLE_BASE_ID` and `AIRTABLE_TABLE` in
+`.env`, then re-run the suite and it drops to `0 skipped` on its own.
+
+**One defect this closed out.** The Slack rotation check had `data(rotated)?.credentials` where the
+vault answers `entries`, so the rotation-count assertion failed and **the acronym assertion beneath
+it passed vacuously** — `!/url\b/.test(undefined ?? "")` is `true`. That check existed specifically
+because an earlier version shipped "Slack incoming webhook url" into the vault, so a test written to
+catch one known defect had been asserting nothing since Phase 23B. It could not have been caught
+earlier: the rotation path cannot run without a real webhook. It now reads
+`"Slack incoming webhook URL"`, acronym intact.
+
+---
+
+#### The original block
 
 **Why.** Phase 23B's completion bar is *"proven against real services, not mocks"*. The code is
 written, deployed and verified everywhere it can be without an account; what is left is four success
@@ -527,7 +578,31 @@ still wanted, and is now M11 above.**
 ---
 
 
-### M9 — read Neon's consumed CU-hours — **OPEN, blocks nothing today**
+### M9 — read Neon's consumed CU-hours — **ANSWERED, 2026-10-01**
+
+**0.91 CU-hours, in a billing period that began 2026-10-01** — i.e. read a few hours into a fresh
+period, so it is a **baseline, not a balance**. Storage 42.44 MB, history 16.62 MB, network transfer
+20.4 MB; all far inside the free tier's 0.5 GB.
+
+**What it actually tells us, with the arithmetic shown.** The documented cron cost is ~61 CU-hours
+a month, which is **~1.97 a day, ~0.082 an hour**. Roughly four hours had elapsed, so the tick alone
+accounts for about **0.33**. The other **~0.58 was this session** — four deploys, seven deployed
+verification suites, the demo-database setup and a browser pass, which is about as database-heavy as
+a session in this project ever gets.
+
+**The projection, and it is comfortable.** A month of cron plus a baseline day is
+`0.91 + (1.97 × 30) ≈ 60` CU-hours against a 100 ceiling — **~40 to spare**, which matches the
+budget `DEPLOYMENT.md` already carried. At ~0.6 CU-hours per heavy phase session and three phases
+left, that is under 2 more. **No action, and no escalation.**
+
+**What this does not license.** The ~40 spare is headroom for *work*, not for a new always-awake
+reason to keep the database up — A22 still binds, and a rollup job or a polling page would eat it in
+days rather than months. **Re-read the number in a week**: a period that is hours old cannot show a
+burn rate, and the first genuinely useful reading is one taken after several ordinary days.
+
+---
+
+#### The original block
 
 **Why.** Neon's Free plan is **100 CU-hours per project per month** and the `*/15` cron tick
 commits about **61** of them, leaving ~39 for real use. The *budget* is verified
@@ -1018,6 +1093,34 @@ still documents a path known to work end to end, which is a useful smoke referen
 
 ## Recent Changes
 
+**2026-10-01 — Phase 23B closed out, and all three manual actions resolved**
+
+- **Slack and GitHub are proven against the real services.** A real message in a real channel; a
+  real issue filed, commented on and **read back from GitHub's own API**, plus the failure path
+  where a repository the fine-grained token cannot reach produces an error saying exactly that.
+  Deployed tally **60 passed / 0 failed / 2 skipped**
+- **Notion and Airtable will never be proven, by decision, and the code stays.** The user does not
+  use those products. Deleting two built, tested, deployed and documented integrations because the
+  author happens not to use them would cost a *stranger* a working feature and gain nobody
+  anything — so **the claim was narrowed instead of the code**. `README.md` now states which
+  integrations have met a real server and which have only met a stub
+- **`verify-integrations.mjs` was deliberately not weakened.** It still reports `2 skipped` and
+  still prints *skipped is not passed*. Making a tally look green by lowering the bar is the one
+  thing this project's verification rule exists to prevent
+- **A vacuous assertion was found and fixed, and it is the interesting one.** The Slack rotation
+  check read `data(rotated)?.credentials` where the vault answers `entries`, so the entry was
+  `undefined`: the rotation-count check failed honestly, and **the acronym check beneath it passed
+  while testing nothing** — `!/url\b/.test(undefined ?? "")` is `true`. That check exists precisely
+  because an earlier version shipped "Slack incoming webhook url" into the vault. It had been
+  asserting nothing since Phase 23B, and **could not have been caught earlier**: the rotation path
+  needs a real webhook, and M10 meant there was never one. It now reads
+  `"Slack incoming webhook URL"`
+- **M9 answered: 0.91 CU-hours**, read a few hours into a billing period that began 2026-10-01 — a
+  baseline, not a balance. The arithmetic says ~0.33 of it is the cron tick and ~0.58 was this
+  session's own verification load; a cron-only month projects to **~60 against a 100 ceiling**. No
+  escalation. **Re-read it in a week**, when there is a burn rate to see
+- **M11 supplied**, unexercised: 23D proves the key with a real call and a real tool call
+
 **2026-10-01 — Phase 23C COMPLETE: the Postgres node, read-only by construction**
 
 - **The registry is 30 nodes.** `integration.postgres` reads rows or counts them and **cannot
@@ -1252,6 +1355,15 @@ diary** — keeping six months of "what happened when" here makes the part that 
 find, which is the failure mode it is meant to prevent.
 
 ## Last Updated
+
+**2026-10-01** — **Phase 23B closed out; no manual actions outstanding.** Slack and GitHub proven
+against the real services (**60 passed / 0 failed / 2 skipped**); Notion and Airtable deliberately
+left unproven with the claim narrowed in `README.md` rather than the code removed. M9 answered at
+**0.91 CU-hours** on a period that began today — a baseline projecting to ~60 of 100. M11 supplied
+and unexercised. **No `src/` change, so the deployed image is untouched** and still
+`agentforge-00057-8jx`.
+
+---
 
 **2026-10-01** — **Phase 23C COMPLETE.** Revision `agentforge-00057-8jx` live, `/api/health` green
 across all five dependency checks and reporting `registry: 30`. **No migration**, no table, no

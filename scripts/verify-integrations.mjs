@@ -272,10 +272,27 @@ async function main() {
       body: JSON.stringify({ secret: process.env.SLACK_WEBHOOK_URL }),
     });
     check(rotated.status === 200, `the Slack credential rotates in place (${rotated.status})`);
-    const entry = (data(rotated)?.credentials ?? []).find((row) => row.kind === "integration.slack");
+    /**
+     * **`entries`, not `credentials`** — the rotate route answers with the whole `Vault`, whose
+     * stored rows are `entries`. Written wrong in Phase 23B and invisible until now, because the
+     * rotation path cannot run without a real webhook and M10 meant there was never one.
+     *
+     * The count check failed honestly (`undefined >= 1` is false). **The acronym check below it
+     * passed vacuously**, which is the worse of the two: `!/url\b/.test(undefined ?? "")` is
+     * `!/url\b/.test("")`, which is `true`. That check exists because an earlier version built
+     * its title with `.toLowerCase()` and shipped "Slack incoming webhook url" into the vault —
+     * so a check written to catch one specific shipped defect had been asserting nothing at all.
+     * It now requires the entry to exist first, which is what makes it a test.
+     */
+    const entry = (data(rotated)?.entries ?? []).find((row) => row.kind === "integration.slack");
+    check(entry !== undefined, "the vault reports the rotated credential", "the vault has no entry for integration.slack");
     check(entry?.rotationCount >= 1, `and its rotation count moved (${entry?.rotationCount})`);
     check(
-      !/url\b/.test(entry?.title ?? "") || /URL/.test(entry?.title ?? ""),
+      typeof entry?.rotatedAt === "string",
+      `and recorded when it happened (${entry?.rotatedAt})`,
+    );
+    check(
+      typeof entry?.title === "string" && (!/url\b/.test(entry.title) || /URL/.test(entry.title)),
       `the vault names it without mangling the acronym ("${entry?.title}")`,
     );
 

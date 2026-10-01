@@ -29,8 +29,8 @@ primitive and motion state on one page, with contrast ratios computed rather tha
 The product is live and working today: Google sign-in, a sentence turned into a real workflow on a
 canvas, registry-driven config forms, webhook and schedule triggers, an execution engine whose agent
 nodes call other nodes as tools and choose a branch at runtime, per-node status and logs streamed
-over SSE while it runs, and eight integrations that reach real services — HTTP, Discord, Google
-Sheets, Gmail, Slack, Notion, GitHub and Airtable. Originally built across 13 phases for the Zero
+over SSE while it runs, and nine integrations that reach real services — HTTP, Discord, Google
+Sheets, Gmail, Slack, Notion, GitHub, Airtable and Postgres. Originally built across 13 phases for the Zero
 Origin hackathon and
 [submitted](https://devpost.com/software/agentforge-kz832x) on 2026-09-26.
 
@@ -68,16 +68,31 @@ in the inspector, separately from the terse description the model reads. And a *
 ships six workflows that are real graphs rather than screenshots: they clone onto the canvas, every
 node is editable, and a test *executes* the ones that reach no service, so they cannot rot.
 
-**Phase 23B added the integrations people actually ask for**: Slack, Notion, GitHub and Airtable,
-taking the registry to **29**. Each one is a node, a credential kind, a rotation rule and a settings
-card — and all four come from **one table**, so a fifth integration is one entry rather than four
-copied files. Each is callable by the agent, and each earned that the same way: the destination is
-fixed by the credential you created, not chosen by the model. A Slack incoming webhook cannot be
-pointed at another channel; a Notion integration sees only the pages you connected it to; a
-fine-grained GitHub token reaches only the repositories you picked.
+**Phase 23B added the integrations people actually ask for**: Slack, Notion, GitHub and Airtable.
+Each one is a node, a credential kind, a rotation rule and a settings card — and all four come from
+**one table**, so a fifth integration is one entry rather than four copied files. Each is callable
+by the agent, and each earned that the same way: the destination is fixed by the credential you
+created, not chosen by the model. A Slack incoming webhook cannot be pointed at another channel; a
+Notion integration sees only the pages you connected it to; a fine-grained GitHub token reaches only
+the repositories you picked.
 
-Still to come — a database node, a second model provider, and proper documentation. It stays free
-to run.
+**Phase 23C proved that table was the right shape** by adding **Postgres** as a fifth row and
+writing nothing else — no route, no settings card, no rotation rule, no vault entry. The registry is
+now **30 nodes**. `integration.postgres` reads rows from a database you connect and **cannot write
+to it**: there is no SQL field at all (the statement is assembled from enumerated parts), every
+query runs inside a read-only transaction, and the role in your own connection string grants what it
+grants. That last one is the real boundary, and it is the one AgentForge cannot weaken.
+
+**What is proven against the real service, and what is not.** Every integration here is exercised by
+a deployed verification suite rather than a mock, but two of the nine have only ever been run against
+a stubbed server: **Notion and Airtable**. Their parsers, their error handling and their documented
+failure answers are unit-tested, and their wire formats were read from each service's current API
+docs rather than recalled — but nobody has yet created a Notion or Airtable account and watched a row
+appear. The other seven have: HTTP, Discord, Sheets and Gmail in Chapter 1, Slack and GitHub on
+2026-10-01, and Postgres against a real server the same day. If you use Notion or Airtable and
+something is wrong, that is where to look first, and an issue saying so would be genuinely useful.
+
+Still to come — a second model provider, and proper documentation. It stays free to run.
 
 **The redesign has landed.** Phase 14 replaced the dark Chapter 1 interface with **Toybox** — bright,
 playful and light-first, with saturated colour, thick ink outlines and hard offset shadows. It is
