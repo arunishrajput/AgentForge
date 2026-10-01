@@ -78,6 +78,14 @@ jobs:
       - name: Test with coverage
         run: npm run test:coverage
 
+      - name: Test the scripts
+        # The verification scripts in `scripts/` had no unit tests until a real bug was
+        # found in the one this project runs most: `smoke.mjs` reported FAILED against a
+        # healthy deployment because Beat 7 did not know what Beat 8 already did. The
+        # walk itself needs a database and a deployed URL and cannot run here; the pure
+        # outcome policy it got wrong can, and does.
+        run: npm run test:scripts
+
       - name: Documentation is current
         # Phase 24. `docs/nodes.md` is generated from the node registry, and this fails
         # if somebody adds or edits a node without regenerating it. It also asserts that

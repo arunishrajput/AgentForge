@@ -26,11 +26,15 @@
  *   APP_BASE_URL            unused here; the target is argv[2]
  *   SMOKE_SPREADSHEET_ID    the demo sheet. Without it Beat 8's Sheets half SKIPs
  *                           rather than passing, because the generated node is
- *                           deliberately born empty (see sheets.ts).
+ *                           deliberately born empty (see sheets.ts) — and Beat 7
+ *                           excuses that one node's failure for the same reason, so
+ *                           an unconfigured sheet does not report the whole walk as
+ *                           FAILED. `smoke-outcome.mjs` holds how narrow that is.
  */
 import { neon } from "@neondatabase/serverless";
 
 import { adaptPayload, DEMO_PROMPT, URGENT_PAYLOAD } from "./demo-payload.mjs";
+import { runOutcome } from "./smoke-outcome.mjs";
 
 /* ------------------------------------------------------------------ *
  * Arguments
@@ -370,11 +374,18 @@ async function walk(cookie, iteration) {
     /* Beat 7 — the runtime decision -------------------------------- */
     beat = 7;
     if (!run) return;
+    const outcome = runOutcome(run, spreadsheetId);
     check(
       "the run succeeded",
-      run.status === "succeeded",
+      outcome.acceptable,
       `status ${run.status}: ${run.error ?? ""}\n        ${failedSteps(run)}`,
     );
+    if (outcome.excused) {
+      note(
+        "the run failed only on the Sheets node, which is born empty by design — " +
+          "set SMOKE_SPREADSHEET_ID to walk that half too",
+      );
+    }
 
     const agentStep = run.steps?.find((s) => s.nodeType === "ai.agent");
     check(

@@ -740,9 +740,14 @@ both add query load to that same budget.
 > bills per 32 KB chunk. Phase 21 must not subscribe to Secret Manager rotation notifications —
 > only 3/month are free, then $0.05 each, which would be this project's first non-zero line.
 >
-> **One `UNKNOWN — VERIFY` remains:** Neon CU-hours actually *consumed* this period. Neon exposes it
-> only through its API or console, and `neonctl` here is unauthenticated — `PROGRESS.md` M9. The
-> budget is known; the balance is not. **Phases 19 and 22 must read it before designing.**
+> **The last `UNKNOWN — VERIFY` — Neon CU-hours actually *consumed* — was READ on 2026-10-01:**
+> **0.91**, a few hours into a fresh billing period, projecting to ~60 of 100 for a full month with
+> the cron running. `PROGRESS.md` → M9 and `DEPLOYMENT.md` → *Free-tier headroom* carry the
+> arithmetic. It is a **console-only** read on this plan: the consumption API is Scale-and-above and
+> the legacy fields return `0`, which Phase 22 established — the earlier note here that `neonctl` was
+> unauthenticated is **SUPERSEDED**, it is authenticated and still cannot see the number. Phases 19
+> and 22 were in the end designed against the *rule* — never add a new reason to wake an idle
+> database — rather than the balance, and each measured its own cost directly.
 
 ---
 

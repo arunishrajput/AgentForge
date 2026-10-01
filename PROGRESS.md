@@ -16,7 +16,9 @@ Phases 0–12 built and shipped a hackathon MVP. It was submitted on 2026-09-26
 **Chapter 2 turned the MVP into a real, professional, open-source product. IT IS COMPLETE.**
 Thirteen phases, 13 → 25, defined in `BUILD_PLAN.md`. **Every one of them is done** (19 was split
 into 19A and 19B; **23 was split into 23A, 23B, 23C and 23D**). **Phase 25 closed on 2026-10-01.**
-**No manual actions are outstanding and nothing is blocked.**
+**Nothing is blocked, and no action is outstanding that affects the product** — but **M12 is open and
+it costs money every day it stays open**: the post-judging turndown (`min-instances 0`, pause the
+cron) was never performed. See *Manual Actions Pending*.
 
 **25 was the last phase, and it was the one that assumed a stranger, not a demo.** A first-run
 onboarding guide read from live state, a WCAG 2.2 AA audit and an unauthenticated-surface review
@@ -453,9 +455,56 @@ Carried risks, recorded so they are not rediscovered:
 
 ## Manual Actions Pending
 
-**None outstanding.** M1–M11 are all resolved as of 2026-10-01 — M9 answered from the console, M10
-answered in part and **closed deliberately**, M11 supplied. The three blocks are kept below with
-their outcomes, because what was decided matters more than that it was done.
+**M12 is outstanding — see below.** M1–M11 are all resolved as of 2026-10-01 — M9 answered from the
+console, M10 answered in part and **closed deliberately**, M11 supplied. Those blocks are kept below
+with their outcomes, because what was decided matters more than that it was done.
+
+### M12 — the post-judging turndown — **OPEN, and overdue since ~2026-09-26**
+
+**Why.** Both `CLAUDE.md`'s cost rules and `DEPLOYMENT.md` → *After judging ends* say that once
+nobody is watching, two resources cost money for nothing. **Neither was ever turned down.** Verified
+2026-10-01: Cloud Run `min-instances` is **1** (a container warm 24/7 serving nobody) and
+`agentforge-cron` is **ENABLED** at `*/15`, which keeps Neon awake ~240 h/month ≈ **61 of the 100
+free CU-hours**. The roadmap closed without anyone running the two commands it had written down.
+
+**What it costs to leave.** Not an overrun — M9's projection of ~60/100 CU-hours already assumed the
+tick keeps running. It spends roughly two-thirds of the database budget to serve nobody.
+
+**What stops when it is done, stated plainly.** Pausing the cron **stops every schedule trigger**;
+`/api/cron/tick` is the only clock in the product, so a scheduled workflow will not fire until the job
+is resumed. It also ends the `cron.tick` heartbeat, which `OPERATIONS.md` → *Is the scheduler alive*
+expects at four an hour — **that runbook's expectation is suspended, not broken.** There is **no alert
+policy** on it (0 policies in the project, verified 2026-10-01), so nothing pages. `min-instances 0`
+reintroduces a Cloud Run cold start, and Neon's 1.14 s wake stops being the only cold tier.
+
+**Why it is not already done.** Attempted 2026-10-01; the sandbox refused both as shared-resource
+modifications. It needs the user to run them.
+
+**Commands.**
+```bash
+gcloud scheduler jobs pause agentforge-cron --location asia-southeast1
+gcloud run services update agentforge --region asia-southeast1 --min-instances 0
+```
+
+**Verification.**
+```bash
+gcloud scheduler jobs describe agentforge-cron --location asia-southeast1 --format='value(state)'
+# expect: PAUSED
+gcloud run services describe agentforge --region asia-southeast1 \
+  --format="value(spec.template.metadata.annotations['autoscaling.knative.dev/minScale'])"
+# expect: 0 (or empty)
+curl -s -o /dev/null -w '%{http_code}\n' https://agentforge-733000675212.asia-southeast1.run.app/api/health
+# expect: 200, after a cold start on the first request
+```
+
+**Undo, if the product needs to be live and scheduled again.**
+```bash
+gcloud scheduler jobs resume agentforge-cron --location asia-southeast1
+gcloud run services update agentforge --region asia-southeast1 --min-instances 1
+```
+
+**Note:** `--min-instances 0` creates a new revision, so the revision in *Deployed State* moves past
+`agentforge-00060-z9v`. Update it when this is done.
 
 ### M11 — a second LLM provider's API key — **DONE AND EXERCISED, 2026-10-01**
 
@@ -1113,7 +1162,9 @@ re-cut) are **no longer part of this project's work** and have been dropped.
 
 - **Run `scripts/smoke.mjs` first, every session.** Ten seconds, names the beat that broke.
   `verify-api.mjs` is the regression suite for a code change (D56). `seed-demo.mjs --check` says
-  whether the demo account is still in its demo state
+  whether the demo account is still in its demo state. **Without `SMOKE_SPREADSHEET_ID` the Sheets
+  half SKIPs and Beat 7 excuses that one node** — a clean walk, not a failure. Everything else still
+  has to pass; `scripts/smoke-outcome.mjs` is how narrow the excuse is
 - **Drive a real browser before believing a UI claim.** Phase 12's worst find passed 178 API checks
   and ten smoke walks (D59). The suites cannot see the page
 - **Do not deploy on demo day.** A redeploy kills in-flight runs and replaces a verified build.
@@ -1141,7 +1192,9 @@ re-cut) are **no longer part of this project's work** and have been dropped.
 
 **After judging ends, two things cost money for nothing:** set Cloud Run `min-instances 0`, and
 **pause the `agentforge-cron` Scheduler job at the same time**, or the tick keeps Neon awake ~240
-h/month. Both are in `DEPLOYMENT.md` → *After judging ends*.
+h/month. Both are in `DEPLOYMENT.md` → *After judging ends*. **Neither was ever done** — verified
+2026-10-01, `min-instances` is still 1 and the job is still ENABLED. It is now **M12**, it is the only
+action outstanding in this file, and it needs the user to run two commands.
 
 ## Open, but blocking nothing
 
@@ -1156,6 +1209,41 @@ still documents a path known to work end to end, which is a useful smoke referen
 ---
 
 ## Recent Changes
+
+**2026-10-01 — post-roadmap caretaking: a smoke script that cried wolf, and two stale docs**
+
+Not a phase. A verification pass over the finished roadmap, which held everywhere that mattered —
+CI green on `19e15ff`, 992 tests, deployed revision `agentforge-00060-z9v` answering with 12
+migrations and 30 nodes — and found three things.
+
+- **`scripts/smoke.mjs` reported `FAILED` against a healthy deployment**, and had done since the
+  Sheets node was given its born-empty guard. **Beat 7 and Beat 8 disagreed with each other.** Beat 8
+  knows the generated Sheets node is deliberately born empty and SKIPs its half without
+  `SMOKE_SPREADSHEET_ID`; Beat 7 asked only `run.status === "succeeded"` and so **failed for the
+  exact reason Beat 8 had just excused**
+- **Two documented invocations disagreed, which is why it hid.** *How to verify the system* in this
+  file passes `SMOKE_SPREADSHEET_ID=1iz8…` inline, so the walk anyone followed step by step was clean.
+  The script's own header and *Carry these forward* ("run `scripts/smoke.mjs` first, every session")
+  both show the bare command — and **the bare command reported `FAILED` on a healthy system.** That is
+  the "an audit that cries wolf is worse than no audit" failure mode Phase 25 wrote up about
+  `verify-a11y.mjs`, sitting in the smoke script the whole time
+- **The excuse is deliberately narrow**, in `scripts/smoke-outcome.mjs`: it applies only when the
+  sheet was never configured, only when the run reached step execution, and only when **every** failed
+  step is the Sheets node failing for **that one reason**. A Sheets node that fails on credentials,
+  scope or a Google API error still fails the walk. A run that failed before any step did is refused
+  too — `every()` is vacuously true on an empty array, which is how an excuse like this usually grows
+  teeth it should not have
+- **`scripts/` had no unit tests at all** — 25 scripts, ~12 of them load-bearing verification tools.
+  `npm run test:scripts` now exists (8 tests) and is a gate in both `npm run check` and CI. The walk
+  itself needs a database and a deployed URL and cannot run in CI; **the pure outcome policy it got
+  wrong can.** The regression test was proved to fail against the old Beat 7 before the fix, and the
+  real failing run observed at 15:08 UTC was replayed through the predicate afterwards
+- **Two docs still carried the Neon CU-hours reading as open** while `PROGRESS.md` M9 recorded it
+  answered that same day. `DEPLOYMENT.md` now carries the measured 0.91 CU-hours and the ~60/100
+  projection; `BUILD_PLAN.md`'s claim that `neonctl` is unauthenticated is marked **SUPERSEDED** —
+  Phase 22 authenticated it, and it still cannot see the number
+- **The post-judging turndown was never performed**, and is now tracked as **M12**. It needs the
+  user: the sandbox refused both commands as shared-resource modifications
 
 **2026-10-01 — Phase 25 closed: launch polish, and Chapter 2 with it**
 

@@ -970,12 +970,19 @@ psql "$DATABASE_URL_UNPOOLED" -c "select count(*), avg(pg_column_size(graph))::i
   max(pg_column_size(graph)) from workflow_version"
 ```
 
-> **`UNKNOWN — VERIFY` still open: CU-hours actually consumed this billing period — and Phase 22
-> sharpened why.** `neonctl` **is** authenticated now, so the Phase 13 note that it was not is
-> superseded. The balance still cannot be read from a terminal, for a different and more permanent
-> reason: `GET /consumption_history/projects` answers *"This endpoint is not available. It is
-> included with Scale plans and above"*, and the legacy `compute_time_seconds` / `active_time_seconds`
-> fields on `/projects/{id}` and `/branches` all read `0` on the free plan. **It is console-only.**
+> **CU-hours actually consumed — READ 2026-10-01, and it is comfortable.** **0.91 CU-hours**, in a
+> billing period that began that same day, so it is a *baseline, not a balance*. Storage 42.44 MB,
+> history 16.62 MB, transfer 20.4 MB — all far inside 0.5 GB. The cron costs ~1.97 a day, so a full
+> month projects to `0.91 + (1.97 × 30) ≈ 60` against the 100 ceiling: **~40 spare**, which matches
+> the budget this section already carried. `PROGRESS.md` → M9 shows the arithmetic. The ~40 is
+> headroom for *work*, not licence for a new always-awake reason to keep the database up.
+>
+> **Why it stays a manual read — Phase 22 sharpened this.** `neonctl` **is** authenticated now, so
+> the Phase 13 note that it was not is superseded. The balance still cannot be read from a terminal,
+> for a different and more permanent reason: `GET /consumption_history/projects` answers *"This
+> endpoint is not available. It is included with Scale plans and above"*, and the legacy
+> `compute_time_seconds` / `active_time_seconds` fields on `/projects/{id}` and `/branches` all read
+> `0` on the free plan. **It is console-only** — do not spend another session scripting it.
 > <https://console.neon.tech> → `agentforge` (`super-mountain-39872886`) → Usage. Tracked as M9.
 >
 > It did not block Phase 22, because the phase was designed against the *rule* rather than the
