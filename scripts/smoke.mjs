@@ -41,6 +41,7 @@ import { neon } from "@neondatabase/serverless";
 
 import { adaptPayload, DEMO_PROMPT, URGENT_PAYLOAD } from "./demo-payload.mjs";
 import { coldStartVerdict, runOutcome } from "./smoke-outcome.mjs";
+import { verificationUser } from "./verify-user.mjs";
 
 /* ------------------------------------------------------------------ *
  * Arguments
@@ -481,7 +482,7 @@ function failedSteps(run) {
  * Main
  * ------------------------------------------------------------------ */
 
-const [user] = await sql.query('select id, email from "user" order by "id" limit 1');
+const user = await verificationUser(sql);
 if (!user) {
   console.error("No user row exists — sign in through the browser once first.");
   process.exit(1);

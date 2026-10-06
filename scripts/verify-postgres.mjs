@@ -30,6 +30,7 @@
  */
 import { neon } from "@neondatabase/serverless";
 import postgres from "postgres";
+import { verificationUser } from "./verify-user.mjs";
 
 // Either convention works, because this repository has both: `verify-api.mjs`,
 // `verify-vault.mjs` and `verify-observability.mjs` take the URL as an argument, while
@@ -69,7 +70,7 @@ const skip = (message) => {
 const check = (condition, good, bad) => (condition ? pass(good) : fail(bad ?? good));
 
 async function mintSession() {
-  const [user] = await sql.query('select id, email from "user" order by "id" limit 1');
+  const user = await verificationUser(sql);
   if (!user) throw new Error("No user row — sign in through the browser once first.");
   const token = crypto.randomUUID() + crypto.randomUUID();
   await sql.query(

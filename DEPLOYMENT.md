@@ -16,12 +16,12 @@ Every step is labelled **`AUTOMATED BY CLAUDE CODE`** or **`MANUAL HUMAN ACTION`
 | Field | Value |
 |---|---|
 | Service | `agentforge`, Cloud Run, `asia-southeast1` |
-| Revision | **`agentforge-00061-lwl`** — 100% of traffic. Created by **M12's turndown** (2026-10-01) with **no code change**: `00060-z9v`'s image at `min-instances 0`, so Phase 25's verification still describes the running build. Cold start measured **6.38 s**, warm 0.58–0.76 s. Previously **`agentforge-00060-z9v`** (Phase 25). **Two deploys**: `00059-pd2` carried the phase, and `00060-z9v` carried one WCAG target-size fix found by measuring the first one in a browser. Migration `0011` went first and is additive, so `agentforge-00058-q2z` kept serving correctly against the migrated database throughout — confirmed by a health check on the **old** revision after the column existed, which is the claim "additive" actually makes. Previous good revisions: `agentforge-00059-pd2`, `agentforge-00058-q2z` (23D), `agentforge-00057-8jx`, `agentforge-00056-rkn`, `agentforge-00055-htp`, `agentforge-00054-8zw` (23C), `agentforge-00053-hn6` (23B), `agentforge-00051-252` (23A), `agentforge-00047-w65` (22) |
+| Revision | **`agentforge-00063-zt5`** — 100% of traffic, **Phase 26** (2026-10-06). Two deploys that day: `00062-kxm` carried the phase, and `00063-zt5` carried what verifying it on the deployed service found — the trigger panel naming a past slot after a firing, the next slot armed before the run starts, and a build upload filtered to what git tracks. Migration `0012` was applied first and is additive; `00061-lwl` served against it for the whole outage and after. **Rollback targets are the revisions behind the five kept images (D120)**: `00062-kxm`, `00061-lwl` / `00060-z9v` (one image, Phase 25), `00059-pd2`, `00058-q2z` (23D). Older revisions have no image. Cold start measured **6.38 s** on `00061-lwl`, warm 0.58–0.76 s |
 | Scaling | **`min-instances 0`** (M12, 2026-10-01 — was 1 through the hackathon window), `max-instances 3`, 1 vCPU / 1 GiB, 3600 s timeout |
 | Root key | **Secret Manager `agentforge-root-key`, version `1`.** Every credential's data key is wrapped by it; `GET /api/health` reports `rootKey.provider` so a deployment silently on `ENCRYPTION_KEY` cannot hide |
-| Database | Neon `super-mountain-39872886`, `aws-ap-southeast-1` — **13 tables**, migrations `0000`–`0011` applied. **Phase 25 added `0011`: one nullable column, `workspace.onboardedAt`, no backfill** — whether the workspace has finished or skipped the first-run guide. `NULL` means "not finished", so every workspace that existed when it ran is treated as new, which is correct: the guide reads live progress and an established workspace opens it already complete. `rollback_0011.sql` is symmetric and loses only that preference. ~10 MB of 0.5 GB. **Phase 23D added migration `0010`: one nullable column, `workspace.llmProvider`, and no backfill** — the safest class of change here, and the first migration since `0009`. It records which LLM provider a workspace uses; `NULL` means "nobody has chosen" and resolves to the first provider holding a key, which is Google, so no existing workspace changed behaviour. Row counts were identical before and after (workspace 1, credential 6, workflow 6, run 65) and `rollback_0010.sql` is genuinely symmetric — it touches no credential and loses only the preference |
+| Database | Neon `super-mountain-39872886`, `aws-ap-southeast-1` — **13 tables**, migrations `0000`–`0012` applied. **Phase 26 added `0012`**, all additive: `workflow.active` (default `true`), `workflow.scheduleArmedFor`, `run.wakeAt` and the partial index `run_wake_idx` — applied 2026-10-06 ahead of the deploy, and ignored by the revision that was live. ~10 MB of 0.5 GB. Each earlier migration's story is in *Migrations* below |
 | Observability | **Structured JSON logging on stdout, four log-based metrics, and `/api/health` reporting five dependency checks.** `OPERATIONS.md` is the runbook |
-| Last verified | **2026-10-01, after Phase 23D** — on `agentforge-00058-q2z`: `verify-providers.mjs` **55 passed / 0 failed / 0 skipped**, including a real Groq completion and **a real agent tool call** (`integration_http`, `ok: true`) answered by `openai/gpt-oss-120b` from inside the container, the live catalogue filtered to the 4 tool-capable models, and — the claim the phase rests on — **the existing `llm.google` row proved byte-for-byte unchanged** across a provider switch and back: ciphertext, wrapped key, `rotationCount` and `createdAt` all identical, read straight from the deployed database. Also all-pass on the same revision: `verify-api.mjs` (4 skipped), `verify-templates.mjs` **47/47**, `verify-integrations.mjs` **60 passed / 2 skipped** (M10), `verify-postgres.mjs` **65/65**, `verify-vault.mjs`, `verify-durable.mjs`, `verify-observability.mjs` (22 ms/page view on 73 runs). Local `npm run check`: **974 passing**, coverage 88.12 / 90.72 / 80.03. A **real browser** drove both provider cards, the switch to Groq and back, the per-provider model picker, a workflow **generated by Groq** and a four-node canvas run that Groq served end to end — zero console errors, zero horizontal overflow at 320 / 375 / 1440 px |
+| Last verified | **2026-10-06, after Phase 26** — on `agentforge-00063-zt5`, acting as the owner (`scripts/verify-user.mjs`): `verify-timers.mjs` **34/34** (a schedule fired from its Cloud Tasks timer 0.1 s after its slot; a burst of 8 fired within 8.1 s), `verify-durable.mjs all`, `verify-api.mjs` 404 passed / 4 skipped, `verify-templates.mjs` 47, `verify-postgres.mjs` 65, `verify-providers.mjs` 55, `verify-vault.mjs` 62, `verify-observability.mjs` 68 (22 ms of database time per page view on 87 runs), `verify-integrations.mjs` 60 / 2 skipped (M10), `verify-security.mjs` 68, `verify-a11y.mjs` 92 — **0 failed**. `smoke.mjs` failed only beats 7–8, the Sheets append, on an expired Google token (`PROGRESS.md` → M15). A **real browser** on the deployed canvas watched a schedule fire and light up an open canvas, and the trigger panel move to the next slot without a reload. Local `npm run check`: **1030 passing**, coverage 88.38 / 91.02 / 80.23 |
 
 The service also answers on a legacy hashed URL. Do not use it — see *Deploy*.
 
@@ -63,10 +63,12 @@ across `/clear` boundaries this is how duplicate infrastructure gets created.
 |---|---|---|---|---|---|
 | `agentforge-hackathon-2026` (number `733000675212`) | Project | Google Cloud | Hosts Cloud Run, OAuth client, Scheduler | Phase 0 | Yes |
 | `agentforge` | Cloud Run service | Google Cloud | The whole application | **Phase 2 — EXISTS** | Yes |
-| `cloud-run-source-deploy` | Artifact Registry repo | Google Cloud | Images built by `--source .` | **Phase 2 — auto-created** | Yes |
+| `cloud-run-source-deploy` | Artifact Registry repo | Google Cloud | Images built by `--source .`. **Cleanup policy since 2026-10-06 (D120): keep the newest 5, delete the rest once a day old** | **Phase 2 — auto-created** | Yes |
+| `run-sources-agentforge-hackathon-2026-asia-southeast1` | Cloud Storage bucket | Google Cloud | The source zip each `--source .` deploy uploads. **Lifecycle since 2026-10-06 (D120): objects deleted after 7 days** — `asia-southeast1` has no Cloud Storage free tier | **Phase 2 — auto-created** | Yes |
+| "AgentForge zero" (`72b470cc-…`) | Billing budget | Google Cloud | ₹100/month on `017EB5-0D8A5E-F212CC`, e-mail alerts at 50 / 90 / 100 % of actual spend — the tripwire D113 asks for | **Phase 26 — EXISTS**, 2026-10-06 | Yes |
 | "AgentForge Web" (`733000675212-…ntm7`) | OAuth 2.0 Client | Google Cloud | Google sign-in | Phase 0 manual, updated Phase 2 manual | No — console only |
 | `agentforge` / `production` / `neondb` | Postgres project/branch | Neon | All persistence | Phase 0 | Partly — console for creation |
-| `agentforge-cron` | Cloud Scheduler job | Google Cloud | Fires due schedule triggers, every 15 min | Phase 8 | Yes |
+| `agentforge-cron` | Cloud Scheduler job | Google Cloud | **The daily safety sweep**, `0 4 * * *` UTC — re-arms timers, fires a slot whose timer was lost, sweeps abandoned runs. Fired schedules every 15 min until Phase 26 | Phase 8 | Yes |
 | `agentforge-runs` | Cloud Tasks queue | Google Cloud | Carries durable runs to `POST /api/runs/dispatch` | **Phase 17 — EXISTS**, `asia-southeast1` | Yes |
 | `agentforge-root-key` | Secret Manager secret | Google Cloud | The **root key** that wraps every credential's data key | **Phase 21 — EXISTS**, version `1` enabled, user-managed replication in `asia-southeast1` | Yes |
 | `agentforge_demo` + role `agentforge_demo_reader` | Postgres database + role | Neon — **same project, same compute endpoint** | **Verification scaffolding for `integration.postgres`.** A separate database rather than a schema in `neondb`, so the application's own 13 tables are unreachable from this credential; the role is granted `SELECT` on one table and nothing else. **Costs nothing**: same compute, a 5-row table | **Phase 23C — EXISTS**, `scripts/setup-demo-db.mjs` | Yes — the script is idempotent |
@@ -208,6 +210,37 @@ build — **and then it ended.**
 > a paid one**: Always Free usage is still billed at zero, and D113 records the decision and the
 > guard — a **₹100/month budget alert** (50 / 90 / 100 %), because a paid account no longer stops
 > at zero by itself. Anyone running a fork on a trial: upgrade before day 90, not after.
+
+**Once the account is paid — run 2026-10-06, after M13.** The budget, then the two standing rules
+that keep the build leaks at zero (D120):
+
+```bash
+# The budget alert (D113). Its API is off by default; --billing-project names the quota project.
+gcloud services enable billingbudgets.googleapis.com
+gcloud billing budgets create --billing-account 017EB5-0D8A5E-F212CC \
+  --billing-project agentforge-hackathon-2026 --display-name "AgentForge zero" \
+  --budget-amount 100INR --threshold-rule percent=0.5 --threshold-rule percent=0.9 \
+  --threshold-rule percent=1.0
+
+# Artifact Registry: keep the newest five images, delete the rest once a day old.
+cat > /tmp/ar-cleanup.json <<'JSON'
+[ { "name": "keep-newest-5", "action": { "type": "Keep" },
+    "mostRecentVersions": { "packageNamePrefixes": ["agentforge"], "keepCount": 5 } },
+  { "name": "delete-older-than-a-day", "action": { "type": "Delete" },
+    "condition": { "tagState": "any", "olderThan": "1d" } } ]
+JSON
+gcloud artifacts repositories set-cleanup-policies cloud-run-source-deploy \
+  --location asia-southeast1 --policy /tmp/ar-cleanup.json --no-dry-run
+
+# The source-upload bucket: a zip is a build input, never read again.
+echo '{ "rule": [ { "action": { "type": "Delete" }, "condition": { "age": 7 } } ] }' > /tmp/gcs-lifecycle.json
+gcloud storage buckets update gs://run-sources-agentforge-hackathon-2026-asia-southeast1 \
+  --lifecycle-file /tmp/gcs-lifecycle.json
+```
+
+The first prune was done by hand the same day: 53 of 58 images deleted, by digest, keeping exactly
+the images behind `00062` (new), `00061`/`00060`, `00059`, `00058` and `00057`; and 38 source zips
+older than seven days.
 
 ```text
 MANUAL ACTION REQUIRED
@@ -675,7 +708,9 @@ example, and the pattern to copy:
 **Write the rollback by hand and keep it.** Drizzle has no down migrations. Phase 19A's is
 `drizzle/rollback_0005_0006.sql`, Phase 19B's is `drizzle/rollback_0007.sql`, Phase 20's is
 `drizzle/rollback_0008.sql`, Phase 21's is `drizzle/rollback_0009.sql`, Phase 23D's is
-`drizzle/rollback_0010.sql` and Phase 25's is `drizzle/rollback_0011.sql`; each is applied with a SQL
+`drizzle/rollback_0010.sql`, Phase 25's is `drizzle/rollback_0011.sql` and Phase 26's is
+`drizzle/rollback_0012.sql` — **safe only once no run is `waiting`**, because a pre-26 revision can neither
+resume nor sweep one (the file says how to check, and how to close them); each is applied with a SQL
 client and each also removes its ledger row, so a later `db:migrate` re-applies rather than believing
 the work is already done.
 
@@ -742,7 +777,10 @@ The job `agentforge-cron` exists in `asia-southeast1`. **Phase 26 changed what i
 no longer fire from it. Each due time has its own Cloud Tasks timer (`ARCHITECTURE.md` → *Queue* →
 *Timers*), so the job is now a **once-a-day safety sweep** — it fires any slot whose timer was lost,
 re-arms timers, re-schedules a lost wake, sweeps abandoned runs and prunes the audit log. It was
-`PAUSED` by M12 on 2026-10-01 and is **resumed on the daily cadence by Phase 26**:
+`PAUSED` by M12 on 2026-10-01 and was **resumed on the daily cadence by Phase 26 on 2026-10-06** —
+`ENABLED`, `0 4 * * *`. Its first run (forced by hand with `jobs run`) answered 200 and logged *"The
+sweep fired 3 of 3 overdue schedules and armed 6"* — the three slots overdue since 2026-10-02, all
+read-only, caught up by D42's rule:
 
 ```bash
 gcloud scheduler jobs update http agentforge-cron --location asia-southeast1 --schedule "0 4 * * *"
@@ -1403,6 +1441,18 @@ gcloud builds log <BUILD_ID>          # when a deploy fails, read this before to
 ## Rollback
 
 Cloud Run keeps every revision. Rollback is a traffic shift, not a rebuild.
+
+**But only the newest five images are kept (D120, since 2026-10-06)**, so a revision older than
+those five deploys has no image and cannot take traffic. List the live rollback targets by image,
+not by revision name — two revisions can share one image (`00060-z9v` and `00061-lwl` do):
+
+```bash
+gcloud artifacts docker images list \
+  asia-southeast1-docker.pkg.dev/agentforge-hackathon-2026/cloud-run-source-deploy/agentforge \
+  --format='value(version,createTime)'
+gcloud run revisions list --service agentforge --region "$GCP_REGION" --limit 8 \
+  --format='value(metadata.name,spec.containers[0].image.basename())'
+```
 
 ```bash
 # 1. List revisions, newest first. Pick the last known-good one.

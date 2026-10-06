@@ -39,6 +39,7 @@
 import { neon } from "@neondatabase/serverless";
 
 import { adaptPayload, CALM_PAYLOAD, URGENT_PAYLOAD } from "./demo-payload.mjs";
+import { verificationUser } from "./verify-user.mjs";
 
 const args = process.argv.slice(2);
 
@@ -70,7 +71,7 @@ if (!payload) {
 const dim = (s) => `\x1b[2m${s}\x1b[0m`;
 const bold = (s) => `\x1b[1m${s}\x1b[0m`;
 
-const [user] = await sql.query('select id, email from "user" order by "id" limit 1');
+const user = await verificationUser(sql);
 if (!user) {
   console.error("No user row exists — sign in through the browser once first.");
   process.exit(1);

@@ -497,8 +497,8 @@ step, worth asking for when a phase changes what wakes the database — Phase 26
 designed against the *rule* (do not add a new reason to wake an idle database) and then measured
 directly.
 
-Chapter 3's open unknowns are marked `UNKNOWN — VERIFY` where they sit in `BUILD_PLAN.md`:
-- Cloud Tasks' `scheduleTime` horizon, in Phase 26
+Chapter 3's open unknowns are marked `UNKNOWN — VERIFY` where they sit in `BUILD_PLAN.md`. Cloud
+Tasks' `scheduleTime` horizon was resolved in Phase 26 (30 days, from its quotas page); what remains:
 - Google's rules for publishing an OAuth app with sensitive scopes, in Phase 42
 
 When plan and reality diverge: identify the discrepancy, explain the practical impact on the

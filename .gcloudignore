@@ -12,6 +12,13 @@
 .gitignore
 .gcloudignore
 
+# Whatever git ignores is not a build input — CI builds from a clean checkout. Without
+# this line gcloud uploads git-ignored files: in Phase 26 that was 63 MB of local
+# presentation media (19.5 MB upload → 65.8 MB), and the same gap would carry a stray
+# `*.pem` or `service-account*.json` to Cloud Build. Guarded by
+# scripts/build-context.test.mjs.
+#!include:.gitignore
+
 # Secrets.
 .env
 .env.*

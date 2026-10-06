@@ -36,6 +36,7 @@
 import { neon } from "@neondatabase/serverless";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { verificationUser } from "./verify-user.mjs";
 
 const run = promisify(execFile);
 
@@ -185,10 +186,11 @@ try {
    * ================================================================== */
   console.log("\n--- authorisation ---");
 
-  const [owner] = await sql.query(
-    'select u."id" from "user" u join "run" r on r."ownerId" = u."id" limit 1',
-  );
-  if (!owner) throw new Error("No user in the database owns a run — nothing to aggregate.");
+  const owner = await verificationUser(sql);
+  const [ran] = owner
+    ? await sql.query('select 1 from "run" where "ownerId" = $1 limit 1', [owner.id])
+    : [];
+  if (!ran) throw new Error("The verification account owns no run — nothing to aggregate.");
   ownerId = owner.id;
 
   await sql.query(
@@ -411,9 +413,14 @@ try {
     skip("the failure is findable in Cloud Logging", "no probe run was created");
   } else {
     // Cloud Logging ingests asynchronously. Poll rather than sleep a fixed time, so a
-    // fast ingest is not paid for and a slow one is not a false failure.
+    // fast ingest is not paid for and a slow one is not a false failure. Poll until the
+    // run's *last* line has arrived, not its first: a run's entries land out of order and
+    // a few seconds apart, and stopping at "any entry" asserted on a half-ingested run —
+    // Phase 26 saw run.started and node.finished but not yet run.finished, which was in
+    // the logs a minute later.
+    const complete = (list) => list.some((e) => e.jsonPayload?.event === "run.finished");
     let entries = [];
-    for (let attempt = 0; attempt < 10 && entries.length === 0; attempt += 1) {
+    for (let attempt = 0; attempt < 10 && !complete(entries); attempt += 1) {
       await sleep(6000);
       try {
         const { stdout } = await run("gcloud", [

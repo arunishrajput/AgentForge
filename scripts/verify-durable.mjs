@@ -23,6 +23,7 @@
  *   session · create · run · watch · cancel · tick · steps · cleanup
  */
 import { neon } from "@neondatabase/serverless";
+import { verificationUser } from "./verify-user.mjs";
 
 const BASE = (process.env.APP_BASE_URL ?? "").replace(/\/$/, "");
 if (!BASE) throw new Error("APP_BASE_URL is required.");
@@ -49,7 +50,7 @@ const DELAYS = 8; // 8 × 10 s = ~80 s of work, inside the engine's 120 s attemp
 let cookie = null;
 
 async function mintSession() {
-  const [user] = await sql.query('select id, email from "user" order by "id" limit 1');
+  const user = await verificationUser(sql);
   if (!user) throw new Error("No user row — sign in through the browser once first.");
   const token = crypto.randomUUID() + crypto.randomUUID();
   await sql.query(
@@ -485,7 +486,7 @@ if (command === "session") {
 
   /* 4b — the unclaimed path, made deterministic */
   console.log("\n4b. A run nothing has claimed is cancelled outright, with no steps");
-  const [owner] = await sql.query('select id from "user" order by id limit 1');
+  const owner = await verificationUser(sql);
   // `workspaceId` is selected from the workflow rather than passed in, exactly as the
   // engine does it — a run belongs where its workflow does. It became required in Phase
   // 19A, and the deployed run of that phase's migration is what caught this insert
@@ -553,7 +554,7 @@ if (command === "session") {
   console.log("      This is the subtlest decision in the phase: sweeping a durable run that is");
   console.log("      merely between deliveries would destroy the durability it adds.");
 
-  const [sweepOwner] = await sql.query('select id from "user" order by id limit 1');
+  const sweepOwner = await verificationUser(sql);
   const abandoned = async (mode, status, attempt) => {
     const id = crypto.randomUUID();
     await sql.query(

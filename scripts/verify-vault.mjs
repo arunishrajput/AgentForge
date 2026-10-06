@@ -31,6 +31,7 @@
  * rotation it performs re-stores the same Discord webhook URL it read from `.env`.
  */
 import { neon } from "@neondatabase/serverless";
+import { verificationUser } from "./verify-user.mjs";
 
 const base = (process.argv[2] ?? "http://localhost:3000").replace(/\/$/, "");
 const secure = base.startsWith("https://");
@@ -106,10 +107,11 @@ try {
   /* ================================================================== *
    * 0. A session for the account that actually holds the credentials
    * ================================================================== */
-  const [owner] = await sql.query(
-    'select u."id" from "user" u join "credential" c on c."ownerId" = u."id" limit 1',
-  );
-  if (!owner) throw new Error("No user in the database holds a credential — nothing to verify.");
+  const owner = await verificationUser(sql);
+  const [held] = owner
+    ? await sql.query('select 1 from "credential" where "ownerId" = $1 limit 1', [owner.id])
+    : [];
+  if (!held) throw new Error("The verification account holds no credential — nothing to verify.");
   ownerId = owner.id;
 
   await sql.query(

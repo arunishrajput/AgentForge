@@ -257,9 +257,11 @@ for (const [path, spec] of Object.entries(PUBLIC)) {
 
 /**
  * The count itself is an assertion, so a route added to the table without a thought about
- * `SECURITY.md` fails here. Ten entries: the four `SECURITY.md` always named, the
- * invitation preview and its non-public `accept` sibling, Auth.js's own catch-all, and the
- * three Phase 25 found missing — `/api/health` and the two Google OAuth legs.
+ * `SECURITY.md` fails here. Eleven entries: the four `SECURITY.md` always named, the
+ * invitation preview and its non-public `accept` sibling, Auth.js's own catch-all, the
+ * three Phase 25 found missing — `/api/health` and the two Google OAuth legs — and Phase
+ * 26's `/api/cron/fire`. `SECURITY.md` says "ten routes" because it counts what answers
+ * without a session, and `accept` does not; this counts the table, which lists it.
  */
 console.log("\nThe shape of the exception table");
 check(
@@ -270,7 +272,7 @@ check(
 
 const publicRoutes = Object.keys(PUBLIC).length;
 check(
-  publicRoutes === 10,
+  publicRoutes === 11,
   `the exception table holds ${publicRoutes} routes, matching SECURITY.md`,
   `the exception table holds ${publicRoutes} routes — update SECURITY.md and this count together`,
 );

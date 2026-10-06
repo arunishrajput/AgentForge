@@ -37,6 +37,7 @@ import { createDecipheriv } from "node:crypto";
 import { neon } from "@neondatabase/serverless";
 
 import { adaptPayload, DEMO_PROMPT, URGENT_PAYLOAD } from "./demo-payload.mjs";
+import { verificationUser } from "./verify-user.mjs";
 
 const args = process.argv.slice(2);
 const flag = (n) => (args.indexOf(n) === -1 ? undefined : args[args.indexOf(n) + 1]);
@@ -167,7 +168,7 @@ async function sheetsAccessToken(ownerId) {
  * Main
  * ------------------------------------------------------------------ */
 
-const [user] = await sql.query('select id, email from "user" order by "id" limit 1');
+const user = await verificationUser(sql);
 if (!user) {
   console.error("No user row exists — sign in through the browser once first.");
   process.exit(1);

@@ -16,6 +16,7 @@ import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 
 import { neon } from "@neondatabase/serverless";
+import { verificationUser } from "./verify-user.mjs";
 
 const base = (process.argv[2] ?? "http://localhost:3000").replace(/\/$/, "");
 const secure = base.startsWith("https://");
@@ -203,7 +204,7 @@ let workflowId = null;
 try {
   console.log(`\nVerifying ${base}\n`);
 
-  const [user] = await sql.query('select id, email from "user" order by "id" limit 1');
+  const user = await verificationUser(sql);
   if (!user) throw new Error('No user row exists — sign in once before running this.');
   console.log(`Using existing user ${user.email}\n`);
 

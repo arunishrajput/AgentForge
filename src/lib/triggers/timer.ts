@@ -100,12 +100,19 @@ export type FireOutcome =
   | { kind: "cleared" };
 
 /**
- * Fire one due slot: claim it, start the run, arm the next one. Shared by the timer's
+ * Fire one due slot: claim it, arm the next one, start the run. Shared by the timer's
  * own delivery and by the daily sweep, so "what firing a schedule means" lives once.
  *
  * The claim happens **before** the run, never after (D42): a run that kills the container
  * loses its slot instead of firing it for ever. It also clears `scheduleArmedFor`, because
  * the timer that was armed has now been spent.
+ *
+ * The next slot is armed **before** the run starts, too. A start that dies part-way then
+ * costs only this slot, not the next one as well until the daily sweep; and by the time
+ * the run is visible on an open canvas the row is final, so the trigger panel's re-read
+ * (`src/lib/canvas/schedule-sync.ts`) cannot catch it between the claim and the arm and
+ * say "Not armed" about a timer a moment from existing. Arming first was found to matter
+ * on the deployed service in Phase 26.
  *
  * The run is **durable, always** — a scheduled run is the case with nobody watching and
  * nobody to press Run again, which is exactly what durability is for.
@@ -144,6 +151,17 @@ export async function fireDue(
 
   if (!claimed) return { kind: "skipped" };
 
+  // Best effort, as everywhere (D114): a timer that cannot be armed — even by a database
+  // blip on its record — must not also cost this slot its run. The sweep re-arms it.
+  const arm = await armSchedule({ id: workflow.id, scheduleNextAt: next, active: true }).catch(
+    (error: unknown): ArmOutcome => {
+      logError("queue.degraded", `The next schedule timer for workflow ${workflow.id} could not be armed.`, error, {
+        workflowId: workflow.id,
+      });
+      return { armed: false, reason: "rejected" };
+    },
+  );
+
   const { run, queued } = await startDurableRun({
     // No session here — the scope comes off the workflow row, so a scheduled run lands
     // in the same workspace as the workflow that scheduled it.
@@ -153,8 +171,6 @@ export async function fireDue(
     input: { scheduledFor: observed.toISOString(), firedAt: now.toISOString(), cron },
     signal,
   });
-
-  const arm = await armSchedule({ id: workflow.id, scheduleNextAt: next, active: true });
 
   return {
     kind: "fired",

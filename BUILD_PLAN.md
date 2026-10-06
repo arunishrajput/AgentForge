@@ -41,8 +41,8 @@ is the file it means.
 **Chapter 3 — a product people use every day. Phases 26–42. THIS IS THE CURRENT WORK.**
 
 ```
-26  Timers — schedules that fire, at zero idle cost       ← START HERE
-27  Themes I — Toybox Night: tokens, gates, switching
+26  Timers — schedules that fire, at zero idle cost       ✅
+27  Themes I — Toybox Night: tokens, gates, switching      ← START HERE
 28  Themes II — every screen in both themes
 29  Canvas I — editing ergonomics
 30  Canvas II — sticky notes and disabled nodes
@@ -227,12 +227,33 @@ active flag), `ARCHITECTURE.md` (*Queue* — timers), `DEPLOYMENT.md` (*Cloud Sc
 
 **Commit.** `feat: complete phase 26 durable timers and schedules that fire`
 
-**Status, 2026-10-06 — implemented and verified locally; the deploy waits on M13.** The session that
-built it found the Free Trial billing account closed and the live service down (`PROGRESS.md` → M13,
-`DECISIONS.md` → D113). Everything that does not need Google Cloud is done: migration `0012` applied
-to Neon, the code, 1023 tests, the docs, and a real-browser pass on a local production build
-(active switch, trigger panel, the waiting canvas, Stop on a waiting run, 375 px). What remains is
-listed in `PROGRESS.md` → *Current Phase* and is entirely deploy-and-verify.
+**Status: COMPLETE, 2026-10-06 — deployed as `agentforge-00063-zt5` and verified there.** Built while
+the trial billing account was closed (M13, D113); deployed the same day once the user had upgraded
+it. On the deployed service: `verify-timers.mjs` **34/34** — a schedule fired from its timer 0.1 s
+after its slot, an edited schedule's old timer started zero runs, the switch refused the webhook
+with 409, a two-minute delay waited with no lease and woke after 120 s, a deleted timer was re-armed
+by the sweep and fired once, and a burst of 8 same-minute schedules fired within 0.1–8.1 s against
+`maxConcurrentDispatches` 3. The cron is daily (`0 4 * * *`) and `ENABLED`; its first run caught up
+the three slots overdue since 2026-10-02. In a real browser, on the deployed canvas: the panel said
+*Armed*, a schedule set three minutes ahead fired and lit up an open canvas, and the active switch
+refused and resumed — Light only, as planned (Dark arrives in 27).
+
+**Verifying it on the deployed service found five things, all fixed in this phase:**
+
+- **The trigger panel named a past slot after a firing** — the canvas showed the run but never
+  re-read the schedule. It now does, once per firing seen (`src/lib/canvas/schedule-sync.ts`), and
+  `fireDue` arms the next slot *before* starting the run, so the re-read never sees the gap
+- **Every verify script had silently changed account.** They acted as `order by "id" limit 1`, which
+  stopped meaning "the owner" when a second user signed in on 2026-10-01 — so the model checks failed
+  against an empty vault, and four of the operator's credentials were stored in that account's
+  workspace (removed). `scripts/verify-user.mjs` now chooses the deployment owner deliberately,
+  and `verify-a11y.mjs` audits a canvas that account can actually open
+- **`verify-security.mjs` pinned the exception table at 10** after this phase made it 11, and
+  **`verify-observability.mjs` asserted on a half-ingested run** — it stopped polling Cloud Logging
+  at the first line instead of the last
+- **The Cloud Build upload carried every git-ignored file** — 63 MB of local media this time, and
+  potentially a stray key file. `.gcloudignore` now includes `.gitignore` (D120), and the registry and
+  source bucket are held by standing cleanup rules
 
 ---
 

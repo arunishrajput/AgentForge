@@ -367,8 +367,12 @@ gcloud scheduler jobs describe agentforge-cron --location asia-southeast1 --form
 > **A paid billing account since M13 (D113)** — Always Free usage is billed at zero, and a budget
 > alert at ₹100/month (50 / 90 / 100 %) is the tripwire. The two known leaks outside Always Free are
 > Artifact Registry (0.5 GB free; every deploy adds an image) and Cloud Storage in
-> `asia-southeast1` (its free tier covers only three US regions). Check them when the alert fires:
+> `asia-southeast1` (its free tier covers only three US regions). **Both are held by standing rules
+> since 2026-10-06 (D120)** — the registry keeps the newest five images, the source bucket deletes
+> uploads after seven days — so neither should grow. Check them when the alert fires:
 > `gcloud artifacts docker images list asia-southeast1-docker.pkg.dev/agentforge-hackathon-2026/cloud-run-source-deploy --include-tags`
+> (expect 5) and `gcloud storage du -s gs://run-sources-agentforge-hackathon-2026-asia-southeast1`
+> (expect a week of ~20 MB zips). More than that means a policy was removed.
 
 > **Neon CU-hours consumed cannot be read from a terminal on the free plan.** `neonctl` is
 > authenticated, but `/consumption_history/*` answers *"This endpoint is not available. It is

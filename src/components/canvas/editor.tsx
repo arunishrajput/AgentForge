@@ -40,6 +40,7 @@ import {
 } from "@/lib/canvas/client";
 import { tweenMs } from "@/lib/canvas/motion";
 import { useRunStream } from "@/lib/canvas/run-stream";
+import { isNewScheduledRun, withScheduleOf } from "@/lib/canvas/schedule-sync";
 import { defaultConfig } from "@/lib/canvas/schema";
 import { formatDuration } from "@/lib/format/duration";
 import { formatUtc } from "@/lib/triggers/cron";
@@ -282,6 +283,24 @@ function EditorInner({
     attached.current = true;
     watch(liveRun ? { runId: liveRun.id } : undefined);
   }, [liveRun, watch]);
+
+  /**
+   * A schedule that fires while this canvas is open moves its own next slot on the server,
+   * and the trigger panel reads `saved` — so re-read the schedule once per firing seen,
+   * or the panel goes on naming a time that has already passed (Phase 26, found on the
+   * deployed service). `schedule-sync.ts` says why this is one request per firing and why
+   * only the schedule fields are taken.
+   */
+  const scheduleReadFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isNewScheduledRun(run, scheduleReadFor.current)) return;
+    scheduleReadFor.current = run?.id ?? null;
+    api
+      .getWorkflow(workflow.id)
+      .then((fresh) => setSaved((current) => withScheduleOf(current, fresh)))
+      // The run itself is still shown; a failed re-read leaves the panel as it was.
+      .catch(() => {});
+  }, [run, workflow.id]);
 
   /**
    * Collapsing a panel hands the canvas a few hundred more pixels, and React Flow does

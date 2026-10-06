@@ -35,6 +35,7 @@
 import { execFileSync } from "node:child_process";
 
 import { neon } from "@neondatabase/serverless";
+import { verificationUser } from "./verify-user.mjs";
 
 const BASE = (process.env.APP_BASE_URL ?? "").replace(/\/$/, "");
 if (!BASE) throw new Error("APP_BASE_URL is required.");
@@ -75,7 +76,7 @@ let sessionToken = null;
 const created = [];
 
 async function mintSession() {
-  const [user] = await sql.query('select id from "user" order by "id" limit 1');
+  const user = await verificationUser(sql);
   if (!user) throw new Error("No user row — sign in through the browser once first.");
   sessionToken = crypto.randomUUID() + crypto.randomUUID();
   await sql.query('insert into "session" ("sessionToken", "userId", "expires") values ($1, $2, $3)', [

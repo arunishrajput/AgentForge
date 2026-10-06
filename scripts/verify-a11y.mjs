@@ -43,6 +43,7 @@
  * nothing.
  */
 import { neon } from "@neondatabase/serverless";
+import { verificationUser } from "./verify-user.mjs";
 
 const BASE = (process.env.APP_BASE_URL ?? "").replace(/\/$/, "");
 if (!BASE) throw new Error("APP_BASE_URL is required.");
@@ -53,6 +54,8 @@ const COOKIE =
   new URL(BASE).protocol === "https:" ? "__Secure-authjs.session-token" : "authjs.session-token";
 
 let cookie = null;
+/** The account the session belongs to — `verify-user.mjs`. The canvas audited must be one it can open. */
+let actingUserId = null;
 let passed = 0;
 let failed = 0;
 
@@ -67,8 +70,9 @@ const fail = (m) => {
 const check = (ok, good, bad) => (ok ? pass(good) : fail(bad ?? good));
 
 async function mintSession() {
-  const [user] = await sql.query('select id, email from "user" order by "id" limit 1');
+  const user = await verificationUser(sql);
   if (!user) throw new Error("No user row — sign in through the browser once first.");
+  actingUserId = user.id;
   const token = crypto.randomUUID() + crypto.randomUUID();
   await sql.query(
     'insert into "session" ("sessionToken", "userId", "expires") values ($1, $2, $3)',
@@ -390,8 +394,18 @@ for (const path of SIGNED_IN) {
  * One workflow canvas, which is the densest page in the product and the only one whose
  * controls are nearly all icons. Skipped rather than failed when the workspace has no
  * workflow: a fresh database is a legitimate state, not a regression.
+ *
+ * The newest workflow **the signed-in account can open** — not the newest in the database.
+ * With a second account in the database the unscoped pick audited someone else's workflow
+ * and got a 404 for it (Phase 26).
  */
-const [workflow] = await sql.query('select id from "workflow" order by "updatedAt" desc limit 1');
+const [workflow] = await sql.query(
+  `select f.id from "workflow" f
+   join "workspace_member" m on m."workspaceId" = f."workspaceId"
+   where m."userId" = $1
+   order by f."updatedAt" desc limit 1`,
+  [actingUserId],
+);
 if (workflow) {
   const path = `/workflows/${workflow.id}`;
   console.log(`${path} (signed in — the canvas)`);

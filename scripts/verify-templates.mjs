@@ -18,6 +18,7 @@
  * It cleans up after itself: every workflow it creates is deleted at the end, pass or fail.
  */
 import { neon } from "@neondatabase/serverless";
+import { verificationUser } from "./verify-user.mjs";
 
 const BASE = (process.env.APP_BASE_URL ?? "").replace(/\/$/, "");
 if (!BASE) throw new Error("APP_BASE_URL is required.");
@@ -45,7 +46,7 @@ const fail = (message) => {
 const check = (condition, good, bad) => (condition ? pass(good) : fail(bad ?? good));
 
 async function mintSession() {
-  const [user] = await sql.query('select id, email from "user" order by "id" limit 1');
+  const user = await verificationUser(sql);
   if (!user) throw new Error("No user row — sign in through the browser once first.");
   const token = crypto.randomUUID() + crypto.randomUUID();
   await sql.query(
