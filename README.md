@@ -176,9 +176,9 @@ project has a hard zero-cost ceiling.
       ┌────────────────────┼──────────────┬─────────────────┐
       ▼                    ▼              ▼                 ▼
  Neon Postgres      Gemini · Groq    nine services    Cloud Tasks
-                                                     (durable runs)
+                                                     (durable runs, timers)
 
- Cloud Scheduler ──▶ POST /api/cron/tick    (schedule triggers)
+ Cloud Scheduler ──▶ POST /api/cron/tick    (a daily safety sweep)
 ```
 
 Built as **harvest**: fresh code in one Next.js app, borrowing React Flow and Auth.js, writing the

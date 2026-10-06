@@ -209,6 +209,8 @@ export const api = {
        * refusal is a 403 naming why.
        */
       visibility?: WorkflowVisibility;
+      /** The active switch (Phase 26). Off: the webhook refuses and the schedule stops. */
+      active?: boolean;
     },
   ) => request<Workflow>(`/api/workflows/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
 

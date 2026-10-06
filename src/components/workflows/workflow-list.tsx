@@ -294,6 +294,13 @@ function Row({
               public link
             </Badge>
           )}
+          {/* Phase 26. The one state on this card that means "this will not run by itself",
+              so it is as loud as the two above it. */}
+          {!card.active && card.triggers.some((trigger) => trigger !== "manual") && (
+            <Badge tone="pop" icon="⏻">
+              switched off
+            </Badge>
+          )}
         </div>
 
         <p className="text-faint mt-2 text-2xs">

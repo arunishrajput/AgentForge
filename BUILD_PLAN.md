@@ -167,9 +167,10 @@ clock. This phase fixes the defect *and* removes that cost.
    the next fire, and arm the next task. **A stale task updates zero rows and does nothing** — so
    changing the expression, deleting the workflow or switching it off needs no task deletion
    (deleting is best-effort tidiness, never the correctness mechanism).
-2. **Far-future fires.** Cloud Tasks limits how far ahead `scheduleTime` may be
-   (`UNKNOWN — VERIFY` against the current Cloud Tasks docs — believed to be 30 days). A fire
-   beyond the limit arms a *re-arm* task at the limit instead of a run.
+2. **Far-future fires.** Cloud Tasks limits how far ahead `scheduleTime` may be — **verified
+   2026-10-06 against its quotas page: 30 days from now** (and a task de-duplication window of up
+   to 24 hours, task retention 31 days). A fire beyond the limit arms a *re-arm* task at the limit
+   instead of a run — built with a 29-day horizon, `TASK_HORIZON_MS`.
 3. **The cron becomes a daily safety sweep.** Keep `agentforge-cron`, change it from `*/15 * * * *`
    to once a day, and **resume it**. The daily tick re-arms any schedule that is due but unarmed (a
    lost task, a workflow that existed before this phase), calls `sweepAbandonedRuns`, and is the
@@ -225,6 +226,13 @@ active flag), `ARCHITECTURE.md` (*Queue* — timers), `DEPLOYMENT.md` (*Cloud Sc
 `PROGRESS.md`.
 
 **Commit.** `feat: complete phase 26 durable timers and schedules that fire`
+
+**Status, 2026-10-06 — implemented and verified locally; the deploy waits on M13.** The session that
+built it found the Free Trial billing account closed and the live service down (`PROGRESS.md` → M13,
+`DECISIONS.md` → D113). Everything that does not need Google Cloud is done: migration `0012` applied
+to Neon, the code, 1023 tests, the docs, and a real-browser pass on a local production build
+(active switch, trigger panel, the waiting canvas, Stop on a waiting run, 375 px). What remains is
+listed in `PROGRESS.md` → *Current Phase* and is entirely deploy-and-verify.
 
 ---
 

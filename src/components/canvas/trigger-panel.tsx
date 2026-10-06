@@ -115,6 +115,15 @@ function WebhookPanel({
 
   return (
     <Section title="Webhook URL">
+      {/* Phase 26. Said where the URL is, because this is where somebody debugging a
+          failing integration looks — and a 409 they did not expect is the symptom. */}
+      {!workflow.active && (
+        <p className="border-line bg-sunken rounded-lg border-2 p-2 text-2xs leading-relaxed">
+          <strong className="font-bold">Switched off.</strong> This URL answers{" "}
+          <code>409</code> and starts nothing until the workflow is switched back on.
+        </p>
+      )}
+
       <input
         type="text"
         readOnly
@@ -204,11 +213,43 @@ function WebhookPanel({
   );
 }
 
+/**
+ * **Honest about the timer — Phase 26.** A schedule fires from a Cloud Tasks timer armed
+ * for its exact due time, so "Next run" alone would imply a punctuality the panel cannot
+ * see. It says whether a timer was created for that time; if not, the daily sweep fires
+ * it instead, which can be up to a day late, and the panel says so rather than letting a
+ * missed 09:00 be a surprise.
+ */
 function SchedulePanel({ workflow, dirty }: { workflow: Workflow; dirty: boolean }) {
+  if (!workflow.active) {
+    return (
+      <Section title="Schedule">
+        <p className="border-line bg-sunken rounded-lg border-2 p-2 text-2xs leading-relaxed">
+          <strong className="font-bold">Switched off.</strong> This schedule will not fire.
+          Switch the workflow back on and it schedules from then — the slots it missed are
+          not caught up.
+        </p>
+        {workflow.scheduleLastFiredAt && (
+          <Row label="Last fired" value={formatUtc(workflow.scheduleLastFiredAt)} />
+        )}
+        {workflow.scheduleCron && <Row label="Expression" value={workflow.scheduleCron} mono />}
+      </Section>
+    );
+  }
+
   return (
     <Section title="Schedule">
       {workflow.scheduleNextAt ? (
-        <Row label="Next run" value={formatUtc(workflow.scheduleNextAt)} />
+        <>
+          <Row label="Next run" value={formatUtc(workflow.scheduleNextAt)} />
+          <Row label="Timer" value={workflow.scheduleArmed ? "Armed" : "Not armed"} />
+          {!workflow.scheduleArmed && (
+            <p className="text-2xs text-warn leading-relaxed">
+              No timer is set for this time yet, so the daily safety sweep will fire it —
+              possibly hours late. Saving again retries; so does the sweep.
+            </p>
+          )}
+        </>
       ) : (
         <p className="text-muted text-xs leading-relaxed">
           {dirty
@@ -226,8 +267,9 @@ function SchedulePanel({ workflow, dirty }: { workflow: Workflow; dirty: boolean
       )}
 
       <p className="text-muted text-2xs leading-relaxed">
-        Cron is evaluated in <strong>UTC</strong>. Due schedules are swept every 15
-        minutes, so a run starts at or shortly after its slot rather than on the second.
+        Cron is evaluated in <strong>UTC</strong>. A timer is set for each run&apos;s exact
+        time, so it starts within seconds of its slot — a little longer if the service was
+        asleep.
       </p>
     </Section>
   );

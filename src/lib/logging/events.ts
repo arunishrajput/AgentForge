@@ -23,6 +23,11 @@ export const EVENTS = [
   "run.started",
   /** A run reached a terminal status. **The run-volume and failure-rate metric.** */
   "run.finished",
+  /**
+   * A run paused until a wake time — Phase 26. Not a `run.finished`: the run is not over,
+   * and counting it there would put one run in the volume metric twice.
+   */
+  "run.waiting",
   /** One node finished, succeeded or failed. **The node-latency metric.** */
   "node.finished",
   /** One `generate` call resolved. **The model-fallback metric** (`fallback: true`). */
@@ -33,6 +38,12 @@ export const EVENTS = [
   "queue.delivered",
   /** The scheduled tick ran. Carries what it found, so an idle tick is still evidence. */
   "cron.tick",
+  /**
+   * A schedule timer was delivered — Phase 26: it fired a run, re-armed itself, or was
+   * declined as stale. Since the tick became daily, this is how a schedule firing at 09:00
+   * is confirmed afterwards.
+   */
+  "schedule.delivered",
   /** An operationally interesting refusal or repair that is nobody's request. */
   "system.warning",
 ] as const;

@@ -131,10 +131,15 @@ precisely because a reconnecting client must be able to rejoin mid-run.
 
 | Method | Route | Guard | What it does |
 |---|---|---|---|
-| `POST` | `/api/webhook/[token]` | 192-bit token | **No session.** Runs one workflow. Body capped at 64 KB and pattern-checked before the database is touched |
+| `POST` | `/api/webhook/[token]` | 192-bit token | **No session.** Runs one workflow. Body capped at 64 KB and pattern-checked before the database is touched. A workflow that is switched off answers **409** and starts nothing |
 | `POST` | `/api/workflows/[id]/webhook/rotate` | admin | Issues a new webhook token and refuses the old one immediately |
-| `POST` | `/api/cron/tick` | `CRON_SECRET`, compared in constant time | **No session.** Fires due schedules. Idempotent by compare-and-set. Cloud Scheduler calls this |
-| `POST` | `/api/runs/dispatch` | `CRON_SECRET` **and** the run's own 192-bit dispatch token | **No session.** Resumes one run its owner already started. A duplicate delivery is harmless — the lease makes it so |
+| `POST` | `/api/cron/fire` | `CRON_SECRET` **and** an HMAC token for one slot of one workflow | **No session.** A schedule timer's delivery: fires that slot, or arms it again if it is not yet due. A stale or duplicate timer starts nothing — the slot is claimed by compare-and-set. Cloud Tasks calls this |
+| `POST` | `/api/cron/tick` | `CRON_SECRET`, compared in constant time | **No session.** The **daily** safety sweep: fires overdue schedules, re-arms timers, wakes lost waiting runs. Idempotent by compare-and-set. Cloud Scheduler calls this |
+| `POST` | `/api/runs/dispatch` | `CRON_SECRET` **and** the run's own 192-bit dispatch token | **No session.** Resumes one run its owner already started — including a `waiting` run at its wake time. A duplicate delivery is harmless — the lease makes it so |
+
+A workflow's automatic triggers have an **active switch**: `PATCH /api/workflows/[id]` with
+`{ "active": false }` (editor) makes its webhook refuse and stops its schedule; manual runs
+still work. Switching it back on schedules from now — missed slots are not caught up.
 
 ## Sharing
 

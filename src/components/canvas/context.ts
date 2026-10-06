@@ -28,6 +28,12 @@ export interface NodeRunState {
   executions: number;
   branch: string | null;
   error: string | null;
+  /**
+   * The step is `running` inside a run that is `waiting` — Phase 26: a long delay, paused
+   * until its wake time. Drawn as "Waiting" with a clock rather than the working dots,
+   * because nothing is working.
+   */
+  paused: boolean;
 }
 
 export interface CanvasContextValue {

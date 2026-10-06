@@ -32,6 +32,7 @@ function described(over: Partial<Parameters<typeof toWorkflowCard>[0]> = {}) {
     scheduleCron: null,
     visibility: "workspace",
     shareUrl: null,
+    active: true,
     createdAt: "2026-09-01T00:00:00.000Z",
     updatedAt: "2026-09-20T00:00:00.000Z",
     ...over,

@@ -203,17 +203,25 @@ Repeats the nodes connected to its 'loop' output once per item, then continues f
 
 **action** · **not** callable by the agent
 
-Waits for a fixed number of milliseconds, then passes its input through unchanged. Use it to space out calls to a rate-limited service.
+Pauses the run for a while, then carries on with exactly what it was given. A short delay — ten seconds or less — waits in place; a longer one puts the run to sleep as Waiting and wakes it at the right time, so a run can wait minutes, hours or up to 30 days without holding anything open.
+
+**Input.** anything — it is passed through untouched.
 
 **Output.** its input, unchanged.
 
 | Field | Type | Required | Default |
 |---|---|---|---|
-| `ms` | integer | no | `1000` |
+| `amount` | number | no | `1` |
+| `unit` | `milliseconds` · `seconds` · `minutes` · `hours` · `days` | no | `seconds` |
+
+**Examples**
+
+- *Space out calls to a rate-limited API* — { "amount": 2, "unit": "seconds" }
+- *Send a follow-up a day later* — { "amount": 1, "unit": "days" }
 
 <details><summary>What the agent reads</summary>
 
-> Waits for a fixed number of milliseconds, then passes its input through unchanged. Use it to space out calls to a rate-limited service.
+> Waits, then passes its input through unchanged. Waits over 10 seconds pause the run and resume it later, up to 30 days. Use it to space out calls to a rate-limited service, or to wait before a follow-up.
 
 </details>
 

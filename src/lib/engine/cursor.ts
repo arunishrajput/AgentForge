@@ -44,6 +44,19 @@ export const runCursorSchema = z.object({
   executions: z.record(z.string(), z.number().int().min(0)),
   /** Steps already recorded. The next step's `seq` continues from here. */
   seq: z.number().int().min(0),
+  /**
+   * **Phase 26 — the step a waiting run is paused inside.** Present only while the run is
+   * `waiting`: `seq` is the `core.delay` step that asked to wait, still `running`, and
+   * `until` is when. A resumed engine finishes that step first — it is the one piece of
+   * work the queue does not describe, because its successors are already in it — and the
+   * cursor it writes afterwards no longer carries this.
+   */
+  wait: z
+    .object({
+      seq: z.number().int().min(0),
+      until: z.iso.datetime(),
+    })
+    .optional(),
 });
 
 export type CursorItem = z.infer<typeof cursorItemSchema>;

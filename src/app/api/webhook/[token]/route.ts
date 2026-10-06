@@ -61,6 +61,27 @@ export async function POST(request: Request, { params }: Context) {
       throw new ApiError("not_found", "No webhook is registered at this URL.");
     }
 
+    /**
+     * **Switched off — Phase 26.** `409 conflict`, chosen deliberately:
+     *
+     *   - not 404, because the caller holds a valid URL and deserves to know it is the
+     *     workflow that is off, not the URL that is wrong — "check your URL" is the wrong
+     *     instruction and would send somebody hunting for a typo;
+     *   - not 503, because nothing is unavailable and nothing will change by waiting, and a
+     *     sender that retries 5xx (Stripe, Shopify) would hammer the endpoint for days;
+     *   - 409 is this API's code for "a state you can see but not change by retrying the
+     *     same request" (`CONTRACT.md` → the error envelope), which is exactly this.
+     *
+     * Checked after the 404s, so it reveals nothing to a caller without the token, and
+     * before the body is read, so a refused call writes nothing and costs one select.
+     */
+    if (!workflow.active) {
+      return fail(
+        "conflict",
+        "This workflow is switched off, so its webhook is not accepting runs. Its owner can switch it back on from the canvas.",
+      );
+    }
+
     const triggerNode = webhookTriggerNode(workflow.graph)!;
     const payload = readWebhookPayload(
       await request.text(),

@@ -5,6 +5,7 @@ import { Notice } from "@/components/ui/notice";
 import type { Run, RunStep } from "@/lib/canvas/client";
 import { nodeStatusLook, runStatusLook } from "@/lib/canvas/status";
 import { elapsedMs, formatDuration, formatOffset } from "@/lib/format/duration";
+import { formatUtc } from "@/lib/triggers/cron";
 
 import { useCanvas } from "./context";
 import { NodeIcon } from "./node-icon";
@@ -51,7 +52,8 @@ export function RunPanel({
 }) {
   const look = runStatusLook(run.status);
   const steps = run.steps ?? [];
-  const unfinished = run.status === "queued" || run.status === "running";
+  const unfinished =
+    run.status === "queued" || run.status === "running" || run.status === "waiting";
 
   return (
     <section className="space-y-3">
@@ -100,13 +102,24 @@ export function RunPanel({
         <span className="text-muted ml-auto shrink-0 font-mono text-2xs">
           {run.durationMs !== null
             ? formatDuration(run.durationMs)
-            : live
-              ? "streaming"
-              : run.status === "queued"
-                ? "waiting"
-                : "in flight"}
+            : run.status === "waiting"
+              ? "paused"
+              : live
+                ? "streaming"
+                : run.status === "queued"
+                  ? "waiting"
+                  : "in flight"}
         </span>
       </div>
+
+      {/* Phase 26. A run that will do its next thing in two days must say when, and
+          that it is not stuck — "Running" with no movement for hours reads as a hang. */}
+      {run.status === "waiting" && run.wakeAt && (
+        <Notice tone="info" title={`Waiting until ${formatUtc(run.wakeAt)}`}>
+          The run is paused at a delay and resumes on its own then. Nothing is running or
+          held open in the meantime. Stop cancels it.
+        </Notice>
+      )}
 
       {run.error &&
         (run.status === "cancelled" ? (
@@ -130,6 +143,7 @@ export function RunPanel({
               key={step.seq}
               step={step}
               name={names.get(step.nodeId)}
+              paused={run.status === "waiting" && step.status === "running"}
               onSelect={() => onSelectNode(step.nodeId)}
             />
           ))}
@@ -151,15 +165,18 @@ export function RunPanel({
 function Step({
   step,
   name,
+  paused,
   onSelect,
 }: {
   step: RunStep;
   name: string | undefined;
+  /** The step a waiting run is paused inside (Phase 26). */
+  paused: boolean;
   onSelect: () => void;
 }) {
   const { registry } = useCanvas();
   const definition = registry.get(step.nodeType);
-  const look = nodeStatusLook(step.status, definition?.category === "agent");
+  const look = nodeStatusLook(step.status, definition?.category === "agent", paused);
   const duration = elapsedMs(step.startedAt, step.finishedAt);
   const logs = step.logs ?? [];
 

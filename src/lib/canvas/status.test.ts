@@ -121,3 +121,23 @@ test("the two vocabularies agree where they overlap", () => {
     assert.equal(runStatusLook(shared).glyph, nodeStatusLook(shared).glyph);
   }
 });
+
+/* --- waiting — Phase 26 ---------------------------------------------------- */
+
+test("a waiting run has its own word and shape, and does not bob — nothing is working", () => {
+  const look = runStatusLook("waiting");
+  assert.equal(look.label, "Waiting");
+  assert.notEqual(look.glyph, "");
+  assert.equal(look.dots, false);
+});
+
+test("a step paused inside a waiting run reads as waiting, not as running", () => {
+  // The step is genuinely still `running` — the delay is not over until the run wakes —
+  // but "Running" over a card that will not change for two days reads as a hang.
+  const paused = nodeStatusLook("running", false, true);
+  assert.equal(paused.label, "Waiting");
+  assert.equal(paused.dots, false);
+  assert.equal(paused.glyph, runStatusLook("waiting").glyph, "one clock for both");
+  // The flag means nothing on a step that is not running.
+  assert.equal(nodeStatusLook("succeeded", false, true).label, "Succeeded");
+});

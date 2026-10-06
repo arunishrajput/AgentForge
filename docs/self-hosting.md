@@ -258,20 +258,24 @@ Set `AUTH_URL` and `APP_BASE_URL` to the deployed origin, and add that origin's
 > canonical one is the deterministic `https://<service>-<project-number>.<region>.run.app`.
 > Use that everywhere, or OAuth will fail against the one you did not register.
 
-### 3. Schedule the cron tick
+### 3. Schedule the daily sweep
 
-Scale-to-zero makes in-process timers non-functional, so schedule triggers are driven
-externally:
+Scale-to-zero makes in-process timers non-functional, so the clock lives outside the app. **Each
+schedule fires from its own Cloud Tasks timer**, armed for its exact due time on the queue you
+created for durable runs — nothing extra to set up. What you do schedule is a once-a-day safety
+sweep, which catches a lost timer or a lost wake and does the housekeeping:
 
 ```bash
 gcloud scheduler jobs create http agentforge-cron \
-  --location "$GCP_REGION" --schedule "*/15 * * * *" \
+  --location "$GCP_REGION" --schedule "0 4 * * *" \
   --uri "$APP_BASE_URL/api/cron/tick" --http-method POST \
   --headers "x-cron-secret=$CRON_SECRET"
 ```
 
-`*/15` rather than `* * * * *` is a cost decision, not a taste one: Neon's free tier meters
-**compute time awake**, and a minute-by-minute tick keeps an idle database awake all month.
+Daily rather than every few minutes is a cost decision, not a taste one: Neon's free tier meters
+**compute time awake**, and a frequent sweep keeps an idle database awake all month — every 15
+minutes is ~61 of its 100 CU-hours; daily is ~0.6. Without a queue (`TASKS_QUEUE` unset) schedules
+are not armed and fire only from this sweep, and a delay over 10 seconds is refused.
 
 ### 4. Migrate, then verify behaviour
 
@@ -294,6 +298,7 @@ Two features read their environment, and both degrade rather than break:
 | Feature | On Cloud Run | Elsewhere |
 |---|---|---|
 | **Durable runs** | Cloud Tasks redelivers a run that died mid-flight | Falls back to in-process: still leased, still checkpointed, still resumable, **not** redeliverable if the container dies |
+| **Schedules on time, and long waits** | Each schedule has a Cloud Tasks timer for its exact due time, and a `core.delay` over 10 s puts the run to sleep until a timer wakes it | Schedules fire only from the daily sweep — up to a day late — and a delay over 10 s fails its step with a message |
 | **Rotatable root key** | Secret Manager holds a versioned root key; rotating re-wraps data keys without decrypting a secret | `ENCRYPTION_KEY` is the root key, version `env`. Rotating it makes rows still under it unreadable — run `scripts/rekey.mjs --dry-run` first |
 
 Neither needs a cloud SDK — Cloud Tasks is one authenticated `fetch` — so porting either to
@@ -314,15 +319,18 @@ silently on the environment key has the old problem back without the old warning
 
 ### Keeping it free
 
-Three things decide the bill, and all three are already set the way they need to be:
+Four things decide the bill:
 
 1. **Neon meters compute time awake, not queries.** Nothing in this product polls, and
    analytics is computed on demand — no rollup job, no cache warmer. Measured at 21–27 ms of
    database time per page view. Do not add a new reason to wake an idle database
-2. **The cron tick is `*/15`.** See above
+2. **The sweep is daily.** See above — and do not shorten it; schedules have their own timers
 3. **`--min-instances 1` costs a little and buys a lot** (no cold start on the first request).
-   `--min-instances 0` is free and is the right setting for an instance nobody is watching —
-   pause the Scheduler job at the same time, or the tick keeps the database awake anyway
+   `--min-instances 0` is free and is the right setting for an instance nobody is watching. The
+   daily sweep can stay on: it wakes the database once a day, not all day
+4. **A Google Cloud trial ends after 90 days, and takes the service down with it.** Upgrade the
+   billing account to a paid one before then (Always Free usage stays at zero) and set a budget
+   alert — this project learned it the hard way (`DEPLOYMENT.md` → *Project, billing, and APIs*)
 
 ---
 

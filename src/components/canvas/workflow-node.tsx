@@ -72,11 +72,16 @@ export function WorkflowNodeView({ id, data, selected }: NodeProps<CanvasNode>) 
   const change = diff ? changeLook(diff.change) : null;
 
   const category = categoryLook(definition?.category);
-  const status = nodeStatusLook(state?.status ?? "idle", definition?.category === "agent");
+  const status = nodeStatusLook(
+    state?.status ?? "idle",
+    definition?.category === "agent",
+    state?.paused ?? false,
+  );
 
   const outputs = definition?.outputs ?? [{ key: null, label: "Out" }];
   const isTrigger = definition?.kind === "trigger";
-  const running = state?.status === "running";
+  // A step paused inside a waiting run (Phase 26) is not working, so it gets no live edge.
+  const running = state?.status === "running" && !state.paused;
 
   const delayMs = Math.min((entryOrder.get(id) ?? 0) * STAGGER_MS, STAGGER_CAP_MS);
 

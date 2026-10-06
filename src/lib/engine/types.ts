@@ -6,8 +6,17 @@ import type { RunCursor } from "./cursor";
  * The execution state machine — CONTRACT.md → "Execution state machine".
  *
  *   run:   queued → running → succeeded | failed | cancelled     (all three terminal)
+ *                      ↕
+ *                   waiting                                      (Phase 26, not terminal)
  *   step:  running → succeeded | failed                          (both terminal)
  *          skipped is entered directly and is terminal
+ *
+ * **`waiting` is Phase 26's, and it sits outside the lease family entirely.** A run that
+ * reaches a long `core.delay` is put down: its cursor is written, its lease is released,
+ * and a Cloud Tasks task is scheduled for `wakeAt`. Nothing executes it and no container
+ * holds it until that task is delivered, when it is claimed back to `running` like any
+ * other delivery. So a waiting run is not "running slowly" — it is not running at all, and
+ * the 120 s / 150 s / 180 s ordering (D78) says nothing about it.
  *
  * `queued` was reserved for a future queue in Chapter 1 and never written. **Phase 17
  * writes it**: a durable run is created `queued`, a Cloud Tasks delivery claims it and
@@ -25,7 +34,14 @@ import type { RunCursor } from "./cursor";
  * engine design"). That property is unchanged; what changed is that satisfying it is
  * no longer the same as losing the run.
  */
-export const RUN_STATUSES = ["queued", "running", "succeeded", "failed", "cancelled"] as const;
+export const RUN_STATUSES = [
+  "queued",
+  "running",
+  "waiting",
+  "succeeded",
+  "failed",
+  "cancelled",
+] as const;
 export type RunStatus = (typeof RUN_STATUSES)[number];
 
 /**
@@ -48,6 +64,13 @@ export const TRIGGER_KINDS = ["manual", "webhook", "schedule", "agent"] as const
 export type TriggerKind = (typeof TRIGGER_KINDS)[number];
 
 export const TERMINAL_RUN_STATUSES: readonly RunStatus[] = ["succeeded", "failed", "cancelled"];
+
+/**
+ * A run nothing is executing and nothing will resume early: finished, or `waiting` for its
+ * timer. A stream stops watching a run that reaches one of these (D31), because there is
+ * nothing to report until a delivery claims it again.
+ */
+export const RESTING_RUN_STATUSES: readonly RunStatus[] = [...TERMINAL_RUN_STATUSES, "waiting"];
 
 export interface StepRecord {
   /** Execution order within the run, 0-based. A looped node appears once per pass. */
@@ -72,14 +95,18 @@ export interface StepRecord {
 /**
  * Why the engine stopped.
  *
- * `interrupted` is Phase 17's addition and the only one that is not terminal: the
+ * `waiting` is Phase 26's: a node asked the run to pause until a time (a long
+ * `core.delay`), and the caller must suspend it — write the cursor, release the lease,
+ * schedule the wake — rather than finish it.
+ *
+ * `interrupted` is Phase 17's addition and the other one that is not terminal: the
  * engine put the work down without finishing it, because the run was cancelled from
  * elsewhere or because it no longer holds the lease. The caller must **not** write a
  * terminal status on an `interrupted` outcome — for `preempted` another worker owns
  * the run and is mid-flight, and stamping `failed` over it would report a lie about a
  * run that is still going.
  */
-export type RunStop = "finished" | "interrupted";
+export type RunStop = "finished" | "interrupted" | "waiting";
 
 export interface RunOutcome {
   /** `null` when `stop` is `interrupted`: the run's status is not this engine's to say. */
@@ -92,6 +119,11 @@ export interface RunOutcome {
   steps: StepRecord[];
   /** Where to carry on from. Written by the caller so a redelivery resumes here. */
   cursor: RunCursor | null;
+  /**
+   * Set when `stop` is `waiting` — Phase 26: when the run asked to be resumed. The caller
+   * suspends the run until then rather than writing a status of its own.
+   */
+  wakeAt?: string;
 }
 
 /**

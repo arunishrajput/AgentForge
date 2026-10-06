@@ -1,7 +1,7 @@
-import { and, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 
 import { db } from "@/db";
-import { runs, type Run } from "@/db/schema";
+import { runs, runSteps, type Run } from "@/db/schema";
 import type { WorkspaceScope } from "@/lib/workspace/scope";
 
 import type { RunCursor } from "./cursor";
@@ -66,6 +66,21 @@ const agoSeconds = (seconds: number) => sql`now() - make_interval(secs => ${seco
 const NON_TERMINAL: RunStatus[] = ["queued", "running"];
 
 /**
+ * A run a worker may take: one nobody holds (`queued`/`running` with a lapsed or absent
+ * lease), or — **Phase 26** — a `waiting` run whose wake time has come. A waiting run has
+ * no lease to lapse, so its own clock is `wakeAt`, compared against the database's `now()`
+ * like every other time here. An early delivery therefore claims nothing, and the caller
+ * re-arms it (`run.ts` → `resumeRun`).
+ */
+const claimable = or(
+  and(
+    inArray(runs.status, NON_TERMINAL),
+    or(isNull(runs.leaseExpiresAt), lt(runs.leaseExpiresAt, sql`now()`)),
+  ),
+  and(eq(runs.status, "waiting"), lte(runs.wakeAt, sql`now()`)),
+);
+
+/**
  * The token a task carries to prove it is about a specific run.
  *
  * Same construction as the webhook token (D41) and for the same reason: it is the
@@ -108,15 +123,10 @@ export async function claimRun(options: {
       leaseExpiresAt: inSeconds(LEASE_MS / 1000) as unknown as Date,
       heartbeatAt: sql`now()` as unknown as Date,
       attempt: sql`${runs.attempt} + 1`,
+      // Cleared on the claim: `wakeAt` means "waiting until", and a claimed run is not.
+      wakeAt: null,
     })
-    .where(
-      and(
-        eq(runs.id, options.runId),
-        eq(runs.dispatchToken, options.token),
-        inArray(runs.status, NON_TERMINAL),
-        or(isNull(runs.leaseExpiresAt), lt(runs.leaseExpiresAt, sql`now()`)),
-      ),
-    )
+    .where(and(eq(runs.id, options.runId), eq(runs.dispatchToken, options.token), claimable))
     .returning();
 
   return claimed ?? null;
@@ -219,6 +229,100 @@ export async function finishRun(options: {
 }
 
 /**
+ * Put a run down until a time — **Phase 26**, the write behind a long `core.delay`.
+ *
+ * One statement does all of it, guarded on the lease like `finishRun`, because only the
+ * worker that executed the delay may suspend the run: the cursor (carrying the paused
+ * step), `waiting`, `wakeAt`, and the lease released. A worker that lost its lease writes
+ * nothing and reports so.
+ *
+ * Three more columns move, each for a reason:
+ *
+ *   mode     becomes `durable`. A synchronous run that reaches a long wait is no longer
+ *            one request's to finish — the queue will resume it, which is what `durable`
+ *            means to the sweeper.
+ *   attempt  goes back to 0. It counts deliveries *since the run last stood still*, so a
+ *            workflow with five waits is not mistaken for a run that crashed five times
+ *            and failed as `deliveries_exhausted` on its fifth wake (`MAX_DELIVERIES`).
+ *   cancelRequestedAt  is returned, because a stop asked for while the delay step was
+ *            running has nobody left to see it until the wake — so the caller finishes
+ *            the run as cancelled now instead.
+ */
+export async function suspendRun(options: {
+  runId: string;
+  owner: string;
+  cursor: RunCursor;
+  wakeAt: string;
+}): Promise<{ suspended: boolean; cancelRequested: boolean }> {
+  const [row] = await db()
+    .update(runs)
+    .set({
+      status: "waiting",
+      mode: "durable",
+      cursor: options.cursor,
+      wakeAt: new Date(options.wakeAt),
+      attempt: 0,
+      heartbeatAt: sql`now()` as unknown as Date,
+      leaseOwner: null,
+      leaseExpiresAt: null,
+    })
+    .where(and(eq(runs.id, options.runId), eq(runs.leaseOwner, options.owner)))
+    .returning({ cancelRequestedAt: runs.cancelRequestedAt });
+
+  if (!row) return { suspended: false, cancelRequested: false };
+  return { suspended: true, cancelRequested: row.cancelRequestedAt !== null };
+}
+
+/**
+ * Finish a `waiting` run nobody is executing — **Phase 26**: a stop pressed while it
+ * waits, or a cancel that arrived while its delay step was running.
+ *
+ * Two statements, because two rows are wrong. The run, guarded on still being `waiting`
+ * so a wake that claimed it a moment ago is left alone. Then the paused step, which would
+ * otherwise say `running` for ever on a run that is over: it is failed with a message
+ * that says what happened. No step status says "cancelled" — the engine never needed one,
+ * because a cancel normally lands *between* steps — and failing it is what the canvas
+ * already knows how to draw for a step a run did not get past.
+ */
+export async function finishWaitingRun(options: {
+  runId: string;
+  status: Extract<RunStatus, "failed" | "cancelled">;
+  error: string;
+}): Promise<boolean> {
+  const [row] = await db()
+    .update(runs)
+    .set({
+      status: options.status,
+      error: options.error,
+      finishedAt: sql`now()` as unknown as Date,
+      heartbeatAt: sql`now()` as unknown as Date,
+      wakeAt: null,
+      leaseOwner: null,
+      leaseExpiresAt: null,
+    })
+    .where(and(eq(runs.id, options.runId), eq(runs.status, "waiting")))
+    .returning({ id: runs.id });
+
+  if (!row) return false;
+
+  await closePausedStep(options.runId, options.error);
+  return true;
+}
+
+/**
+ * Fail the step a run was paused inside — Phase 26. Called wherever a run that was
+ * `waiting` is finished without being woken, so the delay step does not say `running` for
+ * ever. Only a paused step can be `running` on a run nobody is executing, so the filter is
+ * exact without naming the step.
+ */
+export async function closePausedStep(runId: string, error: string): Promise<void> {
+  await db()
+    .update(runSteps)
+    .set({ status: "failed", error, finishedAt: sql`now()` as unknown as Date })
+    .where(and(eq(runSteps.runId, runId), eq(runSteps.status, "running")));
+}
+
+/**
  * Finish a run nobody holds — a `queued` run cancelled before any worker saw it, or
  * one whose enqueue failed outright. Guarded on the lease being *absent* so it can
  * never close a run that is genuinely executing.
@@ -269,7 +373,9 @@ export async function requestCancel(options: {
       and(
         eq(runs.id, options.runId),
         eq(runs.workspaceId, options.scope.workspaceId),
-        inArray(runs.status, NON_TERMINAL),
+        // `waiting` too (Phase 26): it is the status a stop is most useful in — a run
+        // that will otherwise do its next thing two days from now.
+        inArray(runs.status, [...NON_TERMINAL, "waiting"]),
       ),
     )
     .returning();

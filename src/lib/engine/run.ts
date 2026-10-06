@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, or, sql } from "drizzle-orm";
 
 import { db } from "@/db";
 import { runs, runSteps, workflows, type Run, type RunStep, type Workflow } from "@/db/schema";
@@ -14,14 +14,17 @@ import { executeWorkflow, GraphInvalidError } from "./execute";
 import {
   claimOwnRun,
   claimRun,
+  closePausedStep,
   finishRun,
   finishUnclaimedRun,
+  finishWaitingRun,
   mintDispatchToken,
   mintLeaseOwner,
   MAX_DELIVERIES,
+  suspendRun,
   sweepAbandonedRuns,
 } from "./lease";
-import { enqueueRun } from "./queue";
+import { enqueueRun, queueNamed } from "./queue";
 import { dbRecorder } from "./recorder";
 import type { RunMode, RunOutcome, StepRecord, TriggerKind } from "./types";
 
@@ -164,6 +167,10 @@ async function drive(options: {
       recorder: dbRecorder(run.id, owner),
       signal,
       resume,
+      // A run may pause only where something can wake it (Phase 26). Read synchronously
+      // from the environment: a queue that is named but rejecting is the sweep's problem,
+      // not a reason to refuse the wait.
+      allowWait: queueNamed(),
     });
   } catch (error) {
     const message =
@@ -176,6 +183,11 @@ async function drive(options: {
     await finishRun({ runId: run.id, owner, status: "failed", error: message });
     finished("failed", message);
     throw error;
+  }
+
+  if (outcome.stop === "waiting") {
+    await suspend({ run, owner, outcome, startedAt });
+    return outcome;
   }
 
   if (outcome.stop === "interrupted") {
@@ -209,6 +221,84 @@ async function drive(options: {
 
   finished(outcome.status!, outcome.error);
   return outcome;
+}
+
+/**
+ * Put a run down until its wake time and arrange for it to be picked up — **Phase 26**.
+ *
+ * Three outcomes, none of them a terminal status written by guesswork:
+ *
+ *   suspended   the run is `waiting`, holding no lease, and a Cloud Tasks delivery to the
+ *               ordinary dispatch route is scheduled for `wakeAt`. The run's own
+ *               `dispatchToken` is what that delivery carries, so a wake is exactly a
+ *               redelivery and needs no route of its own.
+ *   preempted   the suspend matched no row: another worker holds the lease. Nothing is
+ *               written, as with any preemption.
+ *   cancelled   a stop arrived while the delay step was running. Nobody would see it
+ *               until the wake, so the run is finished as cancelled now.
+ *
+ * **A failed enqueue does not fail the run.** It is logged as `queue.degraded` — the
+ * event the one alerting policy watches — and the run stays `waiting`; the daily sweep
+ * re-enqueues any waiting run whose wake time has passed (`lib/triggers/tick.ts`). The
+ * alternative, failing a run because the queue blinked, would lose work the sweep can save.
+ */
+async function suspend(options: {
+  run: Run;
+  owner: string;
+  outcome: RunOutcome;
+  startedAt: number;
+}): Promise<void> {
+  const { run, owner, outcome, startedAt } = options;
+  const wakeAt = outcome.wakeAt!;
+
+  const { suspended, cancelRequested } = await suspendRun({
+    runId: run.id,
+    owner,
+    cursor: outcome.cursor!,
+    wakeAt,
+  });
+
+  if (!suspended) {
+    logWarn("system.warning", `Run ${run.id} was preempted before it could be suspended.`, {
+      trigger: run.trigger,
+      mode: run.mode,
+    });
+    return;
+  }
+
+  if (cancelRequested) {
+    await finishWaitingRun({ runId: run.id, status: "cancelled", error: "The run was cancelled." });
+    logInfo("run.finished", `Run ${run.id} cancelled.`, {
+      status: "cancelled",
+      trigger: run.trigger,
+      mode: "durable",
+      attempt: run.attempt,
+      resumed: false,
+      workflowVersion: run.workflowVersion,
+      durationMs: Date.now() - startedAt,
+    });
+    return;
+  }
+
+  logInfo("run.waiting", `Run ${run.id} is waiting until ${wakeAt}.`, {
+    trigger: run.trigger,
+    wakeAt,
+    durationMs: Date.now() - startedAt,
+  });
+
+  const result = await enqueueRun({
+    runId: run.id,
+    token: run.dispatchToken!,
+    baseUrl: required("APP_BASE_URL"),
+    secret: required("CRON_SECRET"),
+    at: new Date(wakeAt),
+  });
+
+  if (!result.enqueued) {
+    logError("queue.degraded", `Run ${run.id} is waiting but its wake could not be scheduled.`, result.detail, {
+      reason: result.reason,
+    });
+  }
 }
 
 /**
@@ -324,7 +414,10 @@ export async function startDurableRun(options: StartOptions): Promise<EnqueueOut
 
 export type ResumeOutcome =
   | { handled: true; status: string }
-  | { handled: false; reason: "unknown" | "not_claimable" | "deliveries_exhausted" | "cancelled" };
+  | {
+      handled: false;
+      reason: "unknown" | "not_claimable" | "not_due" | "deliveries_exhausted" | "cancelled";
+    };
 
 /**
  * Execute a delivered run — the worker side of the queue.
@@ -334,6 +427,9 @@ export type ResumeOutcome =
  *
  *   unknown               no run with this id and token. A replayed or forged task.
  *   not_claimable         terminal already, or another worker holds a live lease.
+ *   not_due               a `waiting` run delivered before its wake time (Phase 26) — a
+ *                         wait beyond the queue's 30-day horizon, or a clock. It is
+ *                         re-armed for the real time and this delivery does nothing.
  *   deliveries_exhausted  the queue has tried enough. The run is failed here rather
  *                         than left for the sweeper, so it closes at a known moment.
  *   cancelled             somebody asked it to stop before a worker ever saw it.
@@ -358,11 +454,25 @@ export async function resumeRun(options: {
 
   if (!claimed) {
     const [existing] = await db()
-      .select({ id: runs.id })
+      .select({ id: runs.id, status: runs.status, wakeAt: runs.wakeAt })
       .from(runs)
       .where(and(eq(runs.id, options.runId), eq(runs.dispatchToken, options.token)))
       .limit(1);
-    return { handled: false, reason: existing ? "not_claimable" : "unknown" };
+    if (!existing) return { handled: false, reason: "unknown" };
+
+    // Early for a waiting run: arm it again for the real time. Duplicate wakes are
+    // harmless — the claim above takes a waiting run exactly once.
+    if (existing.status === "waiting" && existing.wakeAt) {
+      await enqueueRun({
+        runId: options.runId,
+        token: options.token,
+        baseUrl: required("APP_BASE_URL"),
+        secret: required("CRON_SECRET"),
+        at: existing.wakeAt,
+      });
+      return { handled: false, reason: "not_due" };
+    }
+    return { handled: false, reason: "not_claimable" };
   }
 
   if (claimed.cancelRequestedAt !== null) {
@@ -372,6 +482,11 @@ export async function resumeRun(options: {
       status: "cancelled",
       error: "The run was cancelled.",
     });
+    // A wake can claim a waiting run between a Stop's two writes — the cancel request and
+    // the finish — and land here. Its delay step is still `running`; close it (Phase 26).
+    if (readCursor(claimed.cursor)?.wait) {
+      await closePausedStep(claimed.id, "The run was cancelled while it was waiting.");
+    }
     return { handled: false, reason: "cancelled" };
   }
 
@@ -579,8 +694,15 @@ export async function liveRun(
       and(
         eq(runs.workspaceId, scope.workspaceId),
         eq(runs.workflowId, workflowId),
-        inArray(runs.status, ["queued", "running"]),
-        gt(sql`coalesce(${runs.leaseExpiresAt}, ${runs.startedAt} + interval '2 minutes')`, sql`now()`),
+        or(
+          and(
+            inArray(runs.status, ["queued", "running"]),
+            gt(sql`coalesce(${runs.leaseExpiresAt}, ${runs.startedAt} + interval '2 minutes')`, sql`now()`),
+          ),
+          // Phase 26. A waiting run has no lease by design and is still this workflow's
+          // story — a page opened during a two-day wait must show it, not an empty canvas.
+          eq(runs.status, "waiting"),
+        ),
       ),
     )
     .orderBy(desc(runs.startedAt))
@@ -601,6 +723,8 @@ export function describeRun(run: Run, steps?: RunStep[]) {
     attempt: run.attempt,
     /** A stop was asked for. The engine acts on it at its next step boundary. */
     cancelRequested: run.cancelRequestedAt !== null,
+    /** Phase 26: when a `waiting` run resumes. Null in every other status. */
+    wakeAt: run.wakeAt?.toISOString() ?? null,
     /**
      * The workflow version this run executed (Phase 18). Null for a run recorded
      * before versioning existed — it is not claimed to be v1, because it is unknown.

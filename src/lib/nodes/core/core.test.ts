@@ -6,7 +6,9 @@ import { NodeError } from "@/lib/nodes/types";
 
 import { assertNode } from "./assert";
 import { branchNode, evaluate } from "./branch";
-import { delayNode, MAX_DELAY_MS } from "./delay";
+import { z } from "zod";
+
+import { delayMs, delayNode, describeDuration, MAX_DELAY_MS, MAX_WAIT_MS } from "./delay";
 import { HARD_MAX_ITERATIONS, loopNode } from "./loop";
 import { setNode } from "./set";
 import { SWITCH_CASES, switchNode } from "./switch";
@@ -279,6 +281,82 @@ test("a delay aborted mid-wait rejects instead of resolving late", async () => {
   // The point is that it does not sit out the full 5 s — a cancelled run must not hold
   // the engine open to its deadline.
   assert.ok(Date.now() - started < 1_000);
+});
+
+// --- delay: durable waits — Phase 26 --------------------------------------------
+
+test("amount and unit say how long; a bare config waits one second", () => {
+  assert.equal(delayMs({ amount: 2, unit: "hours" }), 7_200_000);
+  assert.equal(delayMs({ amount: 90 }), 90_000, "seconds is the unit when none is given");
+  assert.equal(delayMs({ amount: 1.5, unit: "days" }), 129_600_000);
+  assert.equal(delayMs({}), 1_000);
+});
+
+test("a stored Phase 5 `ms` still means what it meant, and `amount` wins over it", () => {
+  // Version snapshots carry `ms` and are never rewritten (D85), so it is read for ever.
+  assert.equal(delayMs({ ms: 700 }), 700);
+  // A legacy value never meant more than the in-process cap, so reading it again must
+  // not turn it into a suspension.
+  assert.equal(delayMs({ ms: MAX_DELAY_MS * 10 }), MAX_DELAY_MS);
+  // Somebody editing an old node in the form adds `amount`; that is now the answer.
+  assert.equal(delayMs({ ms: 700, amount: 5, unit: "minutes" }), 300_000);
+});
+
+test("the form and the generator see amount and unit, with defaults, and never ms", () => {
+  // `io: "input"` is how `/api/nodes` and the tool schemas emit it. A parse default would
+  // have filled `amount` in on a legacy config and overridden its `ms`, which is why the
+  // defaults live in the JSON Schema only.
+  const json = z.toJSONSchema(delayNode.configSchema, { io: "input" }) as {
+    properties: Record<string, { default?: unknown; enum?: unknown[] }>;
+  };
+  assert.deepEqual(Object.keys(json.properties).sort(), ["amount", "unit"]);
+  assert.equal(json.properties.amount.default, 1);
+  assert.equal(json.properties.unit.default, "seconds");
+  assert.deepEqual(json.properties.unit.enum, ["milliseconds", "seconds", "minutes", "hours", "days"]);
+  assert.deepEqual(delayNode.configSchema.parse({}), {}, "parsing applies no default");
+});
+
+test("a delay is bounded at 30 days by its schema", () => {
+  assert.equal(delayNode.configSchema.safeParse({ amount: 30, unit: "days" }).success, true);
+  const tooLong = delayNode.configSchema.safeParse({ amount: 31, unit: "days" });
+  assert.equal(tooLong.success, false);
+  assert.match(JSON.stringify(tooLong.error?.issues), /at most 30 days/);
+  assert.equal(MAX_WAIT_MS, 30 * 86_400_000);
+});
+
+test("a long delay asks the run to wait instead of sleeping", async () => {
+  const context = fakeContext();
+  const before = Date.now();
+  const result = (await run(delayNode, {
+    config: { amount: 2, unit: "hours" },
+    input: { keep: 1 },
+    context,
+  })) as { output: unknown; wait?: { until: string } };
+
+  // Immediately — nothing slept — with the output already final and the wake time set.
+  assert.ok(Date.now() - before < 1_000);
+  assert.deepEqual(result.output, { keep: 1 });
+  const until = Date.parse(result.wait!.until);
+  assert.ok(Math.abs(until - (before + 7_200_000)) < 5_000);
+  assert.match(context.lines[0].message, /^Waiting 2 hours, until .+ The run pauses here/);
+});
+
+test("ten seconds still waits in place, as it always has", async () => {
+  const context = fakeContext();
+  const result = (await run(delayNode, {
+    config: { amount: 0, unit: "seconds" },
+    input: "x",
+    context,
+  })) as { output: unknown; wait?: unknown };
+  assert.equal(result.wait, undefined);
+  assert.equal(result.output, "x");
+});
+
+test("a duration is described the way a person would say it", () => {
+  assert.equal(describeDuration(7_200_000), "2 hours");
+  assert.equal(describeDuration(86_400_000), "1 day");
+  assert.equal(describeDuration(90_000), "1.5 minutes");
+  assert.equal(describeDuration(500), "500 ms");
 });
 
 // --- switch: multi-way routing — Phase 23A ---------------------------------------

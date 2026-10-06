@@ -258,7 +258,8 @@ credential is `admin`.
 
 ## The unauthenticated surfaces
 
-**Nine routes and two pages answer with no session**, and the completeness of this list is the
+**Ten routes and two pages answer with no session** (Phase 26 added `POST /api/cron/fire`), and
+the completeness of this list is the
 whole point of it — so it is no longer maintained by hand alone.
 `scripts/verify-security.mjs` enumerates **every** route file under `src/app/api`, calls each
 one with no session, and fails if anything outside this table answers, *or* if anything inside
@@ -266,8 +267,9 @@ it stops answering. Run it against the deployed service; it writes nothing.
 
 | Surface | Guard | Blast radius |
 |---|---|---|
-| `POST /api/webhook/<token>` | 192-bit token on the workflow row | Runs **one** workflow. Body capped at 64 KB, pattern-checked before the database is touched |
-| `POST /api/cron/tick` | `CRON_SECRET`, compared in constant time | Fires due schedules. Idempotent by compare-and-set |
+| `POST /api/webhook/<token>` | 192-bit token on the workflow row | Runs **one** workflow. Body capped at 64 KB, pattern-checked before the database is touched. A switched-off workflow answers 409 and starts nothing (Phase 26) |
+| `POST /api/cron/fire` | `CRON_SECRET` **plus** an HMAC-SHA256 token over *(workflow id, slot)*, keyed by `AUTH_SECRET` | Fires **one slot of one workflow**, and only once it is due — a slot not yet due is re-armed, and one that is no longer current is declined. The compare-and-set on the slot makes a replay a no-op (D42). Phase 26 — see below |
+| `POST /api/cron/tick` | `CRON_SECRET`, compared in constant time | The daily safety sweep: fires overdue schedules, re-arms timers, re-schedules lost wakes. Idempotent by compare-and-set |
 | `POST /api/runs/dispatch` | `CRON_SECRET` **plus** the run's own 192-bit `dispatchToken` | Resumes **one** run its owner already started. The lease makes a duplicate delivery harmless (D82) |
 | `GET /api/share/<token>` + `/s/<token>` | 192-bit share token | A **redacted** read of one graph. The only surface whose risk is in the *response* |
 | `GET /api/invitations/<token>` + `/invite/<token>` | 256-bit token, stored only as `sha256` | Membership of one workspace at the invited role. 7-day expiry, single use |
@@ -282,6 +284,32 @@ two Google OAuth legs. All three were already public, already deliberate, and al
 none of them was in this table, which claimed to be complete. That is the failure mode a
 hand-kept security inventory has, and it is why the list is now derived from the filesystem and
 checked rather than trusted.
+
+### `/api/cron/fire` — the schedule timer, and why its token is derived
+
+**Phase 26.** A schedule fires when a Cloud Tasks task armed for its due time is delivered here.
+It has the dispatch route's two gates (D82): `CRON_SECRET` as the outer one, and a token that
+names exactly what it authorises. That token is an **HMAC over the workflow id and the slot**,
+not a random value on the row, for three reasons:
+
+- **It binds the slot.** A token lifted from one task — Cloud Tasks stores task bodies, readable
+  to anyone with `cloudtasks.tasks.get` — cannot fire another workflow, or the same workflow at
+  another time. The compare-and-set makes even the right one fire at most once.
+- **It is keyed by `AUTH_SECRET`, not `CRON_SECRET`.** Somebody holding only the outer secret
+  cannot mint one, so the two gates are independent. A label (`agentforge.schedule-fire.v1`)
+  separates this use of the key from Auth.js's.
+- **Nothing is stored**, so there is no column of live tokens to leak, and arming a timer costs
+  no write beyond the one recording that it is armed.
+
+What the route cannot be made to do even with both secrets: fire a slot **early** (a slot not
+yet due is re-armed instead), **twice** (the claim is a compare-and-set on the slot), or for a
+workflow that is **switched off** (declined). Its worst case is firing a due slot that its own
+timer was about to fire anyway.
+
+**Rotating `AUTH_SECRET` disarms every armed timer.** Their deliveries fail the token check and
+are declined (answered 200, so Cloud Tasks does not retry them), and each schedule is re-armed
+under the new key by the next daily sweep — so a schedule may fire up to a day late once after a
+rotation. Rotating `AUTH_SECRET` also signs everybody out, which is the larger consequence.
 
 ### `/api/health` is public, and what that costs
 

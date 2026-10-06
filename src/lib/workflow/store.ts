@@ -6,7 +6,8 @@ import { workflows, type Workflow } from "@/db/schema";
 import { ApiError } from "@/lib/api";
 import { validateGraph } from "@/lib/engine/validate";
 import { required } from "@/lib/env";
-import { nextScheduleState, scheduleCron } from "@/lib/triggers/schedule";
+import { nextScheduleState, scheduleArmed, scheduleCron } from "@/lib/triggers/schedule";
+import { armSchedule } from "@/lib/triggers/timer";
 import { mintWebhookToken, webhookTriggerNode, webhookUrl } from "@/lib/triggers/webhook";
 import type { WorkspaceScope } from "@/lib/workspace/scope";
 
@@ -49,6 +50,13 @@ export const updateWorkflowSchema = z
      * `mayChangeVisibility` below, because `editor` is not the right bar for it.
      */
     visibility: workflowVisibilitySchema.optional(),
+    /**
+     * The active switch — Phase 26. Off: the webhook refuses and the schedule is cleared;
+     * on: the schedule is recomputed from now. `editor`, like the graph it governs — it
+     * changes when the workflow runs by itself, which is the same kind of act as editing
+     * its trigger, and less than deleting it.
+     */
+    active: z.boolean().optional(),
   })
   .refine((body) => Object.keys(body).length > 0, {
     message: "Provide at least one field to update.",
@@ -113,6 +121,8 @@ export async function createWorkflow(
       ...nextScheduleState({ graph, previousCron: null, previousNextAt: null }),
     })
     .returning();
+
+  await armIfNeeded(workflow);
 
   // Version 1 is written at creation rather than on the first edit, so "restore it to
   // how it started" is answerable for every workflow. A generated one needs this most:
@@ -192,10 +202,34 @@ export async function updateWorkflow(
     );
   }
 
+  /**
+   * **The schedule's due time, re-derived when either input to it changes** — the graph,
+   * or (Phase 26) the active switch. Switching on passes no previous due time, so the
+   * next slot is computed from now: the person who switched it off did not ask for the
+   * slots they skipped to be fired the moment it comes back.
+   */
+  const activeChanged = body.active !== undefined && body.active !== previous.active;
+  const active = body.active ?? previous.active;
+  const schedule =
+    body.graph !== undefined || activeChanged
+      ? nextScheduleState({
+          graph: body.graph ?? previous.graph,
+          previousCron: scheduleCron(previous.graph),
+          previousNextAt: activeChanged && active ? null : previous.scheduleNextAt,
+          active,
+        })
+      : {};
+
   const [workflow] = await db()
     .update(workflows)
     .set({
       ...(body.name === undefined ? {} : { name: body.name }),
+      ...(activeChanged ? { active } : {}),
+      // The graph is the source of truth; `scheduleNextAt` is its derived index, re-derived
+      // on every graph write so adding, editing or deleting a schedule trigger cannot leave
+      // a stale due time behind — and omitted when unchanged, so a timer's claim made in
+      // the meantime is not written over (`nextScheduleState`).
+      ...schedule,
       ...(body.description === undefined ? {} : { description: body.description ?? null }),
       // **Not a version, deliberately** — the same rule the description follows. A
       // version is what the workflow *is*: its graph and the name it goes by. Who is
@@ -203,19 +237,7 @@ export async function updateWorkflow(
       // restore, and versioning it would fill a history with rows that say nothing about
       // the workflow and cost metered storage to do it.
       ...(body.visibility === undefined ? {} : { visibility: body.visibility }),
-      ...(body.graph === undefined
-        ? {}
-        : {
-            graph: body.graph,
-            // The graph is the source of truth; this column is its derived index.
-            // Re-derived on every graph write so adding, editing or deleting a
-            // schedule trigger cannot leave a stale due time behind.
-            ...nextScheduleState({
-              graph: body.graph,
-              previousCron: scheduleCron(previous.graph),
-              previousNextAt: previous.scheduleNextAt,
-            }),
-          }),
+      ...(body.graph === undefined ? {} : { graph: body.graph }),
       // Bumped in the same single-row UPDATE that writes the graph, which is what
       // makes the number unique without a transaction — see the column's own note in
       // `db/schema.ts`. `RETURNING` below hands back the number no concurrent save can
@@ -240,7 +262,27 @@ export async function updateWorkflow(
     });
   }
 
+  await armIfNeeded(workflow);
   return workflow;
+}
+
+/**
+ * Arm the schedule's timer if this save left its due time unarmed — Phase 26.
+ *
+ * Only then: the canvas PATCHes the workflow on every Save and again before every Run, and
+ * an enqueue per PATCH would be a Cloud Tasks call and a duplicate timer for nothing. A
+ * save that did not move the due time leaves it armed and costs nothing here.
+ *
+ * **A failure does not fail the save.** The workflow is correct as stored; only its timer
+ * is missing, which the trigger panel shows and the daily sweep repairs. Refusing
+ * somebody's edit because a queue blinked would be the wrong trade — the same one D83
+ * declines for version history. The row is updated in memory so the response says
+ * truthfully whether the timer exists.
+ */
+async function armIfNeeded(workflow: Workflow): Promise<void> {
+  if (!workflow.active || workflow.scheduleNextAt === null || scheduleArmed(workflow)) return;
+  const arm = await armSchedule(workflow);
+  if (arm.armed) workflow.scheduleArmedFor = workflow.scheduleNextAt;
 }
 
 /**
@@ -509,6 +551,14 @@ export function describeWorkflow(workflow: Workflow) {
     scheduleCron: scheduleCron(workflow.graph),
     scheduleNextAt: workflow.scheduleNextAt?.toISOString() ?? null,
     scheduleLastFiredAt: workflow.scheduleLastFiredAt?.toISOString() ?? null,
+    /**
+     * Phase 26. Whether a Cloud Tasks timer was created for `scheduleNextAt`. False with a
+     * due time means the schedule will be fired by the daily sweep rather than on time —
+     * which the trigger panel says rather than implying a punctuality it does not have.
+     */
+    scheduleArmed: scheduleArmed(workflow),
+    /** Phase 26. Off: the webhook refuses and the schedule does not fire. */
+    active: workflow.active,
     createdAt: workflow.createdAt.toISOString(),
     updatedAt: workflow.updatedAt.toISOString(),
   };

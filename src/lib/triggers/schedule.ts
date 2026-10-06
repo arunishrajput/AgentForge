@@ -26,7 +26,11 @@ export function scheduleCron(graph: WorkflowGraph): string | null {
 }
 
 export interface ScheduleState {
-  scheduleNextAt: Date | null;
+  /**
+   * Absent means **leave the stored value alone** — not "set it to undefined". A save that
+   * does not change the expression must not write this column at all; see below.
+   */
+  scheduleNextAt?: Date | null;
 }
 
 /**
@@ -38,21 +42,46 @@ export interface ScheduleState {
  * would move it back to today and fire the same slot twice. Keeping it also means a
  * due time in the past survives a save and is caught up by the next tick, rather than
  * editing a workflow silently skipping a missed slot.
+ *
+ * **Phase 26 made "kept" mean "not written".** It used to write back the value the save
+ * had read, which is the same thing unless a timer claims the slot in between: the claim
+ * advances 09:00 to tomorrow, then the save writes 09:00 back, and the slot fires twice.
+ * A timer firing within milliseconds of a save is rare, and a schedule firing twice is
+ * the failure this column exists to prevent, so the save now leaves the column out of its
+ * `UPDATE` and the claim's write stands.
+ *
+ * `active` false (Phase 26) means no due time at all: a switched-off workflow is not
+ * scheduled, and switching it back on recomputes from now — deliberately, because the
+ * person who switched it off did not ask for the slots they skipped to be caught up.
  */
 export function nextScheduleState(options: {
   graph: WorkflowGraph;
   previousCron: string | null;
   previousNextAt: Date | null;
+  active?: boolean;
   now?: Date;
 }): ScheduleState {
-  const { graph, previousCron, previousNextAt, now = new Date() } = options;
+  const { graph, previousCron, previousNextAt, active = true, now = new Date() } = options;
   const cron = scheduleCron(graph);
 
-  if (cron === null) return { scheduleNextAt: null };
+  if (cron === null || !active) return { scheduleNextAt: null };
 
-  if (cron === previousCron && previousNextAt !== null) {
-    return { scheduleNextAt: previousNextAt };
-  }
+  if (cron === previousCron && previousNextAt !== null) return {};
 
   return { scheduleNextAt: nextTimeFor(cron, now) };
+}
+
+/**
+ * Whether a timer is armed for the due time — Phase 26. It says a task was *created* for
+ * this slot; the daily sweep is what covers a task that was created and then lost.
+ */
+export function scheduleArmed(workflow: {
+  scheduleNextAt: Date | null;
+  scheduleArmedFor: Date | null;
+}): boolean {
+  return (
+    workflow.scheduleNextAt !== null &&
+    workflow.scheduleArmedFor !== null &&
+    workflow.scheduleNextAt.getTime() === workflow.scheduleArmedFor.getTime()
+  );
 }

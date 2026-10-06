@@ -49,29 +49,56 @@ Launch demo video: <https://www.youtube.com/watch?v=3txmpCPEWd4>.
 
 ## Current Phase
 
-## ▶ PHASE 26 — Timers: schedules that fire, at zero idle cost — IN PROGRESS, deploy waits on M13
+## ▶ PHASE 26 — Timers: schedules that fire, at zero idle cost — BLOCKED ON M13 (deploy only)
 
-**Why it is first:** since M12 (2026-10-01) `agentforge-cron` is `PAUSED`, so **no schedule trigger
-fires**, silently. The phase replaces the `*/15` tick with Cloud Tasks timers armed for the exact
-fire time, shrinks the cron to a daily safety sweep, makes `core.delay` able to wait durably for
-minutes to days (a new `waiting` run status), and adds a per-workflow active switch. Full definition
-in `BUILD_PLAN.md` → *Phase 26*.
+**Implemented, tested and committed; not yet deployed**, because billing is disabled on the GCP
+project (M13). What it is: each schedule fires from a Cloud Tasks timer armed for its exact due time
+(`POST /api/cron/fire`, D114–D115); the `*/15` cron becomes a **daily** safety sweep; a `core.delay`
+over 10 s suspends the run as **`waiting`** with no lease (D116–D117); a per-workflow **active
+switch** (D118); and a double-fire race in the save path is closed (D119).
 
-**Before writing code, verify the real state** (the deployed service is idle and cold by design):
+**Done, and where the evidence is:**
+
+| | |
+|---|---|
+| Migration `0012` (additive: `workflow.active`, `workflow.scheduleArmedFor`, `run.wakeAt`, `run_wake_idx`) | **Applied to Neon** 2026-10-06; `verify-schema.mjs` 6/6 with **13 migrations**. The live revision ignores the columns |
+| CI gates | `npm run check` green — **1023 tests**, coverage 88.36 / 91.01 / 80.18; `npm run build` green |
+| New suites | `engine/wait.test.ts` (pause and wake), timer token and switch in `triggers.test.ts`, delay node, queue scheduling, stream baselines, waiting look |
+| Real browser, **local production build** (Light only — Dark arrives in 27) | Active switch on/off (no version bump), trigger panel *Next run / Timer / Switched off*, the "switched off" card badge, delay form shows Amount + Unit and no `ms`, **a waiting run on the canvas** (node "◷ Waiting", run chip, *Waiting until …* notice, Stop), **Stop on a waiting run** closes its step, the toolbar at 375 and 320 px |
+| Over the API, locally | Webhook **409** when off and 201 back on; a 2-minute delay with no queue **fails its step with the message**; `run.waiting` + `queue.degraded` logged when the wake cannot be scheduled |
+| Docs | `CONTRACT.md`, `ARCHITECTURE.md` (*Queue → Timers*), `DEPLOYMENT.md` (cadence, billing, Neon arithmetic), `OPERATIONS.md`, `SECURITY.md` (the 10th public route), `docs/api.md`, `docs/nodes.md`, `docs/self-hosting.md`, `README.md`, `DECISIONS.md` D113–D119 |
+
+**What remains — all of it needs M13 first, and it is the whole of the next session:**
 
 ```bash
-gcloud run services describe agentforge --region asia-southeast1 \
-  --format='value(status.latestReadyRevisionName,spec.template.metadata.annotations)'
-curl -fsS https://agentforge-733000675212.asia-southeast1.run.app/api/health   # ~6.4 s if cold
-gcloud scheduler jobs describe agentforge-cron --location asia-southeast1 --format='value(state,schedule)'
-gcloud tasks queues describe agentforge-runs --location asia-southeast1 --format='value(state)'
-node --env-file=.env scripts/verify-schema.mjs     # 12 migrations, 0000–0011
-npm run check                                      # the five CI gates
+# 0. M13's own verification
+gcloud billing accounts describe 017EB5-0D8A5E-F212CC --format='value(open)'          # True
+curl -fsS https://agentforge-733000675212.asia-southeast1.run.app/api/health          # ok, migrations 13
+# 1. The budget alert (D113) — ₹100, 50/90/100 %. Enable the API if refused:
+#    gcloud services enable billingbudgets.googleapis.com
+gcloud billing budgets create --billing-account 017EB5-0D8A5E-F212CC --display-name "AgentForge zero" \
+  --budget-amount 100INR --threshold-rule percent=0.5 --threshold-rule percent=0.9 --threshold-rule percent=1.0
+# 2. Artifact Registry footprint against 0.5 GB free — PROPOSE pruning old images; deleting needs a yes
+gcloud artifacts docker images list asia-southeast1-docker.pkg.dev/agentforge-hackathon-2026/cloud-run-source-deploy --include-tags
+# 3. Deploy (env vars inherit; nothing new to set)
+gcloud run deploy agentforge --source . --region asia-southeast1
+# 4. The cron: daily, and resumed
+gcloud scheduler jobs update http agentforge-cron --location asia-southeast1 --schedule "0 4 * * *"
+gcloud scheduler jobs resume agentforge-cron --location asia-southeast1
+# 5. Verify — the new suite, then the whole battery (registry still 30)
+APP_BASE_URL=$URL node --env-file=.env scripts/verify-timers.mjs                        # ~7 min
+APP_BASE_URL=$URL node --env-file=.env scripts/verify-security.mjs                      # now 10 public routes
+#    + verify-api, verify-durable all, verify-templates, verify-providers, verify-postgres,
+#      verify-vault, verify-observability, verify-integrations, verify-a11y, smoke
+# 6. A real browser on the deployed canvas: trigger panel says "Armed"; a schedule a few
+#    minutes ahead fires and the run lights up on an OPEN canvas; the active switch
 ```
 
-Expected: revision `agentforge-00061-lwl`, health `ok` with 12 migrations and registry 30, cron
-`PAUSED` on `*/15 * * * *`, queue `RUNNING`. **A `PAUSED` cron is the starting state this phase
-fixes, not a regression.**
+Then close the phase: *Deployed State*, the ladder, the `← START HERE` marker, *Recent Changes*.
+**Expect the first sweep (or `verify-timers`' manual one) to catch up three overdue schedules** —
+`PHASE 17 VERIFY — durable delay chain`, `Log Daily Orders Count`, `A daily digest, on a
+schedule`, overdue since 2026-10-02. All three are read-only (a log, a `SELECT`, a delay chain).
+That is D42's catch-up, not a fault.
 
 ---
 
@@ -79,7 +106,7 @@ fixes, not a regression.**
 
 | Phase | Status |
 |---|---|
-| **26** — Timers: schedules that fire, at zero idle cost | **IN PROGRESS** — deployed verification waits on M13 ← current |
+| **26** — Timers: schedules that fire, at zero idle cost | **BLOCKED — WAITING FOR MANUAL ACTION (M13)**. Implemented and committed; deploy and deployed verification remain ← current |
 | **27** — Themes I: Toybox Night tokens, gates, switching | NOT STARTED |
 | **28** — Themes II: every screen in both themes | NOT STARTED |
 | **29** — Canvas I: editing ergonomics | NOT STARTED |
@@ -111,13 +138,13 @@ in `archive/progress-chapters-1-2.md` → *Completed Phases*.
 | **Revision** | **`agentforge-00061-lwl`**, 100% of traffic — Phase 25's image (`00060-z9v`) re-revisioned by M12 with `min-instances 0`, no code change. Previous good: `00060-z9v`, `00059-pd2`, `00058-q2z` (23D), `00054-8zw` (23C), `00053-hn6` (23B), `00051-252` (23A), `00047-w65` (22). Rollback tested (`update-traffic --to-revisions <rev>=100`, ~15 s) |
 | Scaling | **`min-instances 0`**, `max-instances 3`, 1 vCPU / 1 GiB, 3600 s timeout, port 8080. **Cold start 6.38 s** (measured), 0.58–0.76 s warm |
 | Env vars | 12: `NODE_ENV` `AUTH_URL` `APP_BASE_URL` `DATABASE_URL` `AUTH_SECRET` `GOOGLE_CLIENT_ID` `GOOGLE_CLIENT_SECRET` `ENCRYPTION_KEY` `CRON_SECRET` `TASKS_QUEUE` `TASKS_LOCATION` `ROOT_KEY_SECRET`. A plain redeploy inherits them; add with `--update-env-vars` (merges), never `--env-vars-file` unless replacing the set (D11). `TASKS_PROJECT`, `GCP_ACCESS_TOKEN`, `GCP_PROJECT` and `DATABASE_URL_UNPOOLED` are deliberately **not** set on the service |
-| Database | Neon `super-mountain-39872886`, **13 tables**, migrations **`0000`–`0011`** applied, ~10 MB of 0.5 GB. A second database `agentforge_demo` with a `SELECT`-only role serves the Postgres node's verification (23C). One Neon database serves local and production |
-| Scheduler | **`agentforge-cron` is `PAUSED`** (M12) on `*/15 * * * *` — **no schedule trigger fires.** Phase 26 replaces it |
+| Database | Neon `super-mountain-39872886`, **13 tables**, migrations **`0000`–`0012`** applied (`0012` by Phase 26 on 2026-10-06, ahead of its deploy — additive, ignored by the live revision), ~10 MB of 0.5 GB. A second database `agentforge_demo` with a `SELECT`-only role serves the Postgres node's verification (23C). One Neon database serves local and production |
+| Scheduler | **`agentforge-cron` is `PAUSED`** (M12) on `*/15 * * * *` — **no schedule trigger fires.** Phase 26's deploy changes it to `0 4 * * *` and resumes it (unreachable while billing is off) |
 | Queue | `agentforge-runs` Cloud Tasks queue, `RUNNING`, `maxAttempts 5`, `maxConcurrentDispatches 3` |
-| Routes | Pages `/` `/workflows` `/workflows/[id]` `/templates` `/analytics` `/settings` `/design` `/invite/[token]` `/s/[token]` (+ `/dashboard` → `/workflows`), and **41** API routes. Unauthenticated: **nine routes and two pages**, derived and checked by `verify-security.mjs` |
+| Routes | Pages `/` `/workflows` `/workflows/[id]` `/templates` `/analytics` `/settings` `/design` `/invite/[token]` `/s/[token]` (+ `/dashboard` → `/workflows`), and **41** API routes deployed — **42 in the repository** (Phase 26 adds `POST /api/cron/fire`). Unauthenticated: **ten routes and two pages** in the repository, derived and checked by `verify-security.mjs` |
 | Provider keys stored | `llm.google` on `gemini-3-flash-preview`, `llm.groq` on `openai/gpt-oss-120b`. `workspace.llmProvider` is `NULL` (resolves to Google). **No model key on the service** — the product path is the user's own key |
-| **Registry** | **30 nodes.** The generation prompt is **24,876 characters against a 26,000 ceiling** (`src/lib/nodes/registry.test.ts`) — **one node of headroom** (D112; Phase 34 fixes it). A node owes five things, all asserted by `registry.test.ts`: a `PUBLISHABLE` entry, a `ROTATION_RULES` entry if it carries a credential kind, a `model` output field only if it is a model call, a generator catalogue entry (automatic), and `docs` |
-| Tests | **992 tests** on Node's built-in runner; coverage **88.25 / 90.82 / 80.13** (lines / branches / functions) against thresholds 85 / 88 / 76. `npm run check` = lint · typecheck · test+coverage · test:scripts · docs:check; CI adds `build` |
+| **Registry** | **30 nodes.** The generation prompt is **25,042 characters against a 26,000 ceiling** (`src/lib/nodes/registry.test.ts`; Phase 26's `core.delay` rework added 166) — **still one node of headroom** (D112; Phase 34 fixes it). A node owes five things, all asserted by `registry.test.ts`: a `PUBLISHABLE` entry, a `ROTATION_RULES` entry if it carries a credential kind, a `model` output field only if it is a model call, a generator catalogue entry (automatic), and `docs` |
+| Tests | **1023 tests** on Node's built-in runner (Phase 26, in the repository; 992 deployed); coverage **88.36 / 91.01 / 80.18** (lines / branches / functions) against thresholds 85 / 88 / 76. `npm run check` = lint · typecheck · test+coverage · test:scripts · docs:check; CI adds `build` |
 | Latency | Warm health ~190 ms (India → Singapore), DB 7–11 ms. Neon wake ~0.7–1.1 s. Generation 2.7–3.5 s. Analytics 17–27 ms of DB time per page view |
 | Last verified | **2026-10-01, on `00060-z9v` / `00061-lwl`**: every deployed suite ALL PASSED (`verify-a11y` 92, `verify-security` 67, `verify-api`, `verify-templates` 47, `verify-postgres` 65, `verify-providers` 55, `verify-vault`, `verify-durable`, `verify-observability`); `verify-integrations` 60 passed / **2 skipped** (Notion, Airtable — skipped is not passed); a clean `smoke.mjs` walk on `00061-lwl` |
 | Billing | **`Billing - AgentForge` (`017EB5-0D8A5E-F212CC`) is CLOSED** — the 90-day Free Trial ended ~2026-10-05/06, billing is disabled, and every Google API but Cloud Run's describe refuses. **M13** upgrades it to a paid account (D113); the 30-day grace period runs to ~2026-11-04. Spend is not queryable from the CLI |
@@ -147,8 +174,9 @@ below, are in the archive → *Known Issues*.**
 | Issue | Action |
 |---|---|
 | **The live service is down (503)** — billing disabled when the Free Trial account closed, ~2026-10-05/06 | **M13** — the user upgrades the account. Neon is unaffected. **Deadline ~2026-11-04**, after which Google deletes the project's resources, including `agentforge-root-key` (the vault's root key; no other copy) |
-| **No schedule trigger fires** — `agentforge-cron` is `PAUSED` since M12 | **Phase 26.** Resuming the job (`gcloud scheduler jobs resume agentforge-cron --location asia-southeast1`) is the stopgap and costs ~60 CU-hours/month; do not shorten the tick |
+| **No schedule trigger fires** — `agentforge-cron` is `PAUSED` since M12 | **Fixed in the repository by Phase 26; closes when it deploys** (after M13). Do not resume the `*/15` tick as a stopgap — the deploy makes it daily |
 | **`bg-lift` applies no background** — used in 4 places, no `--color-lift` token exists | **Phase 27.** Found while planning Chapter 3 |
+| **On a phone the canvas toolbar takes three rows** for a workflow with a webhook or schedule trigger — Phase 26's active switch made the second row wrap (measured at 375 and 320 px; nothing clips) | **Phase 28**, which revisits every screen |
 | **The generation prompt has one node of headroom** | D112 — no new node before Phase 34 |
 | **Only listed test users can sign in** — the OAuth consent screen is in `Testing` (cap 100) | Publishing is complicated by the sensitive Sheets/Gmail scopes. **Phase 42** investigates |
 | **Notion and Airtable have never run against the real service** | By the user's decision (M10). `README.md` says so; `verify-integrations.mjs` reports `2 skipped` and must not be weakened |
@@ -338,10 +366,12 @@ npm run build && cp -r .next/static .next/standalone/.next/static && cp -r publi
 
 ## Notes for whoever comes next
 
-- **Start Phase 26.** Read its definition in `BUILD_PLAN.md`, then `CONTRACT.md` (run state machine,
-  trigger shapes), `ARCHITECTURE.md` → *Queue*, and `DEPLOYMENT.md` → *Cloud Scheduler* and
-  *Free-tier headroom*. **Read the current Cloud Tasks docs** for the `scheduleTime` horizon — it is
-  marked `UNKNOWN — VERIFY` in the plan
+- **Finish Phase 26: M13 first, then deploy and verify.** The steps are in *Current Phase* above,
+  in order. Do not start Phase 27 until 26 is deployed and verified — a phase is done when it is
+  deployed, and 26 is the one that makes schedules fire
+- **`mint-session.mjs` and every verify script act as the *first* user row**, which is a test
+  account (`shivdyutiverma123@…`), not the owner. That has been the verification account since
+  Chapter 2 — the Phase 17 fixture lives in its workspace. Clean up after yourself
 - **This line names a phase, so it goes stale when that phase ends.** Rewrite it — and the *Current
   Phase* heading, the ladder table above and the `← START HERE` marker in `BUILD_PLAN.md` — at the
   end of every phase
@@ -355,6 +385,17 @@ npm run build && cp -r .next/static .next/standalone/.next/static && cp -r publi
 ---
 
 ## Recent Changes
+
+**2026-10-06 — Phase 26 built; deploy blocked (M13).** The session opened to a dead service: the
+Free Trial billing account had closed at 90 days, so Cloud Run answered 503 and every Google API
+refused. The user chose to upgrade to a paid account inside Always Free (D113, M13). Meanwhile the
+phase was built in full — per-slot Cloud Tasks timers and `POST /api/cron/fire` (D114, D115), the
+daily sweep, durable `waiting` runs and `core.delay` as `{ amount, unit }` (D116, D117), the active
+switch with a 409 webhook refusal (D118), and the save-path double-fire race (D119). Migration `0012`
+is applied; 1023 tests pass; a local production build was driven in a browser. Two things were found
+and fixed on the way: the cancel/wake race that would strand a paused step, and the toolbar clipping
+the save status at 375 px. A stale `MAX_FIRES_PER_TICK (3)` in `CONTRACT.md`, wrong since Phase 17,
+was corrected.
 
 **2026-10-06 — Chapter 3 opened (documentation only, no deploy).** Planned with the user: themes
 (Light, Dark, System — D110), and all four feature areas (canvas editing, an AI copilot, more
@@ -371,5 +412,6 @@ Phase 4" after `postgres` was added in 23C.
 
 ## Last Updated
 
-**2026-10-06** — Chapter 3 planned and documented. Deployed revision `agentforge-00061-lwl`
-unchanged since 2026-10-01. **Next: Phase 26.**
+**2026-10-06** — Phase 26 implemented and committed; its deploy is **blocked on M13** (the GCP trial
+billing account closed and the live service is down). Deployed revision `agentforge-00061-lwl`
+unchanged since 2026-10-01, and not serving. **Next: M13, then finish Phase 26.**

@@ -46,7 +46,7 @@ any overage during the hackathon. Neon's free tier and Gemini's free tier cover 
 | `git` + `gh` | `gh auth status` | Authenticated as `arunishrajput` |
 | `docker` | `docker --version` | Installed (29.7.2) — local container testing only; Cloud Build builds for deploys |
 | Node toolchain | `node --version` | v26.8.2, npm 11.19.1, pnpm 11.21.0 |
-| Google Cloud project with billing | `gcloud config get-value project` | `agentforge-hackathon-2026`, billing **active** |
+| Google Cloud project with billing | `gcloud config get-value project` | `agentforge-hackathon-2026`, on a **paid** billing account since M13 (the trial account closed 2026-10-06) |
 | Neon project | a real query | `super-mountain-39872886`, **answers queries** |
 
 `psql` is **not** installed. Use Neon's SQL editor, or the app's own migration tooling, rather than
@@ -196,8 +196,18 @@ Saying "gcloud is authenticated".
 
 ### 2. Project, billing, and APIs — **MANUAL HUMAN ACTION** (billing) then **AUTOMATED**
 
-Billing must be enabled even to use the Always Free tier. The $300 / 90-day credit covers this
-build.
+Billing must be enabled even to use the Always Free tier. The $300 / 90-day credit covered the
+build — **and then it ended.**
+
+> **The trial closes after 90 days, and it takes the service down with it — learned 2026-10-06
+> (M13).** The Free Trial billing account closes itself when the credit is spent *or* 90 days pass,
+> whichever is first, and billing is disabled on every linked project: Cloud Run answers every
+> request with a 503 and Cloud Tasks, Scheduler, Secret Manager and Artifact Registry refuse every
+> call. There is a **30-day grace period**, after which the project's resources are deleted —
+> including `agentforge-root-key`, which nothing else holds. The fix is to **upgrade the account to
+> a paid one**: Always Free usage is still billed at zero, and D113 records the decision and the
+> guard — a **₹100/month budget alert** (50 / 90 / 100 %), because a paid account no longer stops
+> at zero by itself. Anyone running a fork on a trial: upgrade before day 90, not after.
 
 ```text
 MANUAL ACTION REQUIRED
@@ -726,11 +736,26 @@ Three things follow, and all three are implemented rather than described:
 
 ---
 
-## Cloud Scheduler — **CREATED AND VERIFIED** (Phase 8)
+## Cloud Scheduler — **CREATED** (Phase 8), **DAILY SINCE PHASE 26**
 
-The job `agentforge-cron` exists in `asia-southeast1` and is **`PAUSED` as of 2026-10-01** (M12 — see
-*After judging ends* below; it was `ENABLED` from Phase 8 until then, and **nothing schedules while it
-is paused**). Created with:
+The job `agentforge-cron` exists in `asia-southeast1`. **Phase 26 changed what it is for**: schedules
+no longer fire from it. Each due time has its own Cloud Tasks timer (`ARCHITECTURE.md` → *Queue* →
+*Timers*), so the job is now a **once-a-day safety sweep** — it fires any slot whose timer was lost,
+re-arms timers, re-schedules a lost wake, sweeps abandoned runs and prunes the audit log. It was
+`PAUSED` by M12 on 2026-10-01 and is **resumed on the daily cadence by Phase 26**:
+
+```bash
+gcloud scheduler jobs update http agentforge-cron --location asia-southeast1 --schedule "0 4 * * *"
+gcloud scheduler jobs resume agentforge-cron --location asia-southeast1
+gcloud scheduler jobs describe agentforge-cron --location asia-southeast1 --format='value(state,schedule)'
+# ENABLED	0 4 * * *
+```
+
+**04:00 UTC** because one of the standing scheduled workflows already fires then, so the two share a
+single Neon wake; any hour would do. **Do not shorten it** — a sweep is a wake, and the whole point
+of Phase 26 is that the product stops waking Neon to ask whether there is work.
+
+It was originally created with:
 
 ```bash
 # Read the secret into a variable rather than pasting it — it must not reach a
@@ -748,7 +773,11 @@ gcloud scheduler jobs create http agentforge-cron \
   --max-retry-attempts 1
 ```
 
-### Why every 15 minutes and not every minute — **corrected in Phase 8**
+### Why every 15 minutes and not every minute — **corrected in Phase 8, SUPERSEDED in Phase 26**
+
+> **History.** The cadence below was the right answer while the tick was the only thing that fired
+> schedules. Phase 26 replaced it with per-slot timers and a daily sweep; the arithmetic is in
+> *Free-tier headroom* → *Neon*. Kept because the reasoning is still how a cadence is chosen.
 
 This file previously specified `* * * * *`. That is wrong on cost, and the numbers are the reason:
 
@@ -789,10 +818,29 @@ gcloud logging read \
   --limit 5 --freshness=1h \
   --format='value(timestamp,severity,httpRequest.status)'                          # 200
 
-# 4. And the app's own side of it.
-gcloud run services logs read agentforge --region asia-southeast1 --limit 50 | grep cron
-#   [cron] due=0 fired=0 skipped=0 cleared=0
+# 4. And the app's own side of it — the `cron.tick` event, once a day since Phase 26.
+gcloud logging read 'jsonPayload.event="cron.tick"' --limit 3 --freshness=2d \
+  --format='value(timestamp,jsonPayload.message)'
+#   The sweep fired 0 of 0 overdue schedules and armed 3.
 ```
+
+### The timers themselves — Phase 26
+
+A schedule fires when its Cloud Tasks task is delivered to `POST /api/cron/fire`. The task sits in
+the existing `agentforge-runs` queue — no new resource — so the queue's settings below apply to it.
+To see what is armed and what fired:
+
+```bash
+gcloud tasks list --queue agentforge-runs --location asia-southeast1 \
+  --format='table(name.basename(),scheduleTime,dispatchCount)'        # pending timers and wakes
+gcloud logging read 'jsonPayload.event="schedule.delivered"' --limit 10 --freshness=1d \
+  --format='value(timestamp,jsonPayload.outcome,jsonPayload.reason,jsonPayload.workflowId)'
+#   fired · rearmed · declined stale (an edited or switched-off schedule) · declined gone
+```
+
+`scripts/verify-timers.mjs` is the end-to-end check: a schedule firing on time, an edited one's old
+timer starting zero runs, the active switch, a two-minute durable wait, and a deleted timer re-armed
+by the sweep (~7 minutes).
 
 **Cloud Run's request log lags Scheduler's by a minute or more.** In Phase 8 the Scheduler log showed
 the 200 well before the matching Cloud Run entry appeared. Read the Scheduler log for "did it fire",
@@ -813,8 +861,9 @@ without performing its own turndown, which is why it is now a tracked item (`PRO
 rather than a line of advice. Verified: the job reports `PAUSED`, the `minScale` annotation is gone,
 and revision `agentforge-00061-lwl` answers `/api/health` with `status: ok` and 5/5 checks.
 
-**What this costs you, stated plainly.** A **schedule trigger will not fire** while the job is
-paused — `/api/cron/tick` is the only clock in the product. The `cron.tick` heartbeat stops too, so
+**What this cost, stated plainly — true until Phase 26.** A **schedule trigger did not fire** while
+the job was paused — `/api/cron/tick` was then the only clock in the product. *(Phase 26 resumed it
+daily and moved firing to per-slot timers, which is what closed this.)* The `cron.tick` heartbeat stops too, so
 `OPERATIONS.md` → *Is the scheduler alive* expects four an hour and will see none; that expectation
 is **suspended, not broken**, and there is no alert policy on it (0 in the project). Cloud Run's own
 cold start is now reachable at **6.38 s**.
@@ -908,7 +957,7 @@ pricing pages and measured against this project's live consumption.
 
 | Service | Free allowance | Scope | Measured use | Verdict |
 |---|---|---|---|---|
-| **Neon compute** | **100 CU-hours/month** | per project | ~60 CU-hours committed to the cron tick | **BINDING.** ~40 CU-hours/month spare |
+| **Neon compute** | **100 CU-hours/month** | per project | ~60 CU-hours committed to the cron tick until Phase 26; **~0.6** for the daily sweep since | **BINDING**, and since Phase 26 almost entirely available for real work |
 | **Cloud Tasks** | **1,000,000 operations/month** | per **billing account** | 0 — not yet used | Not a constraint. ~330k runs/month |
 | **Cloud Logging** | **50 GiB/project/month** | per **project** | **6.34 MB / 30 days = 0.0118%** | Not a constraint. ~8,000× headroom |
 | **Secret Manager** | **6 active versions, 10,000 access ops/month, 3 rotation notifications** | per **billing account** | 0 — API not yet enabled | Fits, but **rotation notifications are tight** |
@@ -932,8 +981,34 @@ The arithmetic that sets the cron tick, now verified rather than assumed:
 | `* * * * *` | 730 h (never suspends) | **~182** | **blows it mid-month** |
 | `*/15 * * * *` — **current, confirmed `ENABLED`** | ~243 h (4 × 5 min per hour) | **~61** | fits, ~39 spare |
 
-**~39 CU-hours/month is the entire budget for real usage.** That is about 156 hours of additional
-awake time, or roughly 5 hours a day of genuine activity on top of the tick.
+**~39 CU-hours/month was the entire budget for real usage** while the tick ran every 15 minutes —
+about 156 hours of additional awake time, or roughly 5 hours a day of genuine activity on top of it.
+
+#### Phase 26 — the tick became a daily sweep, and the clock moved into Cloud Tasks
+
+Computed the same way, with the same 5-minute autosuspend at the same 0.25 CU floor. A wake costs
+the request plus five minutes awake, so **one wake ≈ 0.021 CU-hours**:
+
+| What wakes Neon | Wakes per month | Awake per month | CU-hours |
+|---|---|---|---|
+| `*/15` tick — **before Phase 26** | ~2,920 | ~243 h | **~61** |
+| Daily sweep — **since Phase 26** | ~30 | ~2.5 h | **~0.6** |
+| A schedule that fires **daily** | ~30 | ~2.5 h | ~0.6 each |
+| A schedule that fires **hourly** | ~730 | ~61 h | ~15 |
+| A schedule every 15 minutes | ~2,920 | ~243 h | ~61 — exactly the old tick |
+
+So the **idle product** — nobody signed in, no schedules — now costs **~0.6 CU-hours a month**
+instead of ~61, and a schedule costs what its own cadence costs and nothing when it is not due.
+The database standing today carries three daily schedules (two at 09:00, one at 04:00 sharing the
+sweep's wake), so its real floor is **~1.3 CU-hours a month**. **That is the M12 consequence
+closed**: schedules fire again, and they no longer pay ~60 CU-hours to do it.
+
+The trade the old table made — "a run starts at or shortly after its slot, within 15 minutes" — is
+gone too: a timer fires at its slot, plus a cold start (~6.4 s) when the service is asleep.
+
+**What this does not fix.** A user who schedules something every five minutes keeps the database
+awake, and that is their workflow's honest cost, not the platform's. Nothing caps it today; if that
+ever matters, the cap belongs on the cron expression's minimum interval (`lib/triggers/cron.ts`).
 
 > **Sharpened in Phase 19A, and it changes which features are expensive.** Neon meters **compute
 > time awake**, not statements. A second query inside a request that has already woken the database
@@ -1029,6 +1104,10 @@ What that means for Phase 17's design:
   graph is already in Postgres.
 - `ListTasks` is charged per task returned, and an empty list still costs one operation. Do not
   build a polling loop over the queue.
+- **Phase 26's timers**: a schedule firing is ~5 operations (create + deliver the timer, create +
+  deliver the run, create the next timer) and a durable wait is 2 (create + deliver the wake). The
+  daily sweep adds at most one duplicate timer per schedule due within 26 hours. A daily schedule
+  is therefore ~180 operations a month — **~5,500 daily schedules** fit in the free million.
 
 `cloudtasks.googleapis.com` is **not yet enabled** on `agentforge-hackathon-2026`. Phase 17 enables it.
 

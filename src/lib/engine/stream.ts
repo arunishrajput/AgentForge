@@ -1,6 +1,7 @@
 import type { StepLog } from "@/lib/nodes/types";
 
 import {
+  RESTING_RUN_STATUSES,
   TERMINAL_RUN_STATUSES,
   type RunMode,
   type RunStatus,
@@ -58,6 +59,8 @@ export interface StreamRun {
   attempt: number;
   /** A stop was asked for; the engine acts on it at its next step boundary. */
   cancelRequested: boolean;
+  /** Phase 26: when a `waiting` run resumes. Null in every other status. */
+  wakeAt: string | null;
   /**
    * The workflow version this run executed (Phase 18). Null for a run from before
    * versioning existed. It is **not** in `StreamRunPatch` below and must not be: it is
@@ -79,6 +82,7 @@ export interface StreamRunPatch {
   status: RunStatus;
   attempt: number;
   cancelRequested: boolean;
+  wakeAt: string | null;
   output: unknown;
   error: string | null;
   finishedAt: string | null;
@@ -90,7 +94,7 @@ export interface StreamRunPatch {
  * `EventSource` reconnects by itself otherwise, and an idle reconnect loop is
  * exactly the billed-for-nothing case ARCHITECTURE.md rules out.
  */
-export type StreamDoneReason = "finished" | "idle" | "timeout";
+export type StreamDoneReason = "finished" | "waiting" | "idle" | "timeout";
 
 /**
  * `stream_error`, not `error`: a server-sent event named `error` is dispatched on
@@ -118,6 +122,15 @@ export function isTerminal(status: RunStatus): boolean {
 }
 
 /**
+ * Terminal, or `waiting` (Phase 26): a run with nothing to report until something else
+ * happens to it. A stream following one closes, exactly as it does on a finished run —
+ * a two-day wait is not something to hold a billed connection open for (D31).
+ */
+export function isResting(status: RunStatus): boolean {
+  return RESTING_RUN_STATUSES.includes(status);
+}
+
+/**
  * Which run, if any, this poll should report.
  *
  * The hard part is distinguishing "the run the client is waiting for" from "the run
@@ -136,29 +149,47 @@ export function isTerminal(status: RunStatus): boolean {
  * stream's first poll, a window of one poll interval, is treated as history. The
  * client is not left wrong — `POST /runs` returns that run's final state, which is
  * what the canvas shows regardless of whether a stream was watching.
+ *
+ * **Phase 26 — a baseline that can wake.** A run `waiting` at the first poll is resting
+ * like a finished one, so it is not reported — otherwise every reconnect would snapshot it
+ * and close again at once. But unlike a finished run it will come back: the moment it is
+ * claimed and is no longer `waiting`, it is followed, and the baseline is dropped so the
+ * rest of its run streams normally. `baselineWaiting` is the one bit that tells the two
+ * kinds of baseline apart.
  */
 export function followDecision(
   candidate: { id: string; status: RunStatus } | null,
   options: {
     pinnedRunId?: string | null;
     baselineRunId: string | null;
+    baselineWaiting?: boolean;
     firstPoll: boolean;
   },
-): { follow: boolean; baselineRunId: string | null } {
+): { follow: boolean; baselineRunId: string | null; baselineWaiting: boolean } {
   const baselineRunId = options.baselineRunId;
-  if (!candidate) return { follow: false, baselineRunId };
+  const baselineWaiting = options.baselineWaiting ?? false;
+  if (!candidate) return { follow: false, baselineRunId, baselineWaiting };
 
   if (options.pinnedRunId) {
-    return { follow: candidate.id === options.pinnedRunId, baselineRunId };
+    return { follow: candidate.id === options.pinnedRunId, baselineRunId, baselineWaiting };
   }
 
-  if (candidate.id === baselineRunId) return { follow: false, baselineRunId };
-
-  if (options.firstPoll && isTerminal(candidate.status)) {
-    return { follow: false, baselineRunId: candidate.id };
+  if (candidate.id === baselineRunId) {
+    if (baselineWaiting && candidate.status !== "waiting") {
+      return { follow: true, baselineRunId: null, baselineWaiting: false };
+    }
+    return { follow: false, baselineRunId, baselineWaiting };
   }
 
-  return { follow: true, baselineRunId };
+  if (options.firstPoll && isResting(candidate.status)) {
+    return {
+      follow: false,
+      baselineRunId: candidate.id,
+      baselineWaiting: candidate.status === "waiting",
+    };
+  }
+
+  return { follow: true, baselineRunId, baselineWaiting };
 }
 
 /**
@@ -203,6 +234,7 @@ function runFingerprint(run: StreamRun): string {
     run.error ?? "",
     run.attempt,
     run.cancelRequested ? "1" : "0",
+    run.wakeAt ?? "",
   ].join(UNIT);
 }
 
@@ -212,6 +244,7 @@ export function runPatch(run: StreamRun): StreamRunPatch {
     status: run.status,
     attempt: run.attempt,
     cancelRequested: run.cancelRequested,
+    wakeAt: run.wakeAt,
     output: run.output,
     error: run.error,
     finishedAt: run.finishedAt,
@@ -231,15 +264,19 @@ export function runPatch(run: StreamRun): StreamRunPatch {
  *
  * Steps are emitted before the run-level change, so a client holds every final step
  * status before it is told the run is over.
+ *
+ * `terminal` is whether the run is over; `resting` (Phase 26) is whether the stream may
+ * close — over, or `waiting`. The route closes on `resting`.
  */
 export function reconcile(
   state: StreamState,
   run: StreamRun | null,
-): { events: StreamEvent[]; state: StreamState; terminal: boolean } {
-  if (!run) return { events: [], state, terminal: false };
+): { events: StreamEvent[]; state: StreamState; terminal: boolean; resting: boolean } {
+  if (!run) return { events: [], state, terminal: false, resting: false };
 
   const steps = run.steps ?? [];
   const terminal = isTerminal(run.status);
+  const resting = isResting(run.status);
 
   if (run.id !== state.runId) {
     return {
@@ -250,6 +287,7 @@ export function reconcile(
         steps: new Map(steps.map((step) => [step.seq, stepFingerprint(step)])),
       },
       terminal,
+      resting,
     };
   }
 
@@ -268,7 +306,7 @@ export function reconcile(
     events.push({ event: "run", data: runPatch(run) });
   }
 
-  return { events, state: { runId: run.id, run: fingerprint, steps: next }, terminal };
+  return { events, state: { runId: run.id, run: fingerprint, steps: next }, terminal, resting };
 }
 
 /**

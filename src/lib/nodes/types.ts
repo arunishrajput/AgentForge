@@ -90,6 +90,18 @@ export interface NodeInvocation<Config> {
 export interface NodeOutcome {
   output: unknown;
   branch?: string | null;
+  /**
+   * **Phase 26 — ask the run to pause until a time, rather than holding a container.**
+   *
+   * Only `core.delay` returns this. `output` is already final (a delay passes its input
+   * through), so the engine records it now, leaves the step `running`, and stops; the run
+   * is suspended as `waiting` and a Cloud Tasks delivery resumes it at `until`. The step
+   * finishes when the run wakes, so its duration is the wait — which is what it was.
+   *
+   * The engine refuses it where nothing could resume the run (no queue configured), and
+   * bounds `until` itself rather than trusting the node (`MAX_WAIT_MS`).
+   */
+  wait?: { until: string };
 }
 
 /**

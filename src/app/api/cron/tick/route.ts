@@ -6,8 +6,12 @@ import { cronSecretMatches, runDueSchedules } from "@/lib/triggers/tick";
 export const dynamic = "force-dynamic";
 
 /**
- * Fires every due schedule trigger. Called by the `agentforge-cron` Cloud Scheduler
- * job (DEPLOYMENT.md → "Cloud Scheduler"), and by nobody else.
+ * The daily safety sweep. Called by the `agentforge-cron` Cloud Scheduler job
+ * (DEPLOYMENT.md → "Cloud Scheduler"), and by nobody else.
+ *
+ * **Since Phase 26 it does not fire schedules on time** — each slot has its own Cloud
+ * Tasks timer delivered to `POST /api/cron/fire`. This catches what a timer cannot catch
+ * for itself: a lost timer, a lost wake, and the housekeeping (`lib/triggers/tick.ts`).
  *
  * **The second route with no session**, and unlike the webhook receiver it acts
  * across every owner — so the shared secret is the only thing standing in front of
@@ -37,14 +41,21 @@ export async function POST(request: Request) {
      * **An idle tick is logged too, and that is the point** — this is the only thing in
      * the product that runs on a clock, so its entry is the heartbeat that says the
      * scheduler is still wired up. `OPERATIONS.md` → *Is the scheduler alive* is a
-     * filter on this event and an expectation of four an hour.
+     * filter on this event and, since Phase 26, an expectation of one a day.
      */
-    logInfo("cron.tick", `The tick fired ${outcome.fired.length} of ${outcome.due} due schedules.`, {
-      due: outcome.due,
-      fired: outcome.fired.length,
-      skipped: outcome.skipped.length,
-      cleared: outcome.cleared.length,
-    });
+    logInfo(
+      "cron.tick",
+      `The sweep fired ${outcome.fired.length} of ${outcome.due} overdue schedules and armed ${outcome.armed}.`,
+      {
+        due: outcome.due,
+        fired: outcome.fired.length,
+        skipped: outcome.skipped.length,
+        cleared: outcome.cleared.length,
+        armed: outcome.armed,
+        woken: outcome.woken,
+        swept: outcome.swept,
+      },
+    );
 
     return ok(outcome);
   });

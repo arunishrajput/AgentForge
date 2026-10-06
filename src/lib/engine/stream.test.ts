@@ -48,6 +48,7 @@ function run(overrides: Partial<StreamRun> = {}): StreamRun {
     mode: "sync",
     attempt: 1,
     cancelRequested: false,
+    wakeAt: null,
     workflowVersion: 1,
     input: null,
     output: null,
@@ -202,7 +203,7 @@ test("a run still in flight is followed, however long it has been going", () => 
     { id: "run_1", status: "running" },
     { baselineRunId: null, firstPoll: true },
   );
-  assert.deepEqual(decision, { follow: true, baselineRunId: null });
+  assert.deepEqual(decision, { follow: true, baselineRunId: null, baselineWaiting: false });
 });
 
 test("a run that was already finished when the stream first looked is history", () => {
@@ -214,7 +215,7 @@ test("a run that was already finished when the stream first looked is history", 
     { id: "previous", status: "succeeded" },
     { baselineRunId: null, firstPoll: true },
   );
-  assert.deepEqual(first, { follow: false, baselineRunId: "previous" });
+  assert.deepEqual(first, { follow: false, baselineRunId: "previous", baselineWaiting: false });
 
   // It stays ignored on every later poll, too.
   const again = followDecision(
@@ -229,12 +230,62 @@ test("a run that was already finished when the stream first looked is history", 
     { id: "fresh", status: "succeeded" },
     { baselineRunId: "previous", firstPoll: false },
   );
-  assert.deepEqual(next, { follow: true, baselineRunId: "previous" });
+  assert.deepEqual(next, { follow: true, baselineRunId: "previous", baselineWaiting: false });
 });
 
 test("no run at all leaves the baseline alone and reports nothing", () => {
   const decision = followDecision(null, { baselineRunId: null, firstPoll: true });
-  assert.deepEqual(decision, { follow: false, baselineRunId: null });
+  assert.deepEqual(decision, { follow: false, baselineRunId: null, baselineWaiting: false });
+});
+
+/* --- a waiting run (Phase 26) --------------------------------------------- */
+
+test("a run waiting at the first poll is a baseline, so a reconnect does not snapshot it again", () => {
+  // Following it would snapshot it, see it resting, and close — on every reconnect, for
+  // the whole of a two-day wait. A baseline is what makes a waiting canvas cost what an
+  // idle one does.
+  const first = followDecision(
+    { id: "paused", status: "waiting" },
+    { baselineRunId: null, firstPoll: true },
+  );
+  assert.deepEqual(first, { follow: false, baselineRunId: "paused", baselineWaiting: true });
+
+  const still = followDecision(
+    { id: "paused", status: "waiting" },
+    { baselineRunId: "paused", baselineWaiting: true, firstPoll: false },
+  );
+  assert.equal(still.follow, false);
+});
+
+test("a waiting baseline is followed the moment it wakes, and stops being a baseline", () => {
+  // Unlike a finished baseline, this one comes back. Once claimed it is `running` again
+  // and the canvas must light up, so it is followed and the baseline is dropped.
+  const woke = followDecision(
+    { id: "paused", status: "running" },
+    { baselineRunId: "paused", baselineWaiting: true, firstPoll: false },
+  );
+  assert.deepEqual(woke, { follow: true, baselineRunId: null, baselineWaiting: false });
+});
+
+test("a finished baseline is never revived, whatever status it is later read with", () => {
+  // The flag is what separates the two kinds of baseline: without it, the rule above
+  // would re-follow every finished run on every poll.
+  const decision = followDecision(
+    { id: "previous", status: "succeeded" },
+    { baselineRunId: "previous", baselineWaiting: false, firstPoll: false },
+  );
+  assert.equal(decision.follow, false);
+});
+
+test("a run that enters waiting rests the stream without being called terminal", () => {
+  const followed = reconcile(emptyStreamState(), run({ status: "running" })).state;
+  const paused = reconcile(followed, run({ status: "waiting", wakeAt: "2026-10-08T09:00:00.000Z" }));
+  assert.equal(paused.resting, true);
+  assert.equal(paused.terminal, false);
+  // The client learns when it wakes, in the same patch that tells it the status.
+  const patch = paused.events.find((event) => event.event === "run")?.data as StreamRunPatch;
+  assert.equal(patch.status, "waiting");
+  assert.equal(patch.wakeAt, "2026-10-08T09:00:00.000Z");
 });
 
 test("a run that appears after the stream opened is followed even if it is already over", () => {

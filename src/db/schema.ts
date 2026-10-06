@@ -338,6 +338,25 @@ export const workflows = pgTable(
     scheduleNextAt: timestamp("scheduleNextAt", { withTimezone: true }),
     scheduleLastFiredAt: timestamp("scheduleLastFiredAt", { withTimezone: true }),
     /**
+     * The due time a Cloud Tasks timer has been armed for — **Phase 26**. The schedule is
+     * armed exactly when this equals `scheduleNextAt`, so a save that moves the due time
+     * disarms it by construction, with no second write to forget.
+     *
+     * It records that a task was *created*, not that one still exists: a deleted or purged
+     * task is invisible from here, which is why the daily sweep re-arms every slot due
+     * before the next sweep whatever this says (`lib/triggers/timer.ts`). The timer is
+     * never the correctness mechanism — the compare-and-set on `scheduleNextAt` is (D42).
+     */
+    scheduleArmedFor: timestamp("scheduleArmedFor", { withTimezone: true }),
+    /**
+     * Whether the workflow's automatic triggers are switched on — **Phase 26**.
+     *
+     * Off means the webhook refuses and the schedule is cleared; a manual run still works,
+     * because pressing Run is not something the switch exists to prevent. Default `true`,
+     * so every workflow that existed before this column behaves exactly as it did.
+     */
+    active: boolean("active").notNull().default(true),
+    /**
      * The current version number (Phase 18), and the reason versioning needs no
      * sequence table and no read-then-write race.
      *
@@ -490,6 +509,15 @@ export const runs = pgTable(
      * column says which one that was.
      */
     workflowVersion: integer("workflowVersion"),
+    /**
+     * When a `waiting` run is due to resume — **Phase 26**. Null in every other status.
+     *
+     * A waiting run holds no lease and no container: it is a row and a Cloud Tasks task
+     * scheduled for this time. The column exists so the claim can refuse an early delivery
+     * against the database's clock, and so the daily sweep can find a waiting run whose
+     * task was lost without parsing every cursor.
+     */
+    wakeAt: timestamp("wakeAt", { withTimezone: true }),
   },
   (table) => [
     index("run_owner_idx").on(table.ownerId, table.startedAt),
@@ -499,6 +527,11 @@ export const runs = pgTable(
     // The sweeper's query: unfinished runs whose lease has lapsed. Partial would be
     // tighter still, but Drizzle's `index()` has no `where` and the table is small.
     index("run_lease_idx").on(table.status, table.leaseExpiresAt),
+    // The daily sweep's search for a waiting run whose wake task was lost. Partial, like
+    // the schedule index: a run in any other status has no business being in it.
+    index("run_wake_idx")
+      .on(table.wakeAt)
+      .where(sql`${table.status} = 'waiting'`),
   ],
 );
 

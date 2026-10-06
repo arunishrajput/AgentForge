@@ -4,7 +4,7 @@
  *   node --env-file=.env scripts/verify-security.mjs
  *
  * `BUILD_PLAN.md` → *Phase 25* asks for a "final security review of every unauthenticated
- * surface". `SECURITY.md` → *The unauthenticated surfaces* lists four routes and two pages
+ * surface". `SECURITY.md` → *The unauthenticated surfaces* lists the routes and two pages
  * and says the complete list is the thing worth auditing. This script is what makes that
  * sentence enforceable instead of aspirational.
  *
@@ -83,6 +83,13 @@ const PUBLIC = {
   },
   "/api/runs/dispatch": {
     guard: "CRON_SECRET plus the run's own 192-bit dispatchToken",
+    expect: [401],
+    note: "401 is the missing-secret answer, not a missing session",
+  },
+  // Phase 26 — a schedule timer's delivery. Added in the phase that added the route, as
+  // BUILD_PLAN.md's Chapter 3 rules require.
+  "/api/cron/fire": {
+    guard: "CRON_SECRET plus an HMAC token for one slot of one workflow",
     expect: [401],
     note: "401 is the missing-secret answer, not a missing session",
   },

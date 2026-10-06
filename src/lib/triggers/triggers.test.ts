@@ -7,8 +7,8 @@ import { scheduleTrigger } from "@/lib/nodes/core/schedule-trigger";
 import { webhookTrigger } from "@/lib/nodes/core/webhook-trigger";
 import { GRAPH_VERSION, type WorkflowGraph } from "@/lib/workflow/graph";
 
-import { nextScheduleState, scheduleCron } from "./schedule";
-import { cronSecretMatches } from "./secret";
+import { nextScheduleState, scheduleArmed, scheduleCron } from "./schedule";
+import { cronSecretMatches, FIRE_TOKEN_PATTERN, fireToken, fireTokenMatches } from "./secret";
 import {
   MAX_WEBHOOK_BODY_BYTES,
   mintWebhookToken,
@@ -129,7 +129,11 @@ test("an unchanged expression keeps the stored due time instead of recomputing i
     previousNextAt: alreadyFired,
     now,
   });
-  assert.equal(state.scheduleNextAt?.toISOString(), alreadyFired.toISOString());
+  // Kept by **not writing the column at all** (Phase 26). Writing back the value the save
+  // read is the same thing unless a timer claims the slot in between — then the save puts
+  // the fired slot back and it fires twice. An empty state leaves the claim's write alone.
+  assert.deepEqual(state, {});
+  assert.ok(!("scheduleNextAt" in state));
 });
 
 test("a missed due time survives a save and is caught up rather than skipped", () => {
@@ -140,7 +144,76 @@ test("a missed due time survives a save and is caught up rather than skipped", (
     previousNextAt: missed,
     now,
   });
-  assert.equal(state.scheduleNextAt?.toISOString(), missed.toISOString());
+  // Left untouched, so the past due time stands and the sweep catches it up.
+  assert.deepEqual(state, {});
+});
+
+test("a switched-off workflow has no due time, whatever its expression", () => {
+  const state = nextScheduleState({
+    graph: graphOf({ id: "s", type: scheduleTrigger.type, config: { cron: "0 9 * * *" } }),
+    previousCron: "0 9 * * *",
+    previousNextAt: new Date("2026-09-27T09:00:00Z"),
+    active: false,
+    now,
+  });
+  assert.equal(state.scheduleNextAt, null);
+});
+
+test("switching back on schedules from now and does not catch up what was skipped", () => {
+  // The store passes `previousNextAt: null` for a workflow being switched on, because
+  // switching off cleared it. The result is the next slot after now — not a backlog.
+  const state = nextScheduleState({
+    graph: graphOf({ id: "s", type: scheduleTrigger.type, config: { cron: "0 9 * * *" } }),
+    previousCron: "0 9 * * *",
+    previousNextAt: null,
+    active: true,
+    now,
+  });
+  assert.equal(state.scheduleNextAt?.toISOString(), "2026-09-26T09:00:00.000Z");
+});
+
+test("a schedule is armed only when the timer is for the current due time", () => {
+  const at = new Date("2026-09-27T09:00:00Z");
+  assert.equal(scheduleArmed({ scheduleNextAt: at, scheduleArmedFor: new Date(at) }), true);
+  // A save that moved the due time disarmed it, with no second write to forget.
+  assert.equal(
+    scheduleArmed({ scheduleNextAt: new Date("2026-09-27T17:00:00Z"), scheduleArmedFor: at }),
+    false,
+  );
+  assert.equal(scheduleArmed({ scheduleNextAt: at, scheduleArmedFor: null }), false);
+  assert.equal(scheduleArmed({ scheduleNextAt: null, scheduleArmedFor: null }), false);
+});
+
+/* --- the schedule timer's token (Phase 26) ------------------------------- */
+
+test("a fire token authorises one slot of one workflow and nothing else", () => {
+  const key = "k".repeat(32);
+  const slot = "2026-10-07T09:00:00.000Z";
+  const token = fireToken("wf-1", slot, key);
+
+  assert.match(token, FIRE_TOKEN_PATTERN);
+  assert.equal(fireTokenMatches(token, "wf-1", slot, key), true);
+  // Another workflow, another slot, or another key: all refused.
+  assert.equal(fireTokenMatches(token, "wf-2", slot, key), false);
+  assert.equal(fireTokenMatches(token, "wf-1", "2026-10-08T09:00:00.000Z", key), false);
+  assert.equal(fireTokenMatches(token, "wf-1", slot, "j".repeat(32)), false);
+});
+
+test("a fire token is not the cron secret, so holding the outer gate mints nothing", () => {
+  // Keyed by a different secret than the one the route's outer gate checks: the two are
+  // independent, which is why there are two.
+  const token = fireToken("wf-1", "2026-10-07T09:00:00.000Z", "auth-secret-value-xxxxxxxxxxxxxx");
+  assert.equal(
+    fireTokenMatches(token, "wf-1", "2026-10-07T09:00:00.000Z", "cron-secret-value-xxxxxxxxxxxxxx"),
+    false,
+  );
+});
+
+test("a malformed fire token is refused before any comparison, without throwing", () => {
+  const slot = "2026-10-07T09:00:00.000Z";
+  for (const bad of ["", "short", "x".repeat(44), "!".repeat(43)]) {
+    assert.equal(fireTokenMatches(bad, "wf-1", slot, "k".repeat(32)), false, bad);
+  }
 });
 
 test("changing the expression recomputes from now", () => {

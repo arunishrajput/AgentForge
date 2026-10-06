@@ -149,10 +149,24 @@ const LOOK: Record<NodeStatus, StatusLook> = {
  * something defined, so it is running. The distinction costs one word and is the
  * difference between a graph that reports and a graph that narrates.
  */
-export function nodeStatusLook(status: NodeStatus, agent = false): StatusLook {
+export function nodeStatusLook(
+  status: NodeStatus,
+  agent = false,
+  /**
+   * The run this step belongs to is `waiting` — Phase 26. The step is genuinely still
+   * running (a delay is not over until the run wakes), but "Running" over a card that
+   * will not change for two days reads as stuck. "Waiting" with the clock glyph says what
+   * it is doing, and the bobbing dots stop, because nothing is.
+   */
+  paused = false,
+): StatusLook {
   const look = LOOK[status];
+  if (status === "running" && paused) return { ...look, label: "Waiting", glyph: WAITING_GLYPH, dots: false };
   return status === "running" && agent ? { ...look, label: "Thinking" } : look;
 }
+
+/** The waiting clock — one glyph for a paused step and a waiting run, so they read alike. */
+const WAITING_GLYPH = "◷";
 
 /**
  * The run's own status, which is a different set from a step's.
@@ -160,7 +174,8 @@ export function nodeStatusLook(status: NodeStatus, agent = false): StatusLook {
  * A run can be `queued` or `cancelled`, neither of which a step can be, and mapping
  * them onto the step vocabulary was the tempting shortcut: `cancelled` would have
  * rendered as "Skipped", which is a different statement about what happened and a
- * wrong one. Five entries with their own words is cheaper than one wrong word.
+ * wrong one. Six entries with their own words is cheaper than one wrong word — the sixth,
+ * `waiting`, is Phase 26's.
  *
  * `outline`, `surface` and `shadow` go unused here — a run is not a card on the canvas
  * — but the shape is shared so the chip that renders either one needs no second code
@@ -184,6 +199,20 @@ const RUN_LOOK: Record<RunStatus, StatusLook> = {
     ...RAISED,
     motion: "",
     dots: true,
+  },
+  /**
+   * Phase 26. Not running and not finished: put down until its wake time, with nothing
+   * executing it. The live tone because it is still this run's story, not history — and
+   * a clock rather than the dots, because the dots mean *working* and nothing is.
+   */
+  waiting: {
+    label: "Waiting",
+    glyph: WAITING_GLYPH,
+    tone: "text-live",
+    outline: "border-line",
+    ...RAISED,
+    motion: "",
+    dots: false,
   },
   succeeded: {
     label: "Succeeded",

@@ -19,6 +19,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { CommandPalette } from "@/components/shell/command-palette";
 import { cn } from "@/components/ui/cn";
+import { Toggle } from "@/components/ui/field";
 import { useToast } from "@/components/ui/toast";
 import {
   CANVAS_NODE_TYPE,
@@ -41,6 +42,7 @@ import { tweenMs } from "@/lib/canvas/motion";
 import { useRunStream } from "@/lib/canvas/run-stream";
 import { defaultConfig } from "@/lib/canvas/schema";
 import { formatDuration } from "@/lib/format/duration";
+import { formatUtc } from "@/lib/triggers/cron";
 import { diffGraph, type GraphDiff, type NodeDiff } from "@/lib/workflow/diff";
 import { mayChangeVisibility } from "@/lib/workflow/visibility";
 import { atLeast, type WorkspaceRole } from "@/lib/workspace/roles";
@@ -188,7 +190,9 @@ function EditorInner({
 
   const { run, live, watch, stop: stopStream, setRun } = useRunStream(workflow.id, liveRun);
   const [triggerInput, setTriggerInput] = useState("");
-  const [busy, setBusy] = useState<null | "saving" | "running" | "queueing" | "stopping">(null);
+  const [busy, setBusy] = useState<
+    null | "saving" | "running" | "queueing" | "stopping" | "switching"
+  >(null);
 
   /**
    * Version history and the diff mode it opens (Phase 18).
@@ -230,6 +234,7 @@ function EditorInner({
   /** Per-node outcome of the last run. A looped node contributes several steps. */
   const runStates = useMemo(() => {
     const states = new Map<string, NodeRunState>();
+    const waiting = run?.status === "waiting";
     for (const step of run?.steps ?? []) {
       const existing = states.get(step.nodeId);
       states.set(step.nodeId, {
@@ -237,6 +242,7 @@ function EditorInner({
         executions: (existing?.executions ?? 0) + 1,
         branch: step.branch,
         error: step.error,
+        paused: waiting && step.status === "running",
       });
     }
     return states;
@@ -647,6 +653,14 @@ function EditorInner({
           detail: failed?.error ?? finished.error ?? "No reason was recorded.",
           duration: null,
         });
+      } else if (finished.status === "waiting") {
+        // Phase 26. The request came back, the run did not finish, and that is correct:
+        // it reached a long delay and was put down until its wake time.
+        toast({
+          tone: "ok",
+          title: finished.wakeAt ? `Waiting until ${formatUtc(finished.wakeAt)}` : "Waiting",
+          detail: "The run reached a delay and is paused. It resumes on its own — you can close this page.",
+        });
       } else if (finished.status === "succeeded") {
         toast({
           tone: "ok",
@@ -869,6 +883,55 @@ function EditorInner({
     }
   }, [saved.id, toast]);
 
+  /**
+   * The active switch — **Phase 26**. It changes when the workflow runs *by itself*, not
+   * what it does, so it is its own PATCH and replaces only the saved workflow: the graph
+   * on screen and the dirty flag are untouched, like a webhook rotation.
+   */
+  const toggleActive = useCallback(async () => {
+    const next = !saved.active;
+    setBusy("switching");
+    try {
+      const updated = await api.updateWorkflow(saved.id, { active: next });
+      setSaved(updated);
+      toast(
+        next
+          ? {
+              tone: "ok",
+              title: "Switched on",
+              detail: updated.scheduleNextAt
+                ? `The schedule fires next at ${formatUtc(updated.scheduleNextAt)}.`
+                : "The webhook accepts runs again.",
+            }
+          : {
+              tone: "ok",
+              title: "Switched off",
+              // Names only the triggers this workflow has — a schedule-only workflow told
+              // that "its webhook refuses calls" has been told about something it lacks.
+              detail: `${
+                updated.webhookUrl ? "Its webhook refuses calls" : "Its schedule will not fire"
+              }. Pressing Run still works.`,
+            },
+      );
+    } catch (error) {
+      toast({
+        tone: "bad",
+        title: next ? "Could not switch it on" : "Could not switch it off",
+        detail: error instanceof ApiRequestError ? error.message : "Try again.",
+        duration: null,
+      });
+    } finally {
+      setBusy(null);
+    }
+  }, [saved.active, saved.id, toast]);
+
+  /**
+   * Whether the switch means anything here: only a stored webhook or schedule trigger runs
+   * a workflow by itself. A manual workflow has nothing to switch off, and a switch that
+   * does nothing is a question the user then has to ask.
+   */
+  const automatic = saved.webhookUrl !== null || saved.scheduleCron !== null;
+
   const canvasValue = useMemo(
     () => ({
       registry,
@@ -885,6 +948,13 @@ function EditorInner({
    * cheapest — nothing has executed, so cancelling costs nothing and undoes everything.
    */
   const inFlight = run !== null && (run.status === "queued" || run.status === "running");
+
+  /**
+   * Paused until its wake time (Phase 26). Not in flight — nothing is executing it, and the
+   * Run button stays usable, because a workflow waiting two days must not lock its canvas —
+   * but it can still be stopped, which is the moment a stop is most often wanted.
+   */
+  const waiting = run?.status === "waiting";
 
   const status = comparison
     ? `Comparing v${comparison.from} with v${comparison.to}`
@@ -974,7 +1044,10 @@ function EditorInner({
             </button>
           </div>
 
-          <div className="flex min-w-0 items-center justify-end gap-2 max-sm:order-last max-sm:basis-full sm:flex-1">
+          {/* `max-sm:flex-wrap` since Phase 26: the active switch made this row one control
+              wider, and at 375px a row that cannot wrap clips its first item — the save
+              status — off the left edge rather than moving it down a line. */}
+          <div className="flex min-w-0 items-center justify-end gap-2 max-sm:order-last max-sm:basis-full max-sm:flex-wrap sm:flex-1">
             <span className="text-muted shrink-0 text-2xs" role="status">
               {status}
             </span>
@@ -1002,6 +1075,32 @@ function EditorInner({
                 Read only · {role}
               </span>
             )}
+
+            {/* The active switch — Phase 26. Beside the read-only chip rather than with the
+                run controls, because it is a standing property of the workflow, not an
+                action taken now. A viewer sees the state as a chip and cannot change it. */}
+            {automatic &&
+              (canEdit ? (
+                <Toggle
+                  kind="switch"
+                  // The word is the switch's accessible name at every width, and visible
+                  // only from `sm` up: at 375px the toolbar's second row cannot spare it
+                  // without pushing the save status off the edge (measured).
+                  label={<span className="max-sm:sr-only">Active</span>}
+                  checked={saved.active}
+                  onChange={() => {
+                    if (busy === null) void toggleActive();
+                  }}
+                  aria-busy={busy === "switching"}
+                  className="text-2xs shrink-0"
+                />
+              ) : (
+                !saved.active && (
+                  <span className="border-line bg-sunken text-muted shrink-0 rounded-lg border-2 px-2 py-1 text-2xs font-bold">
+                    Switched off
+                  </span>
+                )
+              ))}
 
             {(canShare || canSetVisibility) && (
               <button
@@ -1037,14 +1136,14 @@ function EditorInner({
             {/* Only while there is something to stop. A permanent, mostly-disabled Stop
                 would sit in the tab order offering nothing for the whole time a person is
                 building a workflow, which is almost all of the time. */}
-            {inFlight && canEdit && (
+            {(inFlight || waiting) && canEdit && (
               <button
                 type="button"
                 onClick={stopRun}
                 aria-busy={busy === "stopping"}
                 className="btn btn-danger shrink-0"
               >
-                {run.cancelRequested ? "Stopping…" : "Stop"}
+                {run?.cancelRequested ? "Stopping…" : "Stop"}
               </button>
             )}
 

@@ -2,7 +2,18 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { DISPATCH_TOKEN_PATTERN, mintDispatchToken, mintLeaseOwner } from "./lease";
-import { buildTask, describeDelivery, DISPATCH_DEADLINE_SECONDS, enqueueRun, queueConfig } from "./queue";
+import {
+  buildFireTask,
+  buildTask,
+  describeDelivery,
+  DISPATCH_DEADLINE_SECONDS,
+  enqueueFire,
+  enqueueRun,
+  queueConfig,
+  queueNamed,
+  scheduleTimeFor,
+  TASK_HORIZON_MS,
+} from "./queue";
 
 /**
  * The queue adapter, asserted without a network.
@@ -197,4 +208,81 @@ test("a first delivery is retry count zero, which is not the same as absent", as
     describeDelivery(new Headers({ "x-cloudtasks-taskretrycount": "0" })).retryCount,
     0,
   );
+});
+
+/* --- timers: tasks scheduled for a time — Phase 26 ------------------------- */
+
+test("a task for now carries no scheduleTime, and one for later carries that time", () => {
+  const now = new Date("2026-10-06T12:00:00.000Z");
+  assert.equal(scheduleTimeFor(undefined, now), undefined);
+  // A time already past is delivered now rather than sent as a past timestamp.
+  assert.equal(scheduleTimeFor(new Date("2026-10-06T11:59:00.000Z"), now), undefined);
+  assert.equal(scheduleTimeFor(now, now), undefined);
+  assert.equal(
+    scheduleTimeFor(new Date("2026-10-06T14:00:00.000Z"), now),
+    "2026-10-06T14:00:00.000Z",
+  );
+});
+
+test("a time beyond the queue's horizon is capped to it, never sent as it is", () => {
+  // Cloud Tasks refuses a scheduleTime more than 30 days ahead. The task is armed at the
+  // horizon instead, arrives early, and the receiving route arms it again.
+  const now = new Date("2026-10-06T12:00:00.000Z");
+  const farAway = new Date("2027-01-01T00:00:00.000Z");
+  const capped = scheduleTimeFor(farAway, now)!;
+  assert.equal(Date.parse(capped) - now.getTime(), TASK_HORIZON_MS);
+  assert.ok(TASK_HORIZON_MS < 30 * 24 * 60 * 60 * 1000, "inside the documented 30-day limit");
+});
+
+test("a waiting run's wake is an ordinary dispatch, scheduled for its time", () => {
+  const now = new Date("2026-10-06T12:00:00.000Z");
+  const task = buildTask({
+    runId: "run_1",
+    token: "a".repeat(48),
+    baseUrl: "https://agentforge.example.run.app",
+    secret: "secret-value",
+    at: new Date("2026-10-06T14:00:00.000Z"),
+    now,
+  });
+  assert.equal(task.httpRequest.url, "https://agentforge.example.run.app/api/runs/dispatch");
+  assert.equal(task.scheduleTime, "2026-10-06T14:00:00.000Z");
+
+  // And without a time, nothing about the Phase 17 task changed.
+  const immediate = buildTask({ runId: "run_1", token: "a".repeat(48), baseUrl: "https://x.app", secret: "s" });
+  assert.ok(!("scheduleTime" in immediate));
+});
+
+test("a schedule timer goes to the fire route with ids and a token, never the graph", () => {
+  const now = new Date("2026-10-06T12:00:00.000Z");
+  const task = buildFireTask({
+    workflowId: "wf_1",
+    scheduledFor: "2026-10-07T09:00:00.000Z",
+    token: "t".repeat(43),
+    baseUrl: "https://agentforge.example.run.app/",
+    secret: "secret-value",
+    now,
+  });
+
+  assert.equal(task.httpRequest.url, "https://agentforge.example.run.app/api/cron/fire");
+  assert.equal(task.httpRequest.headers["x-cron-secret"], "secret-value");
+  assert.equal(task.scheduleTime, "2026-10-07T09:00:00.000Z", "scheduled for the slot itself");
+  assert.deepEqual(JSON.parse(Buffer.from(task.httpRequest.body, "base64").toString("utf8")), {
+    workflowId: "wf_1",
+    scheduledFor: "2026-10-07T09:00:00.000Z",
+    token: "t".repeat(43),
+  });
+});
+
+test("an unconfigured queue arms no timer, without touching the network", async () => {
+  await withEnv({ TASKS_QUEUE: undefined }, async () => {
+    const result = await enqueueFire({
+      workflowId: "wf_1",
+      scheduledFor: "2026-10-07T09:00:00.000Z",
+      token: "t".repeat(43),
+      baseUrl: "https://example.invalid",
+      secret: "s".repeat(16),
+    });
+    assert.deepEqual(result, { enqueued: false, reason: "unconfigured" });
+    assert.equal(queueNamed(), false);
+  });
 });

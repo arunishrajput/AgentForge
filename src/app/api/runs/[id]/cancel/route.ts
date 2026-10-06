@@ -1,5 +1,5 @@
 import { handle, ok, requireScope } from "@/lib/api";
-import { finishUnclaimedRun, requestCancel } from "@/lib/engine/lease";
+import { finishUnclaimedRun, finishWaitingRun, requestCancel } from "@/lib/engine/lease";
 import { describeRun, getRun } from "@/lib/engine/run";
 
 export const dynamic = "force-dynamic";
@@ -11,9 +11,10 @@ type Context = { params: Promise<{ id: string }> };
  *
  * Two outcomes, and the difference is whether anybody is executing the run:
  *
- *  - **Nothing holds it** (a durable run still `queued`, or one whose worker has already
- *    gone) — it is finished `cancelled` here and now, so a queued run does not sit
- *    waiting to be cancelled by a delivery that may be a minute away.
+ *  - **Nothing holds it** (a durable run still `queued`, one whose worker has already
+ *    gone, or — Phase 26 — one `waiting` for its wake time) — it is finished `cancelled`
+ *    here and now, so it does not sit waiting to be cancelled by a delivery that may be a
+ *    minute, or two days, away.
  *  - **A worker holds it** — the request is recorded and the engine reads it at its next
  *    checkpoint, which is the end of the step it is currently running.
  *
@@ -39,7 +40,15 @@ export async function POST(_request: Request, { params }: Context) {
     const { id } = await params;
 
     const asked = await requestCancel({ runId: id, scope });
-    if (asked) {
+    if (asked?.status === "waiting") {
+      // Phase 26. Nothing is executing a waiting run, so it is finished now — and its
+      // paused step with it, rather than left saying `running` on a run that is over.
+      await finishWaitingRun({
+        runId: id,
+        status: "cancelled",
+        error: "The run was cancelled while it was waiting.",
+      });
+    } else if (asked) {
       await finishUnclaimedRun({
         runId: id,
         status: "cancelled",

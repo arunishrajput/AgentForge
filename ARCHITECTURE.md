@@ -448,7 +448,9 @@ Sequential, resumable, and indifferent to which process is running it.
 7. Loop nodes re-enter a bounded subgraph with a hard iteration cap
 8. A node failure fails the run, with the error attached to that step
 9. The run ends `succeeded`, `failed`, or `cancelled` — or the engine **stops without writing a
-   status**, because it lost the lease and the run is somebody else's now
+   status**, because it lost the lease and the run is somebody else's now — or (Phase 26) a long
+   `core.delay` **suspends** it as `waiting`, cursor written and lease released, until a Cloud Tasks
+   delivery wakes it. See *Queue* → *Timers*
 
 ### Two modes, and the only thing that separates them
 
@@ -824,9 +826,9 @@ way; the queue decides *which request* runs it.
   configuration and the deployed verification asserts it.
 
 **Schedule triggers still do not use an in-process timer.** Cloud Run scales to zero, so
-`setInterval` simply does not fire. **Cloud Scheduler** — Google-managed cron, free tier covers it —
-calls `POST /api/cron/tick` guarded by a `CRON_SECRET`, and that handler fires whatever schedules
-are due. Built and verified in Phase 8; unchanged in shape.
+`setInterval` simply does not fire. From Phase 8 to Phase 25 **Cloud Scheduler** called
+`POST /api/cron/tick` every 15 minutes and that handler fired whatever was due. **Phase 26 moved the
+clock into Cloud Tasks** — see *Timers* below — and the tick became a daily safety sweep.
 
 What Phase 17 changed about the tick:
 
@@ -842,8 +844,56 @@ What Phase 17 changed about the tick:
 
 **The tick interval is a database-cost decision, not a latency one.** Neon's free plan allows 100
 CU-hours a month and its 5-minute autosuspend cannot be disabled, so a tick more frequent than about
-6 minutes pins the compute awake permanently and exceeds the allowance. The job runs every 15
-minutes; the arithmetic is in `DEPLOYMENT.md`.
+6 minutes pins the compute awake permanently and exceeds the allowance. At every 15 minutes it cost
+~61 of the 100 — which is why M12 paused it, and why from then until Phase 26 **no schedule fired at
+all**. The arithmetic is in `DEPLOYMENT.md` → *Free-tier headroom*.
+
+### Timers — Phase 26
+
+**A timer is a Cloud Tasks task with a `scheduleTime`.** Nothing in the app keeps a clock, and
+nothing wakes Neon until something is due. Two things use one:
+
+| Timer | Armed when | Delivered to | Carries |
+|---|---|---|---|
+| **A schedule's next slot** | the workflow is created or saved with a new due time, switched on, or fires | `POST /api/cron/fire` | workflow id, the slot, an HMAC token for that slot |
+| **A waiting run's wake** | a `core.delay` longer than 10 s suspends the run | `POST /api/runs/dispatch` — an ordinary delivery | run id, its dispatch token |
+
+**The timer is never the correctness mechanism — the compare-and-set is.** A schedule fires only by
+claiming its slot with D42's `UPDATE … WHERE scheduleNextAt = <the slot this timer was armed for>`,
+so a timer for a slot that has moved — the expression edited, the workflow switched off or deleted,
+another delivery already fired it — updates zero rows and starts nothing. A wake fires only by
+claiming the run against `wakeAt`, which the lease's claim was extended to do. Nothing ever has to
+**delete** a task for the system to be right, so tasks stay unnamed (no de-duplication window to
+reason about) and the sweep may arm a duplicate without asking.
+
+**The horizon.** Cloud Tasks refuses a `scheduleTime` more than 30 days ahead (its documented system
+limit). A slot further out is armed at 29 days instead; its delivery arrives early, finds the slot
+not yet due, and arms again — the same path that absorbs a clock that runs early. A wait is bounded
+at 30 days anyway (`MAX_WAIT_MS`, a D16-family bound).
+
+**`waiting` sits outside the lease family.** The engine's 120 s deadline, the stream's 150 s and the
+lease's 180 s (D78) all describe a run being *executed*; a waiting run is not executed by anything —
+it is a row and a task. So it holds no lease, keeps no container, and its stream closes (D31). Its
+`attempt` resets on each suspension, so a workflow with five waits is not mistaken for a run that
+crashed five times.
+
+**The daily sweep is the safety net.** Once a day `POST /api/cron/tick`:
+
+- fires any due slot that never fired (its timer was lost, or it predates Phase 26);
+- re-arms every unarmed slot, **and every slot due within 26 hours whether or not it says it is
+  armed** — the only way to cover a task that was created and then deleted or purged, which no column
+  can see;
+- re-schedules the wake of any `waiting` run more than ten minutes past its `wakeAt`;
+- sweeps abandoned runs and prunes the audit log, as before — and is where Phase 33's run retention
+  will hang.
+
+**What it costs.** The idle product wakes Neon once a day (~0.6 CU-hours a month, against ~61 for the
+old tick); a schedule wakes it when it is due and never otherwise. A schedule fire is ~5 Cloud Tasks
+operations and a wait is 2, against a free million a month.
+
+**With no queue configured** — a developer machine, CI — schedules are not armed (the trigger panel
+says so) and fire only from a manually-invoked sweep, and a delay over 10 s **fails its step with a
+message** rather than holding a request open for hours.
 
 Revisit the choice of queue only if a genuine need appears, and flag it as a material change.
 

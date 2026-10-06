@@ -85,6 +85,13 @@
       "when": 1790862245682,
       "tag": "0011_hesitant_ozymandias",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1791299500341,
+      "tag": "0012_open_queen_noir",
+      "breakpoints": true
     }
   ]
 }

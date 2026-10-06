@@ -1,5 +1,6 @@
 import { logError, logInfo } from "@/lib/logging";
 import { getNode } from "@/lib/nodes";
+import { describeDuration, MAX_WAIT_MS } from "@/lib/nodes/core/delay";
 import { NodeError, type LogLevel, type StepLog } from "@/lib/nodes/types";
 import { edgesFrom, type WorkflowGraph } from "@/lib/workflow/graph";
 import { resolveConfig } from "@/lib/workflow/template";
@@ -77,7 +78,22 @@ export interface ExecuteOptions {
    * (`cursor.ts` → `rehydrate`).
    */
   resume?: { cursor: RunCursor; steps: readonly StepRecord[] };
+  /**
+   * Whether a node may pause this run until a later time — Phase 26.
+   *
+   * True only where something can resume it: a configured Cloud Tasks queue. Without one
+   * — a developer machine, CI — a long `core.delay` fails its step with a message saying
+   * so, rather than a request held open for hours that the platform will cut off anyway.
+   */
+  allowWait?: boolean;
 }
+
+/**
+ * Slack on `MAX_WAIT_MS` for the time between a node computing its wake time and the
+ * engine checking it. The bound is the node's; this only stops a clock tick from failing
+ * a 30-day delay that was exactly on it.
+ */
+const WAIT_SLACK_MS = 60_000;
 
 /** Thrown when a graph cannot run at all. The run fails before any step exists. */
 export class GraphInvalidError extends Error {
@@ -183,6 +199,7 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
     recorder = noopRecorder,
     deadlineMs = DEFAULT_DEADLINE_MS,
     resume,
+    allowWait = false,
   } = options;
 
   const validation = validateGraph(graph);
@@ -212,8 +229,42 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
   let failure: string | null = null;
   /** Set when the engine put the work down rather than finishing it. */
   let interrupted: "cancelled" | "preempted" | null = null;
+  /** Set when a node paused the run (Phase 26): the step it paused in, and until when. */
+  let paused: { seq: number; until: string } | null = null;
 
   const cursor = (): RunCursor => snapshotCursor({ queue, executions, seq });
+
+  /**
+   * **Waking up — Phase 26.** A run resumed from `waiting` has one piece of unfinished
+   * work the queue does not describe: the delay step it paused inside, still `running`,
+   * whose successors are already queued. Finish it first, so its output is what they
+   * read and its duration is the wait.
+   *
+   * Guarded on the step still being `running`, because a previous wake may have finished
+   * it and then lost its container before the next checkpoint rewrote the cursor — in
+   * which case `rehydrate` has already counted it as succeeded and there is nothing to do.
+   */
+  const waking = resume?.cursor.wait;
+  if (waking) {
+    const step = steps.find((candidate) => candidate.seq === waking.seq);
+    if (step && step.status === "running") {
+      step.status = "succeeded";
+      step.finishedAt = new Date().toISOString();
+      step.logs.push({ at: step.finishedAt, level: "info", message: "Done waiting." });
+      outputs.set(step.nodeId, step.output);
+      bySeq.set(step.seq, step.output);
+      lastOutput = step.output;
+      await recorder.stepFinished(step);
+      logInfo("node.finished", `Node ${step.nodeId} succeeded.`, {
+        nodeId: step.nodeId,
+        nodeType: step.nodeType,
+        status: "succeeded",
+        iteration: step.iteration,
+        branch: step.branch,
+        durationMs: Date.parse(step.finishedAt) - Date.parse(step.startedAt ?? step.finishedAt),
+      });
+    }
+  }
 
   while (queue.length > 0) {
     const item = queue.shift()!;
@@ -312,6 +363,41 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
         context: { runId, workflowId, scope, nodeId: node.id, nodeType: node.type, iteration, log },
       });
 
+      /**
+       * **A node asked to pause the run — Phase 26.** The step keeps `running` with its
+       * output already recorded, its successors are queued as usual, and the loop stops
+       * without a checkpoint: the caller writes the cursor as part of suspending the run,
+       * under the same lease guard, so there is one write rather than two.
+       *
+       * Refused here rather than in the node, because only the engine's caller knows
+       * whether anything can resume this run, and bounded here rather than trusted,
+       * because a bound is a property of the engine (D16).
+       */
+      if (outcome.wait) {
+        const until = Date.parse(outcome.wait.until);
+        if (!allowWait) {
+          throw new NodeError(
+            `This step asks the run to wait ${describeDuration(Math.max(0, until - Date.now()))}, ` +
+              "which needs the run queue to wake it again — and no queue is configured here " +
+              "(TASKS_QUEUE). Waits of up to 10 seconds run in place.",
+          );
+        }
+        if (!Number.isFinite(until) || until - Date.now() > MAX_WAIT_MS + WAIT_SLACK_MS) {
+          throw new NodeError("A run can wait at most 30 days.");
+        }
+
+        step.output = outcome.output ?? null;
+        step.branch = outcome.branch ?? null;
+        executions.set(node.id, iteration + 1);
+        await recorder.stepFinished(step);
+
+        for (const edge of edgesFrom(graph, node.id, step.branch)) {
+          queue.push({ nodeId: edge.target, fromSeq: mySeq });
+        }
+        paused = { seq: mySeq, until: new Date(until).toISOString() };
+        break;
+      }
+
       step.status = "succeeded";
       step.output = outcome.output ?? null;
       step.branch = outcome.branch ?? null;
@@ -384,6 +470,19 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
     // Deliberately no cursor and no status: another worker holds this run and has
     // been writing its own frontier. Returning one here would overwrite theirs.
     return { status: null, stop: "interrupted", reason: "preempted", error: null, output: null, steps, cursor: null };
+  }
+
+  if (paused) {
+    return {
+      status: null,
+      stop: "waiting",
+      reason: null,
+      error: null,
+      output: null,
+      steps,
+      cursor: { ...cursor(), wait: paused },
+      wakeAt: paused.until,
+    };
   }
 
   if (interrupted === "cancelled") {

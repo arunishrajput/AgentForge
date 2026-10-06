@@ -35,6 +35,32 @@ export const DISPATCH_DEADLINE_SECONDS = 300;
 /** Bounds every call to Google's APIs so a slow queue cannot hold a user's request. */
 const TASKS_TIMEOUT_MS = 10_000;
 
+/**
+ * **How far ahead a task is ever scheduled — Phase 26.** Cloud Tasks refuses a
+ * `scheduleTime` more than 30 days from now (its documented system limit, checked against
+ * the quotas page on 2026-10-06). 29 days leaves a day of margin for clocks, so a timer
+ * that is further out is armed here instead and *re-armed* when it is delivered early —
+ * the receiving routes treat "not yet due" as "arm again", never as "fire".
+ */
+export const TASK_HORIZON_MS = 29 * 24 * 60 * 60 * 1000;
+
+/**
+ * The `scheduleTime` to ask for, or `undefined` for "deliver now".
+ *
+ * A time already past is delivered now rather than sent as a past timestamp — Cloud Tasks
+ * would accept it, but there is no reason to make it reason about one. A time beyond the
+ * horizon is capped to it; the delivery then arrives early and is re-armed.
+ */
+export function scheduleTimeFor(at: Date | undefined, now: Date = new Date()): string | undefined {
+  if (!at || at.getTime() <= now.getTime()) return undefined;
+  return new Date(Math.min(at.getTime(), now.getTime() + TASK_HORIZON_MS)).toISOString();
+}
+
+/** Whether a queue is named at all — synchronous, for a decision that cannot await. */
+export function queueNamed(): boolean {
+  return Boolean(process.env.TASKS_QUEUE);
+}
+
 export interface QueueConfig {
   project: string;
   location: string;
@@ -75,21 +101,55 @@ export function buildTask(options: {
   token: string;
   baseUrl: string;
   secret: string;
+  /** Phase 26: deliver at this time rather than now — a waiting run's wake. */
+  at?: Date;
+  now?: Date;
 }) {
-  const body = JSON.stringify({ runId: options.runId, token: options.token });
+  return httpTask("/api/runs/dispatch", { runId: options.runId, token: options.token }, options);
+}
+
+/**
+ * A schedule timer — **Phase 26**. Delivered to `POST /api/cron/fire` at the slot (or at
+ * the horizon, for a slot further out), carrying the workflow, the slot it is for and the
+ * slot's own token. Ids only, never the graph, for the reason at the top of this file.
+ */
+export function buildFireTask(options: {
+  workflowId: string;
+  scheduledFor: string;
+  token: string;
+  baseUrl: string;
+  secret: string;
+  now?: Date;
+}) {
+  return httpTask(
+    "/api/cron/fire",
+    { workflowId: options.workflowId, scheduledFor: options.scheduledFor, token: options.token },
+    { ...options, at: new Date(options.scheduledFor) },
+  );
+}
+
+function httpTask(
+  path: string,
+  payload: Record<string, string>,
+  options: { baseUrl: string; secret: string; at?: Date; now?: Date },
+) {
+  const scheduleTime = scheduleTimeFor(options.at, options.now);
 
   // Deliberately unnamed. A task named after its run would give Cloud Tasks' own
   // deduplication for free, but it also makes the name unusable for about an hour
   // afterwards and carries a documented throughput cost — and the lease already makes a
-  // duplicate delivery harmless, which is the property that actually matters.
+  // duplicate delivery harmless, which is the property that actually matters. Phase 26's
+  // timers lean on the same argument: the compare-and-set on the slot is the guard, so a
+  // duplicate timer is harmless and the daily sweep may arm one without asking.
   return {
     httpRequest: {
       httpMethod: "POST" as const,
-      url: `${options.baseUrl.replace(/\/+$/, "")}/api/runs/dispatch`,
+      url: `${options.baseUrl.replace(/\/+$/, "")}${path}`,
       headers: { "content-type": "application/json", "x-cron-secret": options.secret },
-      body: Buffer.from(body, "utf8").toString("base64"),
+      body: Buffer.from(JSON.stringify(payload), "utf8").toString("base64"),
     },
     dispatchDeadline: `${DISPATCH_DEADLINE_SECONDS}s`,
+    ...(scheduleTime ? { scheduleTime } : {}),
   };
 }
 
@@ -112,7 +172,24 @@ export async function enqueueRun(options: {
   token: string;
   baseUrl: string;
   secret: string;
+  /** Phase 26: when to deliver it. Absent means now. */
+  at?: Date;
 }): Promise<EnqueueResult> {
+  return createTask(buildTask(options));
+}
+
+/** Arm a schedule timer — Phase 26. The same transport, and the same failure shape. */
+export async function enqueueFire(options: {
+  workflowId: string;
+  scheduledFor: string;
+  token: string;
+  baseUrl: string;
+  secret: string;
+}): Promise<EnqueueResult> {
+  return createTask(buildFireTask(options));
+}
+
+async function createTask(task: ReturnType<typeof httpTask>): Promise<EnqueueResult> {
   const config = await queueConfig();
   if (!config) return { enqueued: false, reason: "unconfigured" };
 
@@ -120,7 +197,6 @@ export async function enqueueRun(options: {
   if (!token) return { enqueued: false, reason: "unauthenticated" };
 
   const parent = `projects/${config.project}/locations/${config.location}/queues/${config.queue}`;
-  const task = buildTask(options);
 
   let response: Response;
   try {

@@ -88,6 +88,8 @@ async function openStream(request: Request, { params }: Context) {
   let closed = false;
   /** The run that had already finished when this stream first looked — see followDecision. */
   let baselineRunId: string | null = null;
+  /** Whether that run was `waiting` rather than finished, so it is followed when it wakes. */
+  let baselineWaiting = false;
   let firstPoll = true;
 
   /** One poll: the run row, then its steps only if it is the run to follow. */
@@ -106,9 +108,10 @@ async function openStream(request: Request, { params }: Context) {
     }
 
     const candidate = await latestRun(scope, workflowId);
-    const decision = followDecision(candidate, { baselineRunId, firstPoll });
+    const decision = followDecision(candidate, { baselineRunId, baselineWaiting, firstPoll });
     firstPoll = false;
     baselineRunId = decision.baselineRunId;
+    baselineWaiting = decision.baselineWaiting;
 
     if (!candidate || !decision.follow) return null;
     return describeRun(candidate, await readSteps(candidate.id));
@@ -159,8 +162,8 @@ async function openStream(request: Request, { params }: Context) {
         state = result.state;
         for (const event of result.events) write(formatEvent(event));
 
-        if (result.terminal) {
-          finish("finished", state.runId);
+        if (result.resting) {
+          finish(result.terminal ? "finished" : "waiting", state.runId);
           return;
         }
 

@@ -62,7 +62,9 @@ const PUBLISHABLE: Readonly<Record<string, SharePolicy>> = {
   "core.branch": { values: ["operator"] },
   "core.assert": { values: ["operator"] },
   "core.loop": { values: ["maxIterations"] },
-  "core.delay": { values: ["ms"] },
+  // `amount` and `unit` are a number and an enum. A legacy Phase 5 `ms` is redacted — the
+  // closed default — which costs a reader of an old diagram one number.
+  "core.delay": { values: ["amount", "unit"] },
   "core.log": { values: ["level"] },
   // `fields` is the clearest case for `keys`: the set of names a Set node produces is
   // most of what it means, and every value in it is something somebody typed.

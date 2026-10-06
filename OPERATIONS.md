@@ -15,9 +15,10 @@ client** — that is the objective Phase 22 was written against.
 One Cloud Run service (`agentforge`, `asia-southeast1`, **`min-instances 0`** since the M12
 turndown on 2026-10-01 — a cold first request costs ~6.4 s) serving a Next.js
 application against one Neon Postgres database. Runs execute either inside the request that started
-them or on a Cloud Tasks delivery. One Cloud Scheduler job pokes `/api/cron/tick` every fifteen
-minutes to fire due schedules and prune expired rows — **that job is `PAUSED` as of 2026-10-01
-(M12), so no schedule fires until it is resumed.** Credentials are sealed under a root key in
+them or on a Cloud Tasks delivery. **Since Phase 26 a schedule fires from its own Cloud Tasks timer**,
+armed for the exact due time and delivered to `/api/cron/fire`, and a run waiting on a long delay is
+woken the same way. One Cloud Scheduler job pokes `/api/cron/tick` **once a day** (04:00 UTC) as a
+safety sweep — lost timers, lost wakes, abandoned runs, expired rows. Credentials are sealed under a root key in
 Secret Manager. There is no other moving part: no cache, no worker pool, no message bus, no
 third-party observability agent.
 
@@ -92,7 +93,9 @@ would otherwise leave a metric reporting zero forever, which looks exactly like 
 | `model.call` | INFO / WARNING / ERROR | A `generate` resolved | `requested`, `answered`, `fallback`, `attempts` |
 | `queue.degraded` | **ERROR** | A durable run could not be enqueued | `reason` |
 | `queue.delivered` | INFO | A Cloud Tasks delivery was handled | `handled`, `status`, `retryCount` |
-| `cron.tick` | INFO | The scheduler fired | `due`, `fired`, `skipped`, `cleared` |
+| `run.waiting` | INFO | A run paused at a long delay (Phase 26) | `wakeAt`, `trigger` |
+| `schedule.delivered` | INFO | A schedule timer arrived (Phase 26) | `workflowId`, `scheduledFor`, `outcome`, `reason`, `runId` |
+| `cron.tick` | INFO | The daily sweep ran | `due`, `fired`, `skipped`, `cleared`, `armed`, `woken`, `swept` |
 | `api.error` | ERROR | A request threw unexpectedly | `errorGroup`, `errorName` |
 | `system.warning` | WARNING / ERROR | A refusal or repair nobody asked for | varies |
 
@@ -235,27 +238,58 @@ gcloud run services describe agentforge --region asia-southeast1 \
   `--update-env-vars` (which **merges**; `--env-vars-file` replaces the whole set).
 - Anything else → usually a missing `cloudtasks.enqueuer` binding on the runtime service account.
 
-### The scheduler stopped firing
+### A schedule did not fire
 
-> **First, check whether it is supposed to be firing at all.** The job was **paused on 2026-10-01**
-> (`PROGRESS.md` → M12) because nobody is watching the deployment, so **zero ticks is the expected
-> reading, not an incident.** Resume it with
-> `gcloud scheduler jobs resume agentforge-cron --location asia-southeast1` before treating silence
-> as a fault. Everything below applies once the job is `ENABLED`.
+**Since Phase 26 two things fire a schedule**, so check them in this order.
 
-`cron.tick` is logged on **every** tick, including one that finds nothing due — that is deliberate,
-because it makes the entry a heartbeat rather than an event. Expect four an hour **while enabled**.
+**1. Its timer.** Every schedule has a Cloud Tasks task armed for its due time; the trigger panel
+says *Timer: Armed* or *Not armed*. A delivery is logged as `schedule.delivered` whatever happened:
+
+```bash
+gcloud logging read 'jsonPayload.event="schedule.delivered" AND jsonPayload.workflowId="<ID>"' \
+  --limit 10 --freshness 2d \
+  --format='value(timestamp,jsonPayload.outcome,jsonPayload.reason,jsonPayload.scheduledFor)'
+gcloud tasks list --queue agentforge-runs --location asia-southeast1 \
+  --format='table(name.basename(),scheduleTime,dispatchCount)'
+```
+
+- `fired` — it worked; look at the run.
+- `declined` / `stale` — the slot had moved (the expression was edited) or the workflow was
+  switched off. Correct behaviour: a stale timer starts nothing by design.
+- `declined` / `forged` — the token did not verify. **Expected for a day after `AUTH_SECRET` is
+  rotated** (`SECURITY.md`); the daily sweep re-arms under the new key.
+- no delivery at all, and *Not armed* — the arm failed. Look for `queue.degraded` with a
+  `workflowId`: almost always a missing `cloudtasks.enqueuer` binding or billing (M13). Saving the
+  workflow retries the arm; so does the sweep.
+
+**2. The daily sweep.** It fires any slot that is due and was never fired, and it is logged on
+**every** run, including one that finds nothing — that makes `cron.tick` a heartbeat rather than an
+event. **Expect one a day, around 04:00 UTC.**
 
 ```bash
 gcloud logging read 'resource.type=cloud_run_revision AND jsonPayload.event="cron.tick"' \
-  --limit 10 --freshness 2h --format='value(timestamp,jsonPayload.due,jsonPayload.fired)'
+  --limit 5 --freshness 3d --format='value(timestamp,jsonPayload.fired,jsonPayload.armed,jsonPayload.woken)'
 
 gcloud scheduler jobs describe agentforge-cron --location asia-southeast1 \
-  --format='value(schedule,state)'    # */15 * * * *, and ENABLED only if it was resumed
+  --format='value(schedule,state)'    # 0 4 * * *   ENABLED
 ```
 
-**Do not "fix" a quiet tick by making it more frequent.** The fifteen-minute schedule is what keeps
-Neon inside its free allowance — see *The budget* below.
+**Do not "fix" a late schedule by making the sweep more frequent.** The sweep is a safety net, not
+the clock; a sweep every 15 minutes is ~61 CU-hours a month, which is the cost Phase 26 removed.
+Fix the timer instead.
+
+### A run is stuck in Waiting
+
+A `waiting` run is paused at a long `core.delay` and holds no lease; its wake is a Cloud Tasks task
+to `/api/runs/dispatch` scheduled for `wakeAt`. If `wakeAt` is in the past:
+
+- **less than ten minutes past** — the queue may still be retrying the delivery. Wait.
+- **more than ten minutes past** — the wake task was lost or never created (look for
+  `queue.degraded` "is waiting but its wake could not be scheduled"). The next daily sweep
+  re-schedules it (`woken` in `cron.tick`); to do it now, run the sweep:
+  `gcloud scheduler jobs run agentforge-cron --location asia-southeast1`.
+
+Stop on the canvas cancels a waiting run at once.
 
 ### A deploy went wrong
 
@@ -326,9 +360,15 @@ curl -sG "https://monitoring.googleapis.com/v3/projects/agentforge-hackathon-202
   --data-urlencode 'aggregation.alignmentPeriod=86400s' \
   --data-urlencode 'aggregation.perSeriesAligner=ALIGN_SUM'
 
-# The tick is what spends the Neon budget. Confirm it is still */15.
+# The sweep is the product's only standing reason to wake Neon. Confirm it is still daily.
 gcloud scheduler jobs describe agentforge-cron --location asia-southeast1 --format='value(schedule,state)'
 ```
+
+> **A paid billing account since M13 (D113)** — Always Free usage is billed at zero, and a budget
+> alert at ₹100/month (50 / 90 / 100 %) is the tripwire. The two known leaks outside Always Free are
+> Artifact Registry (0.5 GB free; every deploy adds an image) and Cloud Storage in
+> `asia-southeast1` (its free tier covers only three US regions). Check them when the alert fires:
+> `gcloud artifacts docker images list asia-southeast1-docker.pkg.dev/agentforge-hackathon-2026/cloud-run-source-deploy --include-tags`
 
 > **Neon CU-hours consumed cannot be read from a terminal on the free plan.** `neonctl` is
 > authenticated, but `/consumption_history/*` answers *"This endpoint is not available. It is

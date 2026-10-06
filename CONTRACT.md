@@ -301,7 +301,7 @@ Tables in `src/db/schema.ts`; wire shapes from `describeRun` in `src/lib/engine/
 |---|---|
 | `id` | uuid |
 | `workflowId`, `workspaceId`, `ownerId` | **`workspaceId` is the scoping column** (Phase 19A) — every run query filters on it, denormalised from the workflow so it needs no join. `ownerId` is kept and still means *who triggered this run*, which the workspace cannot answer |
-| `status` | the run state machine below |
+| `status` | the run state machine below — `waiting` since Phase 26 |
 | `trigger` | `manual` \| `webhook` \| `schedule` \| `agent` |
 | `input`, `output`, `error` | trigger payload, last node's output, failure message |
 | `startedAt`, `finishedAt` | `finishedAt` is null until terminal |
@@ -313,6 +313,7 @@ Tables in `src/db/schema.ts`; wire shapes from `describeRun` in `src/lib/engine/
 | `cancelRequestedAt` | a stop was asked for. The engine reads it at its next checkpoint |
 | `dispatchToken` | 192 bits of CSPRNG. The task carries it and `POST /api/runs/dispatch` demands it, so that route can only ever resume a run that already exists. Never returned to a client |
 | `workflowVersion` | which version of the workflow this run executed (Phase 18). An integer, not a foreign key — see *Workflow versions*. Null for a run recorded before versioning, and **that is not claimed to be v1** |
+| `wakeAt` | **Phase 26.** When a `waiting` run resumes; null in every other status. The claim compares it against the database's `now()`, so an early delivery claims nothing. Returned by `describeRun` as `wakeAt` |
 
 ### `run_step`
 
@@ -438,13 +439,30 @@ A workflow now returns `version` alongside its other fields, and a run returns `
 
 ```
 run:   queued ──▶ running ──▶ succeeded          all three terminal
-                         ├──▶ failed
-                         └──▶ cancelled
+                    ▲   ├──▶ failed
+                    │   └──▶ cancelled
+                    ▼
+                 waiting ──▶ cancelled           Phase 26. Not terminal
 
 step:  running ──▶ succeeded                     both terminal
                └──▶ failed
        skipped                                   entered directly, terminal
 ```
+
+- **`waiting` — Phase 26.** A `core.delay` longer than `MAX_DELAY_MS` (10 s) does not sleep: the
+  engine records its step with its output, leaves it `running`, queues its successors and stops; the
+  caller writes the cursor (carrying `wait: { seq, until }`), sets `waiting` and `wakeAt`, **releases
+  the lease**, makes the run `durable`, resets `attempt` to 0, and schedules a Cloud Tasks delivery to
+  `POST /api/runs/dispatch` for `wakeAt`. That delivery claims the run back to `running` only once
+  `wakeAt <= now()`; an early one is re-armed. The resumed engine finishes the paused step first —
+  so its duration is the wait — then carries on. **A waiting run holds no lease and no container**,
+  so the lease family (D78) does not apply to it, and the sweeper never touches it
+- **Where nothing can wake it** — no `TASKS_QUEUE` — a long wait **fails its step** with a message
+  saying so, rather than holding a request open
+- **Stopping a waiting run** finishes it `cancelled` at once and fails its paused step with *"The run
+  was cancelled while it was waiting."* — the one case where a cancel lands *inside* a step, so the
+  step needs closing. A stop requested while the delay step was executing is seen by the suspend
+  write, which finishes the run cancelled instead of putting it down
 
 - **A run is created in `queued` and claimed into `running`** (Phase 17). `queued` was reserved for
   a future queue in Chapter 1 and never written; it is written now, and it means the run exists and
@@ -478,6 +496,9 @@ step:  running ──▶ succeeded                     both terminal
 | `MAX_DELIVERIES` | 5 | Deliveries a durable run may receive. Matches the queue's `maxAttempts`, so a queue recreated with the wrong flags cannot turn a poison run into an unbounded loop |
 | `MAX_RETRIES` | 3 | A node's `policy.retries` ceiling |
 | `DISPATCH_DEADLINE_SECONDS` | 300 | How long Cloud Tasks waits for the worker. **Above the engine's 120 s**, or the queue would abandon and redeliver a run that was still legitimately executing |
+| `MAX_DELAY_MS` | 10 000 | **Phase 26.** The longest wait spent asleep inside a request. Above it, a `core.delay` suspends the run |
+| `MAX_WAIT_MS` | 30 days | **Phase 26.** The longest a run may wait. Enforced by the node's schema **and** by the engine on the wait it is handed, as every bound here is |
+| `TASK_HORIZON_MS` | 29 days | **Phase 26.** The furthest ahead a task is scheduled. Cloud Tasks refuses more than 30 days; a timer further out is armed at the horizon and re-armed on its early delivery |
 
 The loop cap and the per-node execution cap are **independent**: a malformed graph that defeats one
 still hits the other. No workflow — including one an agent generates — can request an unbounded
@@ -552,7 +573,7 @@ through `assertRole`. Both are server-side and neither depends on the UI hiding 
 | `POST /api/workflows` | `{ name, description?, graph? }` | 201, the workflow |
 | `POST /api/workflows/generate` | `{ prompt, name? }` | 201, `{ workflow, generation }` — see *Generation* |
 | `GET /api/workflows/:id` | — | The workflow |
-| `PATCH /api/workflows/:id` | `{ name?, description?, graph?, visibility? }` | The workflow. `visibility` is **authorised separately** — its creator or an `admin`, not any editor — so the rest of the body may succeed on a request where it alone would be refused, and the 403 names why |
+| `PATCH /api/workflows/:id` | `{ name?, description?, graph?, visibility?, active? }` | The workflow. `visibility` is **authorised separately** — its creator or an `admin`, not any editor — so the rest of the body may succeed on a request where it alone would be refused, and the 403 names why. `active` (Phase 26) is the **active switch**, `editor` like the graph, and **not a version** — see *Trigger shapes* |
 | `POST /api/workflows/:id/share` | — | 201 / 200, the workflow with `shareUrl`. **`admin`** — see *Per-workflow sharing* |
 | `DELETE /api/workflows/:id/share` | — | The workflow with `shareUrl: null`. **`admin`** |
 | `GET /api/share/:token` | — | The redacted graph. **No session** — see *Per-workflow sharing* |
@@ -564,8 +585,9 @@ through `assertRole`. Both are server-side and neither depends on the UI hiding 
 | `GET /api/runs/:id` | — | The run with its steps |
 | `POST /api/runs/:id/cancel` | — | The run as it now stands. `cancelled` if nothing was executing it; otherwise still `running` with `cancelRequested: true` and the engine stopping at its next step boundary. Idempotent by construction |
 | `GET /api/workflows/:id/stream` | — | **SSE.** The workflow's current run, live. `?runId=` pins one |
-| `POST /api/webhook/:token` | any JSON object | 201, the finished run. **No session** — see *Trigger shapes* |
-| `POST /api/cron/tick` | — | The tick outcome. **No session**, `CRON_SECRET` required |
+| `POST /api/webhook/:token` | any JSON object | 201, the finished run — or a `waiting` one, if it reached a long delay. **409 `conflict`** if the workflow is switched off. **No session** — see *Trigger shapes* |
+| `POST /api/cron/fire` | `{ workflowId, scheduledFor, token }` | **Phase 26.** A schedule timer's delivery: the outcome. **No session**, `CRON_SECRET` **and** the slot's token required. Always 200 on a delivery it declines — see *Trigger shapes* |
+| `POST /api/cron/tick` | — | The daily sweep's outcome. **No session**, `CRON_SECRET` required |
 | `GET /api/workspaces` | — | Every workspace this **account** is in — the switcher's list |
 | `POST /api/workspaces` | `{ name }` | 201, the workspace. Also **switches to it**, by setting the active-workspace cookie on the response |
 | `POST /api/workspaces/active` | `{ workspaceId }` | The workspace, and sets the cookie. A workspace the caller is not in answers 404 |
@@ -580,9 +602,11 @@ through `assertRole`. Both are server-side and neither depends on the UI hiding 
 | `POST /api/invitations/:token/accept` | — | The workspace, and switches to it. Session required; the **verified email** must match |
 | `POST /api/runs/dispatch` | `{ runId, token }` | **No session** (Phase 17). `CRON_SECRET` **and** the run's own `dispatchToken` both required. Executes or resumes that one run. **Always 200 on a delivery it declines** — a 4xx/5xx tells Cloud Tasks to retry, and every declined case (already finished, already claimed, forged token, deliveries exhausted) is one where retrying is pointless or harmful; the body says which |
 
-Every route above requires a session and is workspace-scoped, **except four**:
-`GET /api/invitations/:token`, `GET /api/share/:token`, and the three machine endpoints
-(`POST /api/webhook/:token`, `POST /api/cron/tick`, `POST /api/runs/dispatch`). The first two are
+Every route above requires a session and is workspace-scoped, **except these**:
+`GET /api/invitations/:token`, `GET /api/share/:token`, and the four machine endpoints
+(`POST /api/webhook/:token`, `POST /api/cron/fire`, `POST /api/cron/tick`, `POST /api/runs/dispatch`).
+`SECURITY.md` → *The unauthenticated surfaces* is the complete list, checked by
+`scripts/verify-security.mjs`. The first two are
 reached by a link holder who may have no account at all.
 
 **`GET /api/share/:token` is the only one of them whose risk is in the response rather than in what
@@ -592,8 +616,9 @@ in one place and not by field selection in the route. The tick and the webhook a
 specified below.
 
 A workflow is returned as `{ id, name, description, graph, runnable, problems, webhookUrl,
-version, visibility, ownerId, shareUrl, sharedAt, scheduleCron, scheduleNextAt, scheduleLastFiredAt,
-createdAt, updatedAt }`. The four Phase 20 fields are safe to send to a member of the workspace:
+version, visibility, ownerId, shareUrl, sharedAt, webhookTokenRotatedAt, scheduleCron, scheduleNextAt,
+scheduleLastFiredAt, scheduleArmed, active, createdAt, updatedAt }`. `scheduleArmed` and `active` are
+Phase 26's: whether a Cloud Tasks timer was created for `scheduleNextAt`, and the active switch. The four Phase 20 fields are safe to send to a member of the workspace:
 `visibility` is a setting they can already infer from seeing this at all, `ownerId` is who made it so
 a client knows whether the viewer may change that setting, and `shareUrl` is a bearer URL granting a
 *redacted* read of a graph every member can already read in full. This shape is **not** what the
@@ -669,8 +694,8 @@ Reading rows also makes "connect mid-run", "reconnect" and "reload the page" one
 |---|---|---|
 | `snapshot` | the whole run, `steps` included — the same shape `GET /api/runs/:id` returns | The first time this stream sees a run, and whenever the run it is following changes |
 | `step` | `{ runId, step }` | A step appeared or changed: started, finished, branched, failed, or grew a log line |
-| `run` | `{ runId, status, attempt, cancelRequested, output, error, finishedAt, durationMs }` — never `steps` | The run's own fields changed |
-| `done` | `{ runId, reason }` — `finished` \| `idle` \| `timeout` | The stream is over. **The client closes the `EventSource` on any reason** |
+| `run` | `{ runId, status, attempt, cancelRequested, wakeAt, output, error, finishedAt, durationMs }` — never `steps` | The run's own fields changed. `wakeAt` is Phase 26's |
+| `done` | `{ runId, reason }` — `finished` \| `waiting` \| `idle` \| `timeout` | The stream is over. **The client closes the `EventSource` on any reason** (and the canvas re-arms a fresh one). `waiting` is Phase 26's: the run it followed was put down until its wake time |
 | `stream_error` | `{ message }` | The stream cannot continue. Named `stream_error` because an event named `error` arrives on an `EventSource` indistinguishably from a transport failure |
 
 `attempt` and `cancelRequested` joined the patch in Phase 17, and they are in the run's
@@ -700,9 +725,15 @@ second window, and it adopted the wrong run the first time it ran against Cloud 
 given up is a run that starts *and* finishes inside a single poll interval, and there the client
 already has the final state from `POST /runs`.
 
+**Phase 26 — a baseline that can wake.** A run that is `waiting` at the first poll is resting like a
+finished one, so it becomes a baseline too — otherwise every reconnect during a two-day wait would
+snapshot it and close at once. Unlike a finished baseline it comes back: the moment it is read as
+anything other than `waiting`, it is followed and the baseline is dropped. `baselineWaiting` is the
+one bit that tells the two kinds apart (`followDecision` in `lib/engine/stream.ts`).
+
 ### It is never idle for long
 
-Cloud Run bills CPU for as long as a stream is open. A stream closes on a terminal run, after
+Cloud Run bills CPU for as long as a stream is open. A stream closes on a terminal or `waiting` run, after
 `STREAM_IDLE_MS` (20 s) if no run ever appears, and at `STREAM_MAX_MS` (150 s) regardless — above
 the engine's 120 s deadline so a legitimate run is never cut off by its watcher.
 
@@ -1388,7 +1419,7 @@ allows **exactly one per workflow**.
 |---|---|---|
 | `core.manual_trigger` | a person presses Run, or `POST /api/workflows/:id/runs` | the JSON the run was started with |
 | `core.webhook_trigger` | something POSTs to the workflow's webhook URL | the posted JSON body |
-| `core.schedule_trigger` | a cron slot comes due and the tick sweeps it | `{ firedAt, cron, scheduledFor }` |
+| `core.schedule_trigger` | a cron slot comes due and its timer is delivered (Phase 26; the daily sweep catches a lost one) | `{ firedAt, cron, scheduledFor }` |
 
 Neither new trigger is `agentCallable` (D19). Starting a run is not a capability to hand a model in
 the middle of one.
@@ -1425,6 +1456,9 @@ a user's model quota:
 2. The workflow must exist **and** its stored graph must hold a webhook trigger. Both failures answer
    the same `404 "No webhook is registered at this URL."` — whoever holds the token learns nothing
    from the difference.
+   - **Then the active switch (Phase 26).** A switched-off workflow answers **`409 conflict`** and
+     writes nothing. Not 404, because the URL is right and "check your URL" is the wrong instruction;
+     not 503, because nothing is unavailable and a sender that retries 5xx would retry for days.
 3. The body must be ≤ 64 KB (`MAX_WEBHOOK_BODY_BYTES`), counted in **bytes**, not characters.
 4. An absent or whitespace body is `{}`. A webhook that only says "something happened" is legitimate.
 5. It must be a JSON **object** — not an array or a scalar — or `{{trigger.field}}` has nothing to
@@ -1464,6 +1498,51 @@ recomputed.** A schedule that already fired for 09:00 today holds tomorrow 09:00
 08:59 would move it back to today and fire the same slot twice. Keeping it also means a *missed* due
 time survives a save and is caught up, rather than an edit silently skipping it.
 
+### The active switch — **Phase 26**
+
+`workflow.active`, default `true`. It governs only what runs a workflow **by itself**:
+
+| | Switched off | Switched back on |
+|---|---|---|
+| Webhook | `409 conflict`, no run written | accepts again |
+| Schedule | `scheduleNextAt` cleared, so nothing is due and any armed timer is declined as stale | `scheduleNextAt` recomputed **from now** and a timer armed. Slots missed while off are **not** caught up |
+| Manual run | still works | still works |
+
+Changed with `PATCH /api/workflows/:id { "active": false }`, `editor`. Not a version — like
+visibility, it is a fact about the present, not about what the workflow is.
+
+### Schedule timers — **Phase 26**
+
+**A schedule fires when a Cloud Tasks task armed for its due time is delivered.** The task is armed
+when the workflow is created or saved with a due time that has no timer, when it is switched on, and
+by the firing itself for the next slot. `workflow.scheduleArmedFor` records the slot a timer was
+created for; **the schedule is armed exactly when it equals `scheduleNextAt`**, so a save that moves
+the due time disarms it with no second write. It records that a task was *created*, not that it still
+exists — which is why the daily sweep re-arms anything due within 26 hours regardless.
+
+**The D42 rule changed in one word.** When the expression is unchanged the stored due time is still
+kept — but "kept" now means **the save does not write the column at all**. Writing back the value
+the save had read is the same thing unless a timer claims the slot in between; then the save would
+put the fired slot back and it would fire twice.
+
+### `POST /api/cron/fire` — a timer's delivery, with no session
+
+Two gates, as the dispatch route has (D82): `CRON_SECRET`, then `token` — an HMAC-SHA256 over
+`(workflowId, scheduledFor)` keyed by `AUTH_SECRET`, pattern-checked (43 base64url characters)
+before anything else. It authorises **one slot of one workflow**. Then, cheapest first:
+
+| Outcome | When | Effect |
+|---|---|---|
+| `declined` / `forged` | the token does not verify | nothing; no query beyond none |
+| `declined` / `gone` | the workflow no longer exists | nothing |
+| `declined` / `stale` | switched off, or `scheduleNextAt` is no longer this slot | **zero runs** |
+| `rearmed` | the slot is current but not yet due (beyond the horizon, or a clock) | a new timer |
+| `fired` | due: claimed by compare-and-set, a **durable** run started, the next slot armed | one run |
+| `skipped` / `cleared` | lost the claim to another delivery / the schedule trigger is gone | as in the sweep |
+
+Always `200`, so Cloud Tasks never retries a decline. Every delivery is logged as
+`schedule.delivered` with its outcome.
+
 ### `POST /api/cron/tick` — the second route with no session
 
 Guarded by `CRON_SECRET` in the `x-cron-secret` header (`Authorization: Bearer` is also accepted),
@@ -1471,8 +1550,8 @@ compared in **constant time** — this endpoint acts across every owner, so a `=
 secret's length and prefix is not acceptable. Anything without the secret is `401`, and a signed-in
 session is **not** a substitute: it is a machine endpoint. POST only.
 
-Each tick selects at most `MAX_FIRES_PER_TICK` (3) workflows whose `scheduleNextAt` is due, ordered
-by due time, then for each one:
+Each tick selects at most `MAX_FIRES_PER_TICK` (25 since Phase 17; it was 3) **active** workflows
+whose `scheduleNextAt` is due, ordered by due time, then for each one:
 
 1. If the graph no longer holds a schedule trigger, `scheduleNextAt` is set to null and it is
    reported as `cleared` — otherwise it would be selected on every tick for ever.
@@ -1485,16 +1564,23 @@ by due time, then for each one:
 3. The claim happens **before** the run, never after, so a run that kills the container loses its
    slot instead of re-firing for ever.
 
-Response: `{ checkedAt, due, fired: [{ workflowId, runId, status, scheduledFor }], skipped, cleared }`.
-Runs are attributed `trigger: "schedule"` and receive `{ scheduledFor, firedAt, cron }` as input.
+Response: `{ checkedAt, due, fired: [{ workflowId, runId, status, scheduledFor, queued }], skipped,
+cleared, armed, woken, swept, pruned }`. Runs are attributed `trigger: "schedule"` and receive
+`{ scheduledFor, firedAt, cron }` as input.
 
-The bound of 3 is not tuning: runs are synchronous and in-process, so the tick holds its request open
-for the sum of its runs. Three at the engine's 120 s ceiling is 360 s, inside the Scheduler job's
-540 s attempt deadline. Anything still due stays due and is taken by the next tick.
+**Since Phase 26 this is a daily safety sweep, not the clock.** On top of firing what is due (now
+only slots whose timer was lost), it arms every unarmed schedule and every schedule due within 26
+hours (`armed`), re-schedules the wake of any `waiting` run more than ten minutes past `wakeAt`
+(`woken`), sweeps abandoned runs and prunes the audit log.
 
-**Tick cadence is a cost decision, recorded in `DEPLOYMENT.md`:** every 15 minutes, not every minute.
-The effective resolution of a cron expression is therefore the tick interval — a run starts at or
-shortly after its slot, never on the second.
+The bound was 3 while runs were synchronous and in-process — the tick held its request open for the
+sum of its runs, and three at the engine's 120 s ceiling was 360 s inside the job's 540 s deadline.
+**Corrected in Phase 26, where this paragraph was found stale:** Phase 17 made scheduled runs durable,
+so the tick only enqueues and the bound became 25. Anything still due stays due.
+
+**Tick cadence is a cost decision, recorded in `DEPLOYMENT.md`:** once a day since Phase 26 (every
+15 minutes before it). A cron expression's resolution is no longer the tick interval: a timer fires
+at its slot, plus a cold start when the service is asleep.
 
 ## Integration nodes and their credentials — **DEFINED** (Phase 9, extended in Phase 23B)
 

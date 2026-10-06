@@ -25,7 +25,7 @@ export interface DayBucket {
   succeeded: number;
   failed: number;
   cancelled: number;
-  /** `queued` and `running` — a run that was in flight when the window was read. */
+  /** `queued`, `running` and (Phase 26) `waiting` — a run not yet settled when the window was read. */
   other: number;
   total: number;
 }
