@@ -18,6 +18,23 @@ that is the point, and it is the one thing a stranger notices in the first secon
 The direction was chosen deliberately in `BUILD_PLAN.md` Chapter 2 and is **binding**. It is not
 re-litigated phase by phase.
 
+### Themes — decided 2026-10-06, built in Phases 27–28
+
+**Toybox gains a dark theme, "Toybox Night", and a System option** (`DECISIONS.md` D110, chosen by
+the user, superseding D65's light-only). Three things do not move:
+
+- **Light is the default and the reference.** The product opens in Light even for a visitor whose OS
+  is dark, and everything in this file describes Light unless it says otherwise
+- **Night is Toybox, not a dark IDE.** Same outlines, same hard no-blur shadows, same press, same
+  saturation — and the same gates, run per theme
+- **Until Phase 27 lands, light-only is still what the build enforces.** `tokens.test.ts` asserts
+  `color-scheme: light`, and Phase 27 is what changes that assertion
+
+**The problem Phase 27 must solve first** is that `--color-ink` does four jobs today: text, the
+label on a `-pop` fill, the outline, and the shadow. On a cream page one value does all four. On a
+dark page it cannot. `BUILD_PLAN.md` → *Phase 27* lays it out, along with the traps this file
+already names: the glow, the focus ring on a dark object, and the outline that carries separation.
+
 ---
 
 ## The one rule the whole system turns on

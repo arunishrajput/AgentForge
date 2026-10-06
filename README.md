@@ -243,6 +243,16 @@ provider, and this documentation.
 It is live, it works, and [`PROGRESS.md`](./PROGRESS.md) is the honest status board — including
 what is unfinished.
 
+**What comes next** is Chapter 3, planned phase by phase in [`BUILD_PLAN.md`](./BUILD_PLAN.md):
+
+- schedules that fire without a frequent cron
+- a dark theme beside the light one
+- undo, copy and paste, and a test loop on the canvas
+- run history and retries
+- a copilot that edits and repairs workflows by conversation
+- error paths, approval steps and sub-workflows
+- forms, and a public API
+
 <img src="./docs/assets/landing.png" alt="The deployed AgentForge landing page — 'Describe the automation. Get a workflow that runs.'" width="100%" />
 
 ---

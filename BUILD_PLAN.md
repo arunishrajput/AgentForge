@@ -1,1690 +1,980 @@
 # BUILD_PLAN.md — AgentForge
 
-The phase roadmap. **One session, one phase.** Do not start a later phase while a required earlier
-phase is incomplete. Current position is in `PROGRESS.md`, not here.
+The phase roadmap and the **scope contract**. **One session, one phase.** Do not start a later
+phase while a required earlier phase is incomplete. Current position is in `PROGRESS.md`, not here.
+
+**Chapters 1 and 2 (phases 0–25) are complete**, and their phase definitions were moved verbatim to
+[`archive/build-plan-chapters-1-2.md`](./archive/build-plan-chapters-1-2.md) on 2026-10-06. When
+code, a comment or a document cites "`BUILD_PLAN.md` Phase 16" — or any phase 0–25 — that archive
+is the file it means.
 
 ---
 
 ## The ladder
 
-**Chapter 1 — the hackathon MVP. Phases 0–12, all COMPLETE and shipped.**
+**Chapter 1 — the hackathon MVP. Phases 0–12. COMPLETE, shipped 2026-09-26.**
 
 ```
- 0  Setup, prerequisites, and foundation decision                             ✅
- 1  Application skeleton running locally with Google auth                     ✅
- 2  FIRST DEPLOY — skeleton live on a public URL                              ✅
- 3  Data model + node registry + execution engine core                        ✅
- 4  Visual canvas — build, edit, save, load workflows                         ✅
- 5  Live execution — per-node status and log streaming                        ✅
- 6  Agent layer — LLM node, agent node with tool-calling                      ✅
- 7  Natural language → workflow generation                                    ✅
- 8  Triggers — webhook + schedule                                             ✅
- 9  Integration nodes — Sheets, Gmail, Discord, HTTP                          ✅
-10  UI/UX pass — design system, motion, responsiveness                        ✅
-11  Hardening — demo-path reliability, critical-path tests                    ✅
-12  Demo readiness and final ship                                             ✅
+ 0  Setup and foundation decision   ✅      7  Natural language → workflow  ✅
+ 1  Skeleton with Google auth       ✅      8  Triggers — webhook, schedule ✅
+ 2  First deploy                    ✅      9  Integrations                 ✅
+ 3  Data model, registry, engine    ✅     10  Design system pass           ✅
+ 4  Visual canvas                   ✅     11  Hardening                    ✅
+ 5  Live execution streaming        ✅     12  Demo readiness and ship      ✅
+ 6  Agent layer                     ✅
 ```
 
-**Chapter 2 — the real product. Phases 13–25. THIS IS THE CURRENT WORK.**
+**Chapter 2 — the open-source product. Phases 13–25. COMPLETE, closed 2026-10-01.**
 
 ```
-13  Reset, verification, and professional foundations   ✅
-14  Toybox — the design system                          ✅
-15  UI rebuild I — the shell                            ✅
-16  UI rebuild II — the canvas                          ✅
-17  Durable execution — a real queue, resumable runs    ✅
-18  Workflow versioning and diffing                     ✅
-19A Workspaces — the data model and scoping             ✅
-19B Membership — invitations and the switcher           ✅
-20  Roles, permissions and sharing                      ✅
-21  Credential vault and rotation                       ✅
-22  Observability and run analytics                     ✅
-23A Transform, control flow, templates, node docs       ✅
-23B SaaS integrations — Slack, Notion, GitHub, Airtable ✅ (2 of 4 real-service proven)
-23C The Postgres node                                   ✅
-23D The second LLM provider                             ✅
-24  Documentation and open-source readiness            ← START HERE
-25  Launch polish
+13  Reset, verification, CI        ✅     20  Roles, permissions, sharing     ✅
+14  Toybox design system           ✅     21  Credential vault and rotation   ✅
+15  UI rebuild I — the shell       ✅     22  Observability and analytics     ✅
+16  UI rebuild II — the canvas     ✅     23A Transform nodes, templates      ✅
+17  Durable execution              ✅     23B Slack, Notion, GitHub, Airtable ✅
+18  Versioning and diffing         ✅     23C The Postgres node               ✅
+19A Workspaces — data model        ✅     23D The second LLM provider         ✅
+19B Membership and invitations     ✅     24  Docs and open-source readiness  ✅
+                                          25  Launch polish                   ✅
 ```
 
-### Rules for this ladder
+**Chapter 3 — a product people use every day. Phases 26–42. THIS IS THE CURRENT WORK.**
 
-- **Phases 0–12 are history.** Do not reopen one. If Chapter 1 left a defect, it is an item inside a
-  Chapter 2 phase, not a reason to re-run an old phase
-- **Work them in order.** The dependencies are real: the design system precedes the UI rebuild, the
-  execution rewrite precedes the data-model migration, and documentation comes after the thing it
-  documents exists
-- **Every phase ends with the deployed environment still working.** Unchanged from Chapter 1, and
-  still the rule
-- **The cost ceiling is still zero.** A phase that needs paid infrastructure stops and escalates —
-  it does not quietly provision. See *The zero-cost problem*
-- **Phases 14–16 and 19 are large.** Splitting one across sessions is expected, not a failure —
-  record the split here when it happens
-- **There is no cut line any more.** Chapter 1 had a demo to reach; Chapter 2 has no deadline, so
-  quality is the constraint that binds instead of time
+```
+26  Timers — schedules that fire, at zero idle cost       ← START HERE
+27  Themes I — Toybox Night: tokens, gates, switching
+28  Themes II — every screen in both themes
+29  Canvas I — editing ergonomics
+30  Canvas II — sticky notes and disabled nodes
+31  Canvas III — the test loop: pinned data and partial runs
+32  Library — organising workflows
+33  Runs — history and recovery
+34  Generator at scale — catalogue selection and evals
+35  Copilot I — edit a workflow by conversation
+36  Copilot II — explain and repair
+37  Workflows I — when things go wrong
+38  Workflows II — human in the loop
+39  Workflows III — composition: sub-workflows, workflow tools, merge
+40  Workflows IV — public entry points: forms and webhook responses
+41  Public API — personal access tokens
+42  Chapter 3 launch polish
+```
 
-### Changes from the original brief's ladder
+**Move the `← START HERE` marker when a phase closes.** Chapter 2 forgot to, and the marker sat on
+Phase 24 after 24 and 25 were both done — a heading that names a phase goes stale the moment that
+phase ends.
 
-| Change | Reason |
+---
+
+# Chapter 3 — a product people use every day
+
+**Chapter 2 made AgentForge real and legible. Chapter 3 makes it something a person reaches for
+every day** — easier to build with, safer to rely on, and able to automate work that needs judgement,
+waiting, people and other workflows.
+
+**Planned on 2026-10-06 with the user**, who chose:
+
+| Decision | Value |
 |---|---|
-| Node registry moved from Phase 8 into **Phase 3** | The agent's tool surface *is* the registry, so Phase 6 depended on Phase 8. The engine needs the dispatch table in Phase 3 anyway. See `ARCHITECTURE.md` → *The node registry is the spine* |
-| Original Phase 8 split into **8 (triggers)** and **9 (integrations)** | Webhook + schedule + registry + four integrations cannot land in one session |
-| UI/UX → 10, hardening → 11, ship → 12 | Consequence of the split. The old "stretch 13–14" slots were replaced wholesale by Chapter 2 |
-| Cut order restated as **10 → 9 → 8** | The brief said "cut 8–9 before 6–7"; these are the same phases after renumbering |
-
----
-
-## Phase 0 — Setup, prerequisites, and foundation decision
-
-**Objective.** A verified working environment, a decided and recorded foundation, and every cloud
-resource the build needs either provisioned or explicitly blocked on a named manual action.
-
-**Dependencies.** None. The docs and the GitHub repo already exist.
-
-**Tasks.**
-
-*Part A — Foundation decision (do first, timebox ~2 h)*
-1. Evaluate the candidates in `ARCHITECTURE.md` → *Foundation Decision* against the six criteria
-2. **Verify licences from source**, including whether n8n's Sustainable Use License still restricts
-   hosting a competing product
-3. Choose fork / harvest / build lean. Bias toward whatever reaches a deployed, demoable state
-   fastest
-4. Record the decision, the alternatives, and the reasoning in `ARCHITECTURE.md`. Remove the
-   `NOT YET DECIDED` marker. **The decision becomes binding**
-
-*Part B — Repository and environment*
-5. Confirm the repo, remote, and that push and pull both work (test, do not assume)
-6. Confirm `.gitignore` covers the chosen stack's build output and dependency directories
-7. Verify runtimes and CLIs with actual version checks
-
-*Part C — Cloud and service prerequisites*
-8. `gcloud auth login`, create or select the Google Cloud project, confirm billing is enabled
-9. Enable the APIs: Cloud Run, Cloud Build, Artifact Registry, Cloud Scheduler
-10. Create the Neon project and database; verify with a real query
-11. Create the Google OAuth client with **localhost redirect URIs only** (manual action)
-12. Obtain a Gemini API key (manual action)
-13. Create a Discord webhook URL for the demo target channel (manual action)
-14. Record every resource in `PROGRESS.md` → *Cloud Resource Inventory* and `DEPLOYMENT.md`
-
-*Part D — Resource strategy*
-15. Before creating anything, check whether it already exists. Record naming conventions, region,
-    and dependencies between resources
-
-*Part E — Verification*
-16. Prove the environment works: versions print, `gcloud` is authenticated, the database answers a
-    query, git pushes
-
-**Primary files/areas.** `ARCHITECTURE.md`, `PROGRESS.md`, `DEPLOYMENT.md`, `.gitignore`, `.env`
-(local, never committed).
-
-**Implementation notes.**
-- Do not install application dependencies or write application code. That is Phase 1
-- `gcloud` is installed but has **no credentialed account** — expect an interactive login
-- Cloud Run needs a billing account even for the Always Free tier. The $300 / 90-day credit covers
-  everything in this build
-- Pick **one region** and record it. Everything else follows it
-- Neon gives two connection strings. The pooled one is the app's; the direct one is for migrations
-
-**Validation steps.**
-```bash
-gcloud auth list                      # a credentialed account
-gcloud config get-value project       # the project id
-gcloud services list --enabled | grep -E 'run|cloudbuild|scheduler'
-git push --dry-run                    # remote reachable
-```
-Plus one real query against Neon.
-
-**Completion criteria.** Foundation decision recorded and binding. Every CLI authenticated. Project,
-APIs, and database exist and respond. Manual actions either done and verified, or recorded in
-`PROGRESS.md` with exact steps. `.env.example` matches what the chosen stack actually needs.
-
-**Documentation updates.** `ARCHITECTURE.md` (Foundation Decision, now binding), `PROGRESS.md`
-(inventory, manual actions, next action), `DEPLOYMENT.md` (real resource names and region),
-`.env.example` if the stack changed what is needed.
-
-**Commit.** `chore: complete phase 00 environment setup and foundation decision`
-
----
-
-## Phase 1 — Application skeleton running locally with Google auth
-
-**Objective.** The chosen foundation runs locally, and a real Google sign-in works end to end
-against the Neon database.
-
-**Dependencies.** Phase 0 complete. OAuth client with localhost redirect. Neon reachable.
-
-**Tasks.**
-1. Scaffold or clone-and-strip per the Phase 0 decision
-2. Wire the database connection using the pooled URL; migrations use the unpooled URL
-3. Auth: Google provider, session persistence, user records in Postgres
-4. A minimal authenticated shell: sign in, see a page that only a signed-in user can see, sign out
-5. A `Dockerfile` that builds and runs the app — **written now, not in Phase 2**
-6. A health endpoint that checks the database
-7. `README.md`: real local setup and run instructions
-
-**Primary files/areas.** App scaffold, auth configuration, database client and schema/migrations,
-`Dockerfile`, health route, `README.md`.
-
-**Implementation notes.**
-- Build the `Dockerfile` here so Phase 2 is a deploy, not a deploy *plus* a containerisation
-  debugging session. Cloud Run needs the container to listen on `$PORT`
-- Keep the schema to what auth needs. Workflow tables are Phase 3
-- Do not build the canvas, the engine, or any styling beyond what is legible
-
-**Validation steps.**
-```bash
-docker build -t agentforge . && docker run -p 8080:8080 --env-file .env agentforge
-curl -fsS localhost:8080/api/health
-```
-Then sign in with Google in a browser and confirm a user row exists in Neon.
-
-**Completion criteria.** App runs locally and in a local container. Google sign-in completes, a
-session persists across reload, and a user row is written. Health endpoint reports the database as
-reachable.
-
-**Documentation updates.** `PROGRESS.md`; `ARCHITECTURE.md` if the Phase 0 decision changed the
-stack; `CONTRACT.md` → env var contract if variables changed; `README.md`.
-
-**Commit.** `feat: complete phase 01 application skeleton with google auth`
-
----
-
-## Phase 2 — FIRST DEPLOY: skeleton live on a public URL, auth working in production
-
-**Objective.** A publicly reachable HTTPS URL running the Phase 1 skeleton, with Google sign-in
-working **in production**.
-
-**NON-NEGOTIABLE.** If this is not live and reachable at the end of the session, stop and tell the
-user. Do not proceed to Phase 3.
-
-**Dependencies.** Phase 1 complete, including a working `Dockerfile`.
-
-**Tasks.**
-1. Deploy: `gcloud run deploy agentforge --source . --region <REGION> --allow-unauthenticated`
-2. Capture the real service URL
-3. **Manual action:** add the production redirect URI to the OAuth client, and the production
-   origin to authorised origins
-4. Set production environment variables on the service, including `AUTH_URL` / `APP_BASE_URL` set
-   to the real URL
-5. Run migrations against the production database
-6. Set `min-instances=1` for the hackathon window to remove cold starts
-7. Verify behaviour, not exit codes
-8. Write the real deploy and verify commands into `DEPLOYMENT.md`, with a rollback procedure
-
-**Primary files/areas.** `DEPLOYMENT.md`, Cloud Run service configuration, OAuth client settings,
-possibly `Dockerfile` if the build fails on Cloud Build.
-
-**Implementation notes.**
-- The redirect URI is the classic failure here: it cannot be registered before the URL exists —
-  **except that it can.** `UNKNOWN — VERIFY` **resolved at Phase 2**: the deterministic
-  `<service>-<project-number>.<region>.run.app` form *does* allow pre-registration, and the
-  predicted URL matched the deployed one exactly
-- `AUTH_URL` must match the deployed origin exactly, or the OAuth callback fails in a way that
-  looks like a client-ID problem
-- Secrets go in via `--set-env-vars` or Secret Manager; never baked into the image
-- If Cloud Build fails, read the build log rather than guessing at the Dockerfile
-
-**Validation steps.**
-```bash
-gcloud run services describe agentforge --region <REGION> --format='value(status.url)'
-curl -fsS <URL>/api/health
-gcloud run services logs read agentforge --region <REGION> --limit 50
-```
-Then, **in a browser from a machine that has never run the project**: load the URL, sign in with
-Google, reload to confirm the session persists, and confirm the user row appears in the production
-database.
-
-**Completion criteria.** The public URL serves the app. Google sign-in completes in production. A
-session survives a reload. The production database has the user row. Logs are readable. Rollback
-is documented and understood.
-
-**Documentation updates.** `DEPLOYMENT.md` (real commands, URL, env vars, rollback),
-`PROGRESS.md` (*Deployed State* with the URL and last-verified timestamp, inventory),
-`README.md` (the live URL).
-
-**Commit.** `feat: complete phase 02 first deploy with production google auth`
-
----
-
-## Phase 3 — Data model + node registry + execution engine core
-
-**Objective.** Workflows persist, the node registry exists, and the engine executes a stored
-workflow end to end with recorded per-node results.
-
-**Dependencies.** Phase 2 deployed and verified.
-
-**Tasks.**
-1. Schema: workflows, nodes, edges (embedded JSON or relational — decide and record), runs,
-   run_steps, credentials
-2. Fill `CONTRACT.md`: workflow/node/edge JSON, run and step record shapes, the node definition
-   interface, the execution state machine
-3. Build the **node registry**: the node definition interface plus a registration table. Seed it
-   with two or three trivial nodes (manual trigger, a transform, a no-op/log node)
-4. Build the engine: topological order, sequential execution, a branch node, a bounded loop node,
-   output threading, step records, failure handling
-5. Workflow CRUD API, owner-scoped
-6. A run-trigger API and a run-history read API
-7. Critical-path tests: save/load round-trip, sequential run, branch run, bounded loop terminates,
-   failure recorded
-8. Deploy and verify on the live URL
-
-**Primary files/areas.** Schema and migrations, `CONTRACT.md`, registry module, engine module,
-workflow and run API routes, tests.
-
-**Implementation notes.**
-- Design the registry for **three** consumers from the start: engine dispatch, canvas palette, and
-  agent tool set. Getting this interface right now is what makes Phases 6 and 9 cheap
-- The loop cap is a safety property, not just a guard. Make it explicit and non-configurable-to-∞
-- Step records should snapshot the node config they ran with — there is no workflow versioning, and
-  this is what keeps run history meaningful after an edit
-- No UI in this phase. Trigger runs over the API
-
-**Validation steps.** Critical-path tests pass. A workflow created over the API, run over the API,
-returns correct per-node step records — first locally, then **against the deployed URL**.
-
-**Completion criteria.** Schema migrated locally and in production. Save/load round-trips
-losslessly. The engine runs sequential, branch, and loop workflows and records steps. Failures are
-recorded with the error. `CONTRACT.md` is filled for everything this phase introduced. Deployed and
-verified.
-
-**Documentation updates.** `CONTRACT.md` (substantial), `ARCHITECTURE.md` (ORM decision, entity
-list), `PROGRESS.md`.
-
-**Commit.** `feat: complete phase 03 data model node registry and execution engine`
-
----
-
-## Phase 4 — Visual canvas: build, edit, save, load workflows
-
-**Objective.** A user can build a workflow visually and it persists correctly.
-
-**Dependencies.** Phase 3 complete. Registry populated enough to render a palette.
-
-**Tasks.**
-1. Canvas with nodes and connections (React Flow, per the Phase 0 leaning)
-2. Node palette driven by the **registry**, not a hardcoded list
-3. Add, connect, move, delete nodes
-4. A per-node configuration panel, its form driven by the node definition's schema
-5. Save and load against the Phase 3 API; a workflow list page
-6. Trigger a run from the canvas, and show the resulting per-node status (static, post-run — live
-   streaming is Phase 5)
-7. Deploy and verify
-
-**Primary files/areas.** Canvas components, palette, node config panel, workflow list, client data
-layer.
-
-**Implementation notes.**
-- The palette and the config forms come from the registry. Hardcoding either means every Phase 9
-  integration needs UI work, which is exactly what the registry design exists to prevent
-- Round-tripping matters more than looking good here. Styling is Phase 10
-- Store node positions — a workflow that reloads with a scrambled layout reads as broken
-
-**Validation steps.** Build a workflow in the browser, save, hard-reload, confirm it returns
-identically including positions. Run it from the canvas and see per-node outcomes. Repeat on the
-deployed URL.
-
-**Completion criteria.** Workflows can be built, edited, saved, and loaded from the browser without
-loss. The palette comes from the registry. Runs can be triggered from the canvas. Deployed and
-verified.
-
-**Documentation updates.** `CONTRACT.md` if the canvas needed shape changes, `PROGRESS.md`.
-
-**Commit.** `feat: complete phase 04 visual workflow canvas`
-
----
-
-## Phase 5 — Live execution: per-node status and log streaming to the UI
-
-**Objective.** While a workflow runs, the canvas shows per-node status transitions and log lines as
-they happen.
-
-**Dependencies.** Phases 3 and 4 complete.
-
-**Tasks.**
-1. Define the SSE event shapes in `CONTRACT.md`
-2. Emit events from the engine at each node transition and log line
-3. An SSE endpoint per run, owner-scoped — **refined during Phase 5 to per *workflow*, with an
-   optional `?runId=` pin.** A webhook-triggered run (Beat 6) is started by somebody else's
-   request, so the browser has no run id to open a stream for. See `CONTRACT.md` → *SSE event
-   messages*
-4. Client subscribes on run start, renders node status on the canvas and a log panel
-5. Close the stream when the run ends; fall back to fetching the run record when no stream is open
-6. Verify streaming works **through Cloud Run**, not only locally
-7. Deploy and verify
-
-**Primary files/areas.** Engine event emission, SSE route, client subscription hook, canvas status
-rendering, log panel, `CONTRACT.md`.
-
-**Implementation notes.**
-- SSE, not WebSocket — see `ARCHITECTURE.md` → *Realtime transport*
-- Cloud Run bills CPU while a stream is open. Open on run start, close on run end, never idle
-- Disable response buffering/compression on the SSE route or events arrive in batches, which looks
-  exactly like a broken stream
-- A mid-run page reload must recover correct state from the run record
-
-**Validation steps.** Run a multi-node workflow on the **deployed URL** and watch statuses and logs
-arrive incrementally. Reload mid-run and confirm state is still correct. Confirm the stream closes.
-
-**Completion criteria.** Per-node status and logs stream live on the deployed URL. Streams close on
-completion. Reload mid-run recovers. Deployed and verified.
-
-**Documentation updates.** `CONTRACT.md` (SSE events), `ARCHITECTURE.md` if anything changed,
-`PROGRESS.md`.
-
-**Commit.** `feat: complete phase 05 live execution streaming`
-
----
-
-## Phase 6 — Agent layer: LLM node, agent node with tool-calling, provider config
-
-**Objective.** An LLM node and an agent node work inside a workflow, using a user-supplied Gemini
-key, with a model chosen in-app.
-
-**Dependencies.** Phase 3 (registry, engine), Phase 5 (so agent steps are visible live).
-
-**Tasks.**
-1. Provider adapter interface; implement Gemini
-2. Settings UI: paste an API key, choose a model. Key encrypted at rest (AES-256-GCM via
-   `ENCRYPTION_KEY`), **never returned to the client in plaintext**
-3. LLM node: prompt template with upstream data interpolation, model call, output forward
-4. Agent node: tool set derived from the registry, bounded tool-calling loop, each tool call
-   surfaced as a visible step
-5. Define the agent tool-call schema in `CONTRACT.md`
-6. Critical-path tests: adapter contract, tool-call loop terminates at the cap, credential
-   encryption round-trip, plaintext never leaves the server
-7. Deploy and verify with a real key
-
-**Primary files/areas.** Provider adapter, credential encryption utility, settings UI and routes,
-LLM node, agent node, `CONTRACT.md`, tests.
-
-**Implementation notes.**
-- Tools come from the registry, filtered to what the workflow may use. **No shell, no filesystem,
-  no arbitrary network beyond the explicit HTTP node**
-- Cap tool-calling iterations hard. An agent that will not converge fails its step rather than
-  burning the user's quota
-- Never log key material, not even truncated, not even in a dev branch
-- Stub or cache model calls while iterating so development costs nothing
-
-**Validation steps.** On the deployed URL: add a key, pick a model, run a workflow with an LLM node,
-then one with an agent node that must choose between tools. Confirm the key is never present in any
-API response. Confirm the iteration cap fires on a deliberately non-converging prompt.
-
-**Completion criteria.** LLM and agent nodes execute in deployed workflows. Model selection works
-in-app. Keys are encrypted at rest and never returned in plaintext. Tool-calling is bounded and
-restricted to the registry. Deployed and verified.
-
-**Documentation updates.** `CONTRACT.md` (tool-call schema, credential shape),
-`ARCHITECTURE.md` (adapter as built), `PROGRESS.md`.
-
-**Refinements made while building it, deliberately.**
-- Task 4 said "each tool call surfaced as a visible step". Tool calls are surfaced as **streamed log
-  lines on the agent's own step**, not as separate `run_step` rows. A step row is keyed by a graph
-  `nodeId`; a tool has none, so inventing one would break the canvas's node→step mapping and the
-  skipped-node accounting. The visibility is identical — the lines appear while the node is still
-  running (D30) — and the full list is also on `output.toolCalls`
-- Task 2 said the key is encrypted and never returned. It is also **verified against the provider
-  before being stored**, and a model choice is verified with a real call (D34), because the
-  catalogue lists models a key cannot serve
-- An agent node routes through `output.decision` plus a branch node rather than through its own
-  output handles (D37), because handles come from the registry entry and cannot depend on a run
-
-**Commit.** `feat: complete phase 06 agent layer and provider configuration`
-
----
-
-## Phase 7 — Natural language → workflow generation
-
-**Objective.** A plain-language request produces a real, valid, executable workflow on the canvas.
-**This is the headline demo moment.**
-
-**Dependencies.** Phases 3, 4, 6.
-
-**Tasks.**
-1. A prompt-entry surface on the workflow list or canvas
-2. Generation: request + registry-derived node catalogue → structured workflow JSON
-3. **Validate hard** against the `CONTRACT.md` schema before persisting. Reject invalid output with
-   a clear message; never save a broken workflow
-4. Persist, then render on the canvas with a sensible auto-layout
-5. Make the generated workflow immediately runnable and immediately editable
-6. Critical-path tests: the demo prompt produces a valid workflow; malformed model output is
-   rejected; generated workflows round-trip
-7. Deploy and verify
-
-**Primary files/areas.** Generation route, prompt assembly, schema validation, auto-layout, prompt
-UI, tests.
-
-**Implementation notes.**
-- Feed the model the registry's node catalogue so it can only reference nodes that exist
-- Use structured output / schema-constrained generation rather than parsing prose
-- Retry once on invalid output, then fail with a readable message. Do not attempt repair loops
-- Auto-layout does not need to be clever, but it must not overlap nodes — an overlapping graph
-  reads as broken on stage
-- **This is the phase least eligible for cuts.** Protect its time
-
-**Validation steps.** On the deployed URL, run the exact `DEMO.md` prompt several times and confirm
-a valid, runnable workflow every time. Confirm an intentionally impossible request fails cleanly.
-Confirm a generated workflow can be edited and re-saved.
-
-**Completion criteria.** The demo prompt reliably produces a valid, runnable, editable workflow on
-the deployed URL. Invalid output is rejected rather than persisted. Deployed and verified.
-
-**Documentation updates.** `CONTRACT.md` (generation request/response), `DEMO.md` (the exact prompt
-that works), `PROGRESS.md`.
-
-**Commit.** `feat: complete phase 07 natural language workflow generation`
-
----
-
-## Phase 8 — Triggers: webhook + schedule
-
-**Objective.** Workflows start from an external HTTP call and on a schedule.
-
-**Dependencies.** Phase 3. Phase 5 for visibility. Cloud Scheduler enabled in Phase 0.
-
-**Tasks.**
-1. Webhook trigger node with a per-trigger **unguessable** URL
-2. Webhook receiver: validate the payload, create a run, pass the body as trigger output
-3. Schedule trigger node with a cron expression
-4. `POST /api/cron/tick`, guarded by `CRON_SECRET`, firing all due schedules
-5. Create the Cloud Scheduler job pointing at it
-6. Surface both in the UI: show the webhook URL with a copy button; show the next scheduled time
-7. Deploy and verify both against the live URL
-
-**Primary files/areas.** Trigger node definitions, webhook route, cron tick route, Cloud Scheduler
-job, trigger UI, `DEPLOYMENT.md`.
-
-**Implementation notes.**
-- Unguessable means a cryptographically random token in the path. Not a sequential id, not a hash
-  of the workflow id
-- The cron tick endpoint must reject anything without the shared secret, and must be idempotent
-  enough that a duplicate tick does not double-fire a schedule
-- Cloud Scheduler's free tier covers this. Record the job in the inventory
-
-**Validation steps.**
-```bash
-curl -X POST <URL>/api/webhook/<token> -d '{"...":"..."}'   # a run appears
-curl -X POST <URL>/api/cron/tick                            # rejected without the secret
-```
-Then confirm a scheduled workflow fires on its own from Cloud Scheduler.
-
-**Completion criteria.** A webhook call creates and runs a workflow on the deployed URL with the
-payload available to nodes. A scheduled workflow fires from Cloud Scheduler. The tick endpoint
-rejects unauthenticated calls. Deployed and verified.
-
-**Documentation updates.** `CONTRACT.md` (trigger shapes, webhook payload), `DEPLOYMENT.md` (the
-Scheduler job, `CRON_SECRET`), `PROGRESS.md` (inventory).
-
-**Commit.** `feat: complete phase 08 webhook and schedule triggers`
-
----
-
-## Phase 9 — Integration nodes: Google Sheets, Gmail, Discord, generic HTTP
-
-**Objective.** Four genuinely working integrations, each a registry entry, therefore each also an
-agent tool.
-
-**Dependencies.** Phases 3, 6. Credentials from Phase 0 / Phase 6.
-
-**Tasks.**
-1. **Generic HTTP node** — method, URL, headers, body, response into workflow data. Build first: it
-   is the simplest and it de-risks the node-authoring path
-2. **Discord node** — post to a stored webhook URL. Credential encrypted at rest
-3. **Google Sheets node** — append a row. Incremental OAuth scope on top of sign-in
-4. **Gmail node** — send a message. Same OAuth path as Sheets
-5. Credential management UI for each, write-only
-6. Confirm each new node appears automatically in the palette *and* the agent tool set
-7. Critical-path test per node against the real service
-8. Deploy and verify each one live
-
-**Primary files/areas.** Four node definitions, Google API client and incremental scope flow,
-credential UI, tests.
-
-**Implementation notes.**
-- Incremental authorisation for Sheets and Gmail: request the extra scopes when the user first uses
-  the node, not at sign-in. Asking for Gmail send access at sign-in is alarming and hurts the demo
-- Store Google refresh tokens encrypted, and handle expiry — an expired token mid-demo is the
-  likeliest live failure
-- If a node cannot be finished, cut **Gmail** first: Sheets plus Discord already satisfies "the
-  result lands in an external service"
-- The HTTP node is not an agent escape hatch: it is a registry entry with a schema, and the agent
-  reaches it the same way it reaches any other node
-
-**Validation steps.** On the deployed URL, run a workflow that posts to Discord, then one that
-appends to a Sheet, then one that sends mail, then one that calls an arbitrary API. Confirm all four
-appear as agent tools and that an agent node can choose one unprompted.
-
-**Completion criteria.** Four integrations work from the deployed app against real services.
-Credentials are encrypted and never returned in plaintext. All four are available to the agent.
-Deployed and verified.
-
-**Documentation updates.** `CONTRACT.md` (node definitions, credential shapes), `DEMO.md` (confirm
-the spine's services work), `PROGRESS.md`.
-
-**Commit.** `feat: complete phase 09 sheets gmail discord and http integrations`
-
----
-
-**Status: COMPLETE, 2026-09-26.** The Sheets and Gmail runtime, left open when the phase shipped,
-was closed after Phase 10 once M8 landed: a real appended row (`Sheet1!A2:D2`, with `{{ }}` resolved
-into cells) and a real sent mail (id `1a0dcf7f7df25cc8`), both through the deployed engine. Two
-defects only reachable past Google's consent screen were found and fixed in the process — see D53 and
-the `gcloud services enable gmail.googleapis.com sheets.googleapis.com` note in `DEPLOYMENT.md`.
-
----
-
-## Phase 10 — UI/UX pass: design system, motion, responsiveness, accessibility
-
-**Objective.** The product looks and feels built on purpose — modern, playful, animated, not an
-enterprise CRUD app.
-
-**Dependencies.** Phases 4–9 functionally complete. **First candidate for cuts under time pressure.**
-
-**Tasks.**
-1. A design system: colour, type scale, spacing, elevation, dark mode
-2. Real motion design: node appearance during generation, execution pulse travelling the graph,
-   status transitions, page transitions. Honour `prefers-reduced-motion`
-3. Responsiveness from ~375 px up. The canvas may degrade gracefully; nothing may break
-4. Accessibility: keyboard-operable primary flows, visible focus, labelled controls, adequate
-   contrast
-5. Empty states, loading states, and readable error states
-6. Deploy and verify on a real phone and a real desktop
-
-**Primary files/areas.** Global styles and tokens, shared components, canvas visuals, motion
-utilities, layout.
-
-**Implementation notes.**
-- The generation moment and the execution animation are what a judge remembers. Spend the motion
-  budget there, not on incidental hover effects
-- Do not restructure working components for aesthetics. Style what exists
-- Animate transforms and opacity. Animating layout on a canvas of many nodes will stutter
-
-**Validation steps.** Walk the whole `DEMO.md` path on the deployed URL at phone and desktop widths.
-Keyboard-only pass of sign-in → generate → run. Confirm nothing regressed functionally.
-
-**Completion criteria.** Consistent design system applied. Motion present on the demo path and
-reduced-motion respected. Usable at 375 px. Primary flows keyboard-operable. No functional
-regression. Deployed and verified.
-
-**Documentation updates.** `PROGRESS.md`, `ARCHITECTURE.md` if component structure changed.
-
-**Commit.** `feat: complete phase 10 design system motion and responsive pass`
-
-**Status: COMPLETE, 2026-09-26** — `agentforge-00017-5k2`. All six tasks landed and were verified on
-the deployed URL in a browser at 1440 px and 375 px. Two refinements worth carrying:
-
-- Task 1's "dark mode" was resolved as **one dark theme, declared** (D48), not a second light theme.
-  The real work it implied was `color-scheme: dark` for native controls
-- Task 5's loading states were **partly reverted**: a route `loading.tsx` over a page whose first act
-  is an auth redirect turns the 307 into a 200 (D51). Empty, error and 404 states all shipped; the
-  navigation skeletons did not
-
----
-
-## Phase 11 — Hardening: demo-path reliability, critical-path tests, error surfaces
-
-**Objective.** The `DEMO.md` path does not fail. Failures elsewhere are legible instead of silent.
-
-**Dependencies.** Phases 1–10.
-
-**Tasks.**
-1. Walk the demo path repeatedly on the deployed URL and fix every failure and rough edge found
-2. Make every critical-path test pass reliably: save/load, engine, tool-calling, generation
-3. Timeouts and a single retry where an external call can hang the demo
-4. Replace every silent failure on the demo path with a visible, readable error
-5. Handle the credential-expiry case for Google integrations
-6. Confirm cold start and Neon wake-up do not break the first interaction
-7. A smoke script that exercises the deployed app end to end
-8. Deploy and verify
-
-**Primary files/areas.** Engine error handling, node error surfaces, client error states, tests,
-smoke script.
-
-**Implementation notes.**
-- Harden **the demo path**, not every code path. That distinction is the whole point of this phase
-- Fix narrowly. Do not rewrite working code to chase a bug
-- Ten consecutive clean demo-path runs is the bar. Anything flaky at this stage will be flaky on
-  stage
-
-**Validation steps.** Ten consecutive clean runs of the full demo path on the deployed URL. All
-critical-path tests green. Smoke script passes against production.
-
-**Completion criteria.** The demo path runs repeatedly without failure. Critical-path tests pass.
-Demo-path errors are visible and readable. Smoke script exists and passes. Deployed and verified.
-
-**Documentation updates.** `PROGRESS.md` (*Known Issues*, honestly), `DEMO.md` (fallbacks),
-`README.md`.
-
-**Commit.** `fix: complete phase 11 demo path hardening and critical path tests`
-
----
-
-## Phase 12 — Demo readiness and final ship
-
-**Objective.** The project is submittable. The demo is rehearsed, the deployment is verified, and
-the repository stands on its own.
-
-**Dependencies.** Phases 0–11.
-
-**Tasks.**
-1. Seed the demo account: example workflows, the Discord channel, the target Sheet
-2. Rehearse the full demo end to end on the deployed URL, timed to 3 minutes
-3. Complete `DEMO.md`: beat-by-beat script, setup state, pre-staged commands, fallbacks, the
-   pre-demo checklist, and what must not be touched
-4. Final `README.md`: live URL, what it does, how to run it, how to deploy it
-5. Confirm `min-instances=1` and warm-up behaviour
-6. Full deployment verification per `DEPLOYMENT.md`
-7. Reconcile every doc against reality; resolve or honestly record every `UNKNOWN — VERIFY`
-8. Confirm no secrets anywhere in the repository or its history
-9. Record the submission material needed by the hackathon (category still `UNKNOWN — VERIFY`)
-
-**Primary files/areas.** `DEMO.md`, `README.md`, `PROGRESS.md`, all docs, seed data.
-
-**Implementation notes.**
-- The demo must not depend on anything fragile being typed live. Pre-stage every command
-- Have a fallback for every external service, including a recording of a successful run
-- This phase is not a feature phase. Resist adding anything
-
-**Validation steps.** A timed 3-minute rehearsal on the deployed URL, twice, from a machine that has
-never run the project. Full `DEPLOYMENT.md` verification. `git log` and a secret scan.
-
-**Completion criteria.** Demo rehearsed inside 3 minutes and reliable. `DEMO.md` complete with
-fallbacks. Deployment verified. Docs match reality. No secrets. **The project is submittable.**
-
-**Documentation updates.** All of them, reconciled.
-
-**Commit.** `docs: complete phase 12 demo readiness and final ship`
-
----
-
-# Chapter 2 — beyond the hackathon
-
-**Phases 0–12 shipped a hackathon MVP. Phases 13–25 turn it into a real product.** The constraints
-that shaped Chapter 1 — a demo script as the scope contract, "unbreakable" redefined as *the demo
-path never fails*, no test suite, features cut for time — **are all lifted**. What replaces them is
-in `CLAUDE.md` → *Operating model*.
-
-**What did not change:** the cost ceiling is still **zero**, and everything below is designed to
-respect it. That is a real constraint, not a leftover — see *The zero-cost problem* below.
-
----
-
-## The zero-cost problem, stated honestly
-
-Four things were restored into scope — teams, versioning, observability, a credential vault — and
-the budget stayed at zero. Those pull against each other. **The resolution, per area:**
-
-| Need | The paid answer | The zero-cost answer here | Risk |
+| **Themes** | **Light, Dark ("Toybox Night") and System. Light stays the default and the reference** — `DECISIONS.md` D110, superseding D65's light-only |
+| **Feature areas** | **All four**: canvas editing power · an AI copilot · more powerful workflows · organisation and daily use |
+| **Size** | **Comprehensive** — 17 phases. One more than the "~14–16" discussed, because two enabling phases are not optional (26 timers, 34 the generator's prompt ceiling) |
+
+**What did not change:** zero cost, Toybox, no arbitrary code execution, Cloud Run + Neon, the
+registry as the spine, and every rule in `CLAUDE.md`.
+
+## Why this order
+
+`DECISIONS.md` D111. **Correctness first, then cross-cutting work before the screens multiply, then
+enabling work before what depends on it.**
+
+- **26 first** because a defect is live: `agentforge-cron` has been `PAUSED` since M12
+  (2026-10-01), so **a schedule trigger saves cleanly, displays a next fire time, and never fires.**
+  For a stranger that is the worst failure a scheduler can have
+- **27–28 next** because a theme touches every screen, and phases 29–41 add a dozen new ones — built
+  after the themes, each is theme-aware from birth instead of retrofitted
+- **29 before 35** so a copilot change the user accepts is undoable for free
+- **33 before 36** so "why did this fail?" has a run detail page to live on
+- **34 before 35–40**, and this is the hard one: see D112 below
+
+## The rules for this ladder
+
+- **Work them in order.** The dependencies are real and each phase names them
+- **Every phase ends with the deployed environment working**, verified on the deployed URL and —
+  for any UI claim — **in a real browser**. The API suites cannot see the page
+- **From Phase 28 onward every UI phase is verified in both Light and Dark.** A screen checked in
+  one theme is a screen checked in half
+- **No new registry node before Phase 34 (D112).** The generation prompt is 24,876 characters
+  against the 26,000 ceiling asserted in `src/lib/nodes/registry.test.ts`, which is one node of
+  headroom. Phases 26–33 extend existing nodes or add things that are not nodes. **Raising the
+  ceiling is not the fix**; Phase 34 is
+- **Every new node owes the registry's five obligations** (`PROGRESS.md` → *Deployed State* →
+  Registry): a `PUBLISHABLE` entry, a `ROTATION_RULES` entry if it carries a credential kind, the
+  `model` output field only if it is a model call, the generator catalogue entry (automatic), and
+  `docs`. `registry.test.ts` asserts all five. `agentCallable` stays opt-in (D19), and
+  `docs/nodes.md` is regenerated with `npm run docs:build`
+- **Every new unauthenticated surface** — the form page, approval links, bearer tokens — **is added
+  to `scripts/verify-security.mjs`'s enumeration and to `SECURITY.md` in the same phase.** Phase 25
+  found three surfaces a hand-kept list had missed
+- **No arbitrary code execution and no expression language. Ever.** `{{ }}` stays lookup (D17).
+  The copilot can propose only registry nodes, and only as a diff a person accepts
+- **Splitting a phase is expected, not a failure** — Chapter 2 split 19 and 23 four ways. Record a
+  split here when it happens, with its reason, the way 23B/23C/23D are recorded in the archive
+- **Re-check a number before designing against it.** Every free-tier figure below was true on the
+  date it was measured; vendors move them
+
+## The zero-cost problem, Chapter 3 edition
+
+**Neon is still the binding constraint**, and its rule is unchanged: **never add a new reason to
+wake an idle database.** Neon meters compute time *awake* (100 CU-hours/month, autosuspend after 5
+minutes, cannot be disabled), so a statement made while a run has already woken it is nearly free
+and a timer that wakes it every few minutes is not. `DEPLOYMENT.md` → *Free-tier headroom* has the
+measured arithmetic; Chapter 2's per-area resolution is in the archive.
+
+| Need | The paid answer | The zero-cost answer here | Phase |
 |---|---|---|---|
-| Durable background execution | Redis + BullMQ + a worker | **Cloud Tasks** → the existing authenticated HTTP endpoint. Generous free tier | Task payload and duration limits |
-| Metrics and error tracking | Datadog / Sentry paid | **Cloud Logging** structured logs + log-based metrics, and run analytics computed from the `run`/`run_step` tables already written | Log volume caps; query cost on Neon |
-| Credential encryption | Cloud KMS managed keys | **Envelope encryption** with the data key in Secret Manager. Cloud KMS is ~$0.06/key/month — *cheap, but not zero* | Rotation is hand-rolled |
-| Multi-user load | Bigger Postgres | Neon free tier, with every new query measured against the budget | **This is the binding one** |
-
-**Neon free tier is 100 CU-hours/month and autosuspend cannot be disabled.** Chapter 1 already had
-to set the cron tick to `*/15` because anything touching the database more often than ~every 6
-minutes pins it awake at 0.25 CU ≈ 180 CU-hours/month — over the allowance. Teams and analytics
-both add query load to that same budget.
-
-> **RESOLVED in Phase 13, 2026-09-26.** Every figure above was checked against the vendors' own
-> pricing pages and this project's live consumption. The measured table, with the re-check commands,
-> is in `DEPLOYMENT.md` → *Free-tier headroom*. In short:
->
-> | Service | Free | Measured use | Verdict |
-> |---|---|---|---|
-> | Neon compute | 100 CU-hours/month, per project | ~61 committed to the `*/15` cron tick | **the binding one — ~39 spare** |
-> | Cloud Tasks | 1,000,000 ops/month, per billing account | 0 | fine: ≈330k runs/month |
-> | Cloud Logging | 50 GiB/month, per project | **6.34 MB / 30 days = 0.0118%** | fine: ~8,000× headroom |
-> | Secret Manager | 6 versions · 10,000 access ops · **3 rotation notifications**/month | 0 | fits, but rotation is tight |
->
-> **Two things changed the plan.** Phase 17 must enqueue a run *id*, not a payload — Cloud Tasks
-> bills per 32 KB chunk. Phase 21 must not subscribe to Secret Manager rotation notifications —
-> only 3/month are free, then $0.05 each, which would be this project's first non-zero line.
->
-> **The last `UNKNOWN — VERIFY` — Neon CU-hours actually *consumed* — was READ on 2026-10-01:**
-> **0.91**, a few hours into a fresh billing period, projecting to ~60 of 100 for a full month with
-> the cron running. `PROGRESS.md` → M9 and `DEPLOYMENT.md` → *Free-tier headroom* carry the
-> arithmetic. It is a **console-only** read on this plan: the consumption API is Scale-and-above and
-> the legacy fields return `0`, which Phase 22 established — the earlier note here that `neonctl` was
-> unauthenticated is **SUPERSEDED**, it is authenticated and still cannot see the number. Phases 19
-> and 22 were in the end designed against the *rule* — never add a new reason to wake an idle
-> database — rather than the balance, and each measured its own cost directly.
+| Timers: schedules, long waits, approval timeouts | A worker with a clock, or a 1-minute cron | **Cloud Tasks scheduled for the exact time** (`scheduleTime`) — no clock in the app, no wake until a timer is due. The `*/15` cron shrinks to a daily safety sweep | 26 |
+| Theme preference | A per-user settings row | **Per browser, applied before first paint.** No column, so no read | 27 |
+| Failure alerts | A mail provider | **An in-app inbox** written in the same statement path as the failure, read on page load, never polled — plus an error-trigger workflow that alerts through a channel the user already connected | 37 |
+| Approval links | A mail provider | **A signed link the author delivers** through Slack, Discord or Gmail nodes they already have | 38 |
+| Hosted forms | A forms SaaS | **A page on the same container** | 40 |
+| API keys | An API gateway | **Hashed tokens in Neon**, checked by the existing auth funnel | 41 |
+| Copilot and evals | A hosted model budget | **The user's own key** for the copilot; evals replayed offline in CI and run live sparingly | 34–36 |
+| Run retention | A storage upgrade | **Pruning on the daily sweep** against Neon's 0.5 GB | 33 |
 
 ---
 
-## Phase 13 — Reset, verification, and professional foundations
+## Phase 26 — Timers: schedules that fire, at zero idle cost
 
-**Objective.** Close out the hackathon posture, prove the zero-cost headroom is real, fix the two
-known defects carried out of Chapter 1, and put a genuine test-and-CI floor under everything that
-follows.
+**Objective.** A schedule trigger fires at its time on the deployed service with no `*/15` cron
+keeping Neon awake; a run can wait minutes to days without holding a container; and a workflow can
+be switched off.
 
-**Dependencies.** None. This is the entry point for Chapter 2.
+**Dependencies.** None — Chapter 2 is complete. Builds on Phase 17's queue (`src/lib/engine/queue.ts`,
+the lease and the cursor) and on D42's compare-and-set claim.
+
+**Why it is first.** Since M12 paused `agentforge-cron` on 2026-10-01, **no schedule trigger fires
+at all**, and nothing in the product says so. Resuming the cron is the cheap fix and costs ~60 of
+Neon's 100 CU-hours a month, because a tick every 15 minutes keeps the database awake around the
+clock. This phase fixes the defect *and* removes that cost.
 
 **Tasks.**
-1. **Fix the agent fallback latency.** `PROGRESS.md` → *Known Issues* records two consecutive runs
-   at ~95 s, of which `decide_urgency` was 91.9 s, because `gemini-3.5-flash-lite` was unavailable
-   and the adapter retried twice before falling down the chain. Make the fallback cheap: shorter
-   per-model budget, a circuit breaker that remembers a model is failing, and model health surfaced
-   rather than buried in a step log.
-2. **Verify the free-tier headroom** and write the real numbers into `DEPLOYMENT.md`: Neon CU-hours
-   consumed to date and the ceiling; Cloud Tasks free-tier limits; Cloud Logging ingestion
-   allowance; Secret Manager free tier. Replace every `UNKNOWN — VERIFY` above with a measured
-   figure or an escalation.
-3. **A real test suite floor.** Chapter 1 ran 297 tests on Node's built-in runner with no coverage
-   measurement. Keep the runner; add coverage reporting, and raise critical-path coverage on the
-   engine, the registry, the generator and the agent loop.
-4. **CI on GitHub Actions** — typecheck, lint, test, build on every push and PR. Branch protection
-   on `main`. This is the first phase where CI exists at all.
-5. **Rotate the working model default** to whichever Gemini model the Phase 13 probe finds
-   healthy, and record how to re-probe.
-
-**Primary files.** `src/lib/providers/*`, `scripts/*`, `.github/workflows/ci.yml`, `DEPLOYMENT.md`,
-`PROGRESS.md`, `package.json`.
-
-**Implementation notes.** Do not start the design system before this lands — a red CI pipeline
-during a full UI rewrite is how a project stops being recoverable. The circuit breaker belongs in
-the provider adapter, not in the agent node, so every caller benefits.
-
-**Validation steps.** CI green on a pull request. An agent run completes in the single-digit
-seconds when the primary model is healthy, and degrades in **under 15 s**, not 92 s, when it is not.
-Coverage report generated and committed to the run output.
-
-**Completion criteria.** CI passes on `main`. The latency issue is closed in `PROGRESS.md` with a
-measured before/after. Every free-tier figure in this file is a real number or an open escalation.
-
-**Documentation updates.** `PROGRESS.md`, `DEPLOYMENT.md`, `ARCHITECTURE.md` (provider adapter).
-
-**Commit.** `feat: complete phase 13 reset, verification and CI foundations`
-
----
-
-## Phase 14 — Toybox: the design system
-
-**Objective.** A complete, documented, playful design language — the thing every later UI phase is
-built from. **This is the phase that changes what AgentForge looks like.**
-
-**Dependencies.** Phase 13 (CI must be green before a rewrite of this size).
-
-**The direction, decided and binding.** *Bright and playful, light-first.* Saturated colour, thick
-dark outlines, chunky offset shadows, fat rounded corners, springy motion. The reference is a
-well-made toy: tactile, friendly, obviously clickable. **Not** a dark IDE, which is what every
-competing tool looks like.
-
-**Tasks.**
-1. **Tokens.** Replace the Chapter 1 dark palette in `src/app/globals.css` with the Toybox scale:
-   a cream page (`#FFF6E5` family), near-black ink for outlines and text, and a saturated accent
-   family per node category. Keep the existing `@theme` / `@utility` structure — it works, and no
-   component library is being introduced.
-2. **Primitives.** Button, input, select, card, badge, dialog, toast, tooltip, tab, menu — each
-   with the outline-plus-hard-shadow treatment and a squish-on-press interaction.
-3. **Motion.** A spring vocabulary: press, hover-lift, enter, exit, success, failure. Everything
-   respects `prefers-reduced-motion`, which Chapter 1 already handles in two places and both must
-   keep working.
-4. **Illustration and character.** An empty-state illustration set and a simple mascot used in
-   empty states, errors, and the agent "thinking" indicator.
-5. **A living gallery** at `/design` rendering every token, primitive and motion state on one page.
-   This is the reference for later phases and doubles as a screenshot source for the README.
-6. **`DESIGN.md`** — the written spec: what the language is, when to use each primitive, the
-   accessibility rules that constrain it.
-
-**Primary files.** `src/app/globals.css`, `src/components/ui/*` (new), `src/app/design/*` (new),
-`DESIGN.md` (new), `public/illustrations/*` (new).
-
-**Implementation notes.** **Playful must not cost legibility.** Thick outlines and high-contrast
-ink actually help contrast ratios — but saturated accent-on-cream is where AA fails, so check every
-pairing. A cartoon look earns goodwill on the landing page and gets in the way in a settings form;
-the system needs a quiet register as well as a loud one, and `DESIGN.md` must say which is which.
-Do not ship a mascot that appears during error states in a way that reads as flippant when
-someone's workflow just failed.
-
-**Validation steps.** `/design` renders every primitive on the deployed URL. Contrast checked on
-every token pair used for text. Reduced-motion verified. No regression in the existing app, which
-will look broken-but-functional until Phases 15–16 land — that is expected and must be recorded.
-
-**Completion criteria.** The gallery is complete and deployed, `DESIGN.md` is written, and every
-primitive is keyboard-operable with a visible focus state.
-
-**Documentation updates.** `DESIGN.md` (new), `ARCHITECTURE.md`, `PROGRESS.md`, `CONTRACT.md` if
-any token name becomes a shared contract.
-
-**Commit.** `feat: complete phase 14 toybox design system`
-
----
-
-## Phase 15 — UI rebuild I: the shell
-
-**Objective.** Everything except the canvas, rebuilt in Toybox: landing, sign-in, workflow list,
-settings, navigation, empty and error states.
-
-**Dependencies.** Phase 14.
-
-**Tasks.** Rebuild the landing page as a real product page — what it is, what it does, a visible
-demonstration, a call to action. Rebuild the workflow list with search, filter, sort and a genuinely
-good empty state. Rebuild settings: provider config, integrations, account. Rebuild `error.tsx` and
-`not-found.tsx` in the new language. Add a global toast system and a command palette.
-
-**Primary files.** `src/app/page.tsx`, `src/app/workflows/page.tsx`, `src/app/settings/*`,
-`src/components/*`.
-
-**Implementation notes.** The landing page is the single most important screen for an open-source
-showpiece — it is what a GitHub visitor sees first. Budget real time for it. Preserve every
-accessibility property Chapter 1's Phase 10 established; do not regress keyboard operability while
-chasing the look. The two client components that format dates must keep formatting in UTC with a
-fixed locale or React throws hydration error #418.
-
-**Validation steps.** Every route renders correctly on the deployed URL at 1920 px, 1024 px and
-375 px. Keyboard-only walk of sign-in → list → settings. Zero console errors.
-
-**Completion criteria.** No screen outside the canvas still uses a Chapter 1 style. Deployed and
-verified in a real browser.
-
-**Documentation updates.** `PROGRESS.md`, `DESIGN.md` if the system gained anything.
-
-**Commit.** `feat: complete phase 15 shell rebuild in toybox`
-
----
-
-## Phase 16 — UI rebuild II: the canvas
-
-**Objective.** The screen the product exists for, rebuilt: node cards, edges, palette, inspector
-and the live run panel.
-
-**Dependencies.** Phase 15.
-
-**Tasks.** Node cards as chunky outlined objects with a category colour, an icon and a legible
-status. Edges with real weight and animated flow while running. A palette that is browsable and
-searchable rather than a long list. An inspector that makes configuration feel like filling in a
-form on a nice object. A run panel where agent reasoning is pleasant to read. Node status as
-character: idle, thinking, succeeded, failed, skipped — each visually distinct at a glance and
-without relying on colour alone.
-
-**Primary files.** `src/components/canvas/*`, `src/lib/canvas/*`, `src/app/workflows/[id]/*`.
-
-**Implementation notes.** **This is where playful earns or loses the product.** A node graph is
-dense information; decoration that costs scanability is a net loss. Chapter 1 measured the
-constraint precisely: two 280 px side panels leave an 880 px canvas at 1440 px, which forced a
-0.39 zoom and an 88 px node card. Bigger, chunkier cards make that *worse* — so this phase must
-solve the layout, probably with collapsible panels, not just restyle the cards. `prefers-reduced-motion`
-is handled in `src/lib/canvas/motion.ts` for React Flow's JavaScript `fitView` and must stay.
-
-**Validation steps.** Generate a workflow, edit a node, run it, watch statuses stream — in a real
-browser on the deployed URL, at 1920 px and 1440 px. A six-node graph is legible without zooming
-manually.
-
-**Completion criteria.** The full demo path works end to end in the new canvas with no regression,
-verified in a browser, not by an API suite. Chapter 1's lesson stands: **the API suites cannot see
-the browser.**
-
-**Documentation updates.** `PROGRESS.md`, `DESIGN.md`, screenshots refreshed.
-
-**Commit.** `feat: complete phase 16 canvas rebuild in toybox`
-
----
-
-## Phase 17 — Durable execution
-
-**Objective.** Runs survive a deploy, a crash and a cold start. The in-process executor stops being
-the only path.
-
-**Dependencies.** Phase 13 (the free-tier verification gates the design).
-
-**Tasks.** Move execution behind **Cloud Tasks** dispatching to an authenticated endpoint. Make
-every run resumable from its last completed step. Replace `reapStaleRuns` with real lease-and-heartbeat
-semantics. Surface retry and timeout configuration per node in the UI (`PRD.md` S6). Add a run
-cancellation path.
-
-**Primary files.** `src/lib/engine/*`, `src/app/api/runs/*`, `DEPLOYMENT.md`.
-
-**Implementation notes.** Chapter 1 accepted "in-flight runs die on redeploy — no queue" as a
-carried risk. This phase closes it. Keep the in-process path for short runs; Cloud Tasks is for
-durability, not for every execution. The engine deadline is 120 s against Cloud Run's 3600 s, and
-`STREAM_MAX_MS` (150 s) must be raised alongside it if that changes.
-
-**Validation steps.** Start a long run, deploy mid-run, confirm it completes. Kill an instance
-mid-run and confirm recovery. Cancel a run and confirm it stops.
-
-**Completion criteria.** A run survives a redeploy on the deployed environment. Verified, not
-asserted.
-
-> **DONE, 2026-09-27 — and one validation step turned out to rest on a false premise.**
->
-> "Deploy mid-run, confirm it completes" **passes trivially**: Cloud Run *drains*. A new revision
-> taking 100% of traffic does not kill the old one's in-flight requests, and — tested directly —
-> neither does **deleting the serving revision**, where the run finished on a revision that no
-> longer existed. Chapter 1's carried risk "in-flight runs die on redeploy" was substantially
-> wrong.
->
-> "Kill an instance mid-run" therefore **cannot be done from outside** on Cloud Run. The resume
-> path is verified instead by delivering the retry the queue would deliver: a run is put into the
-> state a dead worker leaves and `POST /api/runs/dispatch` is called exactly as Cloud Tasks would.
-> It resumed, `attempt` went to 2, and the already-completed steps kept their original timestamps.
->
-> **The phase is still worth what it cost**, for the reasons the premise obscured: durability
-> covers a crash, an OOM kill and an exhausted retry — the cases that *do* lose a run — and it is
-> what let the cron tick stop executing its runs inline (`MAX_FIRES_PER_TICK` 3 → 25). It also
-> bought resumability, cancellation and per-node retry, which were never about redeploys.
->
-> Seven deployed checks in `scripts/verify-durable.mjs`; the measured figures are in
-> `PROGRESS.md` → *Last Updated*.
-
-**Documentation updates.** `ARCHITECTURE.md` (the no-queue decision is superseded — record why),
-`CONTRACT.md`, `DEPLOYMENT.md`, `PROGRESS.md`.
-
-**Commit.** `feat: complete phase 17 durable execution`
-
----
-
-## Phase 18 — Workflow versioning and diffing
-
-**Objective.** Every save is a version. Any version can be restored. Two versions can be compared
-visually.
-
-**Dependencies.** Phase 16 (the diff is a canvas feature).
-
-**Tasks.** A `workflow_version` table and a migration. Auto-version on save with an optional label.
-A history panel. Restore-to-version. A visual diff on the canvas: nodes added, removed, changed,
-moved. A run records which version it executed.
-
-**Primary files.** `drizzle/*`, `src/lib/workflows/*`, `src/components/canvas/diff/*`.
-
-**Implementation notes.** Storage is the constraint on Neon's free tier — store a compact graph
-snapshot, not a full row copy per keystroke. Debounce versioning to meaningful saves. Recording the
-version on a run is what makes "this run behaved differently" diagnosable, so do not skip it.
-
-**Validation steps.** Edit a workflow repeatedly, inspect history, restore an old version, diff two
-versions, confirm a run references the right version.
-
-**Completion criteria.** All of the above on the deployed URL, with storage growth measured against
-the free-tier budget.
-
-**Documentation updates.** `CONTRACT.md` (new table and API), `PRD.md`, `ARCHITECTURE.md`, `PROGRESS.md`.
-
-**Commit.** `feat: complete phase 18 workflow versioning and diffing`
-
-> **DONE, 2026-09-27.** Every save is a version, restore moves the history *forward* rather than
-> rewinding it, and two versions compare on the canvas in a read-only diff mode. Four decisions
-> worth carrying: the version number is a counter on `workflow.version` bumped by the save's own
-> UPDATE, because `neon-http` has no transactions and `max(number) + 1` is a real race (D83); a
-> save that changes nothing writes no snapshot, which is the debounce this phase asked for (D84);
-> a run records `workflowVersion` **and a redelivered durable run executes that snapshot**, which
-> closed a hole Phase 17 had opened (D86); and retention is 50 unlabelled versions per workflow,
-> sized against measured numbers — 737 bytes per stored graph, 8.55 MiB of a 0.5 GB allowance.
->
-> **Two defects were found only by driving a browser** and both have tests that fail without the
-> fix: a removed node stacked exactly on top of an added one and hid it (D87), and the minimap
-> rendered empty for the whole time a diff was on screen (D88). 185 deployed API checks had passed
-> over both.
->
-> 32 deployed checks in `scripts/verify-api.mjs`; storage figures in `DEPLOYMENT.md` →
-> *Free-tier headroom*.
-
----
-
-## Phase 19 — Workspaces and membership — **SPLIT into 19A and 19B**
-
-**The split, decided 2026-09-27 at the start of the phase**, under the licence this phase always
-carried: *"This is the largest and riskiest phase in Chapter 2 — expect to split it; record the
-split here if so."*
-
-**Why here.** The phase holds two things with different risk profiles and different ways of going
-wrong. One is a **schema migration against a live, metered database holding real data**, plus a
-scoping change that touches every query in the product — it is verified by row counts, an
-isolation matrix and a rehearsed rollback. The other is **new product surface** — invitations, an
-accept flow, a switcher — verified by driving it. Shipping both in one deploy means that if the
-deployed system misbehaves afterwards, there is no way to tell which half did it, and the
-expand/contract migration below *wants* a deploy of its own between its two steps.
-
-**What did not change:** the objective, the completion criteria, or the scope. Everything Phase 19
-listed is still built, in the same order, across two sessions.
-
----
-
-## Phase 19A — Workspaces: the data model and scoping
-
-**Objective.** Every resource in the product belongs to a **workspace** rather than directly to a
-person, and no query can read across one. AgentForge is still single-user in practice — every user
-has exactly one workspace and is its only member — but the *shape* is multi-tenant and proven so.
-
-**Dependencies.** Phase 18.
-
-**Tasks.**
-
-- `workspace` and `workspace_member` tables. `workspace_member.role` is written now and
-  **enforced in Phase 20** — see the handoff note below.
-- A `workspaceId` column on `workflow`, `run`, `workflow_version` and `credential`, **added
-  alongside `ownerId`, never replacing it.** `ownerId` keeps its own meaning — *who created this*,
-  *who triggered this run* — and stays the reason a run survives as a record of what happened.
-- An **expand/contract migration in two steps, with a hand-written rollback**: `0005` adds the
-  tables and the columns **nullable** and backfills a personal workspace per user, so the previous
-  revision keeps serving throughout; `0006` makes the columns `NOT NULL` and drops the superseded
-  credential index, once the new revision is the only one running.
-- **Rehearse the rollback on a copy before running either against the deployed database.**
-- One request-scoped resolution of the active workspace, and a `WorkspaceScope` that every store
-  function takes **instead of** an owner id — a distinct type, so a call site that was missed
-  fails the typecheck rather than silently reading across a tenant.
-- A personal workspace is created at first sign-in, and by the scope resolver if it is ever
-  missing.
-- The header names the active workspace.
-
-**Primary files.** `drizzle/*`, `src/db/schema.ts`, `src/lib/workspace/*` (new), `src/lib/api.ts`,
-`src/auth.ts`, every store module, every API route, `src/components/shell/app-header.tsx`.
-
-**Implementation notes.**
-
-- **The Neon budget is not the constraint it looks like.** Neon's free tier meters *compute time
-  awake*, not statements, so a second query inside a request that already made one costs nothing —
-  what costs is a **new reason to wake the database**. Workspaces add queries to requests that
-  already exist and add no poller, no tick and no background job, so they are close to free against
-  the ~39 CU-hour balance. Phase 22's analytics is the one that must be designed against the
-  number, not this.
-- **Credentials become workspace-scoped, and that is a widening of a security surface.** It is
-  necessary — a workflow shared to a teammate that cannot reach its Google credential fails at the
-  first integration node, at runtime, silently — but it means *connecting Google to a workspace
-  lets every member of that workspace act as you on those scopes*. Say so where a user connects
-  one, and record it in `CONTRACT.md`.
-- **The unique index on `credential` moves from `(ownerId, kind, label)` to
-  `(workspaceId, kind, label)`.** Both exist between `0005` and `0006` — the old one must be gone
-  before any user can hold a second workspace, or storing the same kind in two of them is refused.
-
-**Validation steps.** Row counts before and after the migration match, and every pre-existing row
-has a workspace. Rollback rehearsed on a copy and the copy verified identical to where it started.
-A second workspace with a second user sees none of the first's workflows, runs, versions or
-credentials — asserted **at the API**, over HTTP, against the deployed system. The demo path still
-runs end to end. A real browser, 0 console errors.
-
-**Completion criteria.** Both migrations applied to the deployed database with **no data loss,
-verified by row counts before and after**; the isolation matrix passes against the deployed URL;
-CI green.
-
-**Documentation updates.** `CONTRACT.md`, `ARCHITECTURE.md`, `PRD.md`, `DEPLOYMENT.md`,
+1. **Arm a timer per due schedule.** When a workflow with a schedule trigger is saved, activated or
+   fires, enqueue one Cloud Tasks task whose `scheduleTime` is the workflow's `scheduleNextAt`,
+   delivered to an authenticated endpoint guarded the way `/api/runs/dispatch` is (`CRON_SECRET`
+   plus a per-task token — D82). On delivery: claim the slot with D42's compare-and-set
+   (`WHERE scheduleNextAt = <the time this task was armed for>`), start a **durable** run, compute
+   the next fire, and arm the next task. **A stale task updates zero rows and does nothing** — so
+   changing the expression, deleting the workflow or switching it off needs no task deletion
+   (deleting is best-effort tidiness, never the correctness mechanism).
+2. **Far-future fires.** Cloud Tasks limits how far ahead `scheduleTime` may be
+   (`UNKNOWN — VERIFY` against the current Cloud Tasks docs — believed to be 30 days). A fire
+   beyond the limit arms a *re-arm* task at the limit instead of a run.
+3. **The cron becomes a daily safety sweep.** Keep `agentforge-cron`, change it from `*/15 * * * *`
+   to once a day, and **resume it**. The daily tick re-arms any schedule that is due but unarmed (a
+   lost task, a workflow that existed before this phase), calls `sweepAbandonedRuns`, and is the
+   hook later phases hang housekeeping on (Phase 33's retention). Compute its CU-hour cost in
+   `DEPLOYMENT.md` — one wake a day, against ~60 CU-hours/month for `*/15`.
+4. **Durable long waits in `core.delay`.** Today `MAX_DELAY_MS` is 10 s
+   (`src/lib/nodes/core/delay.ts`). Above a threshold, the engine checkpoints the cursor, ends the
+   attempt, and schedules a Cloud Tasks delivery for the wake time, which resumes the run. Add a
+   **`waiting`** run status to the state machine — a waiting run holds **no lease and no
+   container**. Bound the longest wait (30 days, say) as a safety property in the D16 family. With
+   no queue configured (local dev), a long wait is **refused with a clear message** rather than
+   silently holding a request open. No new node: this extends `core.delay` (D112).
+5. **A per-workflow active switch.** An additive column (e.g. `workflow.active`, default `true`).
+   Off means: the webhook answers a clear refusal (choose the status deliberately and document
+   it), the schedule disarms, and **manual runs still work**. Shown on the canvas toolbar and on the
+   workflow card.
+6. **Honest trigger UI.** The trigger panel shows the next fire time *and* whether a timer is
+   armed for it; a switched-off workflow says so.
+
+**Primary files.** `src/lib/triggers/{schedule,tick,cron}.ts`, `src/app/api/cron/tick/route.ts`,
+`src/lib/engine/{queue,lease,cursor,run,execute,types}.ts`, `src/app/api/runs/dispatch/route.ts`,
+`src/lib/nodes/core/delay.ts`, `src/db/schema.ts` and a new migration,
+`src/app/api/webhook/[token]/route.ts`, `src/components/canvas/trigger-panel.tsx`,
+`src/components/canvas/editor.tsx`, `src/components/workflows/workflow-list.tsx`,
+`scripts/verify-durable.mjs` (or a new `scripts/verify-timers.mjs`).
+
+**Implementation notes.** **Read the Cloud Tasks docs rather than recall them** — the
+`scheduleTime` horizon and the task-name de-duplication window both matter, and the CAS claim is the
+real guard either way, so do not lean on task names for correctness. The **lease family** (engine
+deadline 120 s, `STREAM_MAX_MS` 150 s, `LEASE_MS` 180 s — `PROGRESS.md` → *Known Issues*) must
+stay ordered; a waiting run sits outside it entirely, because it holds no lease. A stream watching
+a run that enters `waiting` closes (D31) and the canvas shows "waiting until …" from the run row.
+Cloud Tasks bills per operation: one task per fire and one per wait is negligible against
+1,000,000/month, but **enqueue an id, never a payload** (the Phase 13 finding). `MAX_FIRES_PER_TICK`
+(25) now applies only to the safety sweep. Measure the queue's `maxConcurrentDispatches` (3) against
+a burst of schedules all due at 09:00.
+
+**Validation steps.** On the deployed service, with the cron at its daily cadence: a schedule set a
+few minutes ahead **fires**, and the run appears on an open canvas. Change the expression after
+arming — the old task fires and starts **zero** runs (asserted). A switched-off workflow's webhook
+refuses and its schedule does not fire; switch it back on and it does. A `core.delay` of ~2 minutes
+completes, with the run `waiting` and holding no lease in between (asserted over the API). The
+daily sweep re-arms a schedule whose task was deliberately deleted. Driven in a real browser: the
+trigger panel's armed state and the active switch.
+
+**Completion criteria.** Schedules fire on the deployed URL without a frequent cron. Long waits are
+durable. The active switch works. **The M12 "no schedule trigger fires" consequence is closed** in
+`PROGRESS.md`, with the before/after CU-hour arithmetic.
+
+**Documentation updates.** `CONTRACT.md` (run state machine gains `waiting`; trigger shapes; the
+active flag), `ARCHITECTURE.md` (*Queue* — timers), `DEPLOYMENT.md` (*Cloud Scheduler* cadence,
+*Free-tier headroom*), `OPERATIONS.md`, `docs/nodes.md` (regenerated), `DECISIONS.md`,
 `PROGRESS.md`.
 
-**Commit.** `feat: complete phase 19a workspaces data model and scoping`
+**Commit.** `feat: complete phase 26 durable timers and schedules that fire`
 
 ---
 
-## Phase 19B — Membership: invitations and the switcher
+## Phase 27 — Themes I — Toybox Night: tokens, gates, switching
 
-**Objective.** More than one person in a workspace, and more than one workspace per person.
+**Objective.** The design system supports **Light, Dark and System** (D110), every invariant the
+build enforces holds **in each theme**, the theme switches with no flash, and `/design` shows both.
 
-**Dependencies.** Phase 19A.
+**Dependencies.** Phase 26 (ordering only).
 
-**Tasks.** Create and rename a workspace. Invitations by email — issue, accept, revoke, expire — on
-a single-use unguessable token. A members list. A workspace switcher in the header that sets the
-active workspace. The empty and single-workspace states designed, not defaulted.
+**The hard part, stated first.** `--color-ink` does four jobs today, and on a cream page one value
+can do all four: **body text**, **the label on every `-pop` fill**, **the outline** (`--color-line`
+is "ink by another name"), and **the shadow** (every `--shadow-*` is `Npx Npx 0 0 var(--color-ink)`).
+On a dark page they diverge: text must be light, a label on a bright fill must stay dark, an outline
+must separate an object from a dark page, and a hard shadow must still read as a solid edge. **A
+dark theme that does not split those roles first will break one of the four everywhere at once.**
 
-**Primary files.** `drizzle/*`, `src/lib/workspace/*`, `src/app/api/workspaces/*` (new),
-`src/components/shell/*`, `src/app/settings/*`.
+**Tasks.**
+1. **Split ink into roles** without breaking `CONTRACT.md` → *Design token names*. Adding a name is
+   allowed; changing what an existing name means is not. `--color-accent-ink` already exists as
+   "the label on any pop fill" — make every pop-fill label actually use it. Give outline and shadow
+   their own role tokens.
+2. **The Toybox Night palette**, under `[data-theme="dark"]`, and `System` through
+   `prefers-color-scheme` when `data-theme="system"` — every `--color-*` token (31 today) and the
+   new role tokens.
+3. **Fix `bg-lift`.** It is used in four places (`src/app/workflows/page.tsx`, `src/app/s/[token]/page.tsx`,
+   `src/components/settings/workspace-panel.tsx` ×2) and **no `--color-lift` token exists**, so it
+   applies no background in either theme. A live defect, found while planning this phase.
+4. **Gates per theme.** `parseTokens()` in `src/lib/design/contrast.ts` reads the whole stylesheet
+   and lets a later declaration overwrite an earlier one, **so a dark block would silently replace
+   the light values in every gate**. Make it selector-aware. Run every invariant in
+   `src/app/tokens.test.ts` for each theme; restate the light-only ones per theme (surface luminance
+   above 0.75, "some pop fill is flat on cream", `color-scheme: light`). `src/lib/design/palette.ts`
+   mirrors both. **Mutation-test the new gates** the way Phase 14 did: break a dark token on
+   purpose and watch the build fail.
+5. **Switching.** A blocking inline script in `<head>` in `src/app/layout.tsx` reads the stored
+   preference and sets `data-theme` before first paint; `suppressHydrationWarning` on `<html>`;
+   `color-scheme` per theme (so a native `<select>` renders dark in Dark — D65's original reason
+   for `color-scheme`, now applied twice); `themeColor` per scheme (today a hardcoded `#fdf4dd` at
+   `layout.tsx:74`). The preference lives in `localStorage`, read through the
+   `useSyncExternalStore` pattern `src/components/canvas/panel.tsx` already uses (D74), with an
+   in-memory fallback when storage is blocked. **Light is the default even when the OS is dark.**
+   There is no Content-Security-Policy today (checked 2026-10-06); if one is ever added, allow this
+   script by hash, never with a blanket `unsafe-inline`.
+6. **The controls.** Theme choice in the account menu, in *Settings → Account* (an "Appearance"
+   group), and in the ⌘K palette. Radio-group semantics, keyboard complete.
+7. **`/design` in both themes**, with every contrast figure computed for the theme it shows. The
+   gallery is `force-static`, which is exactly why the switch must be client-side.
 
-**Implementation notes.**
+**Primary files.** `src/app/globals.css`, `src/lib/design/{palette,contrast}.ts`,
+`src/app/tokens.test.ts`, `src/app/layout.tsx`, `src/components/shell/{account-menu,command-palette}.tsx`,
+`src/components/settings/account-panel.tsx`, `src/app/design/*`, a small theme module under
+`src/lib/ui/`.
 
-- **An invitation token is a new unauthenticated surface.** Treat it exactly like the webhook
-  trigger token: CSPRNG, single use, expiring, and an accept endpoint that leaks nothing about a
-  workspace to a holder of a wrong token.
-- **The handoff Phase 19A leaves, and it is load-bearing.** 19A writes `workspace_member.role` and
-  **does not enforce it** — which is inert there, because every member it creates is the `owner` of
-  their own personal workspace. **The moment this phase can create a member who is not an owner,
-  that stops being true.** Either enforce the role here, or merge this phase with Phase 20. Do not
-  ship an invitation that hands somebody a `viewer` badge and full write access.
-- An invitation is addressed to an email, and the invitee may not have an account yet. Accept after
-  sign-in, matching on the verified email from the identity provider — never on a claim in the URL.
+**Implementation notes.** **Dark is not an inversion.** Keep the saturation, the thick outlines,
+the hard no-blur shadows (the gate refuses a blur in either theme) and the press gesture. Resist the
+glow: `DESIGN.md` → *Traps* records that "a soft glow is a dark-UI idiom", and a dark theme is
+exactly where it will try to come back. D66 (two registers) and D67 (the outline carries
+separation) must both survive — the second is the hard one, because an ink outline on a near-black
+page is invisible and a black hard shadow vanishes. Design an answer, screenshot it, and record it
+as a decision. `DESIGN.md` already names the focus-ring trap: "an ink object on an ink background
+needs a cream ring" — the one ring must clear 3:1 in **both** themes. **Light must not change:**
+screenshot `/design` in Light before and after and compare.
 
-**Validation steps.** A second real account is invited, accepts, and sees exactly the shared
-workspace and nothing else. A revoked invitation cannot be accepted. An expired one cannot. The
-switcher changes what the workflow list returns.
+**Validation steps.** `npm run check` green with per-theme gates, and the mutation tests failing as
+intended. `/design` in a real browser in Light, Dark, and System with the OS emulated both ways, at
+1440 and 375 px. **No flash on a hard reload**, in each theme — check the first painted frame, not
+the settled page. The preference survives a reload and is per browser. Light is visually unchanged.
 
-**Completion criteria.** Two accounts, one shared workspace, proven in a browser — and the second
-account proven unable to reach the first's personal workspace through a crafted request.
+**Completion criteria.** Three themes, switchable from three places; gates per theme; the gallery
+complete in both; deployed.
 
-**Documentation updates.** `CONTRACT.md`, `ARCHITECTURE.md`, `PRD.md`, `SECURITY.md` if it exists
-by then, `PROGRESS.md`.
+**Documentation updates.** `DESIGN.md` (a *Themes* section: the role split, Toybox Night's rules for
+outline, shadow and focus), `CONTRACT.md` (*Design token names*: the role tokens and per-theme
+invariants), `ARCHITECTURE.md` (*Design system*), `DECISIONS.md`, `PROGRESS.md`.
 
-**Commit.** `feat: complete phase 19b workspace membership and invitations`
-
----
-
-## Phase 20 — Roles, permissions and sharing
-
-> **DONE, 2026-09-30.** Roles became administrable, a workflow became privatable, and a workflow
-> became publishable read-only to anybody holding a URL. Seven decisions worth carrying: what a
-> share link may publish is an **allowlist defaulting to nothing**, so a node added in Phase 23
-> cannot widen an unauthenticated surface by existing (D98); `visibility` and `shareToken` are
-> **independent columns, not one three-valued ladder**, because they answer different questions and
-> "private with a live link" is a coherent thing to want (D99); an **admin can see a private
-> workflow**, because it runs with the workspace's credentials and somebody has to account for that
-> (D100); visibility filters rows **in the `where`** and is never checked after the read — and the
-> two queries that do not pass through `getWorkflow` are the whole of the risk (D101); the public
-> canvas is a **separate component**, because a boolean is not what should stand between an
-> anonymous visitor and `api.updateWorkflow` (D102); minting a share link is **idempotent** while
-> an invitation rotates, because a share URL gets pasted into a README (D103); and a region is made
-> read-only by one **`<fieldset disabled>`** rather than a prop threaded through four components
-> (D104).
->
-> **Two defects came from the browser and nothing else**, while 394 deployed checks, 661 unit tests
-> and a green typecheck all passed: a viewer's panel still offered a trigger input and a "Queue a
-> run" button under a paragraph beginning *"Press **Run**"*, and the share page's title truncated
-> to two words at 375 px. The lesson generalises — **a flag that makes one control honest does not
-> make the region around it honest.**
-
-**Objective.** Owner, admin, editor and viewer mean something, and a workflow can be shared.
-
-**Dependencies.** Phase 19.
-
-**Tasks.** A role model and a single server-side authorisation layer every route uses. Per-workflow
-sharing inside a workspace. A read-only public share link for a workflow graph — no credentials, no
-run data. UI that hides what the viewer cannot do and an API that refuses it regardless.
-
-**Primary files.** `src/lib/auth/permissions.ts` (new), every API route, `src/components/*`.
-
-**Implementation notes.** Authorisation is checked **server-side, once, in one place**. A hidden
-button is not a permission. The public share link is a new unauthenticated surface — treat it with
-the same suspicion as the webhook trigger token, and make sure it cannot leak a credential id, a
-run payload or a workspace member list.
-
-**Validation steps.** A matrix test: every role against every action, asserted at the API, not the
-UI. Confirm a share link exposes the graph and nothing else.
-
-**Completion criteria.** The matrix passes. A viewer cannot mutate anything through a crafted
-request.
-
-**Documentation updates.** `CONTRACT.md`, `ARCHITECTURE.md`, `PRD.md`, `PROGRESS.md`.
-
-**Commit.** `feat: complete phase 20 roles, permissions and sharing`
+**Commit.** `feat: complete phase 27 toybox night theme foundations`
 
 ---
 
-## Phase 21 — Credential vault and rotation
+## Phase 28 — Themes II — every screen in both themes
 
-**Objective.** Close the sharpest gap Chapter 1 left: there is no credential rotation, and replacing
-a stored secret means recreating whatever holds it.
+**Objective.** No screen, state or shipped asset is light-only.
 
-**Dependencies.** Phase 20 (rotation is permission-sensitive).
+**Dependencies.** Phase 27.
 
-**Tasks.** Envelope encryption — per-credential data keys wrapped by a root key held in Secret
-Manager, so the root can rotate without re-encrypting everything. Rotate a stored credential in
-place. Rotate a workflow's webhook token without recreating the workflow. An audit log of credential
-use: which run, which node, when. A re-key path for `ENCRYPTION_KEY`, which Chapter 1 correctly
-flagged as "never rotate this, it destroys all stored credentials".
+**Tasks.**
+1. **The canvas.** React Flow's `colorMode` follows the theme (hardcoded `"light"` at
+   `src/components/canvas/editor.tsx:1167` and `src/components/share/shared-canvas.tsx`); the
+   minimap mask is a literal `oklch()` in `globals.css`; arrow markers; every edge state (traversed,
+   live, added, removed); node cards in all five statuses; the diff bar; the run panel.
+2. **Hardcoded colours.** The select chevron is an inline data-URI with a fixed stroke
+   (`src/components/ui/field.tsx`); hover states use `color-mix(…, white)`; `src/app/icon.svg` has
+   hex fills.
+3. **Illustrations and Sparky.** The inline SVGs already use `var(--color-*)` — verify they read
+   right on a dark page, especially `concerned` on an error screen. The static
+   `public/illustrations/*.svg` gain dark variants from `npm run design:export`, and the README
+   uses `<picture>` with `prefers-color-scheme` so GitHub's dark mode gets them. The export test
+   must cover both.
+4. **Every page.** Landing, `/workflows` with the onboarding guide, `/templates`, `/analytics` (the
+   hand-drawn chart), `/settings` (all five tabs, the vault), `/s/[token]`, `/invite/[token]`,
+   `not-found`, `error.tsx`, and `global-error.tsx` — **which renders its own `<html>` and so needs
+   the theme script too**. Toasts, notices, dialogs, menus, tooltips.
+5. **Screenshots.** `docs/assets/*` refreshed, and the README shows the product in both themes.
 
-**Primary files.** `src/lib/crypto/*`, `src/lib/integrations/*`, `drizzle/*`.
+**Primary files.** `src/components/canvas/*`, `src/components/share/*`, `src/app/globals.css`,
+`src/components/ui/field.tsx`, `src/lib/design/illustrations-static.ts`, `public/illustrations/*`,
+`scripts/export-illustrations.mjs`, `src/app/global-error.tsx`, `src/app/icon.svg`, `README.md`,
+`docs/assets/*`.
 
-**Implementation notes.** Managed Cloud KMS is the textbook answer and costs ~$0.06/key/month —
-**not zero**. Secret Manager's free tier covers the root key, so that is the route unless Phase 13
-found budget. Never log a secret value, never return one to a client, and make the audit log record
-*use*, not content.
+**Implementation notes.** `DESIGN.md` → *Traps* applies double here: a class in the DOM is not
+evidence it applies — **measure with `getComputedStyle` in a browser**. React Flow's `colorMode` is a
+trap even when it looks inert (Phase 16): every variable not overridden falls back to React Flow's
+own default for that mode. Reduced motion must still be honoured in both places.
 
-**Validation steps.** Rotate a Discord webhook credential and confirm workflows keep working.
-Rotate a workflow webhook token and confirm the old one is refused. Re-key and confirm every stored
-credential still decrypts.
+**Validation steps.** Every route in a real browser in Light **and** Dark at 375, 1024, 1440 and
+1920 px: zero console errors, zero horizontal overflow. A workflow generated, edited and run on the
+canvas **in Dark**. The public share page in Dark, signed out. `verify-a11y.mjs` all passing.
 
-**Completion criteria.** All three rotations work on the deployed environment, and the old secret is
-provably refused afterwards.
+**Completion criteria.** A full pass of the product in Dark finds nothing light-only. Deployed.
 
-**Documentation updates.** `ARCHITECTURE.md`, `CONTRACT.md`, `DEPLOYMENT.md`, `PROGRESS.md`,
-`SECURITY.md` (new).
+**Documentation updates.** `DESIGN.md`, `README.md`, `PROGRESS.md`.
 
-**Commit.** `feat: complete phase 21 credential vault and rotation`
-
----
-
-## Phase 22 — Observability and run analytics
-
-**Objective.** You can answer "what is this system doing, and what broke" without opening a database
-client.
-
-**Dependencies.** Phase 17.
-
-**Tasks.** Structured JSON logging with a request and run correlation id throughout. Log-based
-metrics in Cloud Logging for run volume, failure rate, node latency and model fallback rate — the
-last one is what would have caught Chapter 1's 92 s regression. An in-app analytics view per
-workspace: runs over time, failure breakdown, slowest nodes, model usage. Error grouping. A real
-`/api/health` that reports dependency status rather than a bare `ok`.
-
-**Primary files.** `src/lib/logging/*` (new), `src/lib/analytics/*` (new), `src/app/analytics/*` (new).
-
-**Implementation notes.** Analytics are computed from the `run` and `run_step` rows the engine
-already writes — no new event pipeline, and no third-party SDK. **Watch the Neon budget**: an
-analytics page that polls is exactly the pattern that pins the database awake. Aggregate on write or
-cache aggressively; do not poll.
-
-**Validation steps.** Induce a failure and find it from the logs alone. Confirm the model-fallback
-metric fires when a model degrades. Measure the analytics page's database cost.
-
-**Completion criteria.** Metrics visible, analytics correct against a hand-checked sample, and the
-CU-hour cost of the feature measured and recorded.
-
-**Documentation updates.** `ARCHITECTURE.md`, `DEPLOYMENT.md`, `PROGRESS.md`, `OPERATIONS.md` (new).
-
-**Commit.** `feat: complete phase 22 observability and run analytics`
+**Commit.** `feat: complete phase 28 every screen in both themes`
 
 ---
 
-## Phase 23 — Node catalogue and templates — **SPLIT into 23A, 23B, 23C and 23D**
+## Phase 29 — Canvas I — editing ergonomics
 
-**The split, decided 2026-09-30 at the start of the phase.**
+**Objective.** The canvas edits like a serious tool: mistakes are undoable, work is copyable, and
+the keyboard reaches everything.
 
-**Why here.** The phase's completion bar is *"proven against real services, not mocks"*, and that
-line divides its own task list cleanly in two. Richer transform and control-flow nodes, per-node
-documentation and a template gallery reach **no service at all** — they are provable end to end the
-day they are written, against the deployed app, with nothing asked of anybody. Slack, Notion,
-GitHub, Airtable, a database node and a second LLM provider each need **an account and a credential
-that only the user can create**, and until those exist not one of them can meet the bar.
+**Dependencies.** Phase 28 — new UI is built in both themes.
 
-Shipping them as one phase means the half that is finished sits inside a phase marked `BLOCKED`
-behind six manual actions — which is precisely the "a phase that is half done is not done" failure
-`CLAUDE.md` warns about, arrived at by sequencing rather than by sloppiness. Split, 23A completes
-and 23B opens with **one** manual-action block listing every credential at once, so the user does
-the account-creation work in a single sitting rather than six.
+**Tasks.**
+1. **Undo / redo.** A bounded history of graph states in the editor, as a pure, tested module.
+   Coalesce a drag into one entry and a config edit into one entry per field. ⌘Z / ⇧⌘Z (Ctrl on
+   other platforms) and toolbar buttons. Save is not a history boundary; loading, restoring a
+   version and leaving diff mode clear the history.
+2. **Copy, paste, duplicate.** Copy the selection (nodes plus the edges between them) to the
+   clipboard as a recognisable JSON envelope. Paste mints new ids, offsets the positions, drops
+   edges to nodes not pasted, and refuses a second trigger with a clear message (validation allows
+   one). Works across workflows and tabs. ⌘D duplicates in place.
+3. **Multi-select that does something.** Box select already works, but the inspector opens only for
+   exactly one node. Add ⌘A and shift-click, and an inspector state for *N nodes selected* with bulk
+   delete, duplicate and move.
+4. **Auto-arrange.** A toolbar action that runs the generator's `layout()`
+   (`src/lib/generate/layout.ts`, D40) over the current graph. Undoable.
+5. **Shortcuts, and a way to discover them.** ⌘S save, F fit view, `/` focuses palette search, a
+   `?` help dialog (also reachable from ⌘K). Never fire while the user is typing in a field.
+   Platform-aware labels.
+6. **Find on canvas.** "Find node" jumps to and selects a node by label, reusing the shared ranking
+   in `src/lib/ui/command.ts` (D72, D76).
 
-**What did not change:** the objective, the completion criteria, or the scope. Every node Phase 23
-listed is still built, to the same bar, across two sessions.
+**Primary files.** `src/components/canvas/editor.tsx`, new `src/lib/canvas/{history,clipboard}.ts`,
+`src/lib/canvas/bridge.ts`, `src/lib/generate/layout.ts`, `src/components/shell/command-palette.tsx`,
+`src/components/ui/dialog.tsx`.
 
----
+**Implementation notes.** D25: dirty state is structural, so undoing back to the saved graph must
+read **clean**. D22: `fromFlow` is a clean inverse of `toFlow`, so a history entry is a graph, not a
+React Flow state. Diff mode and the viewer role stay inert — no undo, no paste. React Flow already
+binds Delete/Backspace; do not double-handle them. `editor.tsx` is over a thousand lines — **extract
+hooks** (`useHistory`, `useClipboard`, `useShortcuts`) rather than growing it, and mind the two lint
+rules that disagree about one dependency array in that file (`PROGRESS.md` → *Known Issues*).
 
-## Phase 23A — Transform, control flow, templates, and node documentation
+**Validation steps.** Unit tests for history coalescing and paste id remapping. In a real browser,
+in both themes: twenty mixed edits undone and redone; a selection copied from one workflow and
+pasted into another; duplicate; bulk delete; a generated six-node graph auto-arranged and then
+undone; the `?` dialog; the whole flow keyboard-only. Deployed.
 
-**Objective.** The registry grows the vocabulary a workflow needs to do real data work without
-reaching any external service, the inspector explains every node in its own words, and the blank
-canvas is gone.
+**Completion criteria.** All of the above on the deployed URL.
 
-**Dependencies.** Phase 16.
+**Documentation updates.** `DESIGN.md` (the shortcut vocabulary), `CONTRACT.md` (the clipboard
+envelope, if another tab can read it), `README.md` features, `PROGRESS.md`.
 
-**Tasks.** Add the transform and control-flow nodes the catalogue is missing — multi-way switch,
-filter, map, sort, aggregate, unique, JSON parse/stringify, text operations, date operations, field
-pick. Add a `docs` field to the node definition and surface it in the inspector. Build a template
-gallery that clones a known-good workflow into the workspace, with the templates executed by tests
-so they cannot rot.
-
-**Primary files.** `src/lib/nodes/core/*`, `src/lib/nodes/transform/*` (new),
-`src/lib/templates/*` (new), `src/app/(app)/templates/*` (new), `src/components/canvas/inspector.tsx`.
-
-**Implementation notes.** **The registry contract is the whole point** — every node added here
-automatically widens the agent's tool surface and the generator's vocabulary. Each node must declare
-an `outputShape` (Chapter 1's D38) and `agentCallable` must stay opt-in. **No expression language
-and no code node**: a config field is exactly where arbitrary code execution would sneak back in, so
-every new node uses a fixed, enumerated operator set the way `core.branch` already does. A template
-is a graph literal in the repository, not a database row — it costs no table and cannot drift from
-the registry, because a test builds and validates every one of them.
-
-**Validation steps.** Every new node executes on the deployed app inside a real run. Every
-agent-callable node is reachable as a tool and appears in generation. A template clones from the
-gallery into a workspace and runs to `succeeded`. The inspector shows a node's documentation in a
-real browser.
-
-**Completion criteria.** All of the above, on the deployed URL.
-
-**Documentation updates.** `CONTRACT.md`, `PRD.md`, `PROGRESS.md`.
-
-**Commit.** `feat: complete phase 23a transform nodes templates and node docs`
+**Commit.** `feat: complete phase 29 canvas editing ergonomics`
 
 ---
 
-## Phase 23B/23C — the second split, decided 2026-10-01
+## Phase 30 — Canvas II — sticky notes and disabled nodes
 
-**Phase 23B as written held six deliverables, and four of them share one mechanism while
-two do not.** Slack, Notion, GitHub and Airtable are each "a bearer secret and an HTTPS
-JSON API" — the pattern `lib/integrations/shared.ts` was factored for in Phase 9, whose own
-comment says a fifth integration should be "a node file and nothing else". Adding four of
-them is additive work on a settled seam.
+**Objective.** An author can explain a workflow on the canvas itself, and switch a node off without
+deleting it.
 
-The other two are not additive. **The database node** reaches a wire protocol rather than
-an HTTPS endpoint, which raises a dependency question (`ARCHITECTURE.md` must be consulted
-before answering it) and needs its own SSRF argument, because `guard.ts` is written for
-URLs. **The second provider** changes an existing subsystem rather than extending one:
-`LLM_CREDENTIAL_KIND` is the literal `"llm.google"`, so a second provider touches the
-credential kind scheme, `resolveProvider`, the model picker, the observed-health table and
-the vault. Both are a *new mechanism behind an existing seam*; the four integrations are
-*more of an existing mechanism*.
+**Dependencies.** Phase 29 (notes and the disabled flag must be undoable and copyable).
 
-**So the seam is mechanism, and it is the same test that split Phase 23 itself.** 23A/23B
-divided on "does it reach a real service"; 23B/23C divides on "does it change a subsystem
-or extend one". Shipping all six together means the four that are additive wait on the two
-that are structural, and the session ends with six services half-proven instead of four
-proven.
+**Tasks.**
+1. **Sticky notes.** A `notes` list on the graph (id, position, size, text, a tone from a fixed set)
+   — **not a registry node**: never executed, never an agent tool, invisible to validation's trigger
+   rule (D112). Plain text: a note never renders HTML or Markdown that could carry markup. Move,
+   resize, delete, undo, copy and paste.
+2. **Disabled nodes.** A `disabled` flag on a node. **Decide the engine semantics and write them
+   into `CONTRACT.md` before the code** — n8n passes a disabled node's input straight through to
+   its default output, and the alternative is to skip everything below it. Cover the edge cases
+   explicitly: a disabled trigger, a disabled branch or loop node, a disabled agent. The node's
+   look joins the status vocabulary on non-colour channels (D75).
+3. **Versions and diffs** understand both. A note can be added, removed, changed or moved; a
+   disabled flag shows as a "changed" ribbon naming what changed (`src/lib/workflow/diff.ts`,
+   `src/lib/canvas/changes.ts`).
+4. **The share page.** A note's text is a value the author typed, so the allowlist (D98) **withholds
+   it and counts it**. The disabled flag is shape and may be published.
+5. **The generator** may emit neither: notes are for people, and a generated graph must not arrive
+   with nodes switched off. The generation schema refuses both.
 
-**What did not change:** the objective, the completion criteria, or the scope. Every node
-Phase 23 listed is still built, to the same bar. This is the third split in the ladder
-(19, 23, 23B) and the pattern is worth naming rather than repeating quietly: **the
-Chapter 2 ladder was written one phase per subject, and a subject is not a session.**
+**Primary files.** `src/lib/workflow/{graph,diff,share}.ts`, `src/lib/canvas/{bridge,changes,status}.ts`,
+`src/lib/engine/{execute,validate}.ts`, `src/lib/generate/schema.ts`,
+`src/components/canvas/{editor,workflow-node,inspector}.tsx`, a new note component,
+`src/components/share/shared-canvas.tsx`.
 
----
+**Implementation notes.** D14: the graph is one `jsonb` column, so both features are fields on it
+and save atomically. Decide deliberately whether additive optional fields need a `GRAPH_VERSION`
+bump (`src/lib/workflow/graph.ts`); read `CONTRACT.md` → *Workflow / node / edge JSON* first. Test
+the redaction the way Phase 20 learned to: **assert the note's text does not appear, not its key**.
 
-## Phase 23B — SaaS integrations: Slack, Notion, GitHub, Airtable
+**Validation steps.** Notes and disabled nodes round-trip losslessly through save and load. A run
+containing a disabled node behaves exactly as `CONTRACT.md` says, on the deployed URL. The share
+page withholds note text. The diff shows note and disabled changes. In a real browser, both themes.
 
-**Objective.** The four integrations a real user expects after Discord and Google, added on
-a mechanism that makes the fifth one a table row rather than a copied route.
+**Completion criteria.** All of the above, deployed.
 
-**Dependencies.** Phase 23A, and **the credentials in this phase's opening manual-action
-block** — a Slack incoming webhook, a Notion internal integration token with one page and
-one database shared with it, a GitHub fine-grained PAT, an Airtable PAT with a base.
+**Documentation updates.** `CONTRACT.md` (graph shape, disabled semantics), `DESIGN.md` (the note,
+the disabled look), `SECURITY.md` (what a share page now withholds), `PROGRESS.md`.
 
-**Tasks.** Slack, Notion, GitHub and Airtable nodes. A **token-credential registry** so
-each one's kind, secret shape, provider verification, rotation rule and settings copy are
-one entry in one table rather than four files apiece. One dynamic API route for connecting,
-reading and revoking them. Templates that use them.
-
-**Primary files.** `src/lib/integrations/{slack,notion,github,airtable,tokens}.ts`,
-`src/lib/nodes/integration/*`, `src/app/api/integrations/[service]/route.ts`,
-`src/components/settings/integrations-form.tsx`, `src/lib/templates/catalogue.ts`.
-
-**Implementation notes.** Every new credential kind needs an entry in `ROTATION_RULES`
-(Phase 21) and every new node type an entry in `PUBLISHABLE` (Phase 20) — the registry's
-second and third obligations, both asserted by tests in both directions. **Generate both
-from the token registry rather than hand-writing them**, so the obligations cannot be
-forgotten instead of merely failing a test. A node that calls a model must put the model id
-on its output as `model` and nothing else may use that field name (Phase 22's fourth
-obligation) — none of these four is a model call, so none of them may carry the field. Read
-each service's **current** API docs rather than recalling them: Slack cannot override a
-webhook's channel or username, and Notion's `2025-09-03` version replaced a `database_id`
-parent with a `data_source_id` that has to be resolved first.
-
-**Validation steps.** Every new node executes against its real service from the deployed
-app, and the object it created is asserted — a message in a channel, a Notion page, a
-GitHub issue, an Airtable record. Every new node is reachable as an agent tool and appears
-in generation. Each credential rotates on the deployed app. The four settings cards driven
-in a real browser.
-
-**Completion criteria.** All of the above, proven against real services, not mocks.
-
-**Outcome — amended deliberately on 2026-10-01, and the amendment is the honest part.**
-Slack and GitHub met that bar in full. **Notion and Airtable did not and now never will**,
-because proving them needs accounts the user has decided not to create. Three options were
-weighed: keep the phase `BLOCKED` forever (useless — nobody would ever unblock it), delete
-the two integrations (a material scope cut, destroying built, tested, deployed and
-documented work that a *stranger* using Notion would want), or **narrow the claim instead
-of the code**. The third was taken. `README.md` now states which integrations have been run
-against a real server and which have only been run against a stub, and points a Notion or
-Airtable user at that gap first.
-
-**`verify-integrations.mjs` was deliberately not weakened.** It still reports `2 skipped`
-and still prints *skipped is not passed*. Making a tally look green by lowering the bar is
-the one thing this project's verification rule exists to prevent, and the two services
-genuinely were not verified.
-
-**Commit.** `feat: complete phase 23b slack notion github and airtable integrations`
+**Commit.** `feat: complete phase 30 sticky notes and disabled nodes`
 
 ---
 
-## Phase 23C/23D — the third split, decided 2026-10-01
+## Phase 31 — Canvas III — the test loop: pinned data and partial runs
 
-**The same test that split 23 and then split 23B, applied once more, and it is the one
-about credentials rather than the one about mechanism.**
+**Objective.** An author can build a workflow step by step — fix one node's output, run one node,
+run up to a node — without firing the whole thing every time.
 
-23C as written held two deliverables. **The Postgres node needs no account anybody has to
-create**: this project already owns a Postgres server — Neon — and a read-only role inside
-it is four statements of SQL, so the phase's own bar, *"proven against real services, not
-mocks"*, is reachable in the session that writes the code. **The second provider is not**:
-it needs an API key from a provider the user must sign up to, and no amount of engineering
-produces one.
+**Dependencies.** Phase 30.
 
-Shipping them together would have put a finished, fully proven node inside a phase marked
-`BLOCKED` behind a manual action — which is exactly the failure the 23A/23B split was
-created to avoid, and the reasoning there is quoted rather than re-derived: *"a phase that
-is half done is not done"*, arrived at by sequencing rather than by sloppiness. 23B is
-already waiting on M10. Stacking a second blocked phase behind it would have left two
-phases open, both complete in code, neither complete by its own definition.
+**Tasks.**
+1. **Pin a node's output** from a step of a past run ("pin this output"), or as typed JSON. Stored on
+   the node and **size-capped** — versions snapshot the whole graph (50 kept), so pinned data is
+   multiplied by up to 50 in Neon's 0.5 GB. **Pinned data is never published on a share link** and
+   is withheld or truncated when a graph is sent to a model.
+2. **Run one node, or run up to here.** Execute a single node, or the path from the trigger to it,
+   seeding upstream outputs from pinned data or from the last run's recorded steps. Reuse the
+   cursor's frontier idea (D79) rather than writing a second engine. **An integration node really
+   executes** — confirm before a partial run reaches a node that writes somewhere ("This will post
+   to Slack").
+3. **Test runs are labelled** and visible in history, and **excluded from analytics**. Decide
+   deliberately whether one counts for onboarding's "a successful run" step.
+4. **A manual-trigger input form.** `core.manual_trigger` may declare input fields (name, type,
+   required), and the inspector renders a form instead of a raw JSON box. Raw JSON stays available
+   as an advanced option.
 
-**What did not change:** the objective, the completion criteria, or the scope. Both things
-Phase 23 listed are still built, to the same bar.
+**Primary files.** `src/lib/engine/{execute,run,cursor,types}.ts`,
+`src/app/api/workflows/[id]/runs/route.ts`, `src/lib/nodes/core/manual-trigger.ts`,
+`src/components/canvas/{inspector,run-panel,trigger-panel}.tsx`, `src/lib/analytics/*`.
 
-**What this split cost, stated honestly:** the credential-kind migration that 23D carries
-(`LLM_CREDENTIAL_KIND` is still the literal `"llm.google"`) would have been cheaper to do
-in the same sitting as 23C's credential work, because both touch `tokens.ts` and
-`rotation.ts`. That is a real cost and it was accepted, because the alternative was a node
-that works, is deployed, and cannot be called finished.
+**Implementation notes.** **Pinned data applies to manual and test runs only.** A webhook or
+schedule run executes every node for real, because a pinned node silently not running in production
+is the worst failure this feature could have. Say so in the inspector. The D16 bounds apply to
+partial runs unchanged. A config field added to the manual trigger grows the generation prompt, so
+check the budget (D112).
 
----
+**Validation steps.** On the deployed URL: pin an HTTP node's output and run a downstream transform
+alone, with the result checked by hand; run-to-here on a four-node graph; the manual form refuses a
+missing required field. Analytics unchanged by test runs, recomputed from SQL the way
+`verify-observability.mjs` does. A browser walk, both themes.
 
-## Phase 23C — The Postgres node ✅ COMPLETE
+**Completion criteria.** All of the above, deployed.
 
-**Objective.** A read-only database node.
+**Documentation updates.** `CONTRACT.md` (pinned data, partial runs, the test label), `docs/nodes.md`
+(regenerated), `PROGRESS.md`.
 
-**Dependencies.** Phase 23A. (Not 23B: the token-credential registry it extends was built
-in 23B and is already deployed, and nothing here needs 23B's four services to be
-*connected*.)
-
-**Tasks.** A Postgres node, read-only by construction. A connection-string credential in the
-Phase 23B token registry. A template that uses it.
-
-**Primary files.** `src/lib/integrations/postgres.ts`, `src/lib/nodes/integration/postgres.ts`,
-`src/lib/integrations/tokens.ts`, `src/lib/templates/catalogue.ts`,
-`scripts/setup-demo-db.mjs`, `scripts/verify-postgres.mjs`.
-
-**Implementation notes.** The node reaches an arbitrary host and therefore needs `guard.ts`'s
-address classification, which is written for URLs and had to be reached for a connection
-string instead — the classification was reused exactly, the *parsing* is separate, because
-`parseTarget` refuses credentials in a URL and a connection string exists to carry them. It
-is **read-only by construction**: no SQL field exists, and Phase 23A's rule applies
-unchanged — **no expression language, ever** — so the query is built from enumerated parts.
-**The new runtime dependency was taken as an `ARCHITECTURE.md` decision** (A21): `postgres`
-rather than `pg`, one lockfile entry and zero transitive dependencies.
-
-**Validation steps.** The node reads a real table from the deployed app and is proved unable
-to write. ✅
-
-**Completion criteria.** All of the above, proven against a real server, not mocks. ✅
-`scripts/verify-postgres.mjs` — **65 passed, 0 failed, 0 skipped** against
-`agentforge-00057-8jx`.
-
-**Documentation updates.** `ARCHITECTURE.md`, `CONTRACT.md`, `PRD.md`, `SECURITY.md`,
-`DEPLOYMENT.md`, `PROGRESS.md`, per-node docs. ✅
-
-**Commit.** `feat: complete phase 23c postgres node`
+**Commit.** `feat: complete phase 31 pinned data and partial runs`
 
 ---
 
-## Phase 23D — The second LLM provider ✅ COMPLETE
+## Phase 32 — Library — organising workflows
 
-**Objective.** A second LLM provider behind the existing adapter, so "which provider" is a
-stored fact rather than a literal.
+**Objective.** A workspace with fifty workflows stays navigable, and a workflow can leave and enter
+the product as a file.
 
-**Dependencies.** Phase 23C, and **a second provider's API key** — Groq's free tier is the
-intended one (<https://console.groq.com/keys>). Flagged to the user alongside M10 so both
-sittings can be one.
+**Dependencies.** Phase 28.
 
-**Tasks.** A second provider behind `LanguageModel` (`PRD.md` S1, C12), including the
-credential-kind change that makes "which provider" a stored fact. Migrate the existing
-`llm.google` rows. The model picker, the observed-health table and the vault all follow.
+**Tasks.**
+1. **Tags**, workspace-scoped: add, rename, delete, filter by. Editor and above may tag.
+2. **Favourites**, per user: a *Starred* filter, and the ⌘K palette ranks starred workflows first.
+3. **Duplicate** — a server-side clone of the current graph as a new workflow, which mints its own
+   webhook token (D41).
+4. **Export** a workflow as JSON in a versioned envelope (a format name and a format version).
+   Credentials are referenced by kind and never exported — they never live in the graph, and a test
+   proves no secret can appear.
+5. **Import** from a file or a paste: validated by the same `validateGraph`, refusing a newer
+   format version and naming any unknown node types rather than dropping them (D39's honesty).
+6. **The list's view state in the URL** — search, filters, sort, tag — so it is linkable and
+   survives a reload. Today it is plain component state.
+7. **Folders are not built.** Tags cover the need with less structure. Record that as a decision.
 
-**Primary files.** `src/lib/ai/*`, `src/lib/credentials/*`,
-`src/components/settings/provider-form.tsx`.
+**Primary files.** `src/db/schema.ts` and a migration, `src/lib/workflow/{store,list}.ts`,
+`src/components/workflows/{workflow-list,actions}.tsx`, `src/app/api/workflows/*`,
+`src/components/shell/command-palette.tsx`, `docs/api.md`.
 
-**Implementation notes.** **`LLM_CREDENTIAL_KIND` is the literal `"llm.google"`**, so
-migrating existing rows is part of the work, not a follow-up — a workspace with a working
-Gemini key must not lose it. The second provider must not quietly become the default. The
-circuit breaker and `FALLBACK_MODELS` are per-provider concepts today and will have to
-become per-provider facts rather than one global chain.
+**Implementation notes.** D69: the list is filtered in the browser over the whole list, so tags and
+favourites must **ride along on the list query** — one statement, not one per card. Every new route
+goes through the one role funnel (D93), and visibility (D101) applies to duplicates and exports.
+`POST /api/workflows` already accepts a graph, so import is largely validation and messaging.
 
-**Validation steps.** The second provider answers a real call **and a real tool call** — the
-second is the one that matters, because Phase 13 found a model that answered prose in 1.4 s
-and hung on tool calls. Existing `llm.google` credentials keep working across the change,
-proved on the deployed database rather than asserted.
+**Validation steps.** On the deployed URL, in a browser, both themes: tag and filter by tag through
+a pasted URL; star; duplicate and run the duplicate; export, then import into another workspace and
+run. Import refusals for a malformed file and an unknown node type. A viewer refused (403 naming the
+role). `verify-api.mjs` extended.
 
-**Completion criteria.** All of the above, proven against real services, not mocks. ✅
-`scripts/verify-providers.mjs` — **55 passed, 0 failed, 0 skipped** against
-`agentforge-00058-q2z`, including a real completion, a real agent tool call, and the
-existing `llm.google` row proved byte-for-byte unchanged on the deployed database.
+**Completion criteria.** All of the above, deployed.
 
-**What the plan got wrong, recorded rather than quietly corrected.** This phase was
-written expecting a credential migration, on the reading that `LLM_CREDENTIAL_KIND` was a
-literal standing where a provider belonged. **The kind string was already
-provider-qualified** — `llm.google`, not `llm.key` — so Google's rows keep their meaning,
-Groq's are `llm.groq`, and **no credential row needed rewriting**. What genuinely had no
-home was *which provider a workspace uses*: migration `0010`, one nullable column, no
-backfill.
+**Documentation updates.** `CONTRACT.md` (the export envelope), `docs/api.md`, `PRD.md`,
+`PROGRESS.md`.
 
-The split's stated cost was that 23D's credential-kind migration "would have been cheaper
-to do in the same sitting as 23C's credential work". **That cost did not materialise**,
-because the migration it referred to did not exist. The split was still right for its own
-reason — 23C was provable without the user and 23D was not.
-
-**What the plan under-estimated instead**, and this is the useful half: *"a second provider
-is a new file implementing this interface; nothing above it changes"* was true above the
-interface and wrong below it. The retry, fallback, budget and breaker machinery was inside
-`gemini.ts`, and had to be lifted into `chain.ts` so both providers share one copy of
-Phase 13's wedged-model fix. **An untested abstraction was approximately right**, and only
-building the second implementation could show which half.
-
-**Documentation updates.** `ARCHITECTURE.md` (A7 superseded, A26 added), `CONTRACT.md`,
-`PRD.md` (the two-providers deviation CLOSED, C12 done), `SECURITY.md`, `OPERATIONS.md`,
-`DEPLOYMENT.md`, `README.md`, `PROGRESS.md`. ✅
-
-**Commit.** `feat: complete phase 23d second llm provider`
+**Commit.** `feat: complete phase 32 workflow library`
 
 ---
 
-## Phase 24 — Documentation and open-source readiness ✅ COMPLETE
+## Phase 33 — Runs — history and recovery
 
-**Objective.** The repository reads like a serious open-source project to someone who arrives
-knowing nothing.
+**Objective.** Every run that ever happened can be found, opened, understood and retried. **Today
+the run APIs exist and no screen calls them.**
 
-**Dependencies.** Phases 13–23 (document what exists, not what is planned).
+**Dependencies.** Phase 31 (test runs are labelled), Phase 26 (the daily sweep).
 
-**Tasks.** Rewrite `README.md` as a real front page: what it is, a screenshot or GIF that sells it
-immediately, quickstart, features, architecture diagram, badges. A `docs/` site covering
-self-hosting, node reference, agent behaviour, API reference and architecture. `CONTRIBUTING.md`,
-`CODE_OF_CONDUCT.md`, `SECURITY.md`, issue and PR templates. **Pick and apply a licence** — still
-open per `PROGRESS.md`; MIT is the obvious default. Architecture Decision Records for the decisions
-already made: the Foundation Decision, dropping the AI SDK, the registry spine, no-queue and its
-reversal in Phase 17. A self-hosting guide that someone can actually follow.
+**Tasks.**
+1. **Run history on the canvas.** Recent runs with status, trigger, version and duration; opening
+   one paints its statuses onto the canvas read-only.
+2. **A workspace-wide `/runs` page.** Filter by status, trigger, workflow and date. **Paginate on
+   the server** (keyset on start time and id) — unlike the workflow list (D69), this one grows
+   without bound.
+3. **A run detail page, `/runs/[id]`.** The graph at the version the run executed (D86) with that
+   run's statuses, plus every step with its input, output, logs and error. A live run attaches to
+   the stream (D27, D28). **Analytics failures link here.**
+4. **Re-run and retry.** Re-run with the same input, as a new run (decide and label which version it
+   runs). Retry from the failed step, seeding the frontier from the recorded upstream outputs
+   (D79) so finished steps are not executed again. The new run links to the original.
+5. **Retention.** Keep the last N days or K runs per workflow — choose the numbers from the measured
+   bytes per run against Neon's 0.5 GB. **Pruned by Phase 26's daily sweep, never by a new
+   schedule.** Shown in *Settings → Workspace*.
 
-**Primary files.** `README.md`, `docs/*` (new), `CONTRIBUTING.md`, `SECURITY.md`, `LICENSE`,
-`.github/*`, `adr/*` (new).
+**Primary files.** new `src/app/runs/*`, `src/app/api/runs/*`, `src/lib/engine/{run,cursor,recorder}.ts`,
+`src/components/canvas/run-panel.tsx`, `src/app/analytics/page.tsx`, `src/lib/analytics/*`,
+`src/lib/triggers/tick.ts`.
 
-**Implementation notes.** The ADRs largely exist already as prose in `ARCHITECTURE.md` and
-`PROGRESS.md` — this is mostly extraction into a standard form, and the reasoning is already
-written. The README screenshot is the highest-leverage asset in the repository; take it after Phase
-16, not before.
+**Implementation notes.** A viewer can read runs; a private workflow's runs are 404 to everybody it
+is hidden from (D101). Load step bodies lazily — an HTTP node's output can be large. Measure the new
+queries in milliseconds of database time, the way Phase 22 did.
 
-**Validation steps.** A person who has never seen the project can run it locally from the README
-alone. Every documented command is executed and confirmed to work.
+**Validation steps.** On the deployed URL, in a browser, both themes: filter and paginate; open a
+failed run from analytics; fix the config and **retry from the failed step**, then assert the
+upstream steps were not re-executed (count the steps). A retention dry run reports what it would
+delete, then deletes in a throwaway workspace.
 
-**Completion criteria.** Docs build and deploy, licence applied, every README claim verified.
+**Completion criteria.** All of the above, deployed.
 
-**Commit.** `docs: complete phase 24 documentation and open-source readiness`
+**Documentation updates.** `CONTRACT.md` (run links, retention), `docs/api.md`, `OPERATIONS.md`
+(retention and storage), `PROGRESS.md`.
 
-### As built, 2026-10-01
-
-**Licence: MIT**, chosen by the user — the oldest open decision in `PROGRESS.md`.
-
-**"Docs build and deploy" was answered without a static-site generator**, deliberately. Markdown
-in `docs/` renders on GitHub and deploys on every push, at zero cost and zero dependencies — which
-is the same reasoning that keeps this project off a test framework and an LLM SDK. What *is* built
-is the part that would otherwise rot: **`docs/nodes.md` is generated from the node registry**, and
-`npm run docs:check` is a fifth CI gate that fails on a stale node reference, on an undocumented
-or invented API route, and on any documentation link or heading anchor that does not resolve.
-Each guard was proved to fail before being relied on.
-
-**Validation found two defects, both in the new documentation**: the self-hosting guide showed an
-all-`ok` local health response when a correct local install reports `degraded`, and
-`verify-api.mjs` fails 18 checks against a local dev server for two environment reasons — stated
-in `PROGRESS.md` → *Current Phase*. The deployed suite is ALL CHECKS PASSED throughout.
-
-**No deploy.** `src/` is untouched, so `agentforge-00058-q2z` remains current and was re-verified
-rather than replaced.
-
-**Not done:** a screenshot of the authenticated canvas. The session-cookie step is blocked by a
-safety classifier and the user chose to ship without it. The three screenshots that ship are real
-pages of the deployed app. Carry into Phase 25.
+**Commit.** `feat: complete phase 33 run history and recovery`
 
 ---
 
-## Phase 25 — Launch polish ✅ COMPLETE
+## Phase 34 — Generator at scale — catalogue selection and evals
 
-**Objective.** The last pass. Onboarding, performance, accessibility, and the rough edges that
-survive every rewrite.
+**Objective.** Generation stops sending the whole node catalogue on every call, so the registry can
+grow again — and generation quality is measured rather than eyeballed.
 
-**Dependencies.** Phase 24.
+**Dependencies.** Phase 33. **Gates Phases 35–40** (D112).
 
-**Tasks.** A first-run onboarding flow that gets a new user to their first successful run. Every
-empty state designed rather than defaulted. A full accessibility audit against WCAG AA — Chapter 1
-explicitly did *not* do one. Performance: Core Web Vitals on the deployed URL, bundle analysis,
-query optimisation. An error-recovery pass: every failure the user can hit has a clear message and a
-way forward. Final security review of every unauthenticated surface.
+**Tasks.**
+1. **Per-request catalogue selection.** Always send a compact index — one line per node; send full
+   definitions (config schema, `outputShape`, docs) only for the nodes chosen for this request. Two
+   candidate selectors: a first, cheap model call that picks from the index, or deterministic
+   retrieval over labels, descriptions and docs. **Measure both against the eval set and choose.**
+   A deterministic selector spends no quota.
+2. **Re-base the budget test.** Replace the whole-catalogue 26,000-character assertion
+   (`src/lib/nodes/registry.test.ts`) with per-request budgets: the index per node, and the worst
+   case of a full selection. **D112 is lifted when this lands.**
+3. **An eval set.** About twenty fixture prompts in the repository, each with expectations: a valid
+   graph, the node types that must appear, ones that must not, and `unsupported` where it applies.
+   An **offline** mode replays recorded model responses so CI needs no network; a **live** mode runs
+   against the free tier, sparingly (once per session — the quota rule).
+4. **Report which attempt succeeded.** Generation makes up to two attempts, feeding validation errors
+   back; log and count which one produced the graph.
 
-**Primary files.** Across the app.
+**Primary files.** `src/lib/generate/{prompt,generate,schema}.ts`, `src/lib/nodes/{index,registry.test}.ts`,
+a new `scripts/eval-generate.mjs`, `docs/agents.md`.
 
-**Implementation notes.** "Unbreakable" was redefined in Chapter 1 as *the demo path never fails*.
-**That redefinition is now retired** — this phase is where broad error handling actually gets built,
-because there is no demo to protect any more, only users.
+**Implementation notes.** "A valid graph can still be the wrong graph": **the eval set is how the
+selector is proved not to drop a node the request needed.** D38, D39, D40 and D57 all still hold. The
+agent's tool list (`src/lib/ai/tools.ts`) is a separate consumer of the registry — measure its size
+too, because a registry of 40 nodes will reach it next.
 
-**Validation steps.** Full WCAG AA audit with findings fixed. Lighthouse on the deployed URL.
-A new account taken from sign-up to first successful run without help.
+**Validation steps.** The eval pass rate before and after, recorded — selection must not lower it.
+The prompt size, measured. Five eval prompts generated on the deployed URL in a browser and run.
 
-**Completion criteria.** Audit clean or every exception recorded with a reason. Onboarding verified
-with a genuinely fresh account.
+**Completion criteria.** Selection is live, the budget test is re-based, the eval set runs in CI
+offline, and D112 is marked lifted.
 
-**Documentation updates.** All, reconciled. `PROGRESS.md` marks Chapter 2 complete.
+**Documentation updates.** `docs/agents.md`, `ARCHITECTURE.md` (*Generation as built*), `CONTRACT.md`
+(*Generation request/response*, if it moved), `DECISIONS.md`, `PROGRESS.md`.
 
-**Commit.** `feat: complete phase 25 launch polish`
-
-### As built, 2026-10-01
-
-**Onboarding is a guide on the page, not a wizard.** Three steps read live from the database —
-a provider key, a workflow, a successful run — on `/workflows`, above the content.
-A modal has to be dismissed before the product can be looked at, and a wizard that tracks its own
-position lies to somebody who pasted a key in another tab. Migration `0011` adds
-`workspace.onboardedAt`: completion is a **milestone, not a current fact**, so a workspace that
-onboarded and later deleted every workflow is not handed the beginner's checklist again — and the
-guide costs **zero statements** once it is finished with, because the column rides along on the
-membership row the page already loads.
-
-**The steps are presented in order and deliberately not gated in order**, which was proved rather
-than asserted: in a browser, on a brand-new workspace with no key at all, a template was cloned and
-run successfully, taking the guide to *2 of 3* with step 1 still open. A key is required for
-generation, not for the product.
-
-**The real find was the dead end at the end of the primary call to action.** A new account pressing
-*Generate workflow* got a clear 400 naming Settings — and was then left to go and find Settings.
-`details.recovery` (`CONTRACT.md`) now carries an in-app path and a label that the prompt box
-renders as a button. The guard that reads it **drops anything that is not an in-app path**, and its
-test caught a hole in the first version: `//evil.example` begins with `/` and is a different origin.
-
-**The audits are enumerations, which is what makes them worth having.**
-
-- `scripts/verify-a11y.mjs` — every page, WCAG 2.2 AA structure. **92 checks.** Its first run
-  reported 6 failures; 4 were the *script's* blind spot (a control wrapped in its own `<label>` is
-  correctly labelled, and `Labelled` does exactly that), so the reader learned to track label spans.
-  An audit that cries wolf gets turned off. The 2 that survived were real: `/templates` skipped
-  `h1 → h3`, and the canvas carried **two elements with `id="dialog-title"`**, so the version-history
-  dialog was announced to a screen reader with the *share* dialog's name — live since Phase 14,
-  invisible to every suite. Fixed with `useId`, and `primitives.test.ts` now fails on a literal `id`
-  or a literal ARIA reference anywhere in `components/ui`.
-- `scripts/verify-security.mjs` — **67 checks**, every route file under `src/app/api` called with no
-  session. It found that `SECURITY.md`'s "complete list" of unauthenticated surfaces was missing
-  **three**: `/api/health` and both Google OAuth legs. All three were already deliberate and already
-  correct; none was written down. That is the failure mode of a hand-kept security inventory, and it
-  is why the list is now derived and checked in both directions.
-
-**One field was removed from the public internet.** `/api/health` published the GCP `project`
-alongside `location` and `queue`. The last two earn their place — both are copied environment
-variables, so both can point at the wrong queue while `configured` is true. `project` comes from the
-metadata server and *cannot* be wrong, which is the documented reason `TASKS_PROJECT` is unset — so
-it had no diagnostic value and was pure reconnaissance.
-
-**Accessibility behaviour was driven in a browser, because the script cannot see it.** Focus order
-through the guide is correct, every control shows a real focus ring (`boxShadow` measured `none` →
-2 px on focus), and the step rows were **20 px tall against WCAG 2.5.8's 24 px minimum**. The
-spacing exception technically rescued them; leaning on an exception for something one class fixes is
-the wrong trade, so `min-h-6`, re-measured at 320 / 375 / 1440 px.
-
-**`global-error.tsx` was the last unhandled failure.** `error.tsx` renders *inside* the root layout
-and so cannot catch the root layout failing — that case fell through to Next's white
-"Application error" page. It is the least likely failure in the product and the worst looking.
-
-**Performance was measured, not guessed.** Cold-cache CWV on the deployed service: LCP 576–1112 ms
-and **CLS 0** on every page, well inside Google's thresholds. The zero is the self-hosted-font
-decision being paid back. Numbers in `DEPLOYMENT.md` → *Verification*.
-
-**Not done, and stated rather than implied:** the validation step asks for "a new account taken from
-sign-up to first successful run". What was driven was a **brand-new workspace** — no key, no
-workflow, no runs, which is exactly the state the guide reads — on an existing Google account. Google
-sign-up itself was last proved with two real accounts in Phase 19B. A second Google account was not
-created for this.
+**Commit.** `feat: complete phase 34 generator catalogue selection and evals`
 
 ---
 
-## After Phase 25
+## Phase 35 — Copilot I — edit a workflow by conversation
 
-Chapter 2 deliberately stops short of: a plugin marketplace with external publishing, mobile apps,
-real-time multiplayer editing, billing, and a self-hosted installer beyond a documented Docker path.
-When Phase 25 is done, re-plan rather than extending this ladder by reflex — and bring numbers.
+**Objective.** "Also post the urgent ones to Slack" changes the workflow on the canvas — shown as a
+diff the user accepts, never applied behind their back. Today generation can only *create*.
+
+**Dependencies.** Phase 34 (the catalogue), Phase 29 (undo), Phase 18's diff mode.
+
+**Tasks.**
+1. **A copilot panel on the canvas.** Decide its place with measurements at 1440 px: Phase 16 spent
+   itself winning back canvas width (D73), and a permanent third column would undo that — a drawer
+   or a shared rail is likelier to be right.
+2. **An edit request.** The current graph plus the instruction go to the model, which returns a full
+   proposed graph. It is validated exactly like a generated one, and `unsupported` is reported
+   honestly (D39).
+3. **The proposal is shown in diff mode** — the union graph and the ribbons Phase 18 built — with
+   Accept, Reject and *refine* ("no, to #alerts").
+4. **Accept is one undoable step** (Phase 29) and leaves the graph dirty rather than auto-saving;
+   the save makes it a version.
+5. **Unchanged nodes keep their ids and positions**, or the diff reads as remove-plus-add; validate
+   by id. Only new nodes are placed by `layout()`.
+6. **The conversation is client state** for this canvas session — no table and no Neon cost unless a
+   later phase earns one.
+
+**Primary files.** `src/lib/generate/*` (an edit mode), a new copilot route under
+`src/app/api/workflows/[id]/`, a new `src/components/canvas/copilot-panel.tsx`,
+`src/components/canvas/diff/*`, `src/lib/canvas/changes.ts`.
+
+**Implementation notes.** The model can propose only registry nodes, and nothing is applied without a
+person pressing Accept — that is the security boundary, and `SECURITY.md` should say so. A viewer
+cannot use it (403 naming the role). The user's own key pays, so a quota or key failure reaches the
+user with a `details.recovery` door (Phase 25).
+
+**Validation steps.** On the deployed URL, in a browser, both themes, on a generated workflow, five
+requests: add a node, change a config value, remove a branch, rename, and something impossible (→
+`unsupported`). Accept, undo, redo, save — a version is created. Reject leaves the graph untouched.
+
+**Completion criteria.** All of the above, deployed.
+
+**Documentation updates.** `docs/agents.md`, `CONTRACT.md`, `SECURITY.md`, `README.md`, `PRD.md`,
+`PROGRESS.md`.
+
+**Commit.** `feat: complete phase 35 copilot edits by conversation`
+
+---
+
+## Phase 36 — Copilot II — explain and repair
+
+**Objective.** The copilot can explain what a workflow does, and say why a run failed and how to fix
+it.
+
+**Dependencies.** Phase 35, Phase 33 (the run detail page).
+
+**Tasks.**
+1. **Explain this workflow** — a plain-language walkthrough that cites nodes by label; selecting a
+   sentence highlights its node.
+2. **Why did this run fail?** — from `/runs/[id]` and the canvas's run panel. It sends the failed
+   step's error, its config, upstream outputs **truncated**, and the graph, and returns a diagnosis
+   plus, where it can, **a proposed fix as a diff** through Phase 35's Accept flow.
+3. **Retry after the fix** — straight into Phase 33's retry-from-failed-step.
+
+**Primary files.** `src/lib/generate/*`, the copilot route, `src/components/canvas/copilot-panel.tsx`,
+`src/app/runs/[id]/*`.
+
+**Implementation notes.** **Run data is untrusted.** A webhook payload sitting in an upstream output
+can contain instructions, so the diagnosis prompt treats run data as data, and the worst it can
+produce is a *proposal* a person must accept. Model output renders as text, never as HTML. Assert
+that no credential material can reach the prompt — none should be in run records, and a test should
+prove it.
+
+**Validation steps.** On the deployed URL: three induced failure classes (a bad config value, an
+external 4xx, a failed assert) each diagnosed correctly; a proposed fix accepted and the run retried
+to `succeeded`. In a browser, both themes.
+
+**Completion criteria.** All of the above, deployed.
+
+**Documentation updates.** `docs/agents.md`, `SECURITY.md` (prompt injection, stated plainly),
+`PROGRESS.md`.
+
+**Commit.** `feat: complete phase 36 copilot explain and repair`
+
+---
+
+## Phase 37 — Workflows I — when things go wrong
+
+**Objective.** A failure can be planned for inside a workflow, and someone hears about it when it
+was not.
+
+**Dependencies.** Phase 34 (this phase adds a node), Phase 33.
+
+**Tasks.**
+1. **Per-node on-error policy** beside retries and timeout in `policy` (D81): `stop` (today's
+   behaviour), `continue` (the step records its failure and the run continues with the error as the
+   output), or `route` (the node takes an **error** output). Handles come from the registry (D21,
+   D23), so decide how a policy-dependent handle is drawn without breaking that — for example, a
+   declared optional `error` output drawn only when the policy is `route`. Decide what a run that
+   *handled* an error reports, and keep the status tables distinct (D75).
+2. **An error trigger, `core.error_trigger`** — "when another workflow in this workspace fails" —
+   receiving the workflow, the run id, the failed step and the error. Wired to Slack, Discord or
+   Gmail, it **is** the failure alert. Bound it: an error workflow failing must not trigger itself
+   or cascade.
+3. **An in-app inbox.** A header bell with a count; entries for failed runs of workflows the reader
+   can see (and Phase 38's approvals); read and unread per person. **Written in the same path as the
+   failure** — the run has already woken the database — **and read on page load, never polled.**
+   Pruned by the daily sweep.
+
+**Primary files.** `src/lib/engine/{execute,policy}.ts`, a new `src/lib/nodes/core/error-trigger.ts`,
+`src/lib/nodes/types.ts`, `src/db/schema.ts` and a migration, `src/components/shell/app-header.tsx`
+and a new inbox component, `src/lib/canvas/status.ts`, `src/components/canvas/{policy-form,workflow-node}.tsx`.
+
+**Implementation notes.** The error trigger is a new node: the five registry obligations apply.
+Visibility (D101) decides whose inbox a failure reaches.
+
+**Validation steps.** On the deployed URL: `continue` and `route` behave exactly as `CONTRACT.md`
+says; an error workflow posts a **real** Slack or Discord message when another workflow fails; the
+inbox shows it and marks it read; the network panel shows **no interval requests**. In a browser,
+both themes.
+
+**Completion criteria.** All of the above, deployed.
+
+**Documentation updates.** `CONTRACT.md` (policy, run status, inbox), `docs/nodes.md`, `DESIGN.md`
+(the inbox, the error handle), `PRD.md`, `PROGRESS.md`.
+
+**Commit.** `feat: complete phase 37 error handling and failure alerts`
+
+---
+
+## Phase 38 — Workflows II — human in the loop
+
+**Objective.** A workflow can stop and ask a person, then carry on with their answer — hours or days
+later.
+
+**Dependencies.** Phase 37 (the inbox), Phase 26 (`waiting` and timers).
+
+**Tasks.**
+1. **`core.approval`.** It pauses the run in `waiting` and creates an approval request: who may
+   decide (any editor and above, or named members), and a message built with `{{ }}` lookup only
+   (D17). Outputs: static `approved` and `rejected` handles (D23-friendly), plus the decision, the
+   decider and a comment.
+2. **Three ways to decide.** In the inbox and on the canvas. Through a **signed, single-use link** the
+   author sends with any notification node they already use — hashed at rest (D95's pattern),
+   expiring, and opening a confirmation page: **a GET changes nothing**, because a chat app's link
+   preview must not approve anything. And by **timeout** — a Phase 26 timer with a configured
+   outcome (reject, approve, or fail).
+3. **Resume** through Cloud Tasks from the cursor.
+
+**Primary files.** a new `src/lib/nodes/core/approval.ts`, `src/lib/engine/{run,lease,cursor}.ts`, new
+`src/app/api/approvals/*`, a new public decision page, `src/db/schema.ts` and a migration, the inbox
+components, `scripts/verify-security.mjs`.
+
+**Implementation notes.** **A new unauthenticated surface**: enumerated by `verify-security.mjs` and
+written into `SECURITY.md` in this phase. The decision is a POST carrying the token in its body.
+`agentCallable` is **false** — an approval is a guard an author places, the reasoning D36 used for
+`core.assert`. A waiting run holds no lease.
+
+**Validation steps.** On the deployed URL: a run pauses; the approval link goes to a **real** Discord
+or Slack channel; approving from a **signed-out** browser resumes the run down the approved path.
+Reject works. Timeout works. A used link is dead. A bare GET — what a link preview does — changes
+nothing (asserted).
+
+**Completion criteria.** All of the above, deployed.
+
+**Documentation updates.** `CONTRACT.md`, `SECURITY.md`, `docs/nodes.md`, `docs/api.md`, `PRD.md`,
+`PROGRESS.md`.
+
+**Commit.** `feat: complete phase 38 human approval steps`
+
+---
+
+## Phase 39 — Workflows III — composition: sub-workflows, workflow tools, merge
+
+**Objective.** Workflows can be built from other workflows, an agent can call a workflow as a tool,
+and a diamond-shaped graph joins properly.
+
+**Dependencies.** Phase 34, Phase 26 (durable children).
+
+**Tasks.**
+1. **`core.call_workflow`.** Calls another workflow in the same workspace — visibility applies
+   (D101) — with mapped input, waits for its result, and returns the child's output. Parent and
+   child runs link both ways. Bound it: a maximum depth, a cycle refused at save **and** at run
+   time, and the child counted against the parent's budgets — extend D16 rather than invent a new
+   family. Decide whether a long child runs durably and resumes its parent.
+2. **Workflows as agent tools.** A workflow can be marked *callable by agents* with a name, a
+   description and an input shape; `ai.agent`'s tool list gains it (opt-in, in D19's spirit), and
+   the tool call becomes a child run. This is the most *agentic* feature in the chapter.
+3. **`core.merge`.** Wait for all incoming branches, or take the first to arrive, and run **once**.
+   It closes the row `ARCHITECTURE.md` → *What is intentionally simplified* has carried since
+   Chapter 1: "a diamond's merge point runs once per arriving branch". That row also notes the
+   cursor makes it expressible.
+
+**Primary files.** new `src/lib/nodes/core/{call-workflow,merge}.ts`,
+`src/lib/engine/{execute,cursor,validate}.ts`, `src/lib/ai/tools.ts`, `src/lib/workflow/store.ts`,
+`src/components/canvas/inspector.tsx`.
+
+**Implementation notes.** Two new nodes, so five obligations each. The tool list's size (measured in
+Phase 34) matters again once workflows join it. `"agent"` is already reserved in `TRIGGER_KINDS`
+(`src/lib/engine/types.ts`) and never used — decide whether a child run is that trigger kind.
+
+**Validation steps.** On the deployed URL: a parent calls a child and the output flows back; a cycle
+is refused; the depth bound holds; an agent calls a workflow tool and the child run is visible on
+its own; a diamond with `core.merge` runs the join once with both inputs. In a browser, both themes.
+
+**Completion criteria.** All of the above, deployed.
+
+**Documentation updates.** `CONTRACT.md` (execution semantics, run links), `ARCHITECTURE.md` (the
+join row closed), `docs/agents.md`, `docs/nodes.md`, `PRD.md`, `PROGRESS.md`.
+
+**Commit.** `feat: complete phase 39 sub-workflows agent workflow tools and merge`
+
+---
+
+## Phase 40 — Workflows IV — public entry points: forms and webhook responses
+
+**Objective.** A workflow can start from a form a stranger fills in, and a webhook can answer its
+caller with real data.
+
+**Dependencies.** Phase 34, Phase 28 (a public page in both themes).
+
+**Tasks.**
+1. **`core.form_trigger`.** The node declares fields (label; type — text, long text, email, number,
+   select, checkbox, date; required; options). A hosted public page renders the form in Toybox at an
+   unguessable, rotatable URL (D41's pattern), validates **server-side** against the same schema,
+   and starts a run. A honeypot field, a body-size cap, and per-token rate limiting. The success and
+   failure messages are configurable.
+2. **`core.respond` — respond to the webhook.** It sets the status (an allowlisted range), a JSON
+   body built by lookup only (D17) and an allowlisted header set. The webhook route answers with it
+   instead of the run summary. Only valid in a workflow with a webhook or form trigger — validation
+   enforces it.
+
+**Primary files.** new `src/lib/nodes/core/{form-trigger,respond}.ts`, a new public form page and
+its route, `src/app/api/webhook/[token]/route.ts`, `src/lib/triggers/*`, `scripts/verify-security.mjs`,
+`SECURITY.md`.
+
+**Implementation notes.** **Two new unauthenticated surfaces**, enumerated and documented in this
+phase. Rate limiting is in memory and therefore per instance (`max-instances 3`) — say so rather
+than imply more. The form page is public and has no session, so it follows the visitor's theme
+preference if the browser holds one, and Light otherwise (D110).
+
+**Validation steps.** On the deployed URL: the form submitted signed out, at phone width, in both
+themes, and the run succeeds; a missing required field is refused; the rate limit and the honeypot
+both act; `curl` against a webhook gets the custom response. `verify-security.mjs` covers both new
+surfaces in both directions.
+
+**Completion criteria.** All of the above, deployed.
+
+**Documentation updates.** `CONTRACT.md` (*Trigger shapes*), `SECURITY.md`, `docs/nodes.md`,
+`docs/api.md`, `PRD.md`, `PROGRESS.md`.
+
+**Commit.** `feat: complete phase 40 form trigger and webhook responses`
+
+---
+
+## Phase 41 — Public API — personal access tokens
+
+**Objective.** Everything a person can do with workflows and runs in the browser, a script can do
+with a token.
+
+**Dependencies.** Phase 33 (the run routes worth exposing exist).
+
+**Tasks.**
+1. **Personal access tokens.** Created in *Settings*, **shown once**, stored only as a hash (D95).
+   A recognisable prefix so a leaked one is easy to find. Scoped to one workspace and a role ceiling
+   no higher than the creator's — **re-checked on every request**, so a demoted member's token loses
+   power with them. Expiry required. Revocable. A last-used time written at most once per few
+   minutes, not once per request (Neon).
+2. **Bearer auth through the one funnel.** `requireScope` in `src/lib/api.ts` accepts
+   `Authorization: Bearer` for an **allowlisted** set of routes — workflows, runs, starting a run,
+   generation — and **never** for token management, credentials, members or the vault.
+3. **Rate limiting per token**, in memory, documented as per instance.
+4. **Documentation that cannot rot.** `docs/api.md` gains authentication and `curl` examples, and
+   `docs:check` keeps covering every route. An OpenAPI document only if it can be **generated** from
+   the route schemas — a hand-written one is a second source of truth (the Phase 24 rule).
+
+**Primary files.** `src/lib/api.ts`, `src/db/schema.ts` and a migration, new token routes under
+`src/app/api/`, a new settings panel in `src/components/settings/`, `docs/api.md`,
+`scripts/build-docs.mjs`, `scripts/verify-security.mjs`, `SECURITY.md`.
+
+**Implementation notes.** A bearer request carries no cookie, so no CSRF surface — but a token is a
+credential: never logged (Phase 22's logging must be checked for it), never returned again after
+creation. Another workspace's resource is still 404 (D20).
+
+**Validation steps.** On the deployed URL with `curl`: create a token, list workflows, start a run;
+revoke it and get 401; a viewer token cannot write; a token for workspace A cannot see B; demote
+the creator and the token's writes are refused. Grep Cloud Logging for the token: absent.
+
+**Completion criteria.** All of the above, deployed.
+
+**Documentation updates.** `docs/api.md`, `SECURITY.md`, `CONTRACT.md`, `README.md`, `PROGRESS.md`.
+
+**Commit.** `feat: complete phase 41 public api and personal access tokens`
+
+---
+
+## Phase 42 — Chapter 3 launch polish
+
+**Objective.** The last pass over everything Chapter 3 added, with a stranger in mind — in both
+themes.
+
+**Dependencies.** Phases 26–41.
+
+**Tasks.**
+1. **Accessibility in both themes.** `verify-a11y.mjs`, plus keyboard walks of every new surface:
+   undo and paste, the copilot, the inbox, the approval page, the form page, token settings.
+2. **Security review** of every new unauthenticated surface — the form, approval links, bearer
+   tokens, the share page with notes — with `verify-security.mjs` complete in both directions, and
+   `SECURITY.md` → *What we do not claim* updated.
+3. **Performance.** The canvas bundle after undo and the copilot (React Flow alone is 455 KB),
+   measured; Core Web Vitals on the new pages, cold, in both themes.
+4. **Onboarding** updated for the product Chapter 3 built. Every new screen's empty state designed,
+   with an action.
+5. **Who can sign in.** The OAuth consent screen is in *Testing*, so **only listed test users can
+   sign in to the hosted app** — a stranger cannot. Find out what publishing would take with
+   sign-in's identity-only scopes, given the separate Sheets and Gmail scopes (D46)
+   (`UNKNOWN — VERIFY` against Google's current rules). It may need a `MANUAL ACTION REQUIRED`
+   block, and it may honestly stay a stated limitation.
+6. **Documentation.** `README.md` features and both-theme screenshots; `docs/` (nodes regenerated,
+   api, agents); ADRs for Chapter 3's load-bearing decisions — timers on Cloud Tasks, three themes,
+   catalogue selection, the copilot's diff-and-accept boundary.
+
+**Validation steps.** Both audits ALL PASSED on the deployed URL. A brand-new workspace taken from
+nothing to a successful run, then edited by the copilot, in a browser, in both themes.
+
+**Completion criteria.** Audits clean or every exception recorded with a reason; documentation
+reconciled; `PROGRESS.md` marks Chapter 3 complete.
+
+**Documentation updates.** All, reconciled.
+
+**Commit.** `feat: complete phase 42 chapter 3 launch polish`
+
+---
+
+## After Phase 42
+
+Chapter 3 deliberately stops short of:
+
+- internationalisation and voice input (deferred since Chapter 1)
+- a plugin marketplace with external publishing
+- real-time multiplayer editing
+- mobile apps
+- billing
+- SSO beyond Google
+- parallel node execution
+- folders (tags instead — Phase 32)
+- new third-party integrations — after Phase 34 they are additive again, and the cheapest
+  contribution the architecture allows (`CONTRIBUTING.md`)
+
+When Phase 42 is done, **re-plan rather than extend this ladder by reflex — and bring numbers.**

@@ -414,6 +414,11 @@ The theme is **light only** (D65, superseding D48's dark-only). `color-scheme: l
 required, not cosmetic: without it the `<select>` in every registry-generated config form renders as
 a dark OS widget inside a cream panel — the exact mirror of the Chapter 1 problem.
 
+> **Superseded in plan by D110 (2026-10-06): Light, Dark and System, with Light the default.** Built
+> in `BUILD_PLAN.md` Phases 27–28. The `color-scheme` reasoning above carries over unchanged and
+> simply applies once per theme. Until Phase 27 lands, the paragraph above is still what the code
+> does.
+
 **Contrast is not a matter of opinion here.** `src/lib/design/contrast.ts` converts the `oklch()`
 tokens to linear sRGB; `src/app/tokens.test.ts` asserts WCAG AA for every pairing the product uses
 and fails the build otherwise (D52, extended in Phase 14 to the two-register rule, the focus-ring
@@ -1160,7 +1165,7 @@ in a step log.
 |---|---|---|
 | ~~No queue or worker~~ | **DONE in Phase 17** — Cloud Tasks, no second service and no dependency | — |
 | ~~No partial run resume~~ | **DONE in Phase 17.** The recovery path this table predicted is what was built: "step records already hold enough state to resume later" turned out to be exactly true, and the cursor stores only the frontier because the outputs were already there | — |
-| A node with several incoming edges has no join semantics | A diamond's merge point runs once per arriving branch | Still open. The cursor makes it expressible — a queue entry could carry several `fromSeq` — but nothing asks for it yet |
+| A node with several incoming edges has no join semantics | A diamond's merge point runs once per arriving branch | **Planned: `BUILD_PLAN.md` Phase 39** (`core.merge`). The cursor makes it expressible — a queue entry could carry several `fromSeq` |
 | ~~Single LLM provider wired~~ | **DONE in Phase 23D** — Gemini and Groq behind one interface. The claim that a second provider was "a new file; nothing above it changes" held above the interface and failed below it, where the retry and fallback machinery lived inside `gemini.ts`. It moved to `chain.ts` | — |
 | ~~No credential KMS~~ | **DONE in Phase 21** — envelope encryption under a versioned root key in Secret Manager. Not KMS: that is ~$0.06 per key per month and the ceiling is zero (A18), and `SECURITY.md` → *What we do not claim* states what that gives up | Cloud KMS, if a budget ever exists |
 | ~~No workflow versioning~~ | **DONE in Phase 18** — every save is a version, any version restores as a *new* version, two versions diff visually, and every run records which one it executed | — |

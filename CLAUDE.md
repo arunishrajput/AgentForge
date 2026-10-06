@@ -1,10 +1,11 @@
 # CLAUDE.md — How to work on AgentForge
 
-Read this first, then `PROGRESS.md`, then `BUILD_PLAN.md` → *Chapter 2*. **Before implementing
-anything, read all three.** The current work is **Chapter 2, phases 13–25** — the hackathon is
-over. Then read only the further docs the phase actually needs: `CONTRACT.md` before
+Read this first, then `PROGRESS.md`, then `BUILD_PLAN.md` → *Chapter 3*. **Before implementing
+anything, read all three.** The current work is **Chapter 3, phases 26–42**; phases 0–25 are closed
+history. Then read only the further docs the phase actually needs: `CONTRACT.md` before
 touching a shared schema or protocol, `DEPLOYMENT.md` before any cloud work, `ARCHITECTURE.md`
-before adding a component or a dependency, `DESIGN.md` before touching the interface.
+before adding a component or a dependency, `DESIGN.md` before touching the interface — and the rows
+of `DECISIONS.md` that cover whatever you are about to change.
 
 This project is built one phase per session with `/clear` between every session. **Chat memory is
 disposable. This repository is the only persistent memory.** Everything a cold session needs to
@@ -36,21 +37,35 @@ nodes, connections, editable configuration — not a mockup. It runs, streams pe
 logs live, and its agent nodes use tool-calling to decide what to do at runtime instead of
 following a fixed script.
 
-**Context: the hackathon is over and Chapter 2 has begun.** AgentForge was built in 13 phases
-(0–12) for the Zero Origin hackathon and submitted on 2026-09-26
-(<https://devpost.com/software/agentforge-kz832x>). That chapter is closed and is not reopened.
+**Context: Chapters 1 and 2 are closed and Chapter 3 has begun.**
 
-**The work now is turning a shipped MVP into a real, professional, open-source product.** The
-roadmap is `BUILD_PLAN.md` → *Chapter 2*, phases 13–25. The goal, chosen deliberately, is an
-**open-source showpiece**: a repository that a stranger lands on and immediately takes seriously.
+- **Chapter 1 (phases 0–12)** built a hackathon MVP for Zero Origin, submitted on 2026-09-26
+  (<https://devpost.com/software/agentforge-kz832x>)
+- **Chapter 2 (phases 13–25)** turned it into a real, professional, open-source product, closed on
+  2026-10-01: durable runs, versioning, workspaces and roles, a credential vault, observability, 30
+  nodes, two LLM providers, docs, and an a11y and security audit
+
+Neither chapter is reopened.
+
+**The work now is Chapter 3: a product people use every day.** It was planned with the user on
+2026-10-06 and runs through `BUILD_PLAN.md` → *Chapter 3*, phases 26–42:
+
+- themes — Light, Dark and System
+- a canvas that edits like a serious tool
+- an AI copilot that edits and repairs workflows
+- workflows that handle errors, wait, ask a person and call each other
+- the daily-use basics — tags, run history, import/export, an API
+
+The goal is unchanged: an **open-source showpiece** that a stranger lands on and immediately takes
+seriously, and can now actually live in.
 
 **Four decisions are settled and binding.** Do not re-litigate them without flagging it:
 
 | Decision | Value |
 |---|---|
 | **Budget** | **Still strictly zero.** Free tiers only. A phase needing paid infrastructure stops and escalates |
-| **Visual direction** | **Toybox — bright, playful, light-first.** Saturated colour, thick dark outlines, chunky offset shadows, springy motion. Not a dark IDE |
-| **Restored scope** | Teams/roles/sharing, workflow versioning and diffing, observability and metrics, and a credential vault with rotation are all **back in scope** |
+| **Visual direction** | **Toybox — bright, playful, light-first.** Saturated colour, thick dark outlines, chunky offset shadows, springy motion. Not a dark IDE. **Light is the default and the reference; Dark ("Toybox Night") and System are opt-in themes from Phase 27** (D110, chosen by the user 2026-10-06) — held to exactly the same contrast gates, never a softened dark-IDE look |
+| **Scope** | Chapter 2's restored scope — teams, roles, sharing, versioning, observability, the vault — is **built**. Chapter 3's scope is `BUILD_PLAN.md` phases 26–42 |
 | **Purpose** | Open-source showpiece. Prioritise what a stranger reading the repo notices |
 
 ---
@@ -60,12 +75,15 @@ roadmap is `BUILD_PLAN.md` → *Chapter 2*, phases 13–25. The goal, chosen del
 **A genuinely good, genuinely professional product that happens to be free to run.**
 
 Chapter 1's metric was "a working, publicly deployed, reliably demonstrable product", and it was
-met. Chapter 2's metric is different:
+met. Chapter 2's was a product a stranger could trust, and that was met too. **Chapter 3 keeps
+every Chapter 2 bar and adds daily use:**
 
 - The product works for a **real user who was never given a script**, not just along a demo path
 - The repository is **legible to a stranger** — documented, tested, CI-checked, licensed
-- The interface is **distinctive and delightful**, not a template
+- The interface is **distinctive and delightful**, not a template — **in both themes**
 - It stays **free to operate**
+- **A person can live in it**: undo a mistake, find last week's run, be told when something broke,
+  and change a workflow by asking for the change
 
 There is no deadline. **Quality is the binding constraint now, not time.** A phase that is half
 done is not done, and there is no longer any reason to cut corners to reach one.
@@ -80,8 +98,8 @@ done is not done, and there is no longer any reason to cut corners to reach one.
 | Developer | Operating Claude Code directly. No review process, no parallel agents |
 | Host | Google Cloud Run (single container) — **binding**, see `ARCHITECTURE.md` |
 | Database | Neon Postgres, free tier, pooled connection string |
-| Queue | In-process today. **Phase 17 replaces this with Cloud Tasks** — free tier, durable runs |
-| LLM | Google Gemini, behind a provider-agnostic adapter. A second provider lands in Phase 23 |
+| Queue | **Cloud Tasks** for durable runs since Phase 17, in-process for synchronous ones. **Phase 26 adds timers** — tasks scheduled for an exact time — so nothing in the app keeps a clock |
+| LLM | **Gemini and Groq**, behind one provider-agnostic adapter (Phase 23D). The user supplies the key |
 | Cost | **Zero, still binding.** Cloud Run Always Free + Neon free + Gemini free tier. Escalate rather than provision anything paid |
 | Deployment | Live and reachable, and must stay live. Every phase ends with it working |
 
@@ -92,13 +110,15 @@ done is not done, and there is no longer any reason to cut corners to reach one.
 | File | What it is | Read it when |
 |---|---|---|
 | `CLAUDE.md` | This file — how to work here | Always, first |
-| `PROGRESS.md` | Current execution state. The status board | Always, second |
-| `BUILD_PLAN.md` | The phase roadmap and every phase definition | Always, third |
+| `PROGRESS.md` | Current execution state. The status board — kept short enough to read in one pass | Always, second |
+| `BUILD_PLAN.md` | The ladder and the Chapter 3 phase definitions (26–42). **The scope contract** | Always, third |
+| `DECISIONS.md` | The binding decision register, D6 onward. **Moved out of `PROGRESS.md` on 2026-10-06** | Before changing anything a decision covers — search it by number, file or subject |
+| `archive/` | **History.** `PROGRESS.md` and `BUILD_PLAN.md` as they stood at the close of Chapter 2, verbatim. A citation of "`BUILD_PLAN.md` Phase 16" means the archive copy | When a closed phase's reasoning or evidence matters |
 | `PRD.md` | What the product must do, and must not | Before adding or cutting a feature |
 | `ARCHITECTURE.md` | How it is built, and the binding Foundation Decision | Before adding a component or dependency |
 | `CONTRACT.md` | Interfaces that must stay stable across phases | Before touching a shared schema or protocol |
 | `DEPLOYMENT.md` | How to deploy and verify, resource inventory | Before any cloud work |
-| `DESIGN.md` | The Toybox design language. **Written in Phase 14, binding** | Before any UI work. The living reference is `/design` on the deployed URL |
+| `DESIGN.md` | The Toybox design language. **Written in Phase 14, binding; gains Toybox Night in Phase 27** | Before any UI work. The living reference is `/design` on the deployed URL |
 | `DEMO.md` | **ARCHIVED.** The hackathon demo script. Historical only — no longer a scope contract | Rarely |
 | `SUBMISSION.md` | **ARCHIVED.** Devpost submission copy as submitted | Rarely |
 | `SECURITY.md` | Security posture, rotation procedures, disclosure, **and what the product does not claim**. Created in Phase 21 | Before touching auth or crypto |
@@ -222,8 +242,25 @@ Do not fake completion.
 knows where things stand. Keep it **concise and operational**: a status board, not a diary.
 Prune stale detail rather than appending forever.
 
+**It was rebuilt on 2026-10-06** after growing to ~1,800 lines, too long to read in one pass. Keep it
+that way:
+
+- **A new binding decision goes in `DECISIONS.md`**, not here
+- **A phase's narrative goes in its commit message and its `BUILD_PLAN.md` section**, not here.
+  *Recent Changes* holds a short paragraph per phase; when a chapter closes, the old entries move
+  to `archive/`
+- **A closed Known Issue is removed.** Its story is in git history
+
 Update it at the end of every phase, and mid-phase whenever the project state materially changes
-(a resource created, a blocker found, a decision made).
+(a resource created, a blocker found, a decision made). At every phase end, update all of these:
+
+- *Current Phase*
+- the Chapter 3 table
+- *Deployed State* → Revision
+- *Notes for whoever comes next*
+- the `← START HERE` marker in `BUILD_PLAN.md`
+
+A heading that names a phase goes stale the moment that phase ends.
 
 ---
 
@@ -330,6 +367,8 @@ From Phase 13 onward:
   the agent loop, authorisation, and encryption
 - **Tests still run on Node's built-in runner.** It works, it is fast, and it costs no dependency.
   Do not introduce a heavier framework without a concrete reason
+- **From Phase 28 onward, every UI claim is verified in a real browser in both Light and Dark.**
+  The contrast gates check tokens; only a browser checks that a screen actually uses them
 
 Still true, and learned the hard way in Chapter 1:
 
@@ -346,10 +385,12 @@ Still true, and learned the hard way in Chapter 1:
 
 **The hackathon scope rules are retired.** `DEMO.md` is no longer the scope contract, "unbreakable"
 no longer means *only the demo path*, and the MVP-Critical / Post-Hackathon classification in
-`PRD.md` has been rewritten for Chapter 2.
+`PRD.md` has been rewritten for Chapters 2 and 3.
 
-**`BUILD_PLAN.md` Chapter 2 is the scope contract now.** A feature that is not in a phase is not
-in scope; if it should be, add it to a phase deliberately and say so.
+**`BUILD_PLAN.md` Chapter 3 is the scope contract now.** A feature that is not in a phase is not
+in scope; if it should be, add it to a phase deliberately and say so. Two Chapter 3 rules carry
+most of the weight. **No new registry node before Phase 34** (D112). And **every new
+unauthenticated surface is enumerated by `scripts/verify-security.mjs`** in the phase that adds it.
 
 Priority ordering, applied to every decision:
 
@@ -411,7 +452,9 @@ necessary.
 - Never mark a phase complete when it is not
 - Never report a deployment successful without verifying behaviour
 - Never start a later phase while a required earlier phase is incomplete
-- Never reopen a Chapter 1 phase (0–12). A defect left behind is an item inside a Chapter 2 phase
+- Never reopen a closed phase (0–25). A defect left behind is an item inside a Chapter 3 phase
+- Never undo a decision in `DECISIONS.md` silently. Mark it SUPERSEDED, with the reason, and add a
+  new row
 - Never provision paid infrastructure. The zero-cost ceiling binds — escalate instead
 - Never commit secrets
 - Never re-litigate the Foundation Decision or the hosting platform without flagging it to the
@@ -427,7 +470,7 @@ necessary.
 If a previous session ended mid-phase:
 
 1. `git status` and `git log --oneline -5` — find what landed and what did not
-2. Read `PROGRESS.md` → *Current Phase Tasks*, *Blocked Tasks*, *Manual Actions Pending*
+2. Read `PROGRESS.md` → *Current Phase*, *Blocked*, *Manual Actions Pending*
 3. **Verify the real state** rather than trusting the notes: does the deployed URL respond, do the
    expected tables exist, does the build pass
 4. If the working tree has uncommitted work, understand it before touching it — it may be
@@ -446,11 +489,17 @@ Do not invent details. Use these markers, in the docs and in conversation:
 - `SUPERSEDED` — previously considered, now replaced (keep the reason)
 
 Known unknowns carried forward. **Phase 13 measured the free-tier limits and Phases 17, 21 and 22
-proved them in use**; what remains open is one number: **how many Neon CU-hours have actually been
-consumed this billing period.** Phase 22 established that it is *console-only* on the free plan —
-`neonctl` is authenticated, but the consumption API is Scale-plan and the legacy fields read zero —
-so it is a manual read, tracked as M9 in `PROGRESS.md`. It blocks nothing: features are designed
-against the *rule* (do not add a new reason to wake an idle database) and then measured directly.
+proved them in use.** Neon's consumed CU-hours — the last open number of Chapter 2 — were read from
+the console on 2026-10-01 (M9: 0.91 a few hours into the period, projecting to ~60 of 100 with the
+`*/15` cron running). That read is **console-only** on the free plan: `neonctl` is authenticated,
+but the consumption API is Scale-plan and the legacy fields read zero. So re-reading it is a manual
+step, worth asking for when a phase changes what wakes the database — Phase 26 does. Features are
+designed against the *rule* (do not add a new reason to wake an idle database) and then measured
+directly.
+
+Chapter 3's open unknowns are marked `UNKNOWN — VERIFY` where they sit in `BUILD_PLAN.md`:
+- Cloud Tasks' `scheduleTime` horizon, in Phase 26
+- Google's rules for publishing an OAuth app with sensitive scopes, in Phase 42
 
 When plan and reality diverge: identify the discrepancy, explain the practical impact on the
 product and the roadmap, choose the simplest solution that preserves the product goal, update the affected

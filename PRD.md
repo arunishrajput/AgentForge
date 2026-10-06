@@ -1,7 +1,8 @@
 # PRD.md — AgentForge
 
-What the MVP must do, and what it deliberately will not. This is the scope authority. When a
-feature is not on the MVP-Critical list, it is not in the MVP.
+What the product must do, and what it deliberately will not. `BUILD_PLAN.md` is the phase-level
+scope contract; this file is the index of capabilities and the line drawn around them — the
+*Out of scope* list below binds every chapter.
 
 ---
 
@@ -55,8 +56,15 @@ no compliance posture.
 **Chapter 1 (phases 0–12, shipped):** a working, publicly deployed, reliably demonstrable MVP.
 Met, and closed.
 
-**Chapter 2 (phases 13–25, current):** a real product and a serious open-source repository — one a
-stranger can run, understand, trust and contribute to, that still costs nothing to operate.
+**Chapter 2 (phases 13–25, shipped):** a real product and a serious open-source repository — one a
+stranger can run, understand, trust and contribute to, that still costs nothing to operate. Met, and
+closed on 2026-10-01.
+
+**Chapter 3 (phases 26–42, current):** a product people **use every day**. It is easier to build
+with: undo, copy and paste, notes, and a test loop. It is safer to rely on: run history, retries,
+error paths and alerts. It can be changed by asking: a copilot that edits and repairs workflows. And
+it can automate work that needs waiting, people and other workflows. It looks right in Light and
+Dark, and it still costs nothing to operate.
 
 ---
 
@@ -71,6 +79,19 @@ stranger can run, understand, trust and contribute to, that still costs nothing 
 6. Trigger the workflow and watch per-node status and logs stream live
 7. See the agent node reason about the content and take one branch rather than another
 8. See the result land in Discord and in the Google Sheet
+
+**The daily-use journey Chapter 3 adds**, on top of the one above:
+
+9. Choose Light, Dark or System, and have it stick — with no flash on load
+10. Ask the copilot to *"also post the urgent ones to Slack"*, review the change as a diff, accept
+    it — and undo it if it was wrong
+11. Pin a node's output and run one node at a time while building
+12. Find last Tuesday's failed run, ask *why did this fail?*, accept the proposed fix, and retry from
+    the failed step
+13. Be told about a failure — in the app's inbox, and through an error workflow posting to the
+    channel of your choice
+14. Build a workflow that waits a day, asks a person to approve, or calls another workflow
+15. Tag, star, duplicate, export and import workflows; drive them from a script with a token
 
 ---
 
@@ -129,6 +150,44 @@ mapped to the phase that delivers it. `BUILD_PLAN.md` is the contract; this is t
 **Deferred again, deliberately.** Not because they are bad, but because they need the above first:
 voice input and i18n (old S2/S3 — low value until the UI settles); a plugin marketplace with
 external publishing; real-time multiplayer editing; mobile apps.
+
+---
+
+## Chapter 3 scope — planned
+
+**Planned with the user on 2026-10-06.** `BUILD_PLAN.md` → *Chapter 3* is the contract; this is the
+index. Numbered `C3-n` so the Chapter 1 and Chapter 2 `C` numbers above keep their meaning.
+
+| # | Capability | Phase |
+|---|---|---|
+| C3-1 | **Schedules that fire** without a frequent cron; durable long waits; a per-workflow on/off switch | 26 |
+| C3-2 | **Themes: Light (default), Dark ("Toybox Night") and System**, every contrast gate held per theme | 27–28 |
+| C3-3 | Undo/redo, copy/paste/duplicate, bulk actions, auto-arrange, keyboard shortcuts with a help dialog, find on canvas | 29 |
+| C3-4 | Sticky notes and disabled nodes | 30 |
+| C3-5 | Pinned output data, run one node, run up to here, a manual-trigger input form | 31 |
+| C3-6 | Tags, favourites, duplicate, import/export JSON, linkable list views | 32 |
+| C3-7 | **Run history**, a run detail page, re-run, retry from the failed step, retention | 33 |
+| C3-8 | Generation that scales past 30 nodes, measured by an eval set | 34 |
+| C3-9 | **A copilot that edits a workflow by conversation**, shown as a diff the user accepts | 35 |
+| C3-10 | The copilot explains a workflow and diagnoses a failed run with a proposed fix | 36 |
+| C3-11 | Per-node error handling, an error-trigger workflow, an in-app notification inbox | 37 |
+| C3-12 | **Human approval steps** — decided in the app or by a signed single-use link | 38 |
+| C3-13 | Sub-workflows, workflows as agent tools, a merge/join node | 39 |
+| C3-14 | A hosted form trigger; custom webhook responses | 40 |
+| C3-15 | **A public API** with personal access tokens | 41 |
+| C3-16 | Chapter 3 launch polish — a11y and security in both themes, docs, onboarding | 42 |
+
+**Still deferred after Chapter 3:**
+- i18n and voice input
+- a plugin marketplace
+- real-time multiplayer editing
+- mobile apps
+- parallel node execution
+- folders (Phase 32 builds tags instead)
+
+**The copilot, forms and API tokens add no code execution.** The copilot proposes registry nodes
+only, as a diff a person must accept. A form submits data to a run. A token calls the same routes a
+browser does.
 
 ---
 
@@ -231,7 +290,8 @@ triggers fire on a cron expression.
 |---|---|
 | Deployment | Publicly reachable HTTPS URL, working from any machine, live from Phase 2 onward |
 | Responsiveness | Usable from ~375 px to desktop. The canvas may degrade on very small screens but must not break |
-| Accessibility | WCAG AA, audited in Phase 25. Keyboard-operable throughout, visible focus, labelled controls, contrast verified on every token pair — which the Toybox palette makes non-trivial |
+| Accessibility | WCAG AA, audited in Phase 25. Keyboard-operable throughout, visible focus, labelled controls, contrast verified on every token pair — which the Toybox palette makes non-trivial. **From Phase 27, in every theme** |
+| Theming | Light, Dark and System from Phase 27. **Light is the default** even when the OS is dark (D110). The preference is applied before first paint — no flash — and is stored per browser |
 | Performance | Page interactive in < 3 s on the deployed URL. Node status updates visible in < 1 s of the transition. A trivial workflow completes in < 5 s excluding model latency |
 | Reliability | Runs survive deploys and crashes (Phase 17). Every user-reachable failure has a clear message and a way forward (Phase 25). **The Chapter 1 carve-out for "demo path only" is withdrawn** |
 | Cost | **Zero, and binding.** Free tiers only. Escalate rather than provision anything paid |
@@ -261,6 +321,12 @@ Ranked. Earlier items are not tradeable for later ones.
 6. **The interface is memorable.** Someone who sees a screenshot remembers it
 7. **The repository reads as professional** — tests, CI, docs, ADRs, licence
 8. **It still costs nothing to run**
+
+**Chapter 3 adds three, ranked after the eight above:**
+
+9. **A person can live in it** — every mistake undoable, every run findable, every failure announced
+10. **A schedule fires when it says it will** — and the product says so when it will not
+11. **A change can be asked for** — the copilot edits a workflow, and nothing changes without Accept
 
 ---
 
