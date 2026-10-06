@@ -56,7 +56,8 @@ line D110 says Phase 27 changes. The `bg-lift` Known Issue below is Phase 27's t
 
 **Phase 26 closed on 2026-10-06** — `agentforge-00063-zt5`, verified on the deployed service and in
 a real browser. Its evidence is in `BUILD_PLAN.md` → *Phase 26* → *Status* and in *Recent Changes*
-below. Nothing from it is open except **M14**, a non-blocking Neon reading a week from now.
+below. Nothing from it is open except **M14**, a non-blocking Neon reading a week from now — and the
+registry-size re-read in *Notes*.
 
 ---
 
@@ -104,7 +105,7 @@ in `archive/progress-chapters-1-2.md` → *Completed Phases*.
 | **Registry** | **30 nodes.** The generation prompt is **25,042 characters against a 26,000 ceiling** (`src/lib/nodes/registry.test.ts`; Phase 26's `core.delay` rework added 166) — **still one node of headroom** (D112; Phase 34 fixes it). A node owes five things, all asserted by `registry.test.ts`: a `PUBLISHABLE` entry, a `ROTATION_RULES` entry if it carries a credential kind, a `model` output field only if it is a model call, a generator catalogue entry (automatic), and `docs` |
 | Tests | **1030 tests** on Node's built-in runner, plus **20** script tests; coverage **88.38 / 91.02 / 80.23** (lines / branches / functions) against thresholds 85 / 88 / 76. `npm run check` = lint · typecheck · test+coverage · test:scripts · docs:check; CI adds `build` |
 | Latency | Warm health ~190 ms (India → Singapore), DB 7–11 ms. Neon wake ~0.7–1.1 s. Generation 2.7–3.5 s. Analytics 17–27 ms of DB time per page view |
-| Last verified | **2026-10-06, on `00063-zt5`, acting as the owner**: `verify-timers` 34/34 (twice — also on `00062-kxm`), `verify-durable all`, `verify-api` 404 passed / 4 skipped (no `VERIFY_DISCORD_WEBHOOK`, deliberately — it deletes the owner's Discord credential), `verify-templates` 47, `verify-postgres` 65, `verify-providers` 55, `verify-vault` 62, `verify-observability` 68 / 1 structural skip, `verify-integrations` 60 / **2 skipped** (Notion, Airtable), `verify-security` 68, `verify-a11y` 92 — **0 failed**. `smoke.mjs` **27 / 2 failed**: beats 7–8, the Sheets append, because the owner's Google token expired (**M15**) — not a regression. A real browser on the deployed canvas, Light only |
+| Last verified | **2026-10-06, on `00063-zt5`, acting as the owner**: `verify-timers` 34/34 (twice — also on `00062-kxm`), `verify-durable all`, `verify-api` 404 passed / 4 skipped (no `VERIFY_DISCORD_WEBHOOK`, deliberately — it deletes the owner's Discord credential), `verify-templates` 47, `verify-postgres` 65, `verify-providers` 55, `verify-vault` 62, `verify-observability` 68 / 1 structural skip, `verify-integrations` 60 / **2 skipped** (Notion, Airtable), `verify-security` 68, `verify-a11y` 92 — **0 failed**. `smoke.mjs` **CLEAN** (0 failed) after M15 reconnected Google — before it, beats 7–8 failed on the expired token. A real browser on the deployed canvas, Light only |
 | Billing | **`Billing - AgentForge` (`017EB5-0D8A5E-F212CC`) is a paid account since M13** (2026-10-06; the 90-day trial had closed). Budget **"AgentForge zero"**, ₹100/month, e-mail alerts at 50 / 90 / 100 % (D113). Artifact Registry keeps the newest 5 images and the source bucket deletes uploads after 7 days (D120) — measured 896 MB and 687 MB before the first prune. Spend is not queryable from the CLI |
 | Fonts | Geist + Geist Mono, self-hosted by `next/font` — no font request, CLS 0 |
 
@@ -136,7 +137,7 @@ below, are in the archive → *Known Issues*.**
 | **On a phone the canvas toolbar takes three rows** for a workflow with a webhook or schedule trigger — Phase 26's active switch made the second row wrap (measured at 375 and 320 px; nothing clips) | **Phase 28**, which revisits every screen |
 | **The generation prompt has one node of headroom** | D112 — no new node before Phase 34 |
 | **Only listed test users can sign in** — the OAuth consent screen is in `Testing` (cap 100) | Publishing is complicated by the sensitive Sheets/Gmail scopes. **Phase 42** investigates |
-| **A Google connection dies every 7 days** — Google issues a 7-day refresh token to an External app in `Testing` that asks for more than name, email and profile (its OAuth 2.0 docs, read 2026-10-06). The owner's, connected 2026-09-26, was dead by the time Phase 26 ran the smoke walk | **M15** reconnects it; the Sheets and Gmail nodes already say "revoked or expired — reconnect it". It recurs weekly until the app is published, so **Phase 42** owns the real fix |
+| **A Google connection dies every 7 days** — Google issues a 7-day refresh token to an External app in `Testing` that asks for more than name, email and profile (its OAuth 2.0 docs, read 2026-10-06). The owner's, connected 2026-09-26, was dead by the time Phase 26 ran the smoke walk; **reconnected 2026-10-06 17:48 UTC (M15), so it expires again ~2026-10-13** | Reconnect it in Settings → Integrations, as M15 did; the Sheets and Gmail nodes already say "revoked or expired — reconnect it". It recurs weekly until the app is published, so **Phase 42** owns the real fix |
 | **Notion and Airtable have never run against the real service** | By the user's decision (M10). `README.md` says so; `verify-integrations.mjs` reports `2 skipped` and must not be weakened |
 | **The default model is a `-preview` model** (`gemini-3-flash-preview`) | A 404 opens its breaker and the chain falls through; re-derive with `npm run probe:models` if agent steps start failing |
 | **The webhook URL is a bearer secret shown in the UI** | Anyone holding it can start a run. Rotate it from the inspector (`POST /api/workflows/:id/webhook/rotate`) if it leaks |
@@ -191,43 +192,10 @@ below, are in the archive → *Known Issues*.**
 
 M1–M12 are resolved; their blocks and outcomes are in the archive. **M13** — upgrade the closed trial
 billing account — was done by the user on 2026-10-06 and verified the same day (account open, project
-billing enabled, health 200; its block is in git history at `ec19b5b`). **The next free number is M16.**
-
-### M15 — Reconnect Google as the owner (found 2026-10-06, Phase 26; not blocking it)
-
-```text
-MANUAL ACTION REQUIRED
-
-Reason:
-The owner's Google connection (Sheets + Gmail) has expired. The OAuth consent screen is in
-"Testing", and Google gives such apps 7-day refresh tokens when they ask for Sheets or Gmail;
-it was connected on 2026-09-26. Every Sheets and Gmail node in the owner's workspace fails with
-"The Google connection has been revoked or expired", and the smoke walk fails beats 7 and 8.
-Phase 26 did not cause it and does not depend on it.
-
-Location:
-https://agentforge-733000675212.asia-southeast1.run.app/settings?tab=integrations
-(signed in as the owner, arunishrajput7@gmail.com)
-
-Steps:
-1. Open the page above.
-2. On the Google card, press Disconnect if it is offered, then Connect.
-3. Approve the Sheets and Gmail permissions on Google's consent screen.
-
-Values to enter:
-None.
-
-Expected result:
-The Google card shows "Connected" with the owner's address and the Sheets + Gmail scopes.
-
-Verification:
-SMOKE_SPREADSHEET_ID=1iz8vjkGNvPQ1q1vpDvaWnQZ6648BNYHYauVXHHY2IBo \
-  node --env-file=.env scripts/smoke.mjs https://agentforge-733000675212.asia-southeast1.run.app
-# expect 29 passed, including "8. a real row was appended to the Sheet"
-
-Resume by:
-"M15 done" — and expect to repeat it weekly until Phase 42 publishes the app.
-```
+billing enabled, health 200; its block is in git history at `ec19b5b`). **M15** — reconnect Google as the
+owner after its 7-day `Testing` token expired — was done by the user on 2026-10-06 (credential re-created
+17:48 UTC) and verified by a clean `smoke.mjs` walk; its block is in git history at `c2af0e1`. **It will
+be needed again about every 7 days** until Phase 42 — see *Known Issues*. **The next free number is M16.**
 
 ### M14 — Read Neon's consumed CU-hours, on or after 2026-10-13 (non-blocking)
 
@@ -353,9 +321,9 @@ npm run build && cp -r .next/static .next/standalone/.next/static && cp -r publi
 - **Re-read the Artifact Registry size** (inventory row, `UNKNOWN — VERIFY`) — it still reported
   926.9 MB right after the prune
 - **M14 is due on or after 2026-10-13** — ask the user for the Neon reading; it is non-blocking
-- **M15 — the owner's Google connection has expired** (7-day tokens in `Testing`). Until the user
-  reconnects it, `smoke.mjs` fails beats 7–8 and every Sheets/Gmail node fails; check it before
-  believing either is a regression
+- **The owner's Google connection expires every 7 days** (next ~2026-10-13). When `smoke.mjs` fails
+  beats 7–8, or a Sheets/Gmail node says "revoked or expired", ask the user to reconnect it before
+  believing it is a regression
 - **This line names a phase, so it goes stale when that phase ends.** Rewrite it — and the *Current
   Phase* heading, the ladder table above and the `← START HERE` marker in `BUILD_PLAN.md` — at the
   end of every phase
@@ -383,8 +351,9 @@ with the next slot armed before the run starts); every verify script silently ac
 account since 2026-10-01 (now `verify-user.mjs`; four operator credentials it had stored there were
 removed, and `verify-a11y.mjs` no longer audits another account's canvas); a stale route count in `verify-security.mjs`; `verify-observability.mjs` asserting on
 half-ingested logs; and a build upload carrying every git-ignored file (now `#!include:.gitignore`,
-1.9 MB instead of 65.8). Two deploys: `00062-kxm`, then `00063-zt5`. The smoke walk fails only its Sheets
-beats, on a Google token that expired by Google's 7-day `Testing` rule (M15).
+1.9 MB instead of 65.8). Two deploys: `00062-kxm`, then `00063-zt5`. The smoke walk failed only its Sheets
+beats, on a Google token that expired by Google's 7-day `Testing` rule; the user reconnected it (M15)
+and the walk ran clean.
 
 **2026-10-06 — Phase 26 built; deploy blocked (M13).** The session opened to a dead service: the
 Free Trial billing account had closed at 90 days, so Cloud Run answered 503 and every Google API
@@ -413,5 +382,5 @@ Phase 4" after `postgres` was added in 23C.
 ## Last Updated
 
 **2026-10-06** — **Phase 26 complete**, deployed as `agentforge-00063-zt5` and verified on the deployed
-service and in a real browser. M13 resolved; **M14** (Neon reading, from 2026-10-13) and **M15**
-(reconnect Google) are pending and non-blocking. **Next: Phase 27 — Themes I.**
+service and in a real browser. M13 and M15 resolved, the smoke walk clean; **M14** (Neon reading, from
+2026-10-13) is pending and non-blocking. **Next: Phase 27 — Themes I.**
