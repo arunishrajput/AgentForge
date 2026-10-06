@@ -240,7 +240,9 @@ gcloud storage buckets update gs://run-sources-agentforge-hackathon-2026-asia-so
 
 The first prune was done by hand the same day: 53 of 58 images deleted, by digest, keeping exactly
 the images behind `00062` (new), `00061`/`00060`, `00059`, `00058` and `00057`; and 38 source zips
-older than seven days.
+older than seven days. **The bucket shrank at once (687 → 411 MB, a week of uploads); the registry's
+reported size did not** — 926.9 MB straight after, with 6 images left. Whether that is lag before
+unreferenced layers are reclaimed is `UNKNOWN — VERIFY` (`PROGRESS.md` → *Cloud Resource Inventory*).
 
 ```text
 MANUAL ACTION REQUIRED

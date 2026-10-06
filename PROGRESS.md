@@ -283,7 +283,7 @@ history is in the archive.
 | Private vulnerability reporting | GitHub | `arunishrajput/AgentForge` | **ENABLED** |
 | Google Cloud project | Google Cloud | `agentforge-hackathon-2026`, number `733000675212` | **EXISTS**, billing on the **paid** account `017EB5-0D8A5E-F212CC` since M13 |
 | Cloud Run service | Google Cloud | `agentforge`, `asia-southeast1` | **LIVE**, `agentforge-00063-zt5` |
-| Artifact Registry | Google Cloud | `cloud-run-source-deploy`, `asia-southeast1` | **EXISTS** — cleanup policy: keep the newest 5 images, delete the rest once a day old (D120). 5 images after the 2026-10-06 prune |
+| Artifact Registry | Google Cloud | `cloud-run-source-deploy`, `asia-southeast1` | **EXISTS** — cleanup policy: keep the newest 5 images, delete the rest once a day old (D120). 6 images at the end of 2026-10-06 (the policy trims the sixth after a day). **The reported repository size had not dropped yet** — 926.9 MB after deleting 53 of 58 images. `UNKNOWN — VERIFY`: re-read it next session (`gcloud artifacts repositories describe cloud-run-source-deploy --location asia-southeast1`); if it is still ~0.9 GB, the shared layers are not being reclaimed and the saving D120 assumed is not real |
 | Build-source bucket | Cloud Storage | `run-sources-agentforge-hackathon-2026-asia-southeast1` | **EXISTS** — lifecycle: delete objects after 7 days (D120). No free tier in this region |
 | Budget | Cloud Billing | "AgentForge zero", `72b470cc-…`, ₹100/month, alerts at 50 / 90 / 100 % | **EXISTS** since 2026-10-06 (D113) |
 | Enabled APIs | Google Cloud | `run` `cloudbuild` `artifactregistry` `cloudscheduler` `apikeys` `generativelanguage` `gmail` `sheets` `cloudtasks` `secretmanager` `billingbudgets` | **ENABLED** (`billingbudgets` added 2026-10-06 for the budget) |
@@ -350,6 +350,8 @@ npm run build && cp -r .next/static .next/standalone/.next/static && cp -r publi
 - **Every verify script, and `mint-session.mjs`, acts as the deployment owner** (`scripts/verify-user.mjs`),
   i.e. in the owner's real workspace, as all of Chapter 2 did. `VERIFY_USER_EMAIL` picks another account
   deliberately — which then needs its own keys, or every model check fails. Clean up after yourself
+- **Re-read the Artifact Registry size** (inventory row, `UNKNOWN — VERIFY`) — it still reported
+  926.9 MB right after the prune
 - **M14 is due on or after 2026-10-13** — ask the user for the Neon reading; it is non-blocking
 - **M15 — the owner's Google connection has expired** (7-day tokens in `Testing`). Until the user
   reconnects it, `smoke.mjs` fails beats 7–8 and every Sheets/Gmail node fails; check it before
