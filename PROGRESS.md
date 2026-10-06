@@ -16,27 +16,29 @@ Nothing was deleted:
 
 ## Project Status
 
-**CHAPTER 3 IS OPEN. THE NEXT PHASE IS 26, AND NOTHING IN IT HAS STARTED.**
+**CHAPTER 3 IS OPEN. PHASE 26 IS IN PROGRESS. THE LIVE SERVICE IS DOWN — the trial billing account
+closed on ~2026-10-05/06; the fix is M13 (upgrade to a paid account, D113).**
 
 | Chapter | Phases | State |
 |---|---|---|
 | **1** — the hackathon MVP | 0–12 | **COMPLETE.** Submitted 2026-09-26 (<https://devpost.com/software/agentforge-kz832x>). Closed, never reopened |
 | **2** — the open-source product | 13–25 | **COMPLETE**, 2026-10-01. Durable runs, versioning, workspaces, roles and sharing, a credential vault, observability, 30 nodes, two LLM providers, docs, an a11y and security audit |
-| **3** — a product people use every day | **26–42** | **OPEN — planned 2026-10-06, Phase 26 not started.** `BUILD_PLAN.md` is the scope contract |
+| **3** — a product people use every day | **26–42** | **OPEN — planned 2026-10-06, Phase 26 in progress.** `BUILD_PLAN.md` is the scope contract |
 
 **Chapter 3, in one line:** themes (Light, Dark, System), a canvas that edits like a serious tool,
 an AI copilot that edits and repairs workflows, workflows that can handle errors, wait, ask a person
 and call each other, and the daily-use basics — tags, run history, import/export and an API.
 
-**The live system works and must keep working:**
-**https://agentforge-733000675212.asia-southeast1.run.app** — revision `agentforge-00061-lwl`.
+**The live system must keep working, and right now it does not:**
+**https://agentforge-733000675212.asia-southeast1.run.app** — revision `agentforge-00061-lwl`, answering
+**503 since billing was disabled** (M13).
 Launch demo video: <https://www.youtube.com/watch?v=3txmpCPEWd4>.
 
 ### The binding decisions, restated for Chapter 3
 
 | Decision | Value |
 |---|---|
-| **Budget** | **Still strictly zero.** Free tiers only. Escalate, never provision paid |
+| **Budget** | **Still zero**, now inside Always Free on a **paid** billing account with a budget alert (D113, after the trial closed). Escalate anything billed beyond cents |
 | **Visual direction** | **Toybox — bright, playful, light-first.** Light is the default and the reference. **Dark ("Toybox Night") and System become opt-in themes in Phases 27–28** (D110, decided 2026-10-06, superseding D65's light-only). Until Phase 27 lands, the code still enforces light-only |
 | **Restored scope** | Teams, versioning, observability and the vault are **built** (Chapter 2) |
 | **Purpose** | **Open-source showpiece**, and now a product a stranger can use daily |
@@ -47,7 +49,7 @@ Launch demo video: <https://www.youtube.com/watch?v=3txmpCPEWd4>.
 
 ## Current Phase
 
-## ▶ PHASE 26 — Timers: schedules that fire, at zero idle cost — NOT STARTED
+## ▶ PHASE 26 — Timers: schedules that fire, at zero idle cost — IN PROGRESS, deploy waits on M13
 
 **Why it is first:** since M12 (2026-10-01) `agentforge-cron` is `PAUSED`, so **no schedule trigger
 fires**, silently. The phase replaces the `*/15` tick with Cloud Tasks timers armed for the exact
@@ -77,7 +79,7 @@ fixes, not a regression.**
 
 | Phase | Status |
 |---|---|
-| **26** — Timers: schedules that fire, at zero idle cost | **NOT STARTED** ← next |
+| **26** — Timers: schedules that fire, at zero idle cost | **IN PROGRESS** — deployed verification waits on M13 ← current |
 | **27** — Themes I: Toybox Night tokens, gates, switching | NOT STARTED |
 | **28** — Themes II: every screen in both themes | NOT STARTED |
 | **29** — Canvas I: editing ergonomics | NOT STARTED |
@@ -118,16 +120,17 @@ in `archive/progress-chapters-1-2.md` → *Completed Phases*.
 | Tests | **992 tests** on Node's built-in runner; coverage **88.25 / 90.82 / 80.13** (lines / branches / functions) against thresholds 85 / 88 / 76. `npm run check` = lint · typecheck · test+coverage · test:scripts · docs:check; CI adds `build` |
 | Latency | Warm health ~190 ms (India → Singapore), DB 7–11 ms. Neon wake ~0.7–1.1 s. Generation 2.7–3.5 s. Analytics 17–27 ms of DB time per page view |
 | Last verified | **2026-10-01, on `00060-z9v` / `00061-lwl`**: every deployed suite ALL PASSED (`verify-a11y` 92, `verify-security` 67, `verify-api`, `verify-templates` 47, `verify-postgres` 65, `verify-providers` 55, `verify-vault`, `verify-durable`, `verify-observability`); `verify-integrations` 60 passed / **2 skipped** (Notion, Airtable — skipped is not passed); a clean `smoke.mjs` walk on `00061-lwl` |
-| Billing | Trial credit account `Billing - AgentForge`, open. Spend is not queryable from the CLI — eyeball it in the console |
+| Billing | **`Billing - AgentForge` (`017EB5-0D8A5E-F212CC`) is CLOSED** — the 90-day Free Trial ended ~2026-10-05/06, billing is disabled, and every Google API but Cloud Run's describe refuses. **M13** upgrades it to a paid account (D113); the 30-day grace period runs to ~2026-11-04. Spend is not queryable from the CLI |
 | Fonts | Geist + Geist Mono, self-hosted by `next/font` — no font request, CLS 0 |
 
 ---
 
 ## Decisions
 
-**Binding, and in [`DECISIONS.md`](./DECISIONS.md).** D6–D109 from Chapters 1–2, and **D110–D112 from
-Chapter 3's planning**: three themes with Light the default (D110), the ladder's ordering rule
-(D111), and no new registry node before Phase 34 (D112). **The next free number is D113.**
+**Binding, and in [`DECISIONS.md`](./DECISIONS.md).** D6–D109 from Chapters 1–2, and **D110–D113 from
+Chapter 3**: three themes with Light the default (D110), the ladder's ordering rule (D111), no new
+registry node before Phase 34 (D112), and zero cost held on a paid account inside Always Free
+(D113). **The next free number is D114.**
 
 Before changing anything, search `DECISIONS.md` for the area — by number, file or subject. A
 decision changes only by being marked **SUPERSEDED** with a reason and replaced by a new row.
@@ -143,6 +146,7 @@ below, are in the archive → *Known Issues*.**
 
 | Issue | Action |
 |---|---|
+| **The live service is down (503)** — billing disabled when the Free Trial account closed, ~2026-10-05/06 | **M13** — the user upgrades the account. Neon is unaffected. **Deadline ~2026-11-04**, after which Google deletes the project's resources, including `agentforge-root-key` (the vault's root key; no other copy) |
 | **No schedule trigger fires** — `agentforge-cron` is `PAUSED` since M12 | **Phase 26.** Resuming the job (`gcloud scheduler jobs resume agentforge-cron --location asia-southeast1`) is the stopgap and costs ~60 CU-hours/month; do not shorten the tick |
 | **`bg-lift` applies no background** — used in 4 places, no `--color-lift` token exists | **Phase 27.** Found while planning Chapter 3 |
 | **The generation prompt has one node of headroom** | D112 — no new node before Phase 34 |
@@ -196,12 +200,68 @@ below, are in the archive → *Known Issues*.**
 
 ## Manual Actions Pending
 
-**None.** M1–M12 are all resolved; their blocks and outcomes are in the archive. A Chapter 3 manual
-action takes the next number, **M13**, in the `CLAUDE.md` format.
+M1–M12 are resolved; their blocks and outcomes are in the archive. **The next free number is M14.**
+
+### M13 — Upgrade the closed trial billing account (found 2026-10-06, at the start of Phase 26)
+
+**The user chose this on 2026-10-06** over pausing or leaving Google Cloud (D113).
+
+```text
+MANUAL ACTION REQUIRED
+
+Reason:
+The free-trial billing account "Billing - AgentForge" (017EB5-0D8A5E-F212CC) is CLOSED — the
+90-day trial ended around 2026-10-05/06. With billing disabled, Cloud Run answers every request
+with a 503 ("The request failed because billing is disabled for this project"), and Cloud Tasks,
+Cloud Scheduler, Secret Manager and Artifact Registry refuse every API call. The live site is
+down, and Phase 26 (timers on Cloud Tasks) cannot be deployed or verified. Google keeps stopped
+trial resources for a 30-day grace period (until about 2026-11-04) and then deletes them
+permanently — including agentforge-root-key, which wraps the data keys of all 7 stored
+credentials and has no copy anywhere else.
+
+Location:
+https://console.cloud.google.com/welcome?project=agentforge-hackathon-2026
+(signed in as the project owner, arunishrajput7@gmail.com)
+
+Steps:
+1. Open the Welcome page above.
+2. In the page's toolbar, click "Activate" (Google's documented upgrade path for a Free Trial
+   account). If no Activate button shows, open
+   https://console.cloud.google.com/billing/017EB5-0D8A5E-F212CC and use the upgrade /
+   reactivate banner on the account's Overview page.
+3. Complete the payment-method form Google shows. An INR account may also ask for an e-mandate
+   or a prepayment — follow Google's prompts.
+4. Do not create a new billing account or a new project. Upgrading keeps the same account id,
+   which the project is still linked to.
+
+Values to enter:
+None beyond your payment details. Claude Code creates the budget alert (₹100/month, alerts at
+50 / 90 / 100 %) by CLI once billing is back, and falls back to asking you if the CLI is refused.
+
+Expected result:
+The billing account shows as active, with no free-trial banner. Within a few minutes
+https://agentforge-733000675212.asia-southeast1.run.app/api/health answers {"status":"ok",...}
+instead of a 503.
+
+Verification:
+gcloud billing accounts describe 017EB5-0D8A5E-F212CC --format='value(open)'   # True
+curl -fsS https://agentforge-733000675212.asia-southeast1.run.app/api/health
+gcloud tasks queues describe agentforge-runs --location asia-southeast1 --format='value(state)'
+gcloud secrets versions list agentforge-root-key
+
+Resume by:
+"Billing is upgraded" (or "M13 done").
+```
+
+**After the user confirms**, the session verifies it rather than assuming it, then: creates the
+budget alert, checks the Artifact Registry footprint against the 0.5 GB free allowance (61
+revisions of images; pruning old ones is a delete, so it is proposed, not done), and deploys
+Phase 26.
 
 ## Blocked
 
-**Nothing.**
+**Phase 26's deployed verification — waiting on M13.** Implementation, migration and local tests
+proceed; the deploy and every deployed check need billing back.
 
 ---
 
