@@ -9,7 +9,7 @@ import type { RunCursor } from "./cursor";
  *                      ↕
  *                   waiting                                      (Phase 26, not terminal)
  *   step:  running → succeeded | failed                          (both terminal)
- *          skipped is entered directly and is terminal
+ *          skipped and disabled are entered directly and are terminal
  *
  * **`waiting` is Phase 26's, and it sits outside the lease family entirely.** A run that
  * reaches a long `core.delay` is put down: its cursor is written, its lease is released,
@@ -57,7 +57,13 @@ export type RunStatus = (typeof RUN_STATUSES)[number];
 export const RUN_MODES = ["sync", "durable"] as const;
 export type RunMode = (typeof RUN_MODES)[number];
 
-export const STEP_STATUSES = ["running", "succeeded", "failed", "skipped"] as const;
+/**
+ * `skipped` is *the run never got here*; `disabled` — Phase 30 — is *the run got here and the
+ * node was switched off*. Neither ran, so both have no timestamps, and they stay two statuses
+ * because a run history that said "Skipped" for a node the run passed straight through would
+ * be telling its reader the wrong story (`CONTRACT.md` → *Disabled nodes*).
+ */
+export const STEP_STATUSES = ["running", "succeeded", "failed", "skipped", "disabled"] as const;
 export type StepStatus = (typeof STEP_STATUSES)[number];
 
 export const TRIGGER_KINDS = ["manual", "webhook", "schedule", "agent"] as const;

@@ -2,8 +2,9 @@
 
 import { createContext, useContext } from "react";
 
+import type { CanvasNoteData } from "@/lib/canvas/bridge";
 import type { NodeSummary, StepStatus } from "@/lib/canvas/client";
-import type { NodeDiff } from "@/lib/workflow/diff";
+import type { NodeDiff, NoteDiff } from "@/lib/workflow/diff";
 
 /**
  * What a canvas node needs to render, beyond the graph itself.
@@ -36,6 +37,32 @@ export interface NodeRunState {
   paused: boolean;
 }
 
+/**
+ * What a sticky note needs from the canvas it sits on — Phase 30. By context, for the reason
+ * everything here is: a note's `data` is its stored text and tone and nothing else, so
+ * whether it is being typed into, and whether it may be, cannot leak into a saved graph.
+ */
+export interface NoteControls {
+  /** The note being typed into on the canvas, or null. One at a time. */
+  editing: string | null;
+  /** Start typing into a note, or stop (`null`). */
+  setEditing: (id: string | null) => void;
+  /** Change a note's stored fields. */
+  change: (id: string, patch: Partial<CanvasNoteData>) => void;
+  /** Notes take edits here: an editor, outside diff mode. */
+  editable: boolean;
+  /** Notes whose text a share link withheld — drawn as withheld, never as empty. */
+  withheld: ReadonlySet<string>;
+}
+
+const INERT_NOTES: NoteControls = {
+  editing: null,
+  setEditing: () => {},
+  change: () => {},
+  editable: false,
+  withheld: new Set(),
+};
+
 export interface CanvasContextValue {
   registry: Map<string, NodeSummary>;
   runStates: Map<string, NodeRunState>;
@@ -57,6 +84,9 @@ export interface CanvasContextValue {
    * assemble itself.
    */
   entryOrder: Map<string, number>;
+  /** How each note differs between the two versions compared — `diffStates` for notes. */
+  noteDiffStates: Map<string, NoteDiff>;
+  notes: NoteControls;
 }
 
 export const CanvasContext = createContext<CanvasContextValue>({
@@ -64,7 +94,11 @@ export const CanvasContext = createContext<CanvasContextValue>({
   runStates: new Map(),
   diffStates: new Map(),
   entryOrder: new Map(),
+  noteDiffStates: new Map(),
+  notes: INERT_NOTES,
 });
+
+export { INERT_NOTES };
 
 export function useCanvas(): CanvasContextValue {
   return useContext(CanvasContext);

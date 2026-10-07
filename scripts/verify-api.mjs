@@ -368,6 +368,174 @@ try {
     JSON.stringify(invalidRun.json).slice(0, 300));
   await api("DELETE", `/api/workflows/${invalid.json?.data?.id}`, undefined, token);
 
+  // --- Phase 30: switched-off nodes and sticky notes ------------------------
+  // `CONTRACT.md` → *Disabled nodes*, clause by clause, on the deployed engine: a node with a
+  // default output passes its input straight through, a branch stops its path, the trigger
+  // cannot be switched off, and a note round-trips, versions, and never reaches a share link.
+  {
+    const NOTE_SECRET = "PHASE30-NOTE-SECRET for the night rota";
+    const annotatedGraph = {
+      version: 1,
+      nodes: [
+        { id: "trigger", type: "core.manual_trigger", position: { x: 0, y: 0 }, config: {} },
+        {
+          id: "shape",
+          type: "core.set",
+          position: { x: 240, y: 0 },
+          config: { fields: { greeting: "never computed" } },
+          disabled: true,
+        },
+        {
+          id: "say",
+          type: "core.log",
+          position: { x: 480, y: 0 },
+          config: { message: "name={{input.name}} greeting={{input.greeting}}" },
+        },
+        {
+          id: "check",
+          type: "core.branch",
+          position: { x: 240, y: 200 },
+          config: { left: "a", operator: "equals", right: "a" },
+          disabled: true,
+        },
+        { id: "never", type: "core.log", position: { x: 480, y: 200 }, config: { message: "unreachable" } },
+      ],
+      edges: [
+        { id: "e1", source: "trigger", target: "shape", sourceHandle: null },
+        { id: "e2", source: "shape", target: "say", sourceHandle: null },
+        { id: "e3", source: "trigger", target: "check", sourceHandle: null },
+        { id: "e4", source: "check", target: "never", sourceHandle: "true" },
+      ],
+      notes: [
+        { id: "note_1", position: { x: 0, y: -200 }, size: { width: 240, height: 140 }, text: NOTE_SECRET, tone: "pink" },
+      ],
+    };
+    const annotated = await api(
+      "POST",
+      "/api/workflows",
+      { name: "zzzz-phase30 notes and switched-off nodes", graph: annotatedGraph },
+      token,
+    );
+    const annotatedId = annotated.json?.data?.id;
+    check(
+      "a graph with a switched-off node and a note saves, runnable",
+      annotated.status === 201 && annotated.json?.data?.runnable === true,
+      JSON.stringify(annotated.json).slice(0, 300),
+    );
+    const reread = await api("GET", `/api/workflows/${annotatedId}`, undefined, token);
+    check(
+      "and comes back exactly as it was sent — notes and the off switch included",
+      isDeepStrictEqual(reread.json?.data?.graph, annotatedGraph),
+      JSON.stringify(reread.json?.data?.graph).slice(0, 300),
+    );
+
+    const offRun = await api("POST", `/api/workflows/${annotatedId}/runs`, { input: { name: "Ada" } }, token);
+    const offSteps = offRun.json?.data?.steps ?? [];
+    const offStep = (id) => offSteps.find((candidate) => candidate.nodeId === id);
+    check(
+      "a run through a switched-off node succeeds",
+      offRun.json?.data?.status === "succeeded",
+      JSON.stringify(offRun.json).slice(0, 300),
+    );
+    check(
+      "the switched-off node is recorded `disabled`, never ran, and passed its input on unchanged",
+      offStep("shape")?.status === "disabled" &&
+        offStep("shape")?.startedAt === null &&
+        isDeepStrictEqual(offStep("shape")?.output, offStep("trigger")?.output),
+      JSON.stringify(offStep("shape")),
+    );
+    check(
+      "the node after it read the trigger's output — not fields the switched-off node never computed",
+      offStep("say")?.status === "succeeded" && offStep("say")?.logs?.[0]?.message === "name=Ada greeting=",
+      JSON.stringify(offStep("say")?.logs),
+    );
+    check(
+      "a switched-off branch stops its path: what follows it is skipped",
+      offStep("check")?.status === "disabled" && offStep("never")?.status === "skipped",
+      JSON.stringify([offStep("check"), offStep("never")]),
+    );
+
+    const offTrigger = await api(
+      "PATCH",
+      `/api/workflows/${annotatedId}`,
+      {
+        graph: {
+          ...annotatedGraph,
+          nodes: annotatedGraph.nodes.map((n) => (n.id === "trigger" ? { ...n, disabled: true } : n)),
+        },
+      },
+      token,
+    );
+    check(
+      "a switched-off trigger saves but is reported, naming the Active switch",
+      offTrigger.status === 200 &&
+        offTrigger.json?.data?.runnable === false &&
+        offTrigger.json.data.problems.some((p) => p.code === "disabled_trigger" && /Active switch/.test(p.message)),
+      JSON.stringify(offTrigger.json?.data?.problems),
+    );
+    const offTriggerRun = await api("POST", `/api/workflows/${annotatedId}/runs`, { input: {} }, token);
+    check("and it does not run", offTriggerRun.status === 422, `got ${offTriggerRun.status}`);
+
+    const falseFlag = await api(
+      "PATCH",
+      `/api/workflows/${annotatedId}`,
+      { graph: { ...annotatedGraph, nodes: annotatedGraph.nodes.map((n) => ({ ...n, disabled: false })) } },
+      token,
+    );
+    check("`disabled: false` is refused — a node that is on carries no key", falseFlag.status === 400, `got ${falseFlag.status}`);
+    const clash = await api(
+      "PATCH",
+      `/api/workflows/${annotatedId}`,
+      { graph: { ...annotatedGraph, notes: [{ ...annotatedGraph.notes[0], id: "say" }] } },
+      token,
+    );
+    check("a note named like a node is refused — one id space on the canvas", clash.status === 400, `got ${clash.status}`);
+
+    await api("PATCH", `/api/workflows/${annotatedId}`, { graph: annotatedGraph }, token);
+    const noteEdit = await api(
+      "PATCH",
+      `/api/workflows/${annotatedId}`,
+      { graph: { ...annotatedGraph, notes: [{ ...annotatedGraph.notes[0], text: `${NOTE_SECRET}, edited` }] } },
+      token,
+    );
+    const noteHistory = await api("GET", `/api/workflows/${annotatedId}/versions`, undefined, token);
+    const newest = noteHistory.json?.data?.[0];
+    check(
+      "editing only a note is a version, and its summary counts the note",
+      noteEdit.status === 200 && newest?.changes?.notes === 1 && newest?.changes?.any === true,
+      JSON.stringify(newest).slice(0, 300),
+    );
+
+    const noteShare = await api("POST", `/api/workflows/${annotatedId}/share`, undefined, token);
+    const noteShareToken = (noteShare.json?.data?.shareUrl ?? "").split("/s/")[1] ?? "";
+    const notePublic = await api("GET", `/api/share/${noteShareToken}`);
+    const notePublicBody = JSON.stringify(notePublic.json);
+    check(
+      "a share link withholds a note's text — the words, not just the key",
+      notePublic.status === 200 && !notePublicBody.includes("PHASE30-NOTE-SECRET") && !notePublicBody.includes("night rota"),
+      notePublicBody.slice(0, 300),
+    );
+    check(
+      "and keeps the note's place and tone, counting its text as hidden",
+      isDeepStrictEqual(notePublic.json?.data?.graph?.notes?.[0]?.redacted, ["text"]) &&
+        notePublic.json?.data?.graph?.notes?.[0]?.tone === "pink",
+      JSON.stringify(notePublic.json?.data?.graph?.notes),
+    );
+    check(
+      "and publishes the off switch, which is shape",
+      notePublic.json?.data?.graph?.nodes?.find((n) => n.id === "shape")?.disabled === true,
+      JSON.stringify(notePublic.json?.data?.graph?.nodes?.[1]),
+    );
+    const notePage = await page(`/s/${noteShareToken}`);
+    check(
+      "the share page never prints the note's text either, and says it is hidden",
+      notePage.status === 200 && !notePage.html.includes("PHASE30-NOTE-SECRET") && /sticky note/i.test(notePage.html),
+      `status ${notePage.status}`,
+    );
+    await api("DELETE", `/api/workflows/${annotatedId}/share`, undefined, token);
+    await api("DELETE", `/api/workflows/${annotatedId}`, undefined, token);
+  }
+
   // --- run history ----------------------------------------------------------
   const history = await api("GET", `/api/workflows/${workflowId}/runs`, undefined, token);
   check("run history lists both runs of this workflow",

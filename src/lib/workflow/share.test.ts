@@ -4,7 +4,7 @@ import { describe, it } from "node:test";
 import { listNodes } from "@/lib/nodes";
 
 import { GRAPH_VERSION, type WorkflowGraph, type WorkflowNode } from "./graph";
-import { publishableTypes, shareNode, shareWorkflow } from "./share";
+import { publishableTypes, shareNode, shareNote, shareWorkflow } from "./share";
 
 /**
  * **What a public share link may carry.** This is the test for the product's fourth
@@ -269,5 +269,54 @@ describe("shareWorkflow builds the whole response from an explicit list", () => 
       graph: { ...graph, edges: [{ id: "e1", source: "trigger", target: "mail" }] },
     });
     assert.equal(shared.graph.edges[0]?.sourceHandle, null);
+  });
+
+  /* --- Phase 30 ------------------------------------------------------------- */
+
+  const annotated: WorkflowGraph = {
+    ...graph,
+    nodes: graph.nodes.map((n) => (n.id === "mail" ? { ...n, disabled: true as const } : n)),
+    notes: [
+      {
+        id: "note_1",
+        position: { x: 10, y: -150 },
+        size: { width: 260, height: 120 },
+        text: "Escalations go to NOTE-SECRET-PERSON on the night rota",
+        tone: "pink",
+      },
+      { id: "note_2", position: { x: 400, y: -150 }, size: { width: 120, height: 60 }, text: "", tone: "blue" },
+    ],
+  };
+
+  it("withholds a note's text — the value must not appear, not merely its key", () => {
+    // Phase 20's lesson: asserting `!("text" in note)` passes while the text rides along
+    // under another name. Search the whole response for the words themselves.
+    const body = JSON.stringify(shareWorkflow({ ...row, graph: annotated }));
+    assert.doesNotMatch(body, /NOTE-SECRET-PERSON/);
+    assert.doesNotMatch(body, /night rota/);
+  });
+
+  it("keeps a note's place, size and tone, and counts the text as hidden", () => {
+    const notes = shareWorkflow({ ...row, graph: annotated }).graph.notes;
+    assert.deepEqual(notes, [
+      { id: "note_1", position: { x: 10, y: -150 }, size: { width: 260, height: 120 }, tone: "pink", redacted: ["text"] },
+      // An empty note has nothing to withhold, and saying "1 value hidden" would be a lie.
+      { id: "note_2", position: { x: 400, y: -150 }, size: { width: 120, height: 60 }, tone: "blue", redacted: [] },
+    ]);
+  });
+
+  it("builds a shared note from an explicit list, so a field added to notes later stays home", () => {
+    const later = { ...annotated.notes![0], author: "someone@example.com" };
+    assert.deepEqual(Object.keys(shareNote(later)).sort(), ["id", "position", "redacted", "size", "tone"]);
+  });
+
+  it("publishes a switched-off node as switched off — it is shape, not content", () => {
+    const shared = shareWorkflow({ ...row, graph: annotated });
+    assert.equal(shared.graph.nodes.find((n) => n.id === "mail")?.disabled, true);
+    assert.equal("disabled" in shared.graph.nodes.find((n) => n.id === "trigger")!, false);
+  });
+
+  it("carries no notes key for a graph with no notes", () => {
+    assert.equal("notes" in shareWorkflow(row).graph, false);
   });
 });

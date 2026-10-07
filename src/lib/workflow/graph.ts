@@ -18,7 +18,13 @@ import { nodePolicySchema } from "@/lib/engine/policy";
  * layout is a broken round-trip, not a cosmetic bug.
  */
 
-/** Bumped only if a stored graph needs migrating. Readers must reject what they do not know. */
+/**
+ * Bumped only if a stored graph needs migrating. Readers must reject what they do not know.
+ *
+ * Phase 30 added `notes` and a node's `disabled` **without** a bump (D134): both are optional
+ * and additive, so every graph stored before them is still a valid graph and nothing needs
+ * migrating, which is the only thing this number is for.
+ */
 export const GRAPH_VERSION = 1;
 
 export const positionSchema = z.object({
@@ -42,6 +48,12 @@ export const positionSchema = z.object({
  * `policy` on any node, which is why it must stay optional rather than gain a
  * default here: `fromFlow(toFlow(graph))` has to stay deeply equal to `graph`, and a
  * schema default would silently add a key the canvas never wrote.
+ *
+ * `disabled` switches the node off without deleting it — Phase 30, and what a run does with
+ * one is `CONTRACT.md` → *Disabled nodes*. **`true` or absent, never `false`**, for the
+ * reason `policy` is optional: a node that is on carries no key, so a graph that never used
+ * the feature is exactly what it was, and a stored `disabled: false` can never make the dirty
+ * check or the version debounce see a difference nobody made.
  */
 export const workflowNodeSchema = z.object({
   id: z.string().min(1).max(128),
@@ -50,6 +62,7 @@ export const workflowNodeSchema = z.object({
   position: positionSchema,
   config: z.record(z.string(), z.unknown()).default({}),
   policy: nodePolicySchema.optional(),
+  disabled: z.literal(true).optional(),
 });
 
 /**
@@ -65,15 +78,70 @@ export const workflowEdgeSchema = z.object({
   sourceHandle: z.string().max(64).nullish(),
 });
 
-export const workflowGraphSchema = z.object({
-  version: z.literal(GRAPH_VERSION),
-  nodes: z.array(workflowNodeSchema).max(100),
-  edges: z.array(workflowEdgeSchema).max(200),
+/**
+ * **Sticky notes — Phase 30.** For people, and nothing else: they are not registry nodes, so
+ * the engine never reads them, validation never sees them, no agent can call one and the
+ * generator cannot write one (D112, D136).
+ *
+ * The tone is a fixed set rather than a colour, so a note can only ever be drawn in a fill
+ * the contrast gates have already proved in both themes (`lib/canvas/notes.ts`). The text is
+ * **plain text**: nothing renders it as HTML or Markdown, so there is no markup it can carry.
+ */
+export const NOTE_TONES = ["yellow", "pink", "blue", "green", "purple"] as const;
+export const NOTE_TEXT_MAX = 2000;
+export const NOTE_LIMIT = 50;
+export const NOTE_SIZE = { minWidth: 120, maxWidth: 800, minHeight: 60, maxHeight: 800 } as const;
+
+export const workflowNoteSchema = z.object({
+  id: z.string().min(1).max(128),
+  position: positionSchema,
+  size: z.object({
+    width: z.number().finite().min(NOTE_SIZE.minWidth).max(NOTE_SIZE.maxWidth),
+    height: z.number().finite().min(NOTE_SIZE.minHeight).max(NOTE_SIZE.maxHeight),
+  }),
+  text: z.string().max(NOTE_TEXT_MAX),
+  tone: z.enum(NOTE_TONES),
 });
+
+/**
+ * `notes` follows `policy`'s rule: **absent stays absent**. The key is written only while
+ * there is a note (`fromFlow`), so deleting the last one gives back the graph as it was
+ * before the first.
+ *
+ * Note ids share one space with node ids, because the canvas draws both in one React Flow,
+ * where an id names exactly one thing. A collision would put two objects on one id and lose
+ * one of them, so it is refused here rather than reported later — unlike a duplicate *node*
+ * id, which `validateGraph` reports so that a half-built canvas still saves. Nothing the
+ * product mints can collide (`nextNodeId`, `nextNoteId` and the clipboard all mint against
+ * both), so this is what keeps an API client to the same rule.
+ */
+export const workflowGraphSchema = z
+  .object({
+    version: z.literal(GRAPH_VERSION),
+    nodes: z.array(workflowNodeSchema).max(100),
+    edges: z.array(workflowEdgeSchema).max(200),
+    notes: z.array(workflowNoteSchema).max(NOTE_LIMIT).optional(),
+  })
+  .superRefine((graph, context) => {
+    const nodeIds = new Set(graph.nodes.map((node) => node.id));
+    const seen = new Set<string>();
+    for (const [index, note] of (graph.notes ?? []).entries()) {
+      if (nodeIds.has(note.id) || seen.has(note.id)) {
+        context.addIssue({
+          code: "custom",
+          path: ["notes", index, "id"],
+          message: `The note id "${note.id}" is already used on this canvas.`,
+        });
+      }
+      seen.add(note.id);
+    }
+  });
 
 export type Position = z.infer<typeof positionSchema>;
 export type WorkflowNode = z.infer<typeof workflowNodeSchema>;
 export type WorkflowEdge = z.infer<typeof workflowEdgeSchema>;
+export type WorkflowNote = z.infer<typeof workflowNoteSchema>;
+export type NoteTone = (typeof NOTE_TONES)[number];
 export type WorkflowGraph = z.infer<typeof workflowGraphSchema>;
 
 export const emptyGraph = (): WorkflowGraph => ({

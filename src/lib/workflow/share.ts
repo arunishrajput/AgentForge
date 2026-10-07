@@ -1,5 +1,11 @@
 import type { Workflow } from "@/db/schema";
-import { GRAPH_VERSION, type WorkflowGraph, type WorkflowNode } from "@/lib/workflow/graph";
+import {
+  GRAPH_VERSION,
+  type NoteTone,
+  type WorkflowGraph,
+  type WorkflowNode,
+  type WorkflowNote,
+} from "@/lib/workflow/graph";
 
 /**
  * **What a public share link is allowed to carry — Phase 20.**
@@ -178,12 +184,41 @@ export interface SharedNode {
    * between "unconfigured" and "not shown to you" is being misled by omission.
    */
   redacted: string[];
+  /**
+   * Switched off — Phase 30. **Published**, because it is shape rather than content: whether
+   * a step runs. A diagram that drew a switched-off node as live would mislead its reader
+   * about what the workflow does.
+   */
+  disabled?: true;
+}
+
+/**
+ * A sticky note on a share link — Phase 30. **Its text is withheld and counted** (D135): a
+ * note is the most purely authored value in a graph, free text written for colleagues about
+ * the workflow's people and data, and the line this file draws — shape is published, typed-in
+ * values are not — puts it on the withheld side with nothing to weigh. Its place, size and
+ * tone are kept, so a reader sees *that* the author annotated this corner, and is told it is
+ * hidden rather than shown an empty note.
+ */
+export interface SharedNote {
+  id: string;
+  position: { x: number; y: number };
+  size: { width: number; height: number };
+  tone: NoteTone;
+  /** `["text"]` when there was text to withhold, `[]` for a note that was empty. */
+  redacted: string[];
 }
 
 export interface SharedWorkflow {
   name: string;
   description: string | null;
-  graph: { version: number; nodes: SharedNode[]; edges: WorkflowGraph["edges"] };
+  graph: {
+    version: number;
+    nodes: SharedNode[];
+    edges: WorkflowGraph["edges"];
+    /** Present only when the graph has notes. */
+    notes?: SharedNote[];
+  };
   /** The version number the shared graph is, so a reader can cite what they looked at. */
   version: number;
   updatedAt: string;
@@ -232,6 +267,21 @@ export function shareNode(node: WorkflowNode): SharedNode {
     position: { x: node.position.x, y: node.position.y },
     config: published,
     redacted,
+    ...(node.disabled ? { disabled: true as const } : {}),
+  };
+}
+
+/**
+ * One note, with its text withheld. Built field by field like everything else here, so a
+ * field a later phase adds to a note is withheld until somebody decides otherwise.
+ */
+export function shareNote(note: WorkflowNote): SharedNote {
+  return {
+    id: note.id,
+    position: { x: note.position.x, y: note.position.y },
+    size: { width: note.size.width, height: note.size.height },
+    tone: note.tone,
+    redacted: note.text === "" ? [] : ["text"],
   };
 }
 
@@ -262,6 +312,7 @@ export function shareWorkflow(workflow: Workflow): SharedWorkflow {
         target: edge.target,
         sourceHandle: edge.sourceHandle ?? null,
       })),
+      ...(workflow.graph.notes?.length ? { notes: workflow.graph.notes.map(shareNote) } : {}),
     },
     version: workflow.version,
     updatedAt: workflow.updatedAt.toISOString(),

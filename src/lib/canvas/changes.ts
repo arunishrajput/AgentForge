@@ -31,6 +31,13 @@ export interface ChangeLook {
   glyph: string;
   /** The ribbon's fill — a `-pop`, which by `DESIGN.md`'s rule carries an ink label. */
   fill: string;
+  /**
+   * The ribbon's label. `text-accent-ink` on a `-pop` fill, and `text-ink` on the one ribbon
+   * that is not a fill — `moved`, on `bg-surface`. Phase 30 found the moved ribbon drawing
+   * `accent-ink` on `surface`: identical to ink in Light, and near-black on indigo in Night,
+   * which D126 says `accent-ink` must never be drawn anywhere but a fill.
+   */
+  ink: string;
   /** The card's border treatment. */
   outline: string;
   /** The card's fill. */
@@ -57,6 +64,7 @@ const LOOK: Record<NodeChange, ChangeLook> = {
     label: "Added",
     glyph: "+",
     fill: "bg-ok-pop",
+    ink: "text-accent-ink",
     outline: "border-ok",
     ...RAISED,
     ribbon: true,
@@ -65,6 +73,7 @@ const LOOK: Record<NodeChange, ChangeLook> = {
     label: "Removed",
     glyph: "−",
     fill: "bg-bad-pop",
+    ink: "text-accent-ink",
     // Dashed and recessed: this node is not in the newer workflow, and the card says
     // so on two channels that survive a greyscale screenshot.
     outline: "border-bad border-dashed",
@@ -76,6 +85,7 @@ const LOOK: Record<NodeChange, ChangeLook> = {
     label: "Changed",
     glyph: "~",
     fill: "bg-warn-pop",
+    ink: "text-accent-ink",
     outline: "border-warn",
     ...RAISED,
     ribbon: true,
@@ -86,6 +96,7 @@ const LOOK: Record<NodeChange, ChangeLook> = {
     // change what the workflow does. It is worth reporting and not worth shouting.
     glyph: "⤢",
     fill: "bg-surface",
+    ink: "text-ink",
     outline: "border-line",
     ...RAISED,
     ribbon: true,
@@ -94,6 +105,7 @@ const LOOK: Record<NodeChange, ChangeLook> = {
     label: "Unchanged",
     glyph: "",
     fill: "",
+    ink: "",
     outline: "border-line",
     ...RAISED,
     ribbon: false,
@@ -110,10 +122,21 @@ export const FIELD_WORDS: Record<string, string> = {
   label: "name",
   config: "configuration",
   policy: "retry and timeout",
+  // Phase 30's note fields. `disabled` is not here: its word depends on which way it went.
+  text: "text",
+  tone: "colour",
+  size: "size",
 };
 
-export function fieldWords(fields: readonly string[]): string {
-  const words = fields.map((field) => FIELD_WORDS[field] ?? field);
+/**
+ * The ribbon's words. `disabledNow` says which way a `disabled` change went — Phase 30's
+ * ribbon names *what* changed, and "switched off" and "switched on" are two different
+ * statements about what the workflow now does, where "on/off state" would be neither.
+ */
+export function fieldWords(fields: readonly string[], disabledNow = false): string {
+  const words = fields.map((field) =>
+    field === "disabled" ? (disabledNow ? "switched off" : "switched on") : (FIELD_WORDS[field] ?? field),
+  );
   if (words.length <= 1) return words[0] ?? "";
   return `${words.slice(0, -1).join(", ")} and ${words[words.length - 1]}`;
 }

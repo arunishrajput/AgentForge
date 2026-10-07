@@ -72,16 +72,24 @@ export function WorkflowNodeView({ id, data, selected }: NodeProps<CanvasNode>) 
   const change = diff ? changeLook(diff.change) : null;
 
   const category = categoryLook(definition?.category);
-  const status = nodeStatusLook(
-    state?.status ?? "idle",
-    definition?.category === "agent",
-    state?.paused ?? false,
-  );
+
+  /**
+   * **Switched off — Phase 30.** A property of the graph, so the card wears it whether or not
+   * a run has reached the node: what it has to say is *this will not run*, and it says it in
+   * the status vocabulary's own channels — the word, the glyph, a dotted outline and a
+   * recessed card (`status.ts`). It outranks the last run's status, which described a node
+   * that was on. In diff mode the change still owns the outline and the surface, but the
+   * chip stays: being off is a fact about that version of the graph, not about a run.
+   */
+  const off = data.disabled === true;
+  const status = off
+    ? nodeStatusLook("disabled")
+    : nodeStatusLook(state?.status ?? "idle", definition?.category === "agent", state?.paused ?? false);
 
   const outputs = definition?.outputs ?? [{ key: null, label: "Out" }];
   const isTrigger = definition?.kind === "trigger";
   // A step paused inside a waiting run (Phase 26) is not working, so it gets no live edge.
-  const running = state?.status === "running" && !state.paused;
+  const running = !off && state?.status === "running" && !state.paused;
 
   const delayMs = Math.min((entryOrder.get(id) ?? 0) * STAGGER_MS, STAGGER_CAP_MS);
 
@@ -122,17 +130,21 @@ export function WorkflowNodeView({ id, data, selected }: NodeProps<CanvasNode>) 
         {change?.ribbon && (
           <div
             className={cn(
-              "border-line text-accent-ink flex items-center gap-1.5 rounded-t-[0.875rem] border-b-2 px-2.5 py-1",
+              "border-line flex items-center gap-1.5 rounded-t-[0.875rem] border-b-2 px-2.5 py-1",
               change.fill,
+              change.ink,
             )}
           >
             <span aria-hidden="true" className="text-2xs leading-none font-bold">
               {change.glyph}
             </span>
             <span className="text-3xs font-bold tracking-wide uppercase">{change.label}</span>
+            {/* At full strength, and told apart from the word by weight. It was dimmed with
+                `opacity-75` — D126's dimmed label on a fill, by another mechanism — until
+                Phase 30 added "switched off" here and measured it. */}
             {diff && diff.fields.length > 0 && (
-              <span className="text-3xs ml-auto truncate opacity-75">
-                {fieldWords(diff.fields)}
+              <span className="text-3xs ml-auto truncate font-medium">
+                {fieldWords(diff.fields, off)}
               </span>
             )}
           </div>
@@ -192,11 +204,11 @@ export function WorkflowNodeView({ id, data, selected }: NodeProps<CanvasNode>) 
           {/* Run status is suppressed in diff mode: the union graph on screen was never
               anybody's workflow, so no run ever executed it and a green "Succeeded"
               badge on a node in a diff would be a statement about a different graph. */}
-          {state && !change && (
+          {((state && !change) || off) && (
             <div className="flex flex-wrap items-center gap-1">
               <span
                 // Remounting on a status change is what replays the one-shot motion.
-                key={state.status}
+                key={off ? "off" : state?.status}
                 className={cn("chip", status.tone, status.motion)}
               >
                 {status.dots ? (
@@ -217,16 +229,18 @@ export function WorkflowNodeView({ id, data, selected }: NodeProps<CanvasNode>) 
                 {status.label}
               </span>
 
-              {state.executions > 1 && (
+              {state && !change && state.executions > 1 && (
                 <span className="text-muted text-3xs font-bold">×{state.executions}</span>
               )}
-              {state.branch && (
+              {state?.branch && !change && !off && (
                 <span className="text-muted font-mono text-3xs">→ {state.branch}</span>
               )}
             </div>
           )}
 
-          {state?.error && !change && (
+          {/* A failure from a run that reached this node while it was on describes a node
+              that is not there any more. */}
+          {state?.error && !change && !off && (
             <p className="text-bad line-clamp-3 text-2xs leading-snug">{state.error}</p>
           )}
         </div>

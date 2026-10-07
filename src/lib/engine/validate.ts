@@ -16,7 +16,8 @@ export interface GraphProblem {
     | "edge_into_trigger"
     | "unknown_output_handle"
     | "illegal_cycle"
-    | "invalid_config";
+    | "invalid_config"
+    | "disabled_trigger";
   message: string;
   nodeId?: string;
   edgeId?: string;
@@ -102,8 +103,12 @@ export function validateGraph(graph: WorkflowGraph): ValidationResult {
     // Config is validated with templates still in it, so a field that will hold a
     // number at run time may be a "{{...}}" string now. Only non-template values
     // are checked here; the engine re-parses after resolution.
+    //
+    // **Not for a switched-off node** (Phase 30): it will not run, so its config is never
+    // parsed, and a half-configured node is exactly the kind somebody switches off while
+    // they work on the rest. Every structural rule below still applies to it.
     const hasTemplate = JSON.stringify(node.config ?? {}).includes("{{");
-    if (!hasTemplate) {
+    if (!hasTemplate && !node.disabled) {
       const parsed = definition.configSchema.safeParse(node.config ?? {});
       if (!parsed.success) {
         problems.push({
@@ -124,6 +129,20 @@ export function validateGraph(graph: WorkflowGraph): ValidationResult {
     problems.push({
       code: "multiple_triggers",
       message: `The workflow has ${triggers.length} trigger nodes; exactly one is allowed.`,
+    });
+  }
+
+  // **A run starts at its trigger, so the trigger cannot be switched off** (Phase 30,
+  // `CONTRACT.md` → *Disabled nodes*). Reported rather than refused at the schema, so the
+  // graph still saves. What somebody switching a trigger off usually wants is the active
+  // switch — the workflow stops running by itself and Run still works — so the message
+  // names it.
+  for (const trigger of triggers) {
+    if (!trigger.disabled) continue;
+    problems.push({
+      code: "disabled_trigger",
+      message: `The trigger "${trigger.id}" is switched off, and a run starts at its trigger. Switch it back on — to stop the workflow running by itself, use the Active switch instead.`,
+      nodeId: trigger.id,
     });
   }
 

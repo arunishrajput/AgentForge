@@ -6,8 +6,8 @@ import { shortcutFor, type ShortcutAction } from "@/lib/canvas/shortcuts";
 import { ariaKeyShortcut, chordLabel, type Platform } from "@/lib/ui/keys";
 
 /**
- * Undo, Redo, Auto-arrange and the `?` card — Phase 29 — as buttons in the canvas's own
- * control stack, under React Flow's zoom and fit.
+ * Undo, Redo, Auto-arrange and the `?` card — Phase 29 — and *Add a sticky note* — Phase 30
+ * — as buttons in the canvas's own control stack, under React Flow's zoom and fit.
  *
  * **On the canvas, not in the toolbar**, and that is a measured decision rather than a
  * taste. The toolbar is two rows on a 375 px phone since Phase 28 (151 → 104 px), and
@@ -29,6 +29,7 @@ export function EditControls({
   onUndo,
   onRedo,
   onArrange,
+  onAddNote,
   onShortcuts,
 }: {
   editable: boolean;
@@ -39,6 +40,8 @@ export function EditControls({
   onUndo: () => void;
   onRedo: () => void;
   onArrange: () => void;
+  /** Phase 30. A sticky note, in the middle of the screen. */
+  onAddNote: () => void;
   onShortcuts: () => void;
 }) {
   const keyed = (action: ShortcutAction, name: string) => {
@@ -82,6 +85,15 @@ export function EditControls({
               <rect x="10.5" y="2" width="4" height="3" rx="0.75" />
               <rect x="10.5" y="11" width="4" height="3" rx="0.75" />
               <path d="M5.5 8H8M8 3.5v9M8 3.5h2.5M8 12.5h2.5" />
+            </svg>
+          </ControlButton>
+          {/* Phase 30. Beside the other tools for arranging the canvas rather than in the
+              node palette, whose list is the registry — a note is not a node. */}
+          <ControlButton onClick={onAddNote} {...keyed("addNote", "Add a sticky note")}>
+            <svg viewBox="0 0 16 16" className="control-icon" aria-hidden="true">
+              <path d="M2.5 2.5h11v7l-4 4h-7z" />
+              <path d="M13.5 9.5h-4v4" />
+              <path d="M5 6h6M5 8.5h3" />
             </svg>
           </ControlButton>
         </>

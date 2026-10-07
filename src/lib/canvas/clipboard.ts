@@ -1,12 +1,15 @@
 import { z } from "zod";
 
 import {
+  NOTE_LIMIT,
   workflowEdgeSchema,
   workflowNodeSchema,
+  workflowNoteSchema,
   type Position,
   type WorkflowEdge,
   type WorkflowGraph,
   type WorkflowNode,
+  type WorkflowNote,
 } from "@/lib/workflow/graph";
 
 import { nextEdgeId } from "./bridge";
@@ -43,18 +46,26 @@ const MAX_TEXT = 2_000_000;
 /** How far a paste lands from what it copied, and from the paste before it. */
 export const PASTE_STEP = 40;
 
-const envelopeSchema = z.object({
-  format: z.literal(CLIPBOARD_FORMAT),
-  version: z.literal(CLIPBOARD_VERSION),
-  nodes: z.array(workflowNodeSchema).min(1).max(MAX_NODES),
-  edges: z.array(workflowEdgeSchema).max(MAX_EDGES),
-});
+/**
+ * **`notes` was added in Phase 30 without a version bump**: optional, so every version 1
+ * envelope is still one, and a reader from before it ignores the key and pastes the nodes —
+ * the only thing it could have done with them. At least one node or note.
+ */
+const envelopeSchema = z
+  .object({
+    format: z.literal(CLIPBOARD_FORMAT),
+    version: z.literal(CLIPBOARD_VERSION),
+    nodes: z.array(workflowNodeSchema).max(MAX_NODES),
+    edges: z.array(workflowEdgeSchema).max(MAX_EDGES),
+    notes: z.array(workflowNoteSchema).max(NOTE_LIMIT).optional(),
+  })
+  .refine((envelope) => envelope.nodes.length + (envelope.notes?.length ?? 0) > 0);
 
 export type ClipboardEnvelope = z.infer<typeof envelopeSchema>;
 
 /**
- * The selected nodes, and the edges *between* them — an edge to a node left behind
- * would arrive dangling. `null` when nothing is selected.
+ * The selected nodes and notes, and the edges *between* the nodes — an edge to a node left
+ * behind would arrive dangling. `null` when nothing is selected.
  */
 export function copySelection(
   graph: WorkflowGraph,
@@ -62,11 +73,18 @@ export function copySelection(
 ): ClipboardEnvelope | null {
   const wanted = new Set(ids);
   const nodes = graph.nodes.filter((node) => wanted.has(node.id));
-  if (nodes.length === 0) return null;
+  const notes = (graph.notes ?? []).filter((note) => wanted.has(note.id));
+  if (nodes.length === 0 && notes.length === 0) return null;
 
   const kept = new Set(nodes.map((node) => node.id));
   const edges = graph.edges.filter((edge) => kept.has(edge.source) && kept.has(edge.target));
-  return { format: CLIPBOARD_FORMAT, version: CLIPBOARD_VERSION, nodes, edges };
+  return {
+    format: CLIPBOARD_FORMAT,
+    version: CLIPBOARD_VERSION,
+    nodes,
+    edges,
+    ...(notes.length > 0 ? { notes } : {}),
+  };
 }
 
 export function serialiseEnvelope(envelope: ClipboardEnvelope): string {
@@ -115,6 +133,8 @@ export type PasteResult =
       ok: true;
       nodes: WorkflowNode[];
       edges: WorkflowEdge[];
+      /** Phase 30. Empty when the clipboard carried none. */
+      notes: WorkflowNote[];
       /** Something was left out, and the author should be told what and why. */
       note: string | null;
     }
@@ -160,7 +180,8 @@ export function planPaste(
     return false;
   });
 
-  if (incoming.length === 0) {
+  const incomingNotes = envelope.notes ?? [];
+  if (incoming.length === 0 && incomingNotes.length === 0) {
     return {
       ok: false,
       reason: "This workflow already has a trigger, and a workflow runs from exactly one.",
@@ -174,13 +195,28 @@ export function planPaste(
     };
   }
 
-  // New ids, minted against everything already on the canvas and everything minted so far.
-  const taken = new Set(graph.nodes.map((node) => node.id));
+  const existingNotes = graph.notes ?? [];
+  if (existingNotes.length + incomingNotes.length > NOTE_LIMIT) {
+    return {
+      ok: false,
+      reason: `That would make ${existingNotes.length + incomingNotes.length} notes; a workflow holds at most ${NOTE_LIMIT}.`,
+    };
+  }
+
+  // New ids, minted against everything already on the canvas and everything minted so far —
+  // notes and nodes together, because React Flow draws both in one id space.
+  const taken = new Set([...graph.nodes.map((node) => node.id), ...existingNotes.map((note) => note.id)]);
   const ids = new Map<string, string>();
   for (const node of incoming) {
     const id = freshId(taken, node.id);
     taken.add(id);
     ids.set(node.id, id);
+  }
+  const noteIds = new Map<string, string>();
+  for (const note of incomingNotes) {
+    const id = freshId(taken, note.id);
+    taken.add(id);
+    noteIds.set(note.id, id);
   }
 
   const edgeIds = new Set(graph.edges.map((edge) => edge.id));
@@ -202,25 +238,33 @@ export function planPaste(
   }
 
   const shift = placement(
-    incoming.map((node) => node.position),
-    graph.nodes.map((node) => node.position),
+    [...incoming, ...incomingNotes].map((item) => item.position),
+    [...graph.nodes, ...existingNotes].map((item) => item.position),
     options.viewport,
   );
+  const moved = (position: Position): Position => ({
+    x: Math.round(position.x + shift.x),
+    y: Math.round(position.y + shift.y),
+  });
 
   const nodes = incoming.map((node) => ({
     ...node,
     id: ids.get(node.id)!,
-    position: {
-      x: Math.round(node.position.x + shift.x),
-      y: Math.round(node.position.y + shift.y),
-    },
+    position: moved(node.position),
     config: remapReferences(node.config, ids) as Record<string, unknown>,
+  }));
+
+  const notes = incomingNotes.map((note) => ({
+    ...note,
+    id: noteIds.get(note.id)!,
+    position: moved(note.position),
   }));
 
   return {
     ok: true,
     nodes,
     edges,
+    notes,
     note: droppedTrigger
       ? "The trigger was left out — this workflow already has one, and a workflow runs from exactly one."
       : null,

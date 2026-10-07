@@ -23,8 +23,10 @@ import { valuesEqual, type WorkflowGraph } from "@/lib/workflow/graph";
  *   `config:<id>:<key>`  one field of one node's configuration — typing a subject line
  *   `label:<id>`         one node's label
  *   `policy:<id>`        one node's retry and timeout
- *   `move:<ids>`         the same nodes nudged with the arrow keys
- *   `null`               never coalesces: an add, a delete, a paste, a connection
+ *   `note:<id>`          one sticky note's text (Phase 30) — typing in it
+ *   `move:<ids>`         the same nodes and notes nudged with the arrow keys
+ *   `null`               never coalesces: an add, a delete, a paste, a connection, a node
+ *                        switched off or on, a note's tone
  *
  * A keyed run outside a gesture also breaks after `COALESCE_MS` of quiet, so typing a
  * value, pausing, and typing more is two steps — the way a text editor groups typing.
@@ -141,6 +143,10 @@ export function changeKey(before: WorkflowGraph, after: WorkflowGraph): string |
   if (before.nodes.length !== after.nodes.length) return null;
   if (!valuesEqual(before.edges, after.edges)) return null;
 
+  const beforeNotes = before.notes ?? [];
+  const afterNotes = after.notes ?? [];
+  if (beforeNotes.length !== afterNotes.length) return null;
+
   const moved: string[] = [];
   const edits: string[] = [];
 
@@ -148,6 +154,8 @@ export function changeKey(before: WorkflowGraph, after: WorkflowGraph): string |
     const a = before.nodes[index];
     const b = after.nodes[index];
     if (a.id !== b.id || a.type !== b.type) return null;
+    // Switching a node off or on is a click, and each click is a step of its own.
+    if (Boolean(a.disabled) !== Boolean(b.disabled)) return null;
 
     if (a.position.x !== b.position.x || a.position.y !== b.position.y) moved.push(a.id);
 
@@ -160,6 +168,16 @@ export function changeKey(before: WorkflowGraph, after: WorkflowGraph): string |
       if (changed.length !== 1) return null;
       edits.push(`config:${a.id}:${changed[0]}`);
     }
+  }
+
+  // Notes (Phase 30). Typing in one is a field like any other; its tone is a click, and a
+  // resize arrives inside a pointer gesture, so either seen out here is a step of its own.
+  for (let index = 0; index < beforeNotes.length; index += 1) {
+    const a = beforeNotes[index];
+    const b = afterNotes[index];
+    if (a.id !== b.id || a.tone !== b.tone || !valuesEqual(a.size, b.size)) return null;
+    if (a.position.x !== b.position.x || a.position.y !== b.position.y) moved.push(a.id);
+    if (a.text !== b.text) edits.push(`note:${a.id}`);
   }
 
   if (edits.length === 0 && moved.length > 0) return `move:${moved.sort().join(",")}`;

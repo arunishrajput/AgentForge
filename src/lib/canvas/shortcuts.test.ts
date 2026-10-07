@@ -50,6 +50,8 @@ describe("the shortcut table", () => {
       "fit",
       "search",
       "help",
+      "toggleDisabled",
+      "addNote",
     ];
     for (const action of actions) {
       assert.equal(SHORTCUTS.filter((s) => s.action === action).length, 1, action);
@@ -162,5 +164,19 @@ describe("what counts as typing", () => {
     ]) {
       assert.equal(isTypingTarget(target), false, JSON.stringify(target));
     }
+  });
+});
+
+describe("Phase 30's two keys", () => {
+  it("D switches the selection off or on, and ⌘D still duplicates", () => {
+    assert.equal(matchShortcut(press("d"), false), "toggleDisabled");
+    assert.equal(matchShortcut(press("D", { shiftKey: true }), false), null, "Shift-D is not bound");
+    assert.equal(matchShortcut(press("d", { metaKey: true }), false), "duplicate");
+  });
+
+  it("N adds a note, and neither fires while typing — a D or an N is a letter there", () => {
+    assert.equal(matchShortcut(press("n"), false), "addNote");
+    assert.equal(matchShortcut(press("n"), true), null);
+    assert.equal(matchShortcut(press("d"), true), null);
   });
 });

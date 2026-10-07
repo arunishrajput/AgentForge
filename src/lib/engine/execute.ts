@@ -235,6 +235,24 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
   const cursor = (): RunCursor => snapshotCursor({ queue, executions, seq });
 
   /**
+   * The checkpoint after a step. The frontier is written here, after the step that produced
+   * it, so a redelivery resumes at exactly the next piece of outstanding work. The same
+   * statement answers "was this cancelled" and "do I still own this run". `true` means stop.
+   */
+  const checkpointed = async (): Promise<boolean> => {
+    const checkpoint = (await recorder.checkpoint(cursor())) ?? CHECKPOINT_OK;
+    if (!checkpoint.leaseHeld) {
+      interrupted = "preempted";
+      return true;
+    }
+    if (checkpoint.cancelRequested) {
+      interrupted = "cancelled";
+      return true;
+    }
+    return false;
+  };
+
+  /**
    * **Waking up — Phase 26.** A run resumed from `waiting` has one piece of unfinished
    * work the queue does not describe: the delay step it paused inside, still `running`,
    * whose successors are already queued. Finish it first, so its output is what they
@@ -295,6 +313,67 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
     // resumed queue entry resolves through the step rows rather than through memory,
     // which is what lets the cursor stay small (`cursor.ts`).
     const nodeInput = item.fromSeq === null ? input : bySeq.get(item.fromSeq);
+
+    /**
+     * **A switched-off node — Phase 30, `CONTRACT.md` → *Disabled nodes*.** It is never
+     * executed: no config is resolved, no `execute` is called, nothing is sent anywhere. It
+     * is recorded as a `disabled` step whose output is its input, and then either:
+     *
+     *  - it has a **default output**, and its input goes straight out of it — the next node
+     *    receives exactly what this one received; or
+     *  - it is a branch, a switch or a loop, whose only job is choosing an output. Switched
+     *    off it has no neutral answer — taking *true* or *false* would send the run somewhere
+     *    nobody chose — so **its path stops**, and what follows is recorded skipped unless
+     *    another path reaches it.
+     *
+     * The trigger never gets here: validation refuses a switched-off one (`disabled_trigger`).
+     * It is still a step, so it counts towards both caps exactly as an executed node does.
+     */
+    if (node.disabled) {
+      const passes = definition.outputs.some((output) => output.key === null);
+      const output = nodeInput ?? null;
+      const step: StepRecord = {
+        seq,
+        nodeId: node.id,
+        nodeType: node.type,
+        iteration,
+        status: "disabled",
+        config: null,
+        input: nodeInput ?? null,
+        output,
+        branch: null,
+        logs: [
+          {
+            at: new Date().toISOString(),
+            level: "info",
+            message: passes
+              ? "Switched off — not run. Its input was passed on unchanged."
+              : "Switched off — not run. It chooses which way the run goes, and switched off it has no neutral answer, so nothing after it runs from here.",
+          },
+        ],
+        error: null,
+        startedAt: null,
+        finishedAt: null,
+      };
+      const mySeq = seq;
+      steps.push(step);
+      seq += 1;
+
+      outputs.set(node.id, output);
+      bySeq.set(mySeq, output);
+      executions.set(node.id, iteration + 1);
+      lastOutput = output;
+      await recorder.stepFinished(step);
+
+      if (passes) {
+        for (const edge of edgesFrom(graph, node.id, null)) {
+          queue.push({ nodeId: edge.target, fromSeq: mySeq });
+        }
+      }
+
+      if (await checkpointed()) break;
+      continue;
+    }
 
     // Named `templateScope` rather than `scope`, because `scope` now means the
     // workspace one destructured above and this is a different thing entirely: the
@@ -452,18 +531,7 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
       break;
     }
 
-    // The frontier is written here, after the step that produced it, so a redelivery
-    // resumes at exactly the next piece of outstanding work. The same statement
-    // answers "was this cancelled" and "do I still own this run".
-    const checkpoint = (await recorder.checkpoint(cursor())) ?? CHECKPOINT_OK;
-    if (!checkpoint.leaseHeld) {
-      interrupted = "preempted";
-      break;
-    }
-    if (checkpoint.cancelRequested) {
-      interrupted = "cancelled";
-      break;
-    }
+    if (await checkpointed()) break;
   }
 
   if (interrupted === "preempted") {

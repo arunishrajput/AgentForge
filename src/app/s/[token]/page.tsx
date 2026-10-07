@@ -60,6 +60,9 @@ export default async function SharedWorkflowPage({
   const byType = new Map(registry.map((node) => [node.type, node]));
 
   const hidden = shared.graph.nodes.reduce((total, node) => total + node.redacted.length, 0);
+  // Phase 30: a note's text is withheld like any typed-in value, and counted on its own,
+  // because "3 values hidden across 5 nodes" would not tell a reader a note was there.
+  const hiddenNotes = (shared.graph.notes ?? []).filter((note) => note.redacted.length > 0).length;
 
   return (
     <div className="flex min-h-dvh flex-col">
@@ -103,6 +106,12 @@ export default async function SharedWorkflowPage({
                 {hidden} value{hidden === 1 ? "" : "s"} {hidden === 1 ? "is" : "are"} hidden
                 across {shared.graph.nodes.length} node
                 {shared.graph.nodes.length === 1 ? "" : "s"}.{" "}
+              </>
+            )}
+            {hiddenNotes > 0 && (
+              <>
+                The text of {hiddenNotes === 1 ? "the author's sticky note" : `${hiddenNotes} sticky notes`} is
+                hidden too.{" "}
               </>
             )}
             Nothing here is live: no runs, no credentials, and nothing about the workspace it
@@ -160,6 +169,12 @@ function NodeCard({
         <NodeIcon type={node.type} category={definition?.category} className="size-4 shrink-0" />
         <span className="text-sm font-bold">{node.label ?? definition?.label ?? node.type}</span>
         <code className="text-faint font-mono text-3xs">{node.type}</code>
+        {/* Phase 30. Shape, not content: whether this step runs at all. */}
+        {node.disabled && (
+          <Badge tone="outline" icon="⊘" className="shrink-0">
+            switched off
+          </Badge>
+        )}
         {node.redacted.length > 0 && (
           <Badge className="ml-auto shrink-0">
             {node.redacted.length} value{node.redacted.length === 1 ? "" : "s"} hidden

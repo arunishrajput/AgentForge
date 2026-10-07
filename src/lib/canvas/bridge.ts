@@ -3,9 +3,11 @@ import type { Edge as FlowEdge, EdgeChange, Node as FlowNode, NodeChange } from 
 import type { NodePolicy } from "@/lib/engine/policy";
 import {
   GRAPH_VERSION,
+  type NoteTone,
   type WorkflowEdge,
   type WorkflowGraph,
   type WorkflowNode,
+  type WorkflowNote,
 } from "@/lib/workflow/graph";
 
 /**
@@ -43,10 +45,31 @@ export interface CanvasNodeData extends Record<string, unknown> {
    * as unsaved the moment it loaded.
    */
   policy?: NodePolicy;
+  /** Switched off (Phase 30). `true` or absent, never `false` — `policy`'s rule again. */
+  disabled?: true;
 }
 
 export type CanvasNode = FlowNode<CanvasNodeData, typeof CANVAS_NODE_TYPE>;
 export type CanvasEdge = FlowEdge;
+
+/**
+ * **A sticky note is a second React Flow node type** (Phase 30). It is not a registry node and
+ * is never one of `CanvasNode` — the editor holds notes in a list of their own and lays them
+ * over the nodes only for React Flow, so the hundred places that read `node.data.nodeType`
+ * never meet a note. Its stored `size` is React Flow's `width`/`height`, the attributes the
+ * resizer sets — never `measured`, which is what the browser happened to lay out.
+ */
+export const CANVAS_NOTE_TYPE = "note";
+
+export interface CanvasNoteData extends Record<string, unknown> {
+  text: string;
+  tone: NoteTone;
+}
+
+export type CanvasNote = FlowNode<CanvasNoteData, typeof CANVAS_NOTE_TYPE>;
+
+/** A new note's size, and the size a note is read back at if React Flow ever lost it. */
+export const NOTE_DEFAULT_SIZE = { width: 240, height: 140 } as const;
 
 export function toFlowNode(node: WorkflowNode): CanvasNode {
   return {
@@ -58,7 +81,39 @@ export function toFlowNode(node: WorkflowNode): CanvasNode {
       ...(node.label === undefined ? {} : { label: node.label }),
       config: node.config ?? {},
       ...(node.policy === undefined ? {} : { policy: node.policy }),
+      ...(node.disabled ? { disabled: true as const } : {}),
     },
+  };
+}
+
+/**
+ * `zIndex: -1` puts a note behind the nodes and their edges, which is where an annotation
+ * belongs: it explains a corner of the graph without covering it. Selecting one lifts it
+ * above everything (React Flow adds 1000 to a selected node), so it can still be edited
+ * when a node sits on top of it.
+ */
+export function toFlowNote(note: WorkflowNote): CanvasNote {
+  return {
+    id: note.id,
+    type: CANVAS_NOTE_TYPE,
+    position: { x: note.position.x, y: note.position.y },
+    width: note.size.width,
+    height: note.size.height,
+    zIndex: -1,
+    data: { text: note.text, tone: note.tone },
+  };
+}
+
+export function fromFlowNote(note: CanvasNote): WorkflowNote {
+  return {
+    id: note.id,
+    position: { x: note.position.x, y: note.position.y },
+    size: {
+      width: note.width ?? NOTE_DEFAULT_SIZE.width,
+      height: note.height ?? NOTE_DEFAULT_SIZE.height,
+    },
+    text: note.data.text,
+    tone: note.data.tone,
   };
 }
 
@@ -71,21 +126,32 @@ export function toFlowEdge(edge: WorkflowEdge): CanvasEdge {
   };
 }
 
-export function toFlow(graph: WorkflowGraph): { nodes: CanvasNode[]; edges: CanvasEdge[] } {
+export function toFlow(graph: WorkflowGraph): {
+  nodes: CanvasNode[];
+  edges: CanvasEdge[];
+  notes: CanvasNote[];
+} {
   return {
     nodes: graph.nodes.map(toFlowNode),
     edges: graph.edges.map(toFlowEdge),
+    notes: (graph.notes ?? []).map(toFlowNote),
   };
 }
 
 /**
  * Canvas state back to a storable graph.
  *
- * `label` and `policy` are omitted rather than written as `undefined`: the stored
- * graph is compared structurally after a Postgres `jsonb` round trip, and an explicit
- * `undefined` disappears through JSON while an absent key stays absent.
+ * `label`, `policy` and `disabled` are omitted rather than written as `undefined`: the
+ * stored graph is compared structurally after a Postgres `jsonb` round trip, and an explicit
+ * `undefined` disappears through JSON while an absent key stays absent. **`notes` is written
+ * only when there is one** (Phase 30), for the same reason: a workflow that never had a note,
+ * or whose last note was deleted, is the graph it always was.
  */
-export function fromFlow(nodes: CanvasNode[], edges: CanvasEdge[]): WorkflowGraph {
+export function fromFlow(
+  nodes: CanvasNode[],
+  edges: CanvasEdge[],
+  notes: readonly CanvasNote[] = [],
+): WorkflowGraph {
   return {
     version: GRAPH_VERSION,
     nodes: nodes.map((node) => ({
@@ -95,6 +161,7 @@ export function fromFlow(nodes: CanvasNode[], edges: CanvasEdge[]): WorkflowGrap
       position: { x: node.position.x, y: node.position.y },
       config: node.data.config ?? {},
       ...(node.data.policy === undefined ? {} : { policy: node.data.policy }),
+      ...(node.data.disabled ? { disabled: true as const } : {}),
     })),
     edges: edges.map((edge) => ({
       id: edge.id,
@@ -102,6 +169,7 @@ export function fromFlow(nodes: CanvasNode[], edges: CanvasEdge[]): WorkflowGrap
       target: edge.target,
       sourceHandle: edge.sourceHandle ?? null,
     })),
+    ...(notes.length > 0 ? { notes: notes.map(fromFlowNote) } : {}),
   };
 }
 
@@ -127,6 +195,18 @@ export function restoreNodes(nodes: CanvasNode[], graph: WorkflowGraph): CanvasN
   });
 }
 
+/** `restoreNodes` for notes: the stored fields from the graph, React Flow's own kept. */
+export function restoreNotes(notes: CanvasNote[], graph: WorkflowGraph): CanvasNote[] {
+  const byId = new Map(notes.map((note) => [note.id, note]));
+  return (graph.notes ?? []).map((stored) => {
+    const fresh = toFlowNote(stored);
+    const current = byId.get(stored.id);
+    return current
+      ? { ...current, position: fresh.position, width: fresh.width, height: fresh.height, data: fresh.data }
+      : fresh;
+  });
+}
+
 export function restoreEdges(edges: CanvasEdge[], graph: WorkflowGraph): CanvasEdge[] {
   const byId = new Map(edges.map((edge) => [edge.id, edge]));
   return graph.edges.map((stored) => {
@@ -147,9 +227,9 @@ export function restoreEdges(edges: CanvasEdge[], graph: WorkflowGraph): CanvasE
  * never be opened by clicking a node. Filtering keeps what the withholding was for: a
  * move, a removal or an addition never reaches the graph.
  */
-export function readOnlyChanges<C extends NodeChange<CanvasNode> | EdgeChange<CanvasEdge>>(
-  changes: C[],
-): C[] {
+export function readOnlyChanges<
+  C extends NodeChange<CanvasNode | CanvasNote> | EdgeChange<CanvasEdge>,
+>(changes: C[]): C[] {
   return changes.filter((change) => change.type === "select" || change.type === "dimensions");
 }
 
@@ -166,6 +246,19 @@ export function nextNodeId(taken: Iterable<string>, nodeType: string): string {
   if (!used.has(base)) return base;
   for (let n = 2; ; n += 1) {
     const candidate = `${base}_${n}`;
+    if (!used.has(candidate)) return candidate;
+  }
+}
+
+/**
+ * A note's id — `note_1`, `note_2` — minted against **every** id on the canvas, nodes
+ * included, because React Flow draws both in one id space and the graph schema refuses a
+ * collision (`workflowGraphSchema`). Callers pass node and note ids together.
+ */
+export function nextNoteId(taken: Iterable<string>): string {
+  const used = new Set(taken);
+  for (let n = 1; ; n += 1) {
+    const candidate = `note_${n}`;
     if (!used.has(candidate)) return candidate;
   }
 }

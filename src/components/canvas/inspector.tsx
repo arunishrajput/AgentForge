@@ -1,9 +1,9 @@
 "use client";
 
-import { Labelled, Input, Textarea } from "@/components/ui/field";
+import { Labelled, Input, Textarea, Toggle } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { cn } from "@/components/ui/cn";
-import type { CanvasNode } from "@/lib/canvas/bridge";
+import type { CanvasNode, CanvasNote, CanvasNoteData } from "@/lib/canvas/bridge";
 import { categoryLook } from "@/lib/canvas/categories";
 import type { GraphProblem, NodeSummary, Run, Workflow } from "@/lib/canvas/client";
 import type { Platform } from "@/lib/ui/keys";
@@ -11,6 +11,7 @@ import type { Platform } from "@/lib/ui/keys";
 import { ConfigForm } from "./config-form";
 import { NodeDocs } from "./node-docs";
 import { NodeIcon } from "./node-icon";
+import { NoteInspector } from "./note-inspector";
 import { Panel } from "./panel";
 import { PolicyForm } from "./policy-form";
 import { RunPanel } from "./run-panel";
@@ -21,7 +22,8 @@ import { TriggerPanel } from "./trigger-panel";
  * The right-hand panel: the selected node's configuration, or — when nothing is
  * selected — why the workflow cannot run and what the last run did. **Since Phase 29 a
  * third state**: several nodes selected, and what can be done to all of them
- * (`selection-inspector.tsx`).
+ * (`selection-inspector.tsx`). **Phase 30 a fourth**: one sticky note (`note-inspector.tsx`),
+ * and a node's on/off switch.
  *
  * Validation problems are **shown, not enforced**. A half-built canvas must be
  * saveable (`CONTRACT.md` → "Graph validation"), so the honest UI is "saved, and here
@@ -51,7 +53,9 @@ export function Inspector({
   onCollapse,
   node,
   definition,
+  note,
   selection,
+  selectedNotes,
   registry,
   platform,
   revision,
@@ -72,6 +76,8 @@ export function Inspector({
   onChangeNode,
   onDeleteNode,
   onSelectNode,
+  onChangeNote,
+  onSetDisabled,
   onCopySelection,
   onDuplicateSelection,
   onMoveSelection,
@@ -85,8 +91,12 @@ export function Inspector({
   onCollapse: () => void;
   node: CanvasNode | null;
   definition: NodeSummary | undefined;
-  /** Every selected node when there is more than one — Phase 29. Empty otherwise. */
+  /** One sticky note, selected alone — Phase 30. */
+  note: CanvasNote | null;
+  /** Every selected node — Phase 29. Read as a selection only when more than one thing is. */
   selection: CanvasNode[];
+  /** Every selected note — Phase 30. They count towards the selection with the nodes. */
+  selectedNotes: CanvasNote[];
   registry: Map<string, NodeSummary>;
   platform: Platform;
   /**
@@ -126,6 +136,9 @@ export function Inspector({
   onChangeNode: (id: string, data: Partial<CanvasNode["data"]>) => void;
   onDeleteNode: (id: string) => void;
   onSelectNode: (id: string) => void;
+  onChangeNote: (id: string, patch: Partial<CanvasNoteData>) => void;
+  /** Switch nodes off or back on — Phase 30. A trigger is left as it is. */
+  onSetDisabled: (ids: readonly string[], off: boolean) => boolean;
   onCopySelection: () => void;
   onDuplicateSelection: () => void;
   onMoveSelection: (dx: number, dy: number) => void;
@@ -133,8 +146,11 @@ export function Inspector({
 }) {
   // The panel's own title names what it is showing, so the rail does too — a
   // collapsed inspector that says "Send email" is worth reopening.
-  const title = selection.length > 1
-    ? `${selection.length} nodes selected`
+  const many = selection.length + selectedNotes.length > 1;
+  const title = many
+    ? `${selectionWords(selection.length, selectedNotes.length)} selected`
+    : note
+    ? "Sticky note"
     : node
     ? (node.data.label || definition?.label || node.data.nodeType)
     : run
@@ -155,9 +171,10 @@ export function Inspector({
       onExpand={onExpand}
       onCollapse={onCollapse}
     >
-      {selection.length > 1 ? (
+      {many ? (
         <SelectionInspector
           nodes={selection}
+          notes={selectedNotes}
           registry={registry}
           platform={platform}
           readOnly={readOnly}
@@ -166,7 +183,10 @@ export function Inspector({
           onDuplicate={onDuplicateSelection}
           onMove={onMoveSelection}
           onDelete={onDeleteSelection}
+          onSetDisabled={onSetDisabled}
         />
+      ) : note ? (
+        <NoteInspector note={note} readOnly={readOnly} onChange={onChangeNote} onDelete={onDeleteNode} />
       ) : node ? (
         <NodeInspector
           node={node}
@@ -180,6 +200,7 @@ export function Inspector({
           onRotateWebhook={onRotateWebhook}
           onChange={onChangeNode}
           onDelete={onDeleteNode}
+          onSetDisabled={onSetDisabled}
         />
       ) : (
         <WorkflowInspector
@@ -200,6 +221,15 @@ export function Inspector({
   );
 }
 
+/** "3 nodes", "a note", "2 nodes and a note" — the selection in words (Phase 30). */
+export function selectionWords(nodes: number, notes: number): string {
+  const nodeWords = nodes === 1 ? "1 node" : `${nodes} nodes`;
+  const noteWords = notes === 1 ? "1 note" : `${notes} notes`;
+  if (notes === 0) return nodeWords;
+  if (nodes === 0) return noteWords;
+  return `${nodeWords} and ${noteWords}`;
+}
+
 function NodeInspector({
   node,
   definition,
@@ -212,6 +242,7 @@ function NodeInspector({
   onRotateWebhook,
   onChange,
   onDelete,
+  onSetDisabled,
 }: {
   node: CanvasNode;
   definition: NodeSummary | undefined;
@@ -224,6 +255,7 @@ function NodeInspector({
   onRotateWebhook: () => Promise<void>;
   onChange: (id: string, data: Partial<CanvasNode["data"]>) => void;
   onDelete: (id: string) => void;
+  onSetDisabled: (ids: readonly string[], off: boolean) => boolean;
 }) {
   const category = categoryLook(definition?.category);
 
@@ -262,6 +294,10 @@ function NodeInspector({
             </ul>
           </Notice>
         )}
+
+        <fieldset disabled={readOnly} className="min-w-0 border-0 p-0">
+          <OnOffSwitch node={node} definition={definition} onSetDisabled={onSetDisabled} />
+        </fieldset>
 
         {/* **One `<fieldset disabled>` rather than a `readOnly` prop threaded through
             four components** — Phase 20. A native disabled fieldset disables every form
@@ -353,6 +389,52 @@ function NodeInspector({
         </footer>
       )}
     </>
+  );
+}
+
+/**
+ * A node's on/off switch — Phase 30, `CONTRACT.md` → *Disabled nodes*.
+ *
+ * The hint says what *off* will do for this node in particular, because the answer differs:
+ * most nodes pass their input straight through, a branch, a switch or a loop stops its path,
+ * and an agent-callable node's type stays in any agent's tools. A trigger has no switch —
+ * a run starts at it — unless it is somehow already off, when the switch is how it comes
+ * back on.
+ */
+function OnOffSwitch({
+  node,
+  definition,
+  onSetDisabled,
+}: {
+  node: CanvasNode;
+  definition: NodeSummary | undefined;
+  onSetDisabled: (ids: readonly string[], off: boolean) => boolean;
+}) {
+  const off = node.data.disabled === true;
+  const trigger = definition?.kind === "trigger";
+  if (trigger && !off) return null;
+
+  const passes = definition?.outputs.some((output) => output.key === null) ?? true;
+  const noun = definition?.label ?? "node";
+
+  return (
+    <div className="space-y-1.5">
+      <Toggle
+        kind="switch"
+        label="Run this node"
+        checked={!off}
+        onChange={(event) => onSetDisabled([node.id], !event.target.checked)}
+      />
+      <p className="text-muted text-2xs leading-relaxed text-pretty">
+        {trigger
+          ? "A trigger cannot be switched off — every run starts at it. Switch it back on; to stop the workflow running by itself, use the Active switch."
+          : passes
+            ? `${off ? "Switched off:" : "Switch it off to skip it without deleting it:"} when a run reaches it, its input goes straight to the next node — nothing is sent, called or written.`
+            : `${off ? "Switched off:" : "Switched off,"} a ${noun} decides nothing, so nothing after it runs — there is no neutral way for it to go.`}
+        {definition?.agentCallable &&
+          " An agent that lists this node's type among its tools can still call it."}
+      </p>
+    </div>
   );
 }
 

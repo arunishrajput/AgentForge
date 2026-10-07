@@ -12,7 +12,7 @@ import {
 } from "@/lib/canvas/clipboard";
 import type { NodeSummary } from "@/lib/canvas/client";
 import { isTypingTarget } from "@/lib/canvas/shortcuts";
-import type { WorkflowEdge, WorkflowGraph, WorkflowNode } from "@/lib/workflow/graph";
+import type { WorkflowEdge, WorkflowGraph, WorkflowNode, WorkflowNote } from "@/lib/workflow/graph";
 
 /**
  * Copy, cut, paste and duplicate, wired to the editor — Phase 29. What a paste *does* is
@@ -40,6 +40,14 @@ function textIsSelected(): boolean {
 
 const nodesWord = (n: number) => `${n} node${n === 1 ? "" : "s"}`;
 
+/** "2 nodes", "a note", "2 nodes and a note" — what a copy or a paste carried (Phase 30). */
+function what(nodes: number, notes: number): string {
+  const noteWords = notes === 1 ? "a note" : `${notes} notes`;
+  if (notes === 0) return nodesWord(nodes);
+  if (nodes === 0) return noteWords;
+  return `${nodesWord(nodes)} and ${noteWords}`;
+}
+
 export function useClipboard({
   graph,
   selectedIds,
@@ -60,9 +68,9 @@ export function useClipboard({
   canEdit: boolean;
   /** The canvas on screen, in flow coordinates, for a paste of nodes that are not on it. */
   viewport: () => FlowRect | undefined;
-  /** Add nodes and edges to the canvas as one step, selected. */
-  insert: (nodes: WorkflowNode[], edges: WorkflowEdge[]) => void;
-  /** Delete nodes, and every edge touching them, as one step. */
+  /** Add nodes, edges and notes to the canvas as one step, selected. */
+  insert: (nodes: WorkflowNode[], edges: WorkflowEdge[], notes: WorkflowNote[]) => void;
+  /** Delete nodes and notes, and every edge touching them, as one step. */
   remove: (ids: readonly string[]) => void;
   toast: Toast;
 }) {
@@ -99,16 +107,17 @@ export function useClipboard({
   const copy = useCallback((): boolean => {
     if (!canCopy || selectedIds.length === 0 || textIsSelected()) return false;
     const ids = [...selectedIds];
+    const notes = (graph.notes ?? []).filter((note) => ids.includes(note.id)).length;
     void (async () => {
       if (!(await write(ids))) return;
       toast({
         tone: "ok",
-        title: `Copied ${nodesWord(ids.length)}`,
+        title: `Copied ${what(ids.length - notes, notes)}`,
         detail: `Paste ${ids.length === 1 ? "it" : "them"} here, or into another workflow — in this tab or another.`,
       });
     })();
     return true;
-  }, [canCopy, selectedIds, toast, write]);
+  }, [canCopy, graph, selectedIds, toast, write]);
 
   /** ⌘X — copied first, and deleted only once the clipboard has them. */
   const cut = useCallback((): boolean => {
@@ -130,7 +139,7 @@ export function useClipboard({
       toast({ tone: "warn", title: "Could not duplicate that", detail: plan.reason });
       return true;
     }
-    insert(plan.nodes, plan.edges);
+    insert(plan.nodes, plan.edges, plan.notes);
     if (plan.note) toast({ tone: "warn", title: "Duplicated, with one thing left out", detail: plan.note });
     return true;
   }, [canEdit, graph, insert, options, selectedIds, toast]);
@@ -160,9 +169,9 @@ export function useClipboard({
         toast({ tone: "warn", title: "Nothing was pasted", detail: plan.reason, duration: null });
         return;
       }
-      insert(plan.nodes, plan.edges);
+      insert(plan.nodes, plan.edges, plan.notes);
       if (plan.note) {
-        toast({ tone: "warn", title: `Pasted ${nodesWord(plan.nodes.length)}`, detail: plan.note });
+        toast({ tone: "warn", title: `Pasted ${what(plan.nodes.length, plan.notes.length)}`, detail: plan.note });
       }
     };
 

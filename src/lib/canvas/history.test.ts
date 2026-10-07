@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { GRAPH_VERSION, type WorkflowGraph, type WorkflowNode } from "@/lib/workflow/graph";
+import {
+  GRAPH_VERSION,
+  type WorkflowGraph,
+  type WorkflowNode,
+  type WorkflowNote,
+} from "@/lib/workflow/graph";
 
 import {
   changeKey,
@@ -252,5 +257,50 @@ describe("changeKey — what an unlabelled change looks like from the graph", ()
 
   it("is null for no change at all", () => {
     assert.equal(changeKey(base, base), null);
+  });
+});
+
+describe("changeKey — notes and the off switch (Phase 30)", () => {
+  const sticky = (id: string, patch: Partial<WorkflowNote> = {}): WorkflowNote => ({
+    id,
+    position: { x: 0, y: -200 },
+    size: { width: 240, height: 140 },
+    text: "Hello",
+    tone: "yellow",
+    ...patch,
+  });
+  const base: WorkflowGraph = { ...graph(node("a")), notes: [sticky("note_1"), sticky("note_2")] };
+  const withNote = (id: string, patch: Partial<WorkflowNote>): WorkflowGraph => ({
+    ...base,
+    notes: base.notes!.map((n) => (n.id === id ? { ...n, ...patch } : n)),
+  });
+
+  it("names typing in one note, so a sentence is one step of undo", () => {
+    assert.equal(changeKey(base, withNote("note_1", { text: "Hello, world" })), "note:note_1");
+    // And it folds: two keystrokes a moment apart are the same entry.
+    let history = record(emptyHistory(), base, changeKey(base, withNote("note_1", { text: "Hello," })), 0);
+    history = record(history, withNote("note_1", { text: "Hello," }), "note:note_1", 400);
+    assert.equal(history.past.length, 1);
+  });
+
+  it("names a note nudged with the arrow keys as a move, together with any nodes", () => {
+    const moved: WorkflowGraph = {
+      ...withNote("note_2", { position: { x: 20, y: -200 } }),
+      nodes: [node("a", { position: { x: 20, y: 0 } })],
+    };
+    assert.equal(changeKey(base, moved), "move:a,note_2");
+  });
+
+  it("makes a tone, a size, an added or a removed note a step of its own", () => {
+    assert.equal(changeKey(base, withNote("note_1", { tone: "pink" })), null, "a tone");
+    assert.equal(changeKey(base, withNote("note_1", { size: { width: 300, height: 140 } })), null, "a size");
+    assert.equal(changeKey(base, { ...base, notes: [sticky("note_1")] }), null, "a removal");
+    assert.equal(changeKey(graph(node("a")), { ...graph(node("a")), notes: [sticky("note_1")] }), null, "the first note");
+  });
+
+  it("makes switching a node off or on a step of its own, every time", () => {
+    const off: WorkflowGraph = { ...base, nodes: [node("a", { disabled: true })] };
+    assert.equal(changeKey(base, off), null);
+    assert.equal(changeKey(off, base), null);
   });
 });

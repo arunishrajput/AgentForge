@@ -1,7 +1,8 @@
 import type { RunStatus, StepStatus } from "./client";
 
 /**
- * The five things a node can be on the canvas, and how each one looks.
+ * The six things a node can be on the canvas, and how each one looks — five run states, and
+ * since Phase 30 a node that is switched off.
  *
  * A table rather than a chain of ternaries in the node component, because this is the
  * phase's one hard accessibility requirement and it is worth being able to assert:
@@ -14,12 +15,19 @@ import type { RunStatus, StepStatus } from "./client";
  *
  *   word      "Succeeded" — the one a screen reader and a colourblind user get
  *   shape     a distinct glyph, or, for `running`, the three bobbing dots
- *   outline   `failed` reddens the card's border, `skipped` makes it dashed
- *   surface   `skipped` is recessed rather than lifted
+ *   outline   `failed` reddens the card's border, `skipped` makes it dashed and
+ *             `disabled` dotted
+ *   surface   `skipped` and `disabled` are recessed rather than lifted
  *   motion    a one-shot boing on success, a short wiggle on failure
  *
  * So a monochrome screenshot of a run still reads: a dashed, sunken card was skipped,
- * a bobbing one is working, a ticked one finished.
+ * a dotted, sunken one is switched off, a bobbing one is working, a ticked one finished.
+ *
+ * **`disabled` is a property of the graph as well as a step status** (Phase 30,
+ * `CONTRACT.md` → *Disabled nodes*). A switched-off node wears it whether or not a run has
+ * reached it, because what the card has to say is *this will not run*; and a run that does
+ * reach it records a `disabled` step, so the run panel says the same thing in the same
+ * word.
  */
 
 /**
@@ -82,9 +90,10 @@ export const NODE_STATUSES: NodeStatus[] = [
   "succeeded",
   "failed",
   "skipped",
+  "disabled",
 ];
 
-/** What a card that is not skipped looks like. Four of the five share it. */
+/** What a card that is not recessed looks like. Four of the six share it. */
 const RAISED = { surface: "bg-elevated", shadow: "shadow-node" } as const;
 
 const LOOK: Record<NodeStatus, StatusLook> = {
@@ -134,6 +143,22 @@ const LOOK: Record<NodeStatus, StatusLook> = {
     // The one dashed outline in the product, and the one recessed card. A branch not
     // taken survives a greyscale screenshot on both channels.
     outline: "border-line border-dashed",
+    surface: "bg-sunken",
+    shadow: "shadow-flat",
+    motion: "",
+    dots: false,
+  },
+  /**
+   * Phase 30. Recessed like `skipped`, because it is also a node the run does not execute —
+   * and told apart from it by the outline's *shape*, dotted rather than dashed, so the two
+   * survive a greyscale screenshot as two things: *the run went another way* and *this is off*.
+   * The words are the product's own for a workflow that will not run by itself.
+   */
+  disabled: {
+    label: "Switched off",
+    glyph: "⊘",
+    tone: "text-muted",
+    outline: "border-line border-dotted",
     surface: "bg-sunken",
     shadow: "shadow-flat",
     motion: "",

@@ -100,7 +100,8 @@ workflows".
       "label": "Build the payload",   // optional display override
       "position": { "x": 240, "y": 0 },
       "config": { "fields": { "subject": "{{input.topic}}" } },
-      "policy": { "retries": 2, "backoffMs": 500, "timeoutMs": 20000 }  // optional, Phase 17
+      "policy": { "retries": 2, "backoffMs": 500, "timeoutMs": 20000 },  // optional, Phase 17
+      "disabled": true                // optional, Phase 30. `true` or absent — never `false`
     }
   ],
   "edges": [
@@ -109,6 +110,15 @@ workflows".
       "source": "shape",
       "target": "check",
       "sourceHandle": null            // which OUTPUT it leaves from; null = the default output
+    }
+  ],
+  "notes": [                          // optional, Phase 30. Present only when there is one
+    {
+      "id": "note_1",                 // unique among notes AND distinct from every node id
+      "position": { "x": -40, "y": -180 },
+      "size": { "width": 240, "height": 140 },   // 120–800 × 60–800
+      "text": "Runs every weekday. Ask Priya before changing the sheet.",  // plain text, ≤ 2,000
+      "tone": "yellow"                // yellow | pink | blue | green | purple
     }
   ]
 }
@@ -126,7 +136,26 @@ workflows".
   here would make a freshly loaded graph structurally different from the stored one. Bounds are
   enforced by the schema and are safety properties, not preferences — `retries` 0–3, `backoffMs`
   0–10 000, `timeoutMs` 1 000–60 000 — because a *model* writes these graphs too
-- Limits: 100 nodes, 200 edges per workflow
+- **`disabled` switches a node off without deleting it** (Phase 30) — what a run does with one is
+  *Disabled nodes* below. It is `true` or absent, never `false`: a node that is on carries no key, so
+  a graph that never used the feature is exactly what it was, and the dirty check and the version
+  debounce never see a phantom `disabled: false`. The canvas writes the key only while it is true
+- **`notes` are sticky notes for people** (Phase 30) — **not registry nodes**. The engine never
+  reads them, validation's rules never see them, no agent can call one, and the generator cannot
+  write one (D112). **Absent stays absent**: the key is written only while there is a note, so a
+  workflow whose last note is deleted is structurally the graph it was before the first. A note's
+  `text` is **plain text** — no surface renders it as HTML or Markdown, so there is no markup it
+  could carry — and it is an authored value, so a share link withholds it (*the allowlist*, below).
+  Note ids share one space with node ids, because the canvas draws both in one React Flow: the
+  schema refuses a graph where a note id repeats or equals a node id. Limits: **50 notes**, 2,000
+  characters each
+- **`GRAPH_VERSION` stays 1** (D134). Both fields are optional and additive, so every graph stored
+  before Phase 30 is a valid graph after it and nothing needs migrating — which is the only thing the
+  version is for. The consequence is a rollback one, and it is stated rather than discovered: a
+  revision older than Phase 30 does not know either field, strips both from a graph it saves, and
+  **runs a switched-off node**. Never roll back past Phase 30's first revision while a workflow uses
+  either (`DEPLOYMENT.md` → *Rollback*)
+- Limits: 100 nodes, 200 edges, 50 notes per workflow
 - **Postgres `jsonb` normalises object key order.** A graph read back is deeply equal to what was
   written but not byte-identical. Nothing may depend on key order. `graphsEqual` in
   `src/lib/workflow/graph.ts` is the one structural comparison, and **both the canvas's dirty
@@ -143,6 +172,10 @@ projection of it, and `fromFlow(toFlow(graph))` must be deeply equal to `graph`.
 - A node's `data` holds **persisted fields only** (`nodeType`, `label`, `config`). Run status and
   the registry reach the node component through React context, so nothing React Flow attaches to a
   node (`selected`, `measured`, `dragging`) can leak into a saved graph
+- **A note is a second React Flow node type, `"note"`**, held in its own list beside the nodes and
+  laid over them for React Flow (Phase 30). Its `data` is `{ text, tone }` and its stored `size` is
+  React Flow's `width`/`height` — the attributes the resizer sets — never `measured`.
+  `fromFlow(nodes, edges, notes)` writes `notes` only when the list is not empty
 - **A React Flow handle id of `undefined` is this schema's `null`.** The default output must be
   rendered with no `id`, and `fromFlow` normalises `undefined` back to `null`
 - An absent `label` stays **absent**, never written as `undefined`
@@ -158,20 +191,27 @@ so another tab — or another workflow, or a later version of the product — ca
 {
   "format": "agentforge/nodes",   // what it is; anything else on the clipboard is ignored
   "version": 1,                   // CLIPBOARD_VERSION. A reader must reject what it does not know
-  "nodes": [ /* workflowNodeSchema — the stored node shape above, 1–100 of them */ ],
-  "edges": [ /* workflowEdgeSchema — only edges whose two ends are both in `nodes` */ ]
+  "nodes": [ /* workflowNodeSchema — the stored node shape above, 0–100 of them */ ],
+  "edges": [ /* workflowEdgeSchema — only edges whose two ends are both in `nodes` */ ],
+  "notes": [ /* workflowNoteSchema — optional, Phase 30, 0–50 of them */ ]
 }
 ```
 
+At least one node or note. **`notes` was added in Phase 30 without a version bump**: it is optional,
+so every version 1 envelope is still one, and a pre-Phase-30 reader ignores the key and pastes the
+nodes — the only thing it could have done with them. A node's `disabled` flag rides along inside the
+node shape, so a copied node that was off is pasted off.
+
 - **Parsed with the graph's own schemas** — a pasted node meets exactly the rules a saved one does,
   and text that does not parse is not ours and is ignored without a message
-- **Ids.** A pasted node keeps its id if the target workflow does not use it; otherwise it takes the
-  next free `<stem>_<n>`. Edges get fresh `eN` ids and are re-pointed. **`{{steps.<id>…}}` references
+- **Ids.** A pasted node or note keeps its id if the target workflow does not use it — as a node
+  *or* a note — otherwise it takes the next free `<stem>_<n>`. Edges get fresh `eN` ids and are re-pointed. **`{{steps.<id>…}}` references
   between pasted nodes are rewritten to the new ids**; a reference to a node that was not copied is
   left as it was
 - **One trigger.** A trigger the target already has one of is left out, the rest is pasted, and the
   author is told; a clipboard holding only that trigger is refused
-- **Limits** are the workflow's: a paste that would pass 100 nodes or 200 edges is refused whole
+- **Limits** are the workflow's: a paste that would pass 100 nodes, 200 edges or 50 notes is
+  refused whole
 - Nothing on the clipboard is a credential — a node's credential is resolved by kind from the
   workspace at run time — so a node pasted into another workspace uses *that* workspace's connection
 
@@ -192,11 +232,48 @@ Scope available to every node: `input`, `trigger`, `steps.<nodeId>.output`, `run
 invalid graph is stored and returned with `runnable: false` and its problems.
 
 Problem codes: `no_trigger`, `multiple_triggers`, `unknown_node_type`, `duplicate_node_id`,
-`dangling_edge`, `edge_into_trigger`, `unknown_output_handle`, `illegal_cycle`, `invalid_config`.
+`dangling_edge`, `edge_into_trigger`, `unknown_output_handle`, `illegal_cycle`, `invalid_config`,
+`disabled_trigger` (Phase 30).
 
 Rules: exactly one trigger node; nothing may edge into a trigger; every edge endpoint must exist;
 every `sourceHandle` must be a declared output of its source; **a cycle is legal only when it
-closes through a loop node**.
+closes through a loop node**; **the trigger is not switched off**. A switched-off node's config is
+not checked — it will not run, and a half-configured node is exactly the kind somebody switches off —
+but every structural rule still applies to it, because the run still routes through it. Notes are
+invisible to all of these rules.
+
+## Disabled nodes — **DEFINED** (Phase 30)
+
+`src/lib/engine/execute.ts`, D133. **A switched-off node is never executed**: its config is not
+resolved or parsed, its `execute` is not called, its retry policy does not apply — so no request is
+sent, no message posted, no row written, no model called and no credential read. What the run does
+when it *reaches* one:
+
+| The node | What the run does |
+|---|---|
+| **Has a default output** (`key: null`) — every action, transform, integration and agent node | **Passes its input straight through**, out of the default output. The next node receives exactly what the switched-off node received |
+| **Has no default output** — `core.branch`, `core.switch`, `core.loop`, whose whole job is choosing an output | **Stops its path.** Nothing is queued after it, so what follows is recorded `skipped` unless another path reaches it. There is no neutral answer to *true or false?* — taking either would send a run somewhere nobody chose, which for *is this spam?* means replying to the spam or deleting the mail |
+| **Is the trigger** | **Cannot be switched off.** Validation reports `disabled_trigger` and the graph saves but does not run. A run starts at its trigger; the way to stop a workflow running *by itself* is the active switch (Phase 26), and Run still works with that off |
+
+- **The step is recorded with the status `disabled`** — entered directly and terminal, like `skipped`,
+  with null `startedAt`/`finishedAt` because nothing ran. It is a status of its own because the two
+  are different statements: `skipped` is *the run never got here*, `disabled` is *the run got here
+  and the node was off*. Its `input` is what arrived, its **`output` is the same value**, `branch` is
+  null, and one log line says which of the two rows above happened
+- **References read what passed through.** `{{steps.<id>.output}}` of a switched-off node is its
+  input, so a reference to a field only the node would have produced — an agent's
+  `output.decision`, an HTTP node's `output.status` — resolves empty, which is a lookup's ordinary
+  answer to a missing path (D17). A branch reading a switched-off agent's decision takes its false
+  side; that is the honest consequence and it is the author's to see
+- **The run's output** is taken from a `disabled` step exactly as from a `succeeded` one, and a
+  resumed run rehydrates its passed-through value the same way (`cursor.ts` → `rehydrate`)
+- **The bounds still apply.** A switched-off node inside a loop body is reached once per pass, each
+  pass is a step, and it counts towards `MAX_NODE_EXECUTIONS` and `MAX_STEPS` (D16)
+- **A switched-off `core.delay` does not wait** — it passes through at once, so it never suspends a run
+- **A switched-off node is not withdrawn from an agent's `tools`.** An agent's tools are registry
+  *types*, not nodes on this canvas, so switching off the Discord node does not stop an agent that
+  lists `integration.discord` from posting. The switch's own hint in the inspector says so
+- **Analytics ignore it**: node latency and failure counts read only `succeeded` and `failed` steps
 
 ## Node definition interface — **DEFINED**
 
@@ -354,7 +431,7 @@ Tables in `src/db/schema.ts`; wire shapes from `describeRun` in `src/lib/engine/
 | `branch` | the output handle the run left through; null for a single-output node |
 | `logs` | `{ at, level, message }[]` — what `context.log` wrote. Phase 5 streams these |
 | `error` | failure message, user-readable when the node threw `NodeError` |
-| `startedAt`, `finishedAt` | both null on a `skipped` step, which never ran |
+| `startedAt`, `finishedAt` | both null on a `skipped` or `disabled` step, neither of which ran |
 
 **The config snapshot is load-bearing, and Phase 18 did not make it redundant.** A version says
 what the config *template* was; this says what it resolved to on this run. `{{input.subject}}` is
@@ -436,7 +513,13 @@ exactly the pre-Phase-18 behaviour.
   `nextEdgeId` returns the lowest free `eN`, so deleting `e1` and drawing an unrelated connection
   re-mints `e1`, and an id-matched diff would call two different edges "unchanged"
 - **Substance outranks position.** A node reconfigured *and* dragged is `changed`, not `moved`
-- **`changed` names its fields** — `type`, `label`, `config`, `policy`
+- **`changed` names its fields** — `type`, `label`, `config`, `policy`, and since Phase 30
+  `disabled`, which the ribbon prints as *switched off* or *switched on*
+- **Notes are diffed too** (Phase 30), matched by id: `added` | `removed` | `changed` | `moved` |
+  `unchanged`, where `changed` names `text`, `tone` or `size` and outranks a move exactly as a node's
+  does. The summary counts them in **`notes`** — every note that is not `unchanged` — and `any`
+  includes them, so a version that only edited a note does not read as "no changes". A removed note
+  is drawn where it was; notes may overlap, so it needs no clear space
 - **The oldest version in a history window reports `changes: null`**, not a zeroed summary: its
   predecessor may simply have been pruned
 - `diffGraph()` builds the renderable union. **A removed node keeps its base position only where
@@ -473,7 +556,11 @@ run:   queued ──▶ running ──▶ succeeded          all three terminal
 step:  running ──▶ succeeded                     both terminal
                └──▶ failed
        skipped                                   entered directly, terminal
+       disabled                                  Phase 30. Entered directly, terminal
 ```
+
+- **`disabled` — Phase 30.** The run reached a node that is switched off. It did not run; its input
+  was passed on, or its path stopped — *Disabled nodes* above
 
 - **`waiting` — Phase 26.** A `core.delay` longer than `MAX_DELAY_MS` (10 s) does not sleep: the
   engine records its step with its output, leaves it `running`, queues its successors and stops; the
@@ -1165,6 +1252,16 @@ Each shared node carries a `redacted` array naming what was withheld, and the pa
 A reader who cannot tell *unconfigured* from *not shown to you* is being misled by omission, which is
 the failure mode a share link has.
 
+**Phase 30 applied the same line to two new fields** (D135):
+
+- **A note's text is withheld, and counted.** It is the most purely authored value in the graph —
+  free text, written for colleagues, about the workflow's people and data. The shared note keeps
+  its id, position, size and tone, so the reader sees *that* the author annotated this corner and
+  is told it is hidden; `redacted` is `["text"]` when there was text and `[]` for an empty note.
+  `notes` is present only when the graph has any
+- **A node's `disabled` flag is published.** It is shape — whether a step runs — and a diagram that
+  drew a switched-off node as live would mislead the reader about what the workflow does
+
 ### Routes
 
 | Route | Body | Returns |
@@ -1386,6 +1483,12 @@ run, and validating a choice against the list would happily store one. Found by 
 unvalidated model name was stored and every later run failed with a 404 from inside the engine.
 
 ## Generation request/response — **DEFINED** (Phase 7)
+
+**Since Phase 30 a generated graph carries neither `notes` nor `disabled`** (D136). The model's output
+is parsed with `generatedWorkflowSchema`, which names neither, so a note or a switched-off node the
+model emits is dropped before the graph is assembled — notes are for people, and a workflow must not
+arrive with steps already switched off. Dropped, not refused: like a `position` the model invents
+(D40), it is a field the system owns, and failing a whole generation over it would be the worse trade.
 
 `POST /api/workflows/generate`. Source of truth: `src/lib/generate/`.
 

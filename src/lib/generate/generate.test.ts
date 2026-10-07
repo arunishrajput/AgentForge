@@ -421,3 +421,25 @@ test("a fully supported request reports no gaps", async () => {
   if (!result.ok) return;
   assert.deepEqual(result.unsupported, [], "an omitted `unsupported` defaults to empty");
 });
+
+test("a generated workflow never arrives with a note or a node switched off", async () => {
+  // Phase 30, D136. Notes are for people, and a workflow must not arrive with steps already
+  // off. The schema the model's output is parsed with names neither field, and
+  // `assembleGraph` builds every node field by field, so a model that emits them — as one
+  // shown a pasted graph eventually will — has them dropped, not stored.
+  const answer = JSON.parse(DEMO_ANSWER);
+  answer.nodes[1].disabled = true;
+  answer.nodes[3].disabled = false;
+  answer.notes = [
+    { id: "note_1", position: { x: 0, y: 0 }, size: { width: 240, height: 140 }, text: "hi", tone: "yellow" },
+  ];
+
+  const result = await generate([JSON.stringify(answer)]);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  assert.equal("notes" in result.graph, false);
+  assert.ok(result.graph.nodes.every((node) => !("disabled" in node)), JSON.stringify(result.graph.nodes));
+  // And nothing about it counts as a failure worth a retry.
+  assert.equal(result.attempts.length, 1);
+});

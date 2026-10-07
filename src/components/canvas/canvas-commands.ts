@@ -40,6 +40,7 @@ export function buildCanvasCommands({
     selectAll: () => void;
     shortcuts: () => void;
     find: (id: string) => void;
+    addNote: () => void;
   };
 }): PaletteCommand[] {
   const hint = (action: ShortcutAction) => chordLabel(shortcutFor(action).chords[0], platform);
@@ -57,6 +58,17 @@ export function buildCanvasCommands({
         subtitle: "Lay the graph out left to right",
         keywords: ["tidy", "tidy up", "layout", "arrange", "clean up", "organise", "organize"],
         run: actions.arrange,
+      },
+      {
+        // Phase 30. Notes are for people, so they are not in the node palette: that list is
+        // the registry, and a note is not a node.
+        id: "canvas:add-note",
+        group,
+        title: "Add a sticky note",
+        subtitle: "Explain part of this workflow on the canvas",
+        hint: hint("addNote"),
+        keywords: ["note", "sticky", "comment", "annotate", "explain", "text"],
+        run: actions.addNote,
       },
     );
   }

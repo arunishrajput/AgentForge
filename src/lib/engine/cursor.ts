@@ -91,7 +91,9 @@ export function readCursor(value: unknown): RunCursor | null {
  * taken from.
  *
  * Steps that never ran (`skipped`) are ignored: they have no output, and a resumed
- * run re-derives the skipped set when it finishes.
+ * run re-derives the skipped set when it finishes. A **`disabled`** step (Phase 30) is read
+ * exactly like a succeeded one: it never ran either, but it handed its input on, and the
+ * node after it — perhaps queued in the cursor with this step's `seq` — reads that value.
  */
 export function rehydrate(
   cursor: RunCursor,
@@ -106,7 +108,7 @@ export function rehydrate(
   bySeq: Map<number, unknown>;
 } {
   const ordered = [...steps]
-    .filter((step) => step.status === "succeeded")
+    .filter((step) => step.status === "succeeded" || step.status === "disabled")
     .sort((a, b) => a.seq - b.seq);
 
   const outputs = new Map<string, unknown>();

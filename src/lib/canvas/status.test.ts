@@ -53,21 +53,35 @@ test("only a settled status animates, and only once", () => {
   assert.deepEqual(moving.sort(), ["failed", "succeeded"]);
 });
 
-test("skipped is the only recessed status, and the only dashed outline", () => {
+test("skipped and switched off are the recessed statuses, told apart by the outline's shape", () => {
+  // Both are nodes the run does not execute, so both sit *in* the page. What separates
+  // them has to survive a greyscale screenshot, so it is the outline's shape — dashed for
+  // "the run went another way", dotted for "this is off" — and not a hue.
   const dashed = NODE_STATUSES.filter((status) =>
     nodeStatusLook(status).outline.includes("dashed"),
   );
   assert.deepEqual(dashed, ["skipped"]);
 
+  const dotted = NODE_STATUSES.filter((status) =>
+    nodeStatusLook(status).outline.includes("dotted"),
+  );
+  assert.deepEqual(dotted, ["disabled"]);
+
   const recessed = NODE_STATUSES.filter(
     (status) => nodeStatusLook(status).surface !== "bg-elevated",
   );
-  assert.deepEqual(recessed, ["skipped"]);
+  assert.deepEqual(recessed, ["skipped", "disabled"]);
 
   const flattened = NODE_STATUSES.filter(
     (status) => nodeStatusLook(status).shadow !== "shadow-node",
   );
-  assert.deepEqual(flattened, ["skipped"]);
+  assert.deepEqual(flattened, ["skipped", "disabled"]);
+});
+
+test("a switched-off node is not called skipped, and says so in the product's own words", () => {
+  // Phase 30. "Skipped" is the run never getting here; a disabled node is one it reached.
+  assert.equal(nodeStatusLook("disabled").label, "Switched off");
+  assert.notEqual(nodeStatusLook("disabled").glyph, nodeStatusLook("skipped").glyph);
 });
 
 test("no status expresses itself with opacity or a transform", () => {

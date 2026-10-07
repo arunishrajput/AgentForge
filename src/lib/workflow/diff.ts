@@ -4,6 +4,7 @@ import {
   type WorkflowEdge,
   type WorkflowGraph,
   type WorkflowNode,
+  type WorkflowNote,
 } from "./graph";
 
 /**
@@ -33,8 +34,18 @@ import {
 export type NodeChange = "added" | "removed" | "changed" | "moved" | "unchanged";
 export type EdgeChange = "added" | "removed" | "unchanged";
 
-/** The parts of a node whose change is a change of substance, not of layout. */
-export type NodeField = "type" | "label" | "config" | "policy";
+/**
+ * The parts of a node whose change is a change of substance, not of layout. `disabled` is
+ * Phase 30's: switching a node off changes what a run does, so it is never a mere move.
+ */
+export type NodeField = "type" | "label" | "config" | "policy" | "disabled";
+
+/**
+ * A sticky note's parts (Phase 30). Its size is here rather than with its position: a note's
+ * size decides how much of its text a reader sees, which makes it the note's content in a way
+ * a node's position never is.
+ */
+export type NoteField = "text" | "tone" | "size";
 
 export interface NodeDiff {
   id: string;
@@ -48,6 +59,15 @@ export interface NodeDiff {
   before?: WorkflowNode;
   /** Which fields differ. Non-empty exactly when `change` is `changed`. */
   fields: NodeField[];
+}
+
+/** A note in a diff — `NodeDiff`'s shape, matched by id the same way. */
+export interface NoteDiff {
+  id: string;
+  change: NodeChange;
+  note: WorkflowNote;
+  before?: WorkflowNote;
+  fields: NoteField[];
 }
 
 export interface EdgeDiff {
@@ -67,13 +87,17 @@ export interface DiffSummary {
   unchanged: number;
   edgesAdded: number;
   edgesRemoved: number;
-  /** False only when the two graphs are structurally identical, positions included. */
+  /** Phase 30: notes that are anything but `unchanged` — added, removed, edited or moved. */
+  notes: number;
+  /** False only when the two graphs are structurally identical, positions and notes included. */
   any: boolean;
 }
 
 export interface GraphDiff {
   nodes: NodeDiff[];
   edges: EdgeDiff[];
+  /** Phase 30. Empty when neither graph has a note. */
+  notes: NoteDiff[];
   summary: DiffSummary;
 }
 
@@ -104,7 +128,36 @@ function changedFields(before: WorkflowNode, after: WorkflowNode): NodeField[] {
   if ((before.label ?? "") !== (after.label ?? "")) fields.push("label");
   if (!valuesEqual(before.config ?? {}, after.config ?? {})) fields.push("config");
   if (!valuesEqual(before.policy, after.policy)) fields.push("policy");
+  if (Boolean(before.disabled) !== Boolean(after.disabled)) fields.push("disabled");
   return fields;
+}
+
+function noteFields(before: WorkflowNote, after: WorkflowNote): NoteField[] {
+  const fields: NoteField[] = [];
+  if (before.text !== after.text) fields.push("text");
+  if (before.tone !== after.tone) fields.push("tone");
+  if (!valuesEqual(before.size, after.size)) fields.push("size");
+  return fields;
+}
+
+/** Notes, matched by id exactly as nodes are, with the same rule that substance outranks a move. */
+function diffNotes(base: readonly WorkflowNote[], target: readonly WorkflowNote[]): NoteDiff[] {
+  const before = new Map(base.map((note) => [note.id, note]));
+  const after = new Set(target.map((note) => note.id));
+
+  const notes: NoteDiff[] = target.map((note) => {
+    const previous = before.get(note.id);
+    if (!previous) return { id: note.id, change: "added", note, fields: [] };
+    const fields = noteFields(previous, note);
+    if (fields.length > 0) return { id: note.id, change: "changed", note, before: previous, fields };
+    const moved = previous.position.x !== note.position.x || previous.position.y !== note.position.y;
+    return { id: note.id, change: moved ? "moved" : "unchanged", note, before: previous, fields: [] };
+  });
+
+  for (const note of base) {
+    if (!after.has(note.id)) notes.push({ id: note.id, change: "removed", note, fields: [] });
+  }
+  return notes;
 }
 
 /**
@@ -161,6 +214,8 @@ export function diffGraphs(base: WorkflowGraph, target: WorkflowGraph): GraphDif
     }
   }
 
+  const notes = diffNotes(base.notes ?? [], target.notes ?? []);
+
   const count = (change: NodeChange) => nodes.filter((node) => node.change === change).length;
   const added = count("added");
   const removed = count("removed");
@@ -168,10 +223,12 @@ export function diffGraphs(base: WorkflowGraph, target: WorkflowGraph): GraphDif
   const moved = count("moved");
   const edgesAdded = edges.filter((edge) => edge.change === "added").length;
   const edgesRemoved = edges.filter((edge) => edge.change === "removed").length;
+  const notesChanged = notes.filter((note) => note.change !== "unchanged").length;
 
   return {
     nodes,
     edges,
+    notes,
     summary: {
       added,
       removed,
@@ -180,7 +237,8 @@ export function diffGraphs(base: WorkflowGraph, target: WorkflowGraph): GraphDif
       unchanged: count("unchanged"),
       edgesAdded,
       edgesRemoved,
-      any: added + removed + changed + moved + edgesAdded + edgesRemoved > 0,
+      notes: notesChanged,
+      any: added + removed + changed + moved + edgesAdded + edgesRemoved + notesChanged > 0,
     },
   };
 }
@@ -237,9 +295,14 @@ export function diffGraph(diff: GraphDiff, version: WorkflowGraph["version"]): W
     return position === entry.node.position ? entry.node : { ...entry.node, position };
   });
 
+  // Notes may overlap anything, so a removed one is simply drawn where it was. Written only
+  // when there are any, so a diff of two note-free versions is the graph shape it always was.
+  const notes = diff.notes.map((entry) => entry.note);
+
   return {
     version,
     nodes,
+    ...(notes.length > 0 ? { notes } : {}),
     // An edge id must be unique within the graph React Flow renders, and a removed
     // edge can collide with a surviving one — `e1` deleted and `e1` re-minted is
     // exactly the case the edge matching above exists for. Prefixing the removed ones
@@ -272,6 +335,10 @@ export function summaryParts(summary: DiffSummary): { symbol: string; words: str
 
   const edges = summary.edgesAdded + summary.edgesRemoved;
   if (edges > 0) parts.push({ symbol: `${edges}e`, words: `${plural(edges, "connection")} rewired` });
+
+  if (summary.notes > 0) {
+    parts.push({ symbol: `${summary.notes}n`, words: `${plural(summary.notes, "note")} edited` });
+  }
 
   return parts;
 }

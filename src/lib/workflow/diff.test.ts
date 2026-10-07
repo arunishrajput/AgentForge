@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { diffGraph, diffGraphs, summaryParts } from "./diff";
-import { GRAPH_VERSION, type WorkflowGraph, type WorkflowNode } from "./graph";
+import { GRAPH_VERSION, type WorkflowGraph, type WorkflowNode, type WorkflowNote } from "./graph";
 
 /**
  * The diff is the one piece of Phase 18 that is pure, and it is also the piece whose
@@ -292,5 +292,84 @@ describe("summaryParts", () => {
 
     const two = diffGraphs(graph([]), graph([node("a"), node("b")])).summary;
     assert.equal(summaryParts(two)[0].words, "2 nodes added");
+  });
+});
+
+describe("Phase 30 — switched-off nodes and notes", () => {
+  const sticky = (id: string, overrides: Partial<WorkflowNote> = {}): WorkflowNote => ({
+    id,
+    position: { x: 0, y: -200 },
+    size: { width: 240, height: 140 },
+    text: "Remember the sheet",
+    tone: "yellow",
+    ...overrides,
+  });
+  const withNotes = (nodes: WorkflowNode[], notes: WorkflowNote[]): WorkflowGraph => ({
+    ...graph(nodes),
+    notes,
+  });
+
+  it("switching a node off is a change of substance, named, never a move", () => {
+    const diff = diffGraphs(graph([node("a")]), graph([node("a", { disabled: true })]));
+    assert.equal(diff.nodes[0].change, "changed");
+    assert.deepEqual(diff.nodes[0].fields, ["disabled"]);
+    // And switching it back on is a change too.
+    const back = diffGraphs(graph([node("a", { disabled: true })]), graph([node("a")]));
+    assert.deepEqual(back.nodes[0].fields, ["disabled"]);
+  });
+
+  it("a note can be added, removed, changed or moved, and an untouched one is unchanged", () => {
+    const base = withNotes([node("a")], [
+      sticky("kept"),
+      sticky("gone"),
+      sticky("edited"),
+      sticky("dragged"),
+    ]);
+    const target = withNotes([node("a")], [
+      sticky("kept"),
+      sticky("edited", { text: "Remember the other sheet", tone: "pink" }),
+      sticky("dragged", { position: { x: 300, y: -200 } }),
+      sticky("new"),
+    ]);
+    const diff = diffGraphs(base, target);
+    const change = (id: string) => diff.notes.find((entry) => entry.id === id);
+
+    assert.equal(change("kept")?.change, "unchanged");
+    assert.equal(change("gone")?.change, "removed");
+    assert.equal(change("gone")?.note.text, "Remember the sheet", "carried as it was");
+    assert.equal(change("edited")?.change, "changed");
+    assert.deepEqual(change("edited")?.fields, ["text", "tone"]);
+    assert.equal(change("dragged")?.change, "moved");
+    assert.equal(change("new")?.change, "added");
+    assert.equal(diff.summary.notes, 4);
+  });
+
+  it("a note resized and dragged is changed — its size is its content", () => {
+    const diff = diffGraphs(
+      withNotes([], [sticky("n")]),
+      withNotes([], [sticky("n", { size: { width: 400, height: 140 }, position: { x: 9, y: 9 } })]),
+    );
+    assert.equal(diff.notes[0].change, "changed");
+    assert.deepEqual(diff.notes[0].fields, ["size"]);
+  });
+
+  it("a version that only edited a note is not 'no changes'", () => {
+    const diff = diffGraphs(withNotes([node("a")], [sticky("n")]), withNotes([node("a")], [sticky("n", { text: "x" })]));
+    assert.equal(diff.summary.any, true);
+    assert.deepEqual(summaryParts(diff.summary), [{ symbol: "1n", words: "1 note edited" }]);
+  });
+
+  it("two graphs with no notes diff to no notes, and the union carries no notes key", () => {
+    const diff = diffGraphs(graph([node("a")]), graph([node("a")]));
+    assert.deepEqual(diff.notes, []);
+    assert.equal(diff.summary.notes, 0);
+    assert.equal("notes" in diffGraph(diff, GRAPH_VERSION), false);
+  });
+
+  it("the union draws both sides' notes, a removed one where it was", () => {
+    const diff = diffGraphs(withNotes([], [sticky("gone", { position: { x: 5, y: 6 } })]), withNotes([], [sticky("new")]));
+    const union = diffGraph(diff, GRAPH_VERSION);
+    assert.deepEqual(union.notes?.map((note) => note.id), ["new", "gone"]);
+    assert.deepEqual(union.notes?.[1].position, { x: 5, y: 6 });
   });
 });

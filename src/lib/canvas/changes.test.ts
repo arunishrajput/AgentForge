@@ -68,6 +68,18 @@ describe("the diff look table", () => {
   });
 });
 
+describe("the ribbon's label", () => {
+  it("is accent-ink only on a pop fill, and ink on the one ribbon that is not a fill", () => {
+    // D126: `accent-ink` is near-black in both themes, so on `surface` in Toybox Night it is
+    // near-black on indigo. The moved ribbon drew exactly that until Phase 30.
+    for (const change of NODE_CHANGES) {
+      const look = changeLook(change);
+      if (!look.ribbon) continue;
+      assert.equal(look.ink, look.fill.endsWith("-pop") ? "text-accent-ink" : "text-ink", change);
+    }
+  });
+});
+
 describe("fieldWords", () => {
   it("turns a field list into something a person reads", () => {
     assert.equal(fieldWords(["config"]), "configuration");
@@ -84,5 +96,16 @@ describe("fieldWords", () => {
 
   it("is empty for no fields, which is what a non-`changed` node has", () => {
     assert.equal(fieldWords([]), "");
+  });
+
+  it("says which way a node was switched — off and on are two different statements", () => {
+    // Phase 30. The ribbon names what changed, and "on/off state" would name neither.
+    assert.equal(fieldWords(["disabled"], true), "switched off");
+    assert.equal(fieldWords(["disabled"], false), "switched on");
+    assert.equal(fieldWords(["config", "disabled"], true), "configuration and switched off");
+  });
+
+  it("reads a note's fields as words too", () => {
+    assert.equal(fieldWords(["text", "tone"]), "text and colour");
   });
 });

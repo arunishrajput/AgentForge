@@ -39,6 +39,7 @@ function build(options: { editable: boolean; comparing: boolean }, found: string
       selectAll: () => {},
       shortcuts: () => {},
       find: (id) => found.push(id),
+      addNote: () => {},
     },
   });
 }
@@ -46,11 +47,12 @@ function build(options: { editable: boolean; comparing: boolean }, found: string
 const ids = (commands: { id: string }[]) => commands.map((command) => command.id);
 
 describe("the canvas's commands in ⌘K", () => {
-  it("offers an editor undo, redo, arrange, fit, select-all, the shortcuts, then every node", () => {
+  it("offers an editor undo, redo, arrange, a note, fit, select-all, the shortcuts, then every node", () => {
     assert.deepEqual(ids(build({ editable: true, comparing: false })), [
       "canvas:undo",
       "canvas:redo",
       "canvas:arrange",
+      "canvas:add-note",
       "canvas:fit",
       "canvas:select-all",
       "canvas:shortcuts",

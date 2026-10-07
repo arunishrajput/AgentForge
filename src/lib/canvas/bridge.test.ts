@@ -3,18 +3,21 @@ import { test } from "node:test";
 
 import {
   CANVAS_NODE_TYPE,
+  CANVAS_NOTE_TYPE,
   fromFlow,
   graphsEqual,
   nextEdgeId,
   nextNodeId,
+  nextNoteId,
   readOnlyChanges,
   restoreEdges,
   restoreNodes,
+  restoreNotes,
   toFlow,
   type CanvasEdge,
   type CanvasNode,
 } from "./bridge";
-import { GRAPH_VERSION, type WorkflowGraph } from "@/lib/workflow/graph";
+import { GRAPH_VERSION, workflowGraphSchema, type WorkflowGraph } from "@/lib/workflow/graph";
 
 /**
  * The canvas round trip. A workflow that reloads with a scrambled layout or a lost
@@ -278,4 +281,100 @@ test("a canvas that cannot be edited still selects and measures, and changes not
     ]).map((change) => change.type),
     ["select"],
   );
+});
+
+/* --- Phase 30: switched-off nodes and sticky notes -------------------------- */
+
+const annotated: WorkflowGraph = {
+  ...graph,
+  nodes: graph.nodes.map((node) => (node.id === "shape" ? { ...node, disabled: true as const } : node)),
+  notes: [
+    {
+      id: "note_1",
+      position: { x: -40.5, y: -180 },
+      size: { width: 260.25, height: 140 },
+      text: "Line one\n<b>not markup</b> — plain text",
+      tone: "yellow",
+    },
+    { id: "note_2", position: { x: 600, y: 200 }, size: { width: 120, height: 60 }, text: "", tone: "purple" },
+  ],
+};
+
+test("a switched-off node and two notes survive the trip to the canvas and back, unchanged", () => {
+  const { nodes, edges, notes } = toFlow(annotated);
+  assert.deepEqual(fromFlow(nodes, edges, notes), annotated);
+  // And through JSON, which is what the database does to it.
+  assert.deepEqual(workflowGraphSchema.parse(JSON.parse(JSON.stringify(annotated))), annotated);
+});
+
+test("a note is its own React Flow type, sized by width and height, behind the nodes", () => {
+  const [note] = toFlow(annotated).notes;
+  assert.equal(note.type, CANVAS_NOTE_TYPE);
+  assert.equal(note.width, 260.25);
+  assert.equal(note.height, 140);
+  assert.equal(note.zIndex, -1);
+  assert.deepEqual(note.data, { text: annotated.notes![0].text, tone: "yellow" });
+  // What the browser measured is not what was stored, and never becomes it.
+  const measured = { ...note, measured: { width: 999, height: 999 } };
+  assert.deepEqual(fromFlow([], [], [measured]).notes![0].size, { width: 260.25, height: 140 });
+});
+
+test("no notes means no notes key, and a node that is on carries no disabled key", () => {
+  const { nodes, edges } = toFlow(graph);
+  const back = fromFlow(nodes, edges, []);
+  assert.equal("notes" in back, false);
+  assert.ok(back.nodes.every((node) => !("disabled" in node)));
+  // So deleting the last note and switching the node back on is a clean canvas again.
+  assert.ok(graphsEqual(back, graph));
+});
+
+test("the graph schema refuses disabled: false — on is the key's absence", () => {
+  const withFalse = { ...graph, nodes: [{ ...graph.nodes[0], disabled: false }, ...graph.nodes.slice(1)] };
+  assert.equal(workflowGraphSchema.safeParse(withFalse).success, false);
+});
+
+test("the graph schema refuses a note id that repeats, or that a node already has", () => {
+  const note = annotated.notes![1];
+  assert.equal(
+    workflowGraphSchema.safeParse({ ...annotated, notes: [...annotated.notes!, { ...note }] }).success,
+    false,
+    "two notes with one id",
+  );
+  const clash = workflowGraphSchema.safeParse({ ...annotated, notes: [{ ...note, id: "shape" }] });
+  assert.equal(clash.success, false, "a note named like a node");
+  assert.match(JSON.stringify(clash.error?.issues), /already used on this canvas/);
+});
+
+test("the graph schema bounds a note: its size, its text and how many there are", () => {
+  const note = annotated.notes![0];
+  const one = (over: object) => workflowGraphSchema.safeParse({ ...graph, notes: [{ ...note, ...over }] }).success;
+  assert.equal(one({}), true);
+  assert.equal(one({ size: { width: 119, height: 140 } }), false);
+  assert.equal(one({ size: { width: 240, height: 801 } }), false);
+  assert.equal(one({ text: "x".repeat(2001) }), false);
+  assert.equal(one({ tone: "red" }), false);
+  const many = Array.from({ length: 51 }, (_, index) => ({ ...note, id: `note_${index + 1}` }));
+  assert.equal(workflowGraphSchema.safeParse({ ...graph, notes: many }).success, false);
+});
+
+test("a note id is minted against node ids as well as note ids", () => {
+  assert.equal(nextNoteId([]), "note_1");
+  assert.equal(nextNoteId(["note_1", "note_2"]), "note_3");
+  // A node somebody happened to call note_1 still blocks the id.
+  assert.equal(nextNoteId(["note_1", "shape"]), "note_2");
+});
+
+test("restoring a graph lays its notes over the canvas, keeping what React Flow knows", () => {
+  const { notes } = toFlow(annotated);
+  const onCanvas = notes.map((note) => ({ ...note, selected: note.id === "note_1", measured: { width: 1, height: 1 } }));
+  const changed: WorkflowGraph = {
+    ...annotated,
+    notes: [{ ...annotated.notes![0], text: "edited", size: { width: 300, height: 200 } }],
+  };
+  const restored = restoreNotes(onCanvas, changed);
+  assert.equal(restored.length, 1, "a note the graph no longer has is gone");
+  assert.equal(restored[0].selected, true, "the selection survives");
+  assert.equal(restored[0].data.text, "edited");
+  assert.equal(restored[0].width, 300);
+  assert.deepEqual(fromFlow([], [], restored).notes, changed.notes);
 });

@@ -35,7 +35,9 @@ export type ShortcutAction =
   | "save"
   | "fit"
   | "search"
-  | "help";
+  | "help"
+  | "toggleDisabled"
+  | "addNote";
 
 export type ShortcutGroup = "Edit" | "Select" | "Canvas";
 
@@ -91,6 +93,23 @@ export const SHORTCUTS: readonly Shortcut[] = [
     action: "duplicate",
   },
   {
+    // Phase 30. A plain D, as in the tools people arrive from; ⌘D stays Duplicate.
+    id: "toggle-disabled",
+    group: "Edit",
+    title: "Switch the selected nodes off, or back on",
+    chords: [{ key: "d" }],
+    handled: "canvas",
+    action: "toggleDisabled",
+  },
+  {
+    id: "add-note",
+    group: "Edit",
+    title: "Add a sticky note",
+    chords: [{ key: "n" }],
+    handled: "canvas",
+    action: "addNote",
+  },
+  {
     id: "delete",
     group: "Edit",
     title: "Delete the selection",
@@ -110,7 +129,7 @@ export const SHORTCUTS: readonly Shortcut[] = [
   {
     id: "select-all",
     group: "Select",
-    title: "Select every node",
+    title: "Select every node and note",
     chords: [{ key: "a", mod: true }],
     handled: "canvas",
     action: "selectAll",

@@ -4,10 +4,18 @@ import { Background, Controls, ReactFlow, ReactFlowProvider } from "@xyflow/reac
 import { MarkerType } from "@xyflow/react";
 import { useMemo } from "react";
 
-import { CanvasContext } from "@/components/canvas/context";
+import { CanvasContext, INERT_NOTES } from "@/components/canvas/context";
+import { NoteView } from "@/components/canvas/note-node";
 import { WorkflowNodeView } from "@/components/canvas/workflow-node";
 import { useTheme } from "@/components/ui/theme";
-import { CANVAS_NODE_TYPE, toFlow, type CanvasEdge } from "@/lib/canvas/bridge";
+import {
+  CANVAS_NODE_TYPE,
+  CANVAS_NOTE_TYPE,
+  toFlow,
+  type CanvasEdge,
+  type CanvasNode,
+  type CanvasNote,
+} from "@/lib/canvas/bridge";
 import type { NodeSummary, SharedWorkflow } from "@/lib/canvas/client";
 import { GRAPH_VERSION } from "@/lib/workflow/graph";
 
@@ -27,8 +35,12 @@ import { GRAPH_VERSION } from "@/lib/workflow/graph";
  *
  * The context defaults cover run status and diff state — there is neither here — so only
  * `registry` and `entryOrder` are supplied.
+ *
+ * **Phase 30.** Sticky notes are drawn where the author put them, in their tone, **without
+ * their text** — the share response never carried it (`lib/workflow/share.ts`), and each
+ * note says so rather than looking empty. A switched-off node is published and drawn off.
  */
-const nodeTypes = { [CANVAS_NODE_TYPE]: WorkflowNodeView };
+const nodeTypes = { [CANVAS_NODE_TYPE]: WorkflowNodeView, [CANVAS_NOTE_TYPE]: NoteView };
 
 const FIT = { padding: 0.18, maxZoom: 1 } as const;
 
@@ -67,10 +79,28 @@ export function SharedCanvas({
           ...(node.label === undefined ? {} : { label: node.label }),
           position: node.position,
           config: node.config,
+          ...(node.disabled ? { disabled: true as const } : {}),
         })),
         edges: graph.edges,
+        // The text was never sent; an empty string is all this page has to give the note.
+        ...(graph.notes?.length
+          ? {
+              notes: graph.notes.map((note) => ({
+                id: note.id,
+                position: note.position,
+                size: note.size,
+                text: "",
+                tone: note.tone,
+              })),
+            }
+          : {}),
       }),
     [graph],
+  );
+
+  const flowNodes = useMemo(
+    () => [...flow.notes, ...flow.nodes] as (CanvasNode | CanvasNote)[],
+    [flow.notes, flow.nodes],
   );
 
   const lookup = useMemo(() => new Map(registry.map((node) => [node.type, node])), [registry]);
@@ -94,15 +124,20 @@ export function SharedCanvas({
       runStates: new Map(),
       diffStates: new Map(),
       entryOrder,
+      noteDiffStates: new Map(),
+      notes: {
+        ...INERT_NOTES,
+        withheld: new Set((graph.notes ?? []).filter((note) => note.redacted.length > 0).map((note) => note.id)),
+      },
     }),
-    [lookup, entryOrder],
+    [lookup, entryOrder, graph.notes],
   );
 
   return (
     <CanvasContext value={value}>
       <ReactFlowProvider>
         <ReactFlow
-          nodes={flow.nodes}
+          nodes={flowNodes}
           edges={edges}
           nodeTypes={nodeTypes}
           // **Every handler is absent, not disabled.** React Flow reports edits through

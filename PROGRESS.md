@@ -49,7 +49,20 @@ Launch demo video: <https://www.youtube.com/watch?v=3txmpCPEWd4>.
 
 ## Current Phase
 
-## ▶ PHASE 30 — Canvas II — sticky notes and disabled nodes — NOT STARTED
+## ▶ PHASE 30 — Canvas II — sticky notes and disabled nodes — IN PROGRESS (session 1 stopped on a usage limit)
+
+**State at the stop, 2026-10-07:** contract written first (`CONTRACT.md` → *Disabled nodes*, graph shape,
+clipboard, diff, share allowlist, generation); engine, validation, bridge, history, clipboard, diff,
+share, generator, notes UI, inspector switch, D/N shortcuts all built; `npm run check` green (1221+
+tests); `verify-api.mjs` gained a Phase 30 block that passed locally; the share page was verified in a
+browser in both themes with the contrast audit clean. **Deployed as `agentforge-00072-n8v` (health ok).**
+**Remaining:** (1) the editor walk in a real browser, Light and Night — **first finding: a note created
+from the control-stack button was selected but did not open in typing mode** (`setEditingNote` in
+`addNote`; seen only in a hidden window, so re-check with the window in front); (2) the deployed battery;
+(3) docs — `DESIGN.md` (note, disabled look, D/N keys), `SECURITY.md` (note text withheld),
+`DECISIONS.md` D133–D136 (cited in code and `CONTRACT.md` but not yet written), `DEPLOYMENT.md` →
+*Rollback* (no rollback past `00072-n8v` while a workflow uses notes or `disabled`), `BUILD_PLAN.md`
+status, this board; (4) the final commit as `feat: complete phase 30 sticky notes and disabled nodes`.
 
 **Next.** `BUILD_PLAN.md` → *Phase 30* is the definition: a `notes` list on the graph (not a registry
 node) and a `disabled` flag on a node, both undoable and copyable through Phase 29's history and

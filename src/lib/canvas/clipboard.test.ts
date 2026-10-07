@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { GRAPH_VERSION, type WorkflowGraph, type WorkflowNode } from "@/lib/workflow/graph";
+import {
+  GRAPH_VERSION,
+  type WorkflowGraph,
+  type WorkflowNode,
+  type WorkflowNote,
+} from "@/lib/workflow/graph";
 
 import {
   CLIPBOARD_FORMAT,
@@ -285,5 +290,87 @@ describe("ids and references", () => {
       nested: { list: ["{{steps.agent_2.output}}", 3, true, null] },
       literal: "steps.agent.output",
     });
+  });
+});
+
+describe("notes and switched-off nodes on the clipboard (Phase 30)", () => {
+  const sticky = (id: string, x: number, text = "Ask before changing"): WorkflowNote => ({
+    id,
+    position: { x, y: -200 },
+    size: { width: 240, height: 140 },
+    text,
+    tone: "pink",
+  });
+  const annotated: WorkflowGraph = {
+    ...source,
+    nodes: source.nodes.map((n) => (n.id === "agent" ? { ...n, disabled: true as const } : n)),
+    notes: [sticky("note_1", 300), sticky("note_2", 900)],
+  };
+
+  it("copies the selected notes beside the nodes, and only those", () => {
+    const envelope = copySelection(annotated, ["agent", "note_1"])!;
+    assert.deepEqual(envelope.nodes.map((n) => n.id), ["agent"]);
+    assert.deepEqual(envelope.notes?.map((n) => n.id), ["note_1"]);
+    // A switched-off node is copied off: the flag is part of the node shape.
+    assert.equal(envelope.nodes[0].disabled, true);
+  });
+
+  it("writes no notes key when no note was selected, so the envelope is the Phase 29 one", () => {
+    assert.equal("notes" in copySelection(annotated, ["agent"])!, false);
+  });
+
+  it("copies and pastes a note on its own", () => {
+    const envelope = parseEnvelope(serialiseEnvelope(copySelection(annotated, ["note_2"])!))!;
+    assert.equal(envelope.nodes.length, 0);
+    const plan = planPaste(annotated, envelope, options);
+    assert.ok(plan.ok);
+    assert.deepEqual(plan.nodes, []);
+    assert.equal(plan.notes.length, 1);
+    assert.equal(plan.notes[0].id, "note_3", "a free id, minted past both notes");
+    assert.equal(plan.notes[0].text, "Ask before changing");
+    assert.deepEqual(plan.notes[0].position, { x: 900 + PASTE_STEP, y: -200 + PASTE_STEP });
+  });
+
+  it("keeps a note's id in another workflow, and never lands one on a node's id", () => {
+    const envelope = copySelection(annotated, ["note_1"])!;
+    const other: WorkflowGraph = { version: GRAPH_VERSION, nodes: [node("note_1", "core.log", 0)], edges: [] };
+    const plan = planPaste(other, envelope, options);
+    assert.ok(plan.ok);
+    assert.equal(plan.notes[0].id, "note_2", "note_1 is a node's id there");
+
+    const empty: WorkflowGraph = { version: GRAPH_VERSION, nodes: [], edges: [] };
+    const kept = planPaste(empty, envelope, options);
+    assert.ok(kept.ok);
+    assert.equal(kept.notes[0].id, "note_1");
+  });
+
+  it("moves pasted nodes and notes by one shift, so an annotation stays beside its node", () => {
+    const plan = planPaste(annotated, copySelection(annotated, ["email", "note_2"])!, options);
+    assert.ok(plan.ok);
+    const dx = plan.nodes[0].position.x - 600;
+    assert.equal(plan.notes[0].position.x - 900, dx);
+  });
+
+  it("refuses a paste that would pass the 50-note limit", () => {
+    const full: WorkflowGraph = {
+      ...source,
+      notes: Array.from({ length: 50 }, (_, i) => sticky(`note_${i + 1}`, i * 10)),
+    };
+    const plan = planPaste(full, copySelection(annotated, ["note_1"])!, options);
+    assert.equal(plan.ok, false);
+    assert.match(plan.ok ? "" : plan.reason, /at most 50/);
+  });
+
+  it("still refuses an envelope with nothing in it at all", () => {
+    const empty = serialiseEnvelope({ format: CLIPBOARD_FORMAT, version: CLIPBOARD_VERSION, nodes: [], edges: [] });
+    assert.equal(parseEnvelope(empty), null);
+  });
+
+  it("pastes a note even when the only node beside it was a trigger the workflow cannot take", () => {
+    const plan = planPaste(annotated, copySelection(annotated, ["manual_trigger", "note_1"])!, options);
+    assert.ok(plan.ok);
+    assert.deepEqual(plan.nodes, []);
+    assert.equal(plan.notes.length, 1);
+    assert.match(plan.note ?? "", /trigger was left out/);
   });
 });

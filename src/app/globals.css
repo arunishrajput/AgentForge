@@ -834,6 +834,22 @@
   border-radius: var(--radius-xl);
 }
 
+/* A sticky note's resizer (Phase 30). The handles are small objects built the way every
+   object here is — an elevated fill inside an ink outline — rather than React Flow's blue
+   squares, and the resize lines are invisible: the note's own outline is already the edge
+   being dragged, and a second frame drawn around it would read as a second object. */
+.react-flow__resize-control.handle.note-handle {
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
+  background-color: var(--color-elevated);
+  border: var(--stroke) solid var(--color-line);
+}
+
+.react-flow__resize-control.line.note-line {
+  border-color: transparent;
+}
+
 /* The path a run actually took, left on the canvas after it finishes. On a branch the
    untaken edge never lights, so a finished run is still showing the route it chose. */
 .react-flow__edge.edge-traversed .react-flow__edge-path {

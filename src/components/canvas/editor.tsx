@@ -26,18 +26,25 @@ import { useTheme } from "@/components/ui/theme";
 import { useToast } from "@/components/ui/toast";
 import {
   CANVAS_NODE_TYPE,
+  CANVAS_NOTE_TYPE,
   fromFlow,
   graphsEqual,
+  NOTE_DEFAULT_SIZE,
   nextEdgeId,
   nextNodeId,
+  nextNoteId,
   readOnlyChanges,
   restoreEdges,
   restoreNodes,
+  restoreNotes,
   toFlow,
   toFlowEdge,
   toFlowNode,
+  toFlowNote,
   type CanvasEdge,
   type CanvasNode,
+  type CanvasNote,
+  type CanvasNoteData,
 } from "@/lib/canvas/bridge";
 import type { FlowRect } from "@/lib/canvas/clipboard";
 import {
@@ -50,21 +57,23 @@ import {
 import { tweenMs } from "@/lib/canvas/motion";
 import { useRunStream } from "@/lib/canvas/run-stream";
 import { isNewScheduledRun, withScheduleOf } from "@/lib/canvas/schedule-sync";
+import { DEFAULT_NOTE_TONE, noteName } from "@/lib/canvas/notes";
 import { defaultConfig } from "@/lib/canvas/schema";
 import { formatDuration } from "@/lib/format/duration";
 import { layout } from "@/lib/generate/layout";
 import { formatUtc } from "@/lib/triggers/cron";
-import { diffGraph, type GraphDiff, type NodeDiff } from "@/lib/workflow/diff";
-import type { WorkflowEdge, WorkflowGraph, WorkflowNode } from "@/lib/workflow/graph";
+import { diffGraph, type GraphDiff, type NodeDiff, type NoteDiff } from "@/lib/workflow/diff";
+import type { WorkflowEdge, WorkflowGraph, WorkflowNode, WorkflowNote } from "@/lib/workflow/graph";
 import { mayChangeVisibility } from "@/lib/workflow/visibility";
 import { atLeast, type WorkspaceRole } from "@/lib/workspace/roles";
 
-import { CanvasContext, type NodeRunState } from "./context";
+import { CanvasContext, type NodeRunState, type NoteControls } from "./context";
 import { buildCanvasCommands } from "./canvas-commands";
 import { DiffBar } from "./diff/diff-bar";
 import { History } from "./diff/history";
 import { EditControls } from "./edit-controls";
 import { Inspector } from "./inspector";
+import { NoteView } from "./note-node";
 import { Palette } from "./palette";
 import { useCollapsed } from "./panel";
 import { ShareDialog } from "./share-dialog";
@@ -125,10 +134,19 @@ export function Editor({
 
 // Defined once at module scope: React Flow warns when `nodeTypes` is a new object on
 // every render, and re-creates every node when it changes.
-const nodeTypes = { [CANVAS_NODE_TYPE]: WorkflowNodeView };
+const nodeTypes = { [CANVAS_NODE_TYPE]: WorkflowNodeView, [CANVAS_NOTE_TYPE]: NoteView };
 
-/** Stable empty map, so leaving diff mode does not hand the context a new object. */
+/** Stable empty maps, so leaving diff mode does not hand the context a new object. */
 const EMPTY_DIFF: Map<string, NodeDiff> = new Map();
+const EMPTY_NOTE_DIFF: Map<string, NoteDiff> = new Map();
+/** Nothing on the editor's canvas is withheld — that is the share page's (`shared-canvas.tsx`). */
+const NOTHING_WITHHELD: ReadonlySet<string> = new Set();
+
+/** A node's data with its off switch set — the key present only while it is off (D134). */
+function switched(data: CanvasNode["data"], off: boolean): CanvasNode["data"] {
+  const { disabled: _previous, ...rest } = data;
+  return off ? { ...rest, disabled: true } : rest;
+}
 
 /**
  * 0.18, not React Flow's 0.3. Padding is the one term in the fitView fraction worth
@@ -182,6 +200,15 @@ function EditorInner({
 
   const [nodes, setNodes, onNodesChange] = useNodesState<CanvasNode>(initial.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<CanvasEdge>(initial.edges);
+  /**
+   * **Sticky notes — Phase 30 — are a list of their own**, laid over the nodes only for React
+   * Flow (`flowNodes` below). Every other part of this file reads `nodes` and means registry
+   * nodes, with `node.data.nodeType` and a label; keeping notes out of that array is what
+   * lets all of it stay true without a type check at every call site.
+   */
+  const [notes, setNotes, onNotesChange] = useNodesState<CanvasNote>(initial.notes);
+  /** The note being typed into on the canvas (`note-node.tsx`). */
+  const [editingNote, setEditingNote] = useState<string | null>(null);
 
   const [name, setName] = useState(workflow.name);
   const [saved, setSaved] = useState<Workflow>(workflow);
@@ -361,8 +388,10 @@ function EditorInner({
         markerEnd: EDGE_MARKER,
       };
 
+      // A switched-off node the run passed through (Phase 30) is a node the run crossed:
+      // its input went straight out of it, so the path stays lit through it.
       const source = runStates.get(edge.source);
-      if (source?.status !== "succeeded") return base;
+      if (source?.status !== "succeeded" && source?.status !== "disabled") return base;
 
       const target = runStates.get(edge.target);
       if (running && target?.status === "running") {
@@ -375,7 +404,22 @@ function EditorInner({
     });
   }, [edges, run?.status, runStates]);
 
-  const graph = useMemo(() => fromFlow(nodes, edges), [nodes, edges]);
+  const graph = useMemo(() => fromFlow(nodes, edges, notes), [nodes, edges, notes]);
+
+  /**
+   * What React Flow draws: the notes, then the nodes. Two memos, so dragging a node does not
+   * hand React Flow fifty new note objects every frame. A note's accessible name is its text,
+   * because a node's wrapper is what a keyboard user tabs to and React Flow names it from here.
+   */
+  const labelledNotes = useMemo(
+    () => notes.map((note) => ({ ...note, ariaLabel: `Sticky note: ${noteName(note.data.text)}` })),
+    [notes],
+  );
+  const flowNodes = useMemo(
+    () => [...labelledNotes, ...nodes] as (CanvasNode | CanvasNote)[],
+    [labelledNotes, nodes],
+  );
+  const noteIds = useMemo(() => new Set(notes.map((note) => note.id)), [notes]);
   const dirty = !graphsEqual(graph, saved.graph) || name !== saved.name;
 
   /**
@@ -456,7 +500,15 @@ function EditorInner({
       initialHeight: states.get(node.id)?.change === "unchanged" ? 119 : 147,
     }));
 
-    return { nodes, edges, states };
+    // Notes carry their own width and height, so they need no estimate (Phase 30).
+    const noteStates = new Map(comparison.diff.notes.map((entry) => [entry.id, entry]));
+
+    return {
+      nodes: [...flow.notes, ...nodes] as (CanvasNode | CanvasNote)[],
+      edges,
+      states,
+      noteStates,
+    };
   }, [comparison, saved.graph.version]);
 
   const comparing = diffView !== null;
@@ -480,8 +532,14 @@ function EditorInner({
    * render as the click, so they are the one source of truth.
    */
   const selection = useMemo(() => nodes.filter((node) => node.selected), [nodes]);
-  const selectedIds = useMemo(() => selection.map((node) => node.id), [selection]);
-  const selected = selection.length === 1 ? selection[0] : null;
+  /** Selected notes (Phase 30). They select, copy, move and delete with the nodes. */
+  const selectedNotes = useMemo(() => notes.filter((note) => note.selected), [notes]);
+  const selectedIds = useMemo(
+    () => [...selection.map((node) => node.id), ...selectedNotes.map((note) => note.id)],
+    [selection, selectedNotes],
+  );
+  const selected = selection.length === 1 && selectedNotes.length === 0 ? selection[0] : null;
+  const selectedNote = selectedNotes.length === 1 && selection.length === 0 ? selectedNotes[0] : null;
 
   const onSelectionChange = useCallback((params: OnSelectionChangeParams) => {
     const ids = params.nodes.map((node) => node.id);
@@ -506,33 +564,62 @@ function EditorInner({
     (next: WorkflowGraph) => {
       setNodes((current) => restoreNodes(current, next));
       setEdges((current) => restoreEdges(current, next));
+      setNotes((current) => restoreNotes(current, next));
     },
-    [setEdges, setNodes],
+    [setEdges, setNodes, setNotes],
   );
   const history = useHistory({ graph, apply: applyGraph, enabled: editable });
   const { beginGesture, endGesture, mark, reset: resetHistory, undo, redo } = history;
 
   /**
-   * React Flow's own edits, with the drag boundaries the history needs: a position
-   * change that is `dragging` is a frame of a drag, and the first one that is not ends
-   * it. Everything between is one step of undo, however long the drag.
+   * React Flow reports nodes and notes through one callback; each list applies its own
+   * changes. By id, which the graph schema keeps unique across the two (D134).
+   */
+  const route = useCallback(
+    (changes: NodeChange<CanvasNode | CanvasNote>[]) => {
+      const forNotes: NodeChange<CanvasNote>[] = [];
+      const forNodes: NodeChange<CanvasNode>[] = [];
+      for (const change of changes) {
+        const id = change.type === "add" ? change.item.id : change.id;
+        if (noteIds.has(id)) forNotes.push(change as NodeChange<CanvasNote>);
+        else forNodes.push(change as NodeChange<CanvasNode>);
+      }
+      if (forNotes.length > 0) onNotesChange(forNotes);
+      if (forNodes.length > 0) onNodesChange(forNodes);
+    },
+    [noteIds, onNodesChange, onNotesChange],
+  );
+
+  /**
+   * React Flow's own edits, with the gesture boundaries the history needs. A drag: a
+   * position change that is `dragging` is a frame of it, and the first that is explicitly
+   * not ends it. A resize (Phase 30, a note's): dimension changes carry `resizing` from the
+   * first frame to the last. Everything between is one step of undo, however long.
+   *
+   * `dragging === false`, not merely falsy: a resize from a note's top or left edge also
+   * moves it, and those position changes carry no `dragging` at all — reading them as "the
+   * drag ended" would split one resize into a step per frame.
    */
   const handleNodesChange = useCallback(
-    (changes: NodeChange<CanvasNode>[]) => {
+    (changes: NodeChange<CanvasNode | CanvasNote>[]) => {
       for (const change of changes) {
-        if (change.type !== "position") continue;
-        if (change.dragging) beginGesture();
-        else endGesture();
+        if (change.type === "position") {
+          if (change.dragging) beginGesture();
+          else if (change.dragging === false) endGesture();
+        } else if (change.type === "dimensions" && change.resizing !== undefined) {
+          if (change.resizing) beginGesture();
+          else endGesture();
+        }
       }
-      onNodesChange(changes);
+      route(changes);
     },
-    [beginGesture, endGesture, onNodesChange],
+    [beginGesture, endGesture, route],
   );
 
   /** A viewer selects and measures, and nothing else reaches the graph (`readOnlyChanges`). */
   const handleReadOnlyNodesChange = useCallback(
-    (changes: NodeChange<CanvasNode>[]) => onNodesChange(readOnlyChanges(changes)),
-    [onNodesChange],
+    (changes: NodeChange<CanvasNode | CanvasNote>[]) => route(readOnlyChanges(changes)),
+    [route],
   );
   const handleReadOnlyEdgesChange = useCallback(
     (changes: Parameters<typeof onEdgesChange>[0]) => onEdgesChange(readOnlyChanges(changes)),
@@ -567,9 +654,11 @@ function EditorInner({
         ? screenToFlowPosition({ x: bounds.x + 140, y: bounds.y + bounds.height / 2 })
         : { x: 0, y: 0 };
 
+      // Minted against the notes as well: one id space on the canvas (D134).
+      const noteIdList = notes.map((note) => note.id);
       setNodes((current) => {
         const id = nextNodeId(
-          current.map((node) => node.id),
+          [...current.map((node) => node.id), ...noteIdList],
           definition.type,
         );
 
@@ -607,7 +696,7 @@ function EditorInner({
       // the CSS media query in `globals.css` cannot reach it.
       requestAnimationFrame(() => fitView({ ...FIT, duration: tweenMs(250) }));
     },
-    [fitView, screenToFlowPosition, setNodes],
+    [fitView, notes, screenToFlowPosition, setNodes],
   );
 
   const changeNode = useCallback(
@@ -621,65 +710,151 @@ function EditorInner({
     [setNodes],
   );
 
-  /** Delete nodes and every edge touching them — one step of undo, however many. */
+  /** Delete nodes and notes, and every edge touching them — one step of undo, however many. */
   const removeNodes = useCallback(
     (ids: readonly string[]) => {
       const gone = new Set(ids);
       setNodes((current) => current.filter((node) => !gone.has(node.id)));
+      setNotes((current) => current.filter((note) => !gone.has(note.id)));
       setEdges((current) =>
         current.filter((edge) => !gone.has(edge.source) && !gone.has(edge.target)),
       );
     },
-    [setEdges, setNodes],
+    [setEdges, setNodes, setNotes],
   );
 
   const deleteNode = useCallback((id: string) => removeNodes([id]), [removeNodes]);
 
+  /** Select exactly this node or note, and nothing else. */
   const selectNode = useCallback(
     (id: string) => {
-      setNodes((current) =>
-        current.map((node) => ({ ...node, selected: node.id === id })),
+      setNodes((current) => current.map((node) => ({ ...node, selected: node.id === id })));
+      setNotes((current) => current.map((note) => ({ ...note, selected: note.id === id })));
+    },
+    [setNodes, setNotes],
+  );
+
+  /** A note's text or tone (Phase 30). Typing coalesces in the history (`note:<id>`). */
+  const changeNote = useCallback(
+    (id: string, patch: Partial<CanvasNoteData>) => {
+      setNotes((current) =>
+        current.map((note) => (note.id === id ? { ...note, data: { ...note.data, ...patch } } : note)),
       );
     },
-    [setNodes],
+    [setNotes],
   );
+
+  /**
+   * Switch nodes off, or back on — Phase 30. One click is one step of undo however many
+   * nodes it touches. **A trigger is never switched off** (`disabled_trigger`): it is left
+   * as it is and the author is told what they probably wanted, which is the Active switch.
+   * Returns whether anything changed, so the D key stays unclaimed with nothing selected.
+   */
+  const setDisabled = useCallback(
+    (ids: readonly string[], off: boolean): boolean => {
+      const wanted = new Set(ids);
+      const isTrigger = (node: CanvasNode) => registry.get(node.data.nodeType)?.kind === "trigger";
+      const targets = nodes.filter((node) => wanted.has(node.id) && !isTrigger(node));
+      if (targets.length === 0) {
+        if (nodes.some((node) => wanted.has(node.id))) {
+          toast({
+            tone: "warn",
+            title: "A trigger cannot be switched off",
+            detail: "Every run starts at its trigger. To stop this workflow running by itself, use the Active switch.",
+          });
+          return true;
+        }
+        return false;
+      }
+      const changed = new Set(targets.map((node) => node.id));
+      mark(null);
+      setNodes((current) =>
+        current.map((node) => (changed.has(node.id) ? { ...node, data: switched(node.data, off) } : node)),
+      );
+      if (off && targets.length < nodes.filter((node) => wanted.has(node.id)).length) {
+        toast({ tone: "warn", title: "The trigger was left on", detail: "Every run starts at its trigger." });
+      }
+      return true;
+    },
+    [mark, nodes, registry, setNodes, toast],
+  );
+
+  /** D: if any selected node is on, switch them all off; if all are off, switch them on. */
+  const toggleSelectionDisabled = useCallback((): boolean => {
+    if (selection.length === 0) return false;
+    const anyOn = selection.some((node) => !node.data.disabled);
+    return setDisabled(selection.map((node) => node.id), anyOn);
+  }, [selection, setDisabled]);
 
   /**
    * Add pasted or duplicated nodes as one step, selected — so the next thing a person
    * does (drag them, delete them, undo) applies to exactly what just arrived.
    */
   const insertNodes = useCallback(
-    (added: WorkflowNode[], addedEdges: WorkflowEdge[]) => {
+    (added: WorkflowNode[], addedEdges: WorkflowEdge[], addedNotes: WorkflowNote[] = []) => {
       mark(null);
       setNodes((current) => [
         ...current.map((node) => (node.selected ? { ...node, selected: false } : node)),
         ...added.map((node) => ({ ...toFlowNode(node), selected: true })),
+      ]);
+      setNotes((current) => [
+        ...current.map((note) => (note.selected ? { ...note, selected: false } : note)),
+        ...addedNotes.map((note) => ({ ...toFlowNote(note), selected: true })),
       ]);
       setEdges((current) => [
         ...current.map((edge) => (edge.selected ? { ...edge, selected: false } : edge)),
         ...addedEdges.map(toFlowEdge),
       ]);
     },
-    [mark, setEdges, setNodes],
+    [mark, setEdges, setNodes, setNotes],
   );
 
   const selectAll = useCallback(() => {
     setNodes((current) => current.map((node) => (node.selected ? node : { ...node, selected: true })));
-  }, [setNodes]);
+    setNotes((current) => current.map((note) => (note.selected ? note : { ...note, selected: true })));
+  }, [setNodes, setNotes]);
 
   /** The inspector's arrow buttons. Repeated nudges of one selection are one step. */
   const moveSelection = useCallback(
     (dx: number, dy: number) => {
-      setNodes((current) =>
-        current.map((node) =>
-          node.selected
-            ? { ...node, position: { x: node.position.x + dx, y: node.position.y + dy } }
-            : node,
-        ),
-      );
+      const nudge = <T extends CanvasNode | CanvasNote>(item: T): T =>
+        item.selected ? { ...item, position: { x: item.position.x + dx, y: item.position.y + dy } } : item;
+      setNodes((current) => current.map(nudge));
+      setNotes((current) => current.map(nudge));
     },
-    [setNodes],
+    [setNodes, setNotes],
   );
+
+  /**
+   * A new sticky note in the middle of the screen, selected and ready to type into — Phase
+   * 30. One step of undo. Its id is minted against nodes and notes alike (D134).
+   */
+  const addNote = useCallback(() => {
+    // The document, not `wrapper`: ⌘K's commands are built during render (`findNode` says
+    // why), and *Add a sticky note* is one of them. `#main` is the element `wrapper` holds.
+    const bounds = document.getElementById("main")?.getBoundingClientRect();
+    const centre = bounds
+      ? screenToFlowPosition({ x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 })
+      : { x: 0, y: 0 };
+    const id = nextNoteId([...nodes.map((node) => node.id), ...notes.map((note) => note.id)]);
+    const note = toFlowNote({
+      id,
+      position: {
+        x: Math.round(centre.x - NOTE_DEFAULT_SIZE.width / 2),
+        y: Math.round(centre.y - NOTE_DEFAULT_SIZE.height / 2),
+      },
+      size: { ...NOTE_DEFAULT_SIZE },
+      text: "",
+      tone: DEFAULT_NOTE_TONE,
+    });
+    mark(null);
+    setNodes((current) => current.map((node) => (node.selected ? { ...node, selected: false } : node)));
+    setNotes((current) => [
+      ...current.map((existing) => (existing.selected ? { ...existing, selected: false } : existing)),
+      { ...note, selected: true },
+    ]);
+    setEditingNote(id);
+  }, [mark, nodes, notes, screenToFlowPosition, setNodes, setNotes]);
 
   /**
    * Auto-arrange: the generator's own layout (D40) over the graph as it stands. Columns
@@ -763,7 +938,7 @@ function EditorInner({
     try {
       const updated = await api.updateWorkflow(workflow.id, {
         name: name.trim() === "" ? saved.name : name.trim(),
-        graph: fromFlow(nodes, edges),
+        graph,
       });
       setSaved(updated);
       setName(updated.name);
@@ -780,7 +955,7 @@ function EditorInner({
     } finally {
       setBusy(null);
     }
-  }, [edges, name, nodes, saved.name, toast, workflow.id]);
+  }, [graph, name, saved.name, toast, workflow.id]);
 
   /**
    * Everything both Run buttons do before they diverge: save what is unsaved, refuse a
@@ -821,6 +996,7 @@ function EditorInner({
     }
 
     setNodes((all) => all.map((node) => ({ ...node, selected: false })));
+    setNotes((all) => all.map((note) => ({ ...note, selected: false })));
     // Clear the previous run first. The stream's first snapshot is a few hundred
     // milliseconds away, and leaving the old run on screen means pressing Run shows a
     // canvas full of green "Succeeded" badges for something that has not started.
@@ -834,7 +1010,7 @@ function EditorInner({
     watch();
 
     return { input };
-  }, [dirty, save, saved, setInspectorCollapsed, setNodes, setRun, toast, triggerInput, watch]);
+  }, [dirty, save, saved, setInspectorCollapsed, setNodes, setNotes, setRun, toast, triggerInput, watch]);
 
   const start = useCallback(async () => {
     const prepared = await prepare();
@@ -1031,6 +1207,8 @@ function EditorInner({
       try {
         const result = await api.compareVersions(workflow.id, from, to);
         setNodes((all) => all.map((node) => ({ ...node, selected: false })));
+        setNotes((all) => all.map((note) => ({ ...note, selected: false })));
+        setEditingNote(null);
         setComparison({ from, to, diff: result.diff });
         requestAnimationFrame(() => fitView({ ...FIT, duration: tweenMs(250) }));
       } catch (error) {
@@ -1042,7 +1220,7 @@ function EditorInner({
         });
       }
     },
-    [fitView, setNodes, toast, workflow.id],
+    [fitView, setNodes, setNotes, toast, workflow.id],
   );
 
   /**
@@ -1074,10 +1252,12 @@ function EditorInner({
       setName(restored.name);
       setNodes(flow.nodes);
       setEdges(flow.edges);
+      setNotes(flow.notes);
+      setEditingNote(null);
       setComparison(null);
       requestAnimationFrame(() => fitView({ ...FIT, duration: tweenMs(250) }));
     },
-    [fitView, resetHistory, setEdges, setNodes],
+    [fitView, resetHistory, setEdges, setNodes, setNotes],
   );
 
   /**
@@ -1186,6 +1366,8 @@ function EditorInner({
     fit,
     search: editable ? focusPaletteSearch : undefined,
     help: () => setShortcutsOpen(true),
+    toggleDisabled: editable ? toggleSelectionDisabled : undefined,
+    addNote: editable ? addNote : undefined,
   });
 
   /** ⌘K on the canvas: its actions, then every node — *find a node* (`canvas-commands.ts`). */
@@ -1205,9 +1387,21 @@ function EditorInner({
           selectAll,
           shortcuts: () => setShortcutsOpen(true),
           find: findNode,
+          addNote,
         },
       }),
-    [arrange, comparing, editable, findNode, fit, nodes, platform, redo, registry, selectAll, undo],
+    [addNote, arrange, comparing, editable, findNode, fit, nodes, platform, redo, registry, selectAll, undo],
+  );
+
+  const noteControls = useMemo(
+    (): NoteControls => ({
+      editing: editingNote,
+      setEditing: setEditingNote,
+      change: changeNote,
+      editable,
+      withheld: NOTHING_WITHHELD,
+    }),
+    [changeNote, editable, editingNote],
   );
 
   const canvasValue = useMemo(
@@ -1216,8 +1410,10 @@ function EditorInner({
       runStates,
       diffStates: diffView?.states ?? EMPTY_DIFF,
       entryOrder,
+      noteDiffStates: diffView?.noteStates ?? EMPTY_NOTE_DIFF,
+      notes: noteControls,
     }),
-    [diffView, entryOrder, registry, runStates],
+    [diffView, entryOrder, noteControls, registry, runStates],
   );
 
   /**
@@ -1547,7 +1743,7 @@ function EditorInner({
               // `onNodesChange`, so a diff that stayed interactive would feed nodes
               // from a graph nobody ever saved back into the editing state, and the
               // next Save would write a workflow assembled out of two others.
-              nodes={diffView ? diffView.nodes : nodes}
+              nodes={diffView ? diffView.nodes : flowNodes}
               edges={diffView ? diffView.edges : displayEdges}
               nodeTypes={nodeTypes}
               //
@@ -1602,6 +1798,7 @@ function EditorInner({
                   onUndo={undo}
                   onRedo={redo}
                   onArrange={arrange}
+                  onAddNote={addNote}
                   onShortcuts={() => setShortcutsOpen(true)}
                 />
               </Controls>
@@ -1626,7 +1823,9 @@ function EditorInner({
             }}
             node={selected}
             definition={selected ? registry.get(selected.data.nodeType) : undefined}
+            note={selectedNote}
             selection={selection}
+            selectedNotes={selectedNotes}
             registry={registry}
             platform={platform}
             revision={history.revision}
@@ -1653,6 +1852,8 @@ function EditorInner({
             onChangeNode={changeNode}
             onDeleteNode={deleteNode}
             onSelectNode={selectNode}
+            onChangeNote={changeNote}
+            onSetDisabled={setDisabled}
             onCopySelection={() => clipboard.copy()}
             onDuplicateSelection={() => clipboard.duplicate()}
             onMoveSelection={moveSelection}

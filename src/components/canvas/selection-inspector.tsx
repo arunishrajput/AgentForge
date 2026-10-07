@@ -3,9 +3,10 @@
 import { useId } from "react";
 
 import { cn } from "@/components/ui/cn";
-import type { CanvasNode } from "@/lib/canvas/bridge";
+import type { CanvasNode, CanvasNote } from "@/lib/canvas/bridge";
 import { categoryLook } from "@/lib/canvas/categories";
 import type { NodeSummary } from "@/lib/canvas/client";
+import { noteLook, noteName } from "@/lib/canvas/notes";
 import { shortcutFor } from "@/lib/canvas/shortcuts";
 import { ariaKeyShortcut, chordLabel, type Platform } from "@/lib/ui/keys";
 
@@ -30,9 +31,14 @@ export const NUDGE = 20;
  *
  * A viewer sees the list and Copy — copying is reading what they may already read, and
  * pasting it is something they would do in a workflow of their own.
+ *
+ * **Phase 30**: notes are part of a selection like nodes — copied, moved and deleted with
+ * them, listed after them — and the nodes in it can be switched off or on together. A
+ * trigger in the selection is left on: a run starts at it.
  */
 export function SelectionInspector({
   nodes,
+  notes,
   registry,
   platform,
   readOnly,
@@ -41,8 +47,10 @@ export function SelectionInspector({
   onDuplicate,
   onMove,
   onDelete,
+  onSetDisabled,
 }: {
   nodes: CanvasNode[];
+  notes: CanvasNote[];
   registry: Map<string, NodeSummary>;
   platform: Platform;
   readOnly: boolean;
@@ -51,6 +59,7 @@ export function SelectionInspector({
   onDuplicate: () => void;
   onMove: (dx: number, dy: number) => void;
   onDelete: () => void;
+  onSetDisabled: (ids: readonly string[], off: boolean) => boolean;
 }) {
   const hint = (action: "copy" | "duplicate") => {
     const chord = shortcutFor(action).chords[0];
@@ -58,6 +67,16 @@ export function SelectionInspector({
   };
   const copy = hint("copy");
   const duplicate = hint("duplicate");
+  const toggle = (() => {
+    const chord = shortcutFor("toggleDisabled").chords[0];
+    return { label: chordLabel(chord, platform), aria: ariaKeyShortcut(chord, platform) };
+  })();
+
+  // What the off switch can touch: every selected node but a trigger.
+  const switchable = nodes.filter((node) => registry.get(node.data.nodeType)?.kind !== "trigger");
+  const anyOn = switchable.some((node) => !node.data.disabled);
+  const anyOff = switchable.some((node) => node.data.disabled);
+  const count = nodes.length + notes.length;
   // Never a literal id: `DESIGN.md` → *Traps* — a reusable component may not hardcode one.
   const nudgeHeading = useId();
 
@@ -96,6 +115,38 @@ export function SelectionInspector({
             A copy pastes into this workflow or another one, in this tab or a new one.
           </p>
         </section>
+
+        {!readOnly && switchable.length > 0 && (
+          <section className="space-y-2">
+            <h3 className="eyebrow">Run them or not</h3>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                disabled={!anyOn}
+                onClick={() => onSetDisabled(switchable.map((node) => node.id), true)}
+                aria-keyshortcuts={toggle.aria}
+                className="btn btn-quiet justify-between"
+              >
+                Switch off
+                <span aria-hidden="true" className="text-faint text-3xs font-semibold">
+                  {toggle.label}
+                </span>
+              </button>
+              <button
+                type="button"
+                disabled={!anyOff}
+                onClick={() => onSetDisabled(switchable.map((node) => node.id), false)}
+                className="btn btn-quiet"
+              >
+                Switch on
+              </button>
+            </div>
+            <p className="text-muted text-2xs leading-relaxed">
+              A switched-off node passes its input straight on when a run reaches it.
+              {switchable.length < nodes.length && " The trigger stays on — every run starts at it."}
+            </p>
+          </section>
+        )}
 
         {!readOnly && (
           <section className="space-y-2">
@@ -151,11 +202,33 @@ export function SelectionInspector({
                       </span>
                       <span className="text-muted block truncate font-mono text-3xs">{node.id}</span>
                     </span>
-                    <span className="sr-only">— select only this node</span>
+                    {node.data.disabled && <span className="text-muted shrink-0 text-3xs font-bold">Off</span>}
+                    <span className="sr-only">
+                      {node.data.disabled ? " — switched off" : ""} — select only this node
+                    </span>
                   </button>
                 </li>
               );
             })}
+            {notes.map((note) => (
+              <li key={note.id}>
+                <button
+                  type="button"
+                  onClick={() => onSelectNode(note.id)}
+                  className="hover:bg-surface flex min-h-9 w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors"
+                >
+                  <span
+                    aria-hidden="true"
+                    className={cn("border-line size-6 shrink-0 rounded-md border-2", noteLook(note.data.tone).fill)}
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="text-ui block truncate font-bold">{noteName(note.data.text)}</span>
+                    <span className="text-muted block truncate font-mono text-3xs">{note.id}</span>
+                  </span>
+                  <span className="sr-only">— a sticky note. Select only this note</span>
+                </button>
+              </li>
+            ))}
           </ul>
         </section>
       </div>
@@ -163,7 +236,7 @@ export function SelectionInspector({
       {!readOnly && (
         <footer className="border-line shrink-0 border-t-2 px-3 py-2.5">
           <button type="button" onClick={onDelete} className="btn btn-danger w-full">
-            Delete {nodes.length} nodes
+            Delete {count} {notes.length === 0 ? "nodes" : nodes.length === 0 ? "notes" : "things"}
           </button>
         </footer>
       )}
