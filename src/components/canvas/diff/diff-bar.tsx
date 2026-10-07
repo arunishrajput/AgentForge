@@ -48,7 +48,7 @@ export function DiffBar({
       // ink label is `DESIGN.md`'s rule for a pop fill, and loud is the point: this is
       // a mode, and a mode that looks like the ordinary page is a mode people edit by
       // mistake.
-      className="border-line bg-accent-pop text-ink flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b-2 px-3 py-2"
+      className="border-line bg-accent-pop text-accent-ink flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b-2 px-3 py-2"
     >
       <span className="text-ui shrink-0 font-bold">
         Comparing v{from} <span aria-hidden="true">→</span>
@@ -74,7 +74,7 @@ export function DiffBar({
             );
           })}
           {edges > 0 && (
-            <span className="chip-pop bg-surface shrink-0">
+            <span className="chip bg-surface text-ink shrink-0">
               <span aria-hidden="true">↔</span>
               {edges} connection{edges === 1 ? "" : "s"} rewired
             </span>

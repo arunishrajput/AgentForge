@@ -466,7 +466,7 @@ function Figure({
         className={[
           "mt-0.5 text-sm font-semibold",
           mono ? "font-mono" : "",
-          tone === "warn" ? "text-warn-ink" : "",
+          tone === "warn" ? "text-warn" : "",
         ]
           .filter(Boolean)
           .join(" ")}

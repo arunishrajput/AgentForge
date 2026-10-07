@@ -63,7 +63,7 @@ function Node({
           CATEGORY_FILL[category],
         )}
       >
-        <span className="text-ink text-3xs font-bold tracking-wide uppercase">{category}</span>
+        <span className="text-accent-ink text-3xs font-bold tracking-wide uppercase">{category}</span>
         {status}
       </div>
       <div className="space-y-1 px-3 py-2.5">
@@ -107,7 +107,7 @@ function Link() {
       aria-hidden="true"
       className="text-ink flex shrink-0 flex-col items-center justify-center py-1 leading-none md:w-7 md:flex-row md:py-0"
     >
-      <span className="bg-ink h-4 w-0.5 md:h-0.5 md:w-full" />
+      <span className="bg-line h-4 w-0.5 md:h-0.5 md:w-full" />
       <span className="text-3xs md:hidden">▼</span>
       <span className="text-3xs hidden md:inline">▶</span>
     </div>

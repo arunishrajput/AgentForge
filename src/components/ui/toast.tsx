@@ -105,7 +105,7 @@ function ToastCard({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }
       <span
         aria-hidden="true"
         className={cn(
-          "border-line text-ink grid size-6 shrink-0 place-items-center rounded-lg border-2 text-xs font-bold",
+          "border-line text-accent-ink grid size-6 shrink-0 place-items-center rounded-lg border-2 text-xs font-bold",
           tone.fill,
         )}
       >

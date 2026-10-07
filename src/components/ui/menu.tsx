@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode, useEffect, useId, useRef, useState } from "react";
+import { Fragment, type ReactNode, useEffect, useId, useRef, useState } from "react";
 
 import { cn } from "./cn";
 
@@ -31,6 +31,18 @@ export type MenuItem = {
   onSelect: () => void;
   tone?: "default" | "danger";
   disabled?: boolean;
+  /**
+   * Set — `true` or `false` — and the item is a `menuitemradio` reporting
+   * `aria-checked`, one of a set where exactly one is chosen (the theme, Phase 27).
+   * Left out, it is an ordinary `menuitem`.
+   */
+  checked?: boolean;
+  /**
+   * Consecutive items sharing a `group` are wrapped in a `role="group"` named by it,
+   * with the name shown above them. A radio set needs it: "Dark, checked" means
+   * nothing without "Theme" around it.
+   */
+  group?: string;
 };
 
 export function Menu({
@@ -134,44 +146,86 @@ export function Menu({
             panelClassName,
           )}
         >
-          {items.map((item, index) => (
-            <button
-              key={item.id}
-              ref={(el) => {
-                itemRefs.current[index] = el;
-              }}
-              type="button"
-              role="menuitem"
-              disabled={item.disabled}
-              tabIndex={-1}
-              onClick={() => {
-                item.onSelect();
-                close();
-              }}
-              onKeyDown={(event) => {
-                if (event.key === "ArrowDown") move(index, 1);
-                else if (event.key === "ArrowUp") move(index, -1);
-                else if (event.key === "Home") move(-1, 1);
-                else if (event.key === "End") move(0, -1);
-                else if (event.key === "Escape") close();
-                else if (event.key === "Tab") close(false);
-                else return;
-                event.preventDefault();
-              }}
-              className={cn(
-                "text-ui flex w-full items-center rounded-lg px-2.5 py-1.5 text-left font-semibold",
-                "transition-colors duration-(--dur-fast)",
-                item.disabled && "cursor-not-allowed opacity-45",
-                !item.disabled && item.tone === "danger"
-                  ? "text-bad hover:bg-bad-pop hover:text-ink"
-                  : !item.disabled && "hover:bg-accent-pop hover:text-ink",
-              )}
-            >
-              {item.label}
-            </button>
-          ))}
+          {segments(items).map((segment) => {
+            const rows = segment.items.map(({ item, index }) => (
+              <button
+                key={item.id}
+                ref={(el) => {
+                  itemRefs.current[index] = el;
+                }}
+                type="button"
+                role={item.checked === undefined ? "menuitem" : "menuitemradio"}
+                aria-checked={item.checked}
+                disabled={item.disabled}
+                tabIndex={-1}
+                onClick={() => {
+                  item.onSelect();
+                  close();
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "ArrowDown") move(index, 1);
+                  else if (event.key === "ArrowUp") move(index, -1);
+                  else if (event.key === "Home") move(-1, 1);
+                  else if (event.key === "End") move(0, -1);
+                  else if (event.key === "Escape") close();
+                  else if (event.key === "Tab") close(false);
+                  else return;
+                  event.preventDefault();
+                }}
+                className={cn(
+                  "text-ui flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left font-semibold",
+                  "transition-colors duration-(--dur-fast)",
+                  item.disabled && "cursor-not-allowed opacity-45",
+                  !item.disabled && item.tone === "danger"
+                    ? "text-bad hover:bg-bad-pop hover:text-accent-ink"
+                    : !item.disabled && "hover:bg-accent-pop hover:text-accent-ink",
+                )}
+              >
+                {/* The chosen one is marked with a glyph as well as `aria-checked`,
+                    so the state is not carried by an attribute a sighted reader never
+                    sees. The slot is kept for the others, so the labels line up. */}
+                {item.checked !== undefined && (
+                  <span aria-hidden="true" className="w-3 shrink-0 text-center text-2xs">
+                    {item.checked ? "●" : ""}
+                  </span>
+                )}
+                {item.label}
+              </button>
+            ));
+
+            return segment.group ? (
+              <div
+                key={`group:${segment.group}`}
+                role="group"
+                aria-label={segment.group}
+                className="border-line-soft my-1 border-y py-1 first:mt-0 first:border-t-0 first:pt-0 last:mb-0 last:border-b-0 last:pb-0"
+              >
+                <div aria-hidden="true" className="eyebrow px-2.5 pt-1 pb-0.5">
+                  {segment.group}
+                </div>
+                {rows}
+              </div>
+            ) : (
+              <Fragment key={segment.items[0].item.id}>{rows}</Fragment>
+            );
+          })}
         </div>
       )}
     </div>
   );
+}
+
+/**
+ * Runs of consecutive items, split where `group` changes. The index each item had in
+ * the flat list is kept, because the keyboard walk is over the flat list — a group is
+ * a heading drawn around some items, not a second level to navigate.
+ */
+function segments(items: MenuItem[]) {
+  const out: { group?: string; items: { item: MenuItem; index: number }[] }[] = [];
+  items.forEach((item, index) => {
+    const last = out.at(-1);
+    if (last && last.group === item.group) last.items.push({ item, index });
+    else out.push({ group: item.group, items: [{ item, index }] });
+  });
+  return out;
 }

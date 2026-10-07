@@ -7,6 +7,27 @@
    symptom of losing that race is a canvas whose controls are unreadable. */
 @import "@xyflow/react/dist/style.css";
 
+/* Toybox Night (Phase 27, `DECISIONS.md` D110). `<html data-theme>` holds the
+   reader's choice — `light`, `dark` or `system` — set before first paint by the
+   script in `src/app/layout.tsx`. Night applies when they chose it, or chose System
+   and the OS is dark. **Light is the default even when the OS is dark**: no
+   attribute, or any other value, is Light.
+
+   This one variant drives both halves of a theme: the token block at the bottom of
+   `:root` below, and any `dark:` utility in a component. It REPLACES Tailwind's
+   built-in `dark`, which follows the OS alone — left in place, a `dark:` class would
+   go dark on a dark OS for a reader who picked Light. */
+@custom-variant dark {
+  &:where([data-theme="dark"], [data-theme="dark"] *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:where([data-theme="system"], [data-theme="system"] *) {
+      @slot;
+    }
+  }
+}
+
 /* ---------------------------------------------------------------------------
    AgentForge — Toybox. Phase 14.
 
@@ -19,7 +40,7 @@
      `--color-x`       dark and saturated. Safe as TEXT on any surface (>= 5:1
                        measured) and visible as a small graphic. The default.
      `--color-x-pop`   bright and saturated. A FILL only, and its label is
-                       always `--color-ink` (>= 6.2:1 measured).
+                       always `--color-accent-ink` (>= 6.2:1 measured).
 
    Saturated-accent-on-cream is exactly where AA fails, so no token is ever
    asked to do both jobs. `src/app/tokens.test.ts` computes every pairing from
@@ -27,8 +48,11 @@
    rule that a `-pop` fill is never text.
 
    A `-pop` fill sits as little as 1.3:1 off the cream page, so **a pop fill is
-   never drawn without its ink outline**: in this language the outline carries
+   never drawn without its outline**: in this language the outline carries
    the separation, not the luminance. Also asserted.
+
+   This block is Light — the default and the reference. Toybox Night re-declares
+   every colour at the end of `:root` below, and the same gates run against it.
 
    Colour is oklch throughout, which is what makes the contrast test cheap, and
    every value below was fitted to stay inside sRGB — a clamped channel would
@@ -60,11 +84,26 @@
   --color-elevated: oklch(1 0 0); /* a node, a dialog, a popover */
   --color-sunken: oklch(0.936 0.042 86); /* an input well, a log list */
 
+  /* Ink does four jobs, and Phase 27 gave each its own name. In Light all four are
+     the same near-black, which is why the split changes nothing on a cream page. In
+     Night they diverge, and a theme that had not split them would have broken one of
+     the four everywhere at once (`DESIGN.md` → *Themes*):
+
+       `ink`         body text — and the focus ring
+       `accent-ink`  the label on any `-pop` fill (declared with the accent below)
+       `line`        the outline every object wears
+       `shade`       the hard offset shadow
+     …plus `scrim`, the backdrop behind a modal, which must darken in both themes. */
+
   /* Outlines. `line` is the Toybox outline: full ink, and thick. `line-soft` is
      the only hairline in the system, for a divider inside an already-outlined
      object, where a second full-weight rule would read as a crack. */
   --color-line: oklch(0.205 0.024 272);
   --color-line-soft: oklch(0.205 0.024 272 / 0.16);
+
+  /* The hard shadow, and the backdrop behind a dialog. */
+  --color-shade: oklch(0.205 0.024 272);
+  --color-scrim: oklch(0.205 0.024 272);
 
   /* Ink. All three clear AA on all four surfaces — `faint` included, which was
      not true of the Chapter 1 dark palette. */
@@ -114,15 +153,18 @@
   --radius-2xl: 1.25rem;
   --radius-3xl: 1.75rem;
 
-  /* Elevation. A hard offset shadow in ink — no blur, no spread. Blur would read
+  /* Elevation. A hard offset shadow in `shade` — no blur, no spread. Blur would read
      as a drop shadow; the hard edge is what makes an object read as a solid thing
-     sitting on the page. The offset is always down-right, one light source. */
-  --shadow-flat: 2px 2px 0 0 var(--color-ink);
-  --shadow-card: 3px 3px 0 0 var(--color-ink);
-  --shadow-node: 4px 4px 0 0 var(--color-ink);
-  --shadow-drawer: 6px 6px 0 0 var(--color-ink);
-  --shadow-press: 1px 1px 0 0 var(--color-ink);
-  --shadow-lift: 5px 5px 0 0 var(--color-ink);
+     sitting on the page. The offset is always down-right, one light source.
+
+     Tailwind inlines `var(--color-shade)` into each `shadow-*` utility, so the
+     colour resolves where the shadow is drawn and follows the theme there. */
+  --shadow-flat: 2px 2px 0 0 var(--color-shade);
+  --shadow-card: 3px 3px 0 0 var(--color-shade);
+  --shadow-node: 4px 4px 0 0 var(--color-shade);
+  --shadow-drawer: 6px 6px 0 0 var(--color-shade);
+  --shadow-press: 1px 1px 0 0 var(--color-shade);
+  --shadow-lift: 5px 5px 0 0 var(--color-shade);
 
   /* Motion. Two curves. `spring` overshoots and is for something arriving;
      `out-soft` is for something settling. */
@@ -154,6 +196,76 @@
 
   /* Native controls — `<select>`, the checkbox, the scrollbars — read this. */
   color-scheme: light;
+
+  /* -------------------------------------------------------------------------
+     Toybox Night. The same toy at night: every token below re-declared, the same
+     invariants asserted against it (`src/app/tokens.test.ts` runs every gate once
+     per theme), and NOT an inversion — the outlines stay thick, the shadows stay
+     hard, the colour stays saturated, the press still presses.
+
+     What moves, and why (`DESIGN.md` → *Themes*):
+
+       The page is a deep indigo, and the four surfaces keep Light's order and
+       Light's deliberately small steps — elevation is still the outline and the
+       shadow, never the lightness.
+
+       The structure is drawn in cream. Text, outline and shadow swap from
+       near-black to cream, because a dark line on a dark page is invisible and a
+       black shadow on one vanishes.
+
+       The fills come DOWN to a rich mid-tone (luminance 0.24) and keep their
+       near-black label. That is the one place in the system the numbers decide
+       the design: one outline has to clear 3:1 against both the dark page and every
+       fill, which leaves fills a band between "a dark label reads on it" (4.5:1)
+       and "a cream outline shows against it" (3:1). Light's near-pastel fills would
+       have needed a dark outline on a dark page.
+
+       The text register comes UP — it is now the brighter of the two. The two
+       registers still sit 2x apart, the other way round.
+     ------------------------------------------------------------------------- */
+  @variant dark {
+    color-scheme: dark;
+
+    --color-canvas: oklch(0.21 0.04 280);
+    --color-surface: oklch(0.232 0.042 280);
+    --color-elevated: oklch(0.255 0.044 280);
+    --color-sunken: oklch(0.185 0.036 280);
+
+    --color-line: oklch(0.96 0.022 88);
+    --color-line-soft: oklch(0.96 0.022 88 / 0.18);
+    --color-shade: oklch(0.96 0.022 88);
+    --color-scrim: oklch(0.1 0.02 280);
+
+    --color-ink: oklch(0.96 0.022 88);
+    --color-muted: oklch(0.8 0.03 280);
+    --color-faint: oklch(0.74 0.032 280);
+
+    --color-accent: oklch(0.819 0.106 302);
+    --color-accent-pop: oklch(0.643 0.2 302);
+    /* Unchanged from Light: the label on a fill is the same near-black in both. */
+    --color-accent-ink: oklch(0.205 0.024 272);
+    --color-spark: oklch(0.61 0.101 195);
+
+    --color-ok: oklch(0.788 0.179 158);
+    --color-ok-pop: oklch(0.605 0.138 158);
+    --color-live: oklch(0.803 0.117 232);
+    --color-live-pop: oklch(0.615 0.122 232);
+    --color-warn: oklch(0.814 0.163 82);
+    --color-warn-pop: oklch(0.625 0.126 82);
+    --color-bad: oklch(0.82 0.098 25);
+    --color-bad-pop: oklch(0.645 0.2 25);
+
+    --color-cat-trigger: oklch(0.788 0.179 158);
+    --color-cat-trigger-pop: oklch(0.605 0.138 158);
+    --color-cat-agent: oklch(0.827 0.139 335);
+    --color-cat-agent-pop: oklch(0.649 0.21 335);
+    --color-cat-logic: oklch(0.803 0.117 232);
+    --color-cat-logic-pop: oklch(0.615 0.122 232);
+    --color-cat-transform: oklch(0.794 0.132 195);
+    --color-cat-transform-pop: oklch(0.61 0.101 195);
+    --color-cat-integration: oklch(0.814 0.163 82);
+    --color-cat-integration-pop: oklch(0.625 0.126 82);
+  }
 }
 
 @keyframes rise {
@@ -279,9 +391,10 @@
      It is INK, not the accent, and that is a measured decision: the accent fill
      is 2.6:1 against cream, under the 3:1 that WCAG 2.2 asks of a focus
      indicator, while ink is 16.4:1 on cream and never below 6.2:1 on any pop
-     fill in the system. The 3px offset leaves a gap of page colour between an
-     object's own ink outline and the ring, which is what stops the two reading
-     as one thicker border.
+     fill in the system. In Night ink is cream, and the fills were fitted so the
+     same one ring still clears 3:1 on every one of them. The 3px offset leaves a
+     gap of page colour between an object's own outline and the ring, which is
+     what stops the two reading as one thicker border.
 
      Controls must not set `outline-none`: the utilities below carry no outline
      reset for exactly this reason. */
@@ -333,6 +446,17 @@
   &:active:not(:disabled, [aria-disabled="true"]) {
     transform: translate3d(2px, 2px, 0);
     box-shadow: var(--shadow-press);
+  }
+}
+
+/* The focus ring for a control whose real input is visually hidden — the theme
+   switch's radios. The ring belongs on what the reader can see, so the label wears it
+   while the input inside has keyboard focus: the same ring, at the same offset, as
+   `:focus-visible` everywhere else. */
+@utility focus-ring-within {
+  &:has(:focus-visible) {
+    outline: var(--stroke-bold) solid var(--color-ink);
+    outline-offset: 3px;
   }
 }
 
@@ -461,6 +585,17 @@
   &:disabled {
     opacity: 0.55;
     cursor: not-allowed;
+  }
+}
+
+/* The `<select>` chevron (`ui/field.tsx`). A data URI cannot read a CSS variable, so
+   each theme's stroke is that theme's ink as a literal hex — and `tokens.test.ts`
+   checks both against the palette, so a moved ink cannot leave the arrow behind. */
+@utility select-chevron {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5l5-5' fill='none' stroke='%23131722' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+
+  @variant dark {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5l5-5' fill='none' stroke='%23f8f1e2' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   }
 }
 

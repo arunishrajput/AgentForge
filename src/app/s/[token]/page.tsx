@@ -113,7 +113,7 @@ export default async function SharedWorkflowPage({
         {/* A fixed height rather than a viewport one: this page scrolls, and a canvas
             that owns the whole viewport would trap the wheel before the reader reached the
             node list under it. */}
-        <div className="border-line bg-lift animate-rise mb-4 h-[26rem] overflow-hidden rounded-2xl border-2 sm:h-[32rem]">
+        <div className="border-line bg-elevated animate-rise mb-4 h-[26rem] overflow-hidden rounded-2xl border-2 sm:h-[32rem]">
           <SharedCanvas graph={shared.graph} registry={registry} />
         </div>
 

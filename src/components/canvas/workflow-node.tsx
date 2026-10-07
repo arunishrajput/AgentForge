@@ -122,7 +122,7 @@ export function WorkflowNodeView({ id, data, selected }: NodeProps<CanvasNode>) 
         {change?.ribbon && (
           <div
             className={cn(
-              "border-line text-ink flex items-center gap-1.5 rounded-t-[0.875rem] border-b-2 px-2.5 py-1",
+              "border-line text-accent-ink flex items-center gap-1.5 rounded-t-[0.875rem] border-b-2 px-2.5 py-1",
               change.fill,
             )}
           >
@@ -162,7 +162,7 @@ export function WorkflowNodeView({ id, data, selected }: NodeProps<CanvasNode>) 
             The radius is the card's less its border, so the strip does not poke out. */}
         <div
           className={cn(
-            "border-line text-ink flex items-center gap-1.5 border-b-2 px-2.5 py-1.5",
+            "border-line text-accent-ink flex items-center gap-1.5 border-b-2 px-2.5 py-1.5",
             // Square when the diff ribbon is above it, or two stacked radii poke
             // through each other at the card's top corners.
             change?.ribbon ? "" : "rounded-t-[0.875rem]",

@@ -8,10 +8,12 @@ import { Card, CardHeader } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
 import { Input, Labelled, Select, Textarea, Toggle } from "@/components/ui/field";
 import { Menu } from "@/components/ui/menu";
+import { useTheme } from "@/components/ui/theme";
 import { Tabs } from "@/components/ui/tabs";
 import { Notice } from "@/components/ui/notice";
 import { ToastProvider, useToast } from "@/components/ui/toast";
 import { Tooltip } from "@/components/ui/tooltip";
+import { THEME_CHOICES } from "@/lib/ui/theme";
 
 /**
  * The interactive half of the gallery.
@@ -121,6 +123,7 @@ function FieldBoard() {
 
 function OverlayBoard() {
   const toast = useToast();
+  const { preference, setPreference } = useTheme();
   const [open, setOpen] = useState(false);
 
   return (
@@ -179,6 +182,15 @@ function OverlayBoard() {
             { id: "run", label: "Run now", onSelect: () => toast({ tone: "info", title: "Run started" }) },
             { id: "dup", label: "Duplicate", onSelect: () => toast({ tone: "ok", title: "Duplicated" }) },
             { id: "export", label: "Export JSON", onSelect: () => {}, disabled: true },
+            // A radio set, exactly as the account menu offers the theme — and live:
+            // choosing one here switches this page.
+            ...THEME_CHOICES.map((choice) => ({
+              id: `theme:${choice.value}`,
+              label: choice.label,
+              group: "Theme",
+              checked: preference === choice.value,
+              onSelect: () => setPreference(choice.value),
+            })),
             {
               id: "delete",
               label: "Delete workflow",
@@ -192,7 +204,8 @@ function OverlayBoard() {
         </Tooltip>
         <span className="text-muted text-2xs">
           Both answer the keyboard: arrows and Escape in the menu, focus and Escape on the
-          tooltip.
+          tooltip. The menu&apos;s Theme items are a radio set — announced as checked or not,
+          and marked with a dot, not by colour.
         </span>
       </Row>
 

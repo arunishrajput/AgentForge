@@ -121,7 +121,7 @@ export function OnboardingGuide({ progress }: { progress: OnboardingProgress }) 
         ))}
       </ol>
 
-      <div className="border-line-soft bg-lift flex flex-wrap items-center justify-between gap-3 border-t px-5 py-3">
+      <div className="border-line-soft bg-elevated flex flex-wrap items-center justify-between gap-3 border-t px-5 py-3">
         <p className="text-faint text-2xs text-pretty">
           {progress.complete
             ? "Putting it away is permanent — it does not come back."
@@ -224,7 +224,7 @@ function Marker({ done, number }: { done: boolean; number: number }) {
     <span
       className={[
         "border-line mt-0.5 grid size-6 shrink-0 place-items-center rounded-full border-2 font-mono text-2xs font-bold tabular-nums",
-        done ? "bg-ok-pop text-ink" : "bg-surface text-muted",
+        done ? "bg-ok-pop text-accent-ink" : "bg-surface text-muted",
       ].join(" ")}
     >
       {done ? (

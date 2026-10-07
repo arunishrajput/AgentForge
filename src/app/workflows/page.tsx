@@ -93,7 +93,7 @@ export default async function WorkflowsPage() {
         {canEdit ? (
           <GenerateWorkflowForm />
         ) : (
-          <p className="text-muted border-line bg-lift animate-rise mb-4 rounded-xl border-2 p-4 text-sm text-pretty">
+          <p className="text-muted border-line bg-elevated animate-rise mb-4 rounded-xl border-2 p-4 text-sm text-pretty">
             You have the <strong className="font-semibold">{scope.role}</strong> role in{" "}
             {workspace.own ? "this workspace" : workspace.name}, so you can read every
             workflow here and its run history, and you cannot change or run one. An admin can

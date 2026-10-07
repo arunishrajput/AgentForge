@@ -56,8 +56,8 @@ export function NodeCatalogue() {
             <div
               className={`border-line flex items-baseline justify-between gap-2 border-b-2 px-4 py-2.5 ${group.fill}`}
             >
-              <h3 className="text-ink text-ui font-bold">{group.title}</h3>
-              <span className="text-ink text-3xs font-bold">{members.length}</span>
+              <h3 className="text-accent-ink text-ui font-bold">{group.title}</h3>
+              <span className="text-accent-ink text-3xs font-bold">{members.length}</span>
             </div>
             <div className="space-y-2.5 px-4 py-3.5">
               <p className="text-muted text-2xs">{group.blurb}</p>

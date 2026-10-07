@@ -22,7 +22,7 @@ Do not pre-empt them.
 | Credential audit log | **DEFINED** | Phase 21 — `src/lib/credentials/audit.ts` |
 | Generation request/response | **DEFINED** | Phase 7 |
 | Trigger shapes | **DEFINED** | Phase 8 — `src/lib/triggers/` |
-| Design token names | **DEFINED** | Phase 14 — `src/app/globals.css`, `src/lib/design/palette.ts` |
+| Design token names | **DEFINED** | Phase 14 — `src/app/globals.css`, `src/lib/design/palette.ts`; two themes since Phase 27 |
 
 ---
 
@@ -1823,7 +1823,7 @@ not something the user can supply from context later, so an absent one is reject
 
 ---
 
-## Design token names — **DEFINED** (Phase 14)
+## Design token names — **DEFINED** (Phase 14; two themes since Phase 27)
 
 A contract because **every UI phase from 15 onward names these tokens**, and because a token that
 quietly changes meaning breaks screens nobody touched in that session. The values may be tuned; the
@@ -1839,7 +1839,7 @@ Every chromatic token exists twice:
 | Name | Register | May be used as |
 |---|---|---|
 | `--color-x` | text | Text on any surface, and small graphics. **The default** |
-| `--color-x-pop` | fill | A background **only**, with `--color-ink` as its label, inside an ink outline |
+| `--color-x-pop` | fill | A background **only**, with `--color-accent-ink` as its label, inside a `line` outline |
 
 `text-accent` is correct; `text-accent-pop` is a bug. This holds for `accent`, the four status tones
 and all five node categories.
@@ -1849,13 +1849,43 @@ and all five node categories.
 | Group | Tokens |
 |---|---|
 | Surfaces | `canvas` `surface` `elevated` `sunken` |
-| Ink | `ink` `muted` `faint` `line` (+ `line-soft`, alpha) |
+| Ink and line | `ink` `muted` `faint` `line` (+ `line-soft`, alpha) `shade` `scrim` — the last two added in Phase 27 |
 | Accent | `accent` `accent-pop` `accent-ink` `spark` |
 | Status | `ok` `live` `warn` `bad`, each with `-pop` |
 | Categories | `cat-trigger` `cat-agent` `cat-logic` `cat-transform` `cat-integration`, each with `-pop` |
 
-`--color-accent-ink` is the label colour for **any** pop fill, not only the accent's. It is ink; the
-separate name exists so a call site reads as "the label on a fill" rather than "black".
+`--color-accent-ink` is the label colour for **any** pop fill, not only the accent's. **Since Phase 27
+every pop-fill label names it** rather than `ink`: the two are equal in Light and different in
+Night, where `ink` is cream and the label stays near-black.
+
+**What each ink role means — Phase 27 split them (D121), and a name may not change job:**
+
+| Token | Job | Light | Night |
+|---|---|---|---|
+| `ink` | Body text, and the focus ring | near-black | cream |
+| `accent-ink` | The label on a pop fill | near-black | near-black |
+| `line` | The outline | near-black | cream |
+| `shade` | The hard shadow — every `--shadow-*` draws in it | near-black | cream |
+| `scrim` | A modal's backdrop, used translucent | near-black | deeper near-black |
+
+### Themes
+
+Every `--color-*` token has a value in each theme, and both are part of the contract:
+
+| | Light | Toybox Night |
+|---|---|---|
+| Declared in | `@theme` | `:root { @variant dark { … } }` |
+| Applies when | always, by default | `<html data-theme="dark">`, or `data-theme="system"` with `prefers-color-scheme: dark` |
+| `color-scheme` | `light` | `dark` |
+
+**The theme contract**, shared by the stylesheet, `src/lib/ui/theme.ts` and the tests:
+
+| Name | Value | Why it cannot drift |
+|---|---|---|
+| `<html data-theme>` | `light` \| `dark` \| `system` | The stylesheet's `@custom-variant dark` matches these exact values; `tokens.test.ts` pins them |
+| `localStorage` key | `agentforge:theme` | A reader's stored choice. Renaming it silently resets every reader to Light |
+| Default | `light` | D110: Light even on a dark device. An absent, blocked or unknown value is Light |
+| `dark:` variant | this project's, not Tailwind's | Follows `data-theme`; Tailwind's built-in follows the OS alone |
 
 ### Invariants the build enforces
 
@@ -1863,20 +1893,35 @@ separate name exists so a call site reads as "the label on a fill" rather than "
 
 | Invariant | Why it exists |
 |---|---|
+**Per theme** — each runs once against Light and once against Toybox Night:
+
+| Invariant | Why it exists |
+|---|---|
 | Every text-register tone clears **AA on all four surfaces** | The phase's own implementation note: saturated-on-cream is where AA fails |
-| `ink` clears **AA on every `-pop` fill** | A fill's label is always ink, never white |
-| The registers stay **2× apart in luminance** | Stops the two collapsing into one ambiguous token |
-| `ink` clears **3:1 on every surface and every fill** | Makes one ink focus ring legal everywhere (WCAG 2.2 SC 1.4.11) |
-| The ink **outline** clears 3:1 on every fill and on the page | A pop fill can be 1.3:1 off cream; the outline carries the separation |
+| `accent-ink` clears **AA on every `-pop` fill** | A fill's label is always `accent-ink` — never white, never cream |
+| The registers stay **2× apart in luminance** — fill the brighter in Light, text in Night | Stops the two collapsing into one ambiguous token |
+| `ink` clears **3:1 on every surface and every fill** | Makes one focus ring legal everywhere (WCAG 2.2 SC 1.4.11) |
+| The **outline** clears 3:1 on every fill and every surface, and some object is flat against the page | The outline carries the separation, not the lightness |
+| The **shadow** clears 3:1 on every surface; the scrim is darker than the page | A shadow nobody can see is no thickness; a backdrop must recede |
 | Every token is **inside sRGB** | A clamped channel means the rendered colour is not the measured colour |
-| Every `--shadow-*` is a **hard ink offset, no blur** | A blur turns Toybox into generic material elevation |
-| `color-scheme` is **`light`** | Native widgets otherwise render dark in a cream interface |
 | `palette.ts` and `globals.css` **agree in both directions** | The catalogue is a mirror, never a second source of truth |
+
+**Across both themes:**
+
+| Invariant | Why it exists |
+|---|---|
+| Night re-declares **every** colour token Light declares, and none is declared elsewhere | A forgotten token keeps its Light value on an indigo page, unmeasured |
+| `color-scheme` is **`light`** on `:root`, **`dark`** in the Night block, and nowhere else | Native widgets otherwise render in the other theme |
+| Every `--shadow-*` is a **hard offset in `shade`, no blur**, declared once | A blur turns Toybox into generic material elevation |
+| The `dark` variant matches `data-theme`, and the OS only under `system` | Light is the default even on a dark device (D110) |
+| The select chevron's stroke is each theme's ink | A data URI cannot read a CSS variable |
+| **Every colour utility in `src/` compiles to CSS** (`utilities.test.ts`, D124) | A class naming a missing token builds to nothing, silently |
 | `public/illustrations/*.svg` match a fresh export | Baked-in hex goes stale silently |
 
 ### Consumers
 
-`src/app/globals.css` (declaration), `src/lib/design/palette.ts` (mirror + roles),
+`src/app/globals.css` (declaration, both themes), `src/lib/design/palette.ts` (mirror + roles),
+`src/lib/ui/theme.ts` (the theme contract and the `<head>` script),
 `src/components/ui/*` (primitives), `src/components/canvas/context.ts` (`CATEGORY_STYLE`,
 `STATUS_STYLE` — still the only domain-concept-to-colour mapping, D49), `src/app/design/*` (gallery),
 and every Chapter 1 screen through the `@utility` classes.

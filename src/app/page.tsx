@@ -172,7 +172,7 @@ export default async function Home() {
               <li key={title} className="card p-5">
                 <span
                   aria-hidden="true"
-                  className="border-line bg-accent-pop text-ink grid size-8 place-items-center rounded-xl border-2 text-sm font-bold"
+                  className="border-line bg-accent-pop text-accent-ink grid size-8 place-items-center rounded-xl border-2 text-sm font-bold"
                 >
                   {index + 1}
                 </span>

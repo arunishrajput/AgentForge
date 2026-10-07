@@ -32,8 +32,13 @@ export function Card({
  *
  * The strip is the one piece of chrome allowed to use a `-pop` fill across a wide
  * area, and it is where a node card will carry its category in Phase 16. Its label
- * is always ink — every pop fill in the palette clears AA against ink, which
- * `tokens.test.ts` asserts, and none of them clears it against white.
+ * is always `accent-ink` — every pop fill in the palette clears AA against it, in both
+ * themes, which `tokens.test.ts` asserts.
+ *
+ * **The label colour is set on the title, not the strip** (Phase 27). `aside` is
+ * usually a quiet `Badge`, which paints its own sunken background and inherits its
+ * text: set on the strip, `accent-ink` reached the badge too, and in Toybox Night that
+ * was a near-black word on a near-black pill — an empty capsule in the gallery.
  */
 export function CardHeader({
   title,
@@ -51,12 +56,12 @@ export function CardHeader({
     <div
       className={cn(
         "border-line flex items-center justify-between gap-3 border-b-2 px-4 py-2.5",
-        fill ? `${fill} text-ink` : "bg-surface",
+        fill || "bg-surface",
         className,
       )}
       {...rest}
     >
-      <span className="text-ui truncate font-bold">{title}</span>
+      <span className={cn("text-ui truncate font-bold", fill && "text-accent-ink")}>{title}</span>
       {aside}
     </div>
   );

@@ -372,7 +372,7 @@ function Filters<T extends StatusKey | TriggerKey>({
             )}
           >
             {option.label}
-            <span className={cn("text-3xs", active ? "text-ink/70" : "text-faint")}>
+            <span className={cn("text-3xs", active ? "text-accent-ink/70" : "text-faint")}>
               {option.count}
             </span>
           </button>

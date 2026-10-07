@@ -195,7 +195,7 @@ function NodeRow({
         <span
           aria-hidden="true"
           className={cn(
-            "border-line text-ink grid size-7 shrink-0 place-items-center rounded-lg border-2",
+            "border-line text-accent-ink grid size-7 shrink-0 place-items-center rounded-lg border-2",
             look.fill,
           )}
         >

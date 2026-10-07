@@ -311,11 +311,11 @@ export function WorkspacePanel({
           {members.map((member) => (
             <li
               key={member.userId}
-              className="border-line bg-lift flex flex-wrap items-center gap-3 rounded-xl border-2 p-3"
+              className="border-line bg-elevated flex flex-wrap items-center gap-3 rounded-xl border-2 p-3"
             >
               <span
                 aria-hidden="true"
-                className="border-line bg-accent-pop text-ink grid size-8 shrink-0 place-items-center rounded-lg border-2 text-sm font-bold"
+                className="border-line bg-accent-pop text-accent-ink grid size-8 shrink-0 place-items-center rounded-lg border-2 text-sm font-bold"
               >
                 {(member.name ?? member.email ?? "?").slice(0, 1).toUpperCase()}
               </span>
@@ -485,7 +485,7 @@ export function WorkspacePanel({
                 {live.map((invitation) => (
                   <li
                     key={invitation.id}
-                    className="border-line bg-lift flex flex-wrap items-center gap-3 rounded-xl border-2 p-3"
+                    className="border-line bg-elevated flex flex-wrap items-center gap-3 rounded-xl border-2 p-3"
                   >
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-bold">{invitation.email}</span>

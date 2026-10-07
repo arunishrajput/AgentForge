@@ -12,8 +12,8 @@ import { cn } from "./cn";
  * literal hex is unavoidable — `DESIGN.md` → *Illustration* records that they are
  * generated from these and must be regenerated when a token moves.
  *
- * Every drawing here obeys the same three rules as the rest of the system: a 3px ink
- * outline on every shape, a hard offset shadow where something is meant to sit on
+ * Every drawing here obeys the same three rules as the rest of the system: a 3px
+ * outline in `line` on every shape, a hard offset shadow where something is meant to sit on
  * the page, and no gradient. They are drawn on a 3px grid so the strokes line up
  * with the UI's 2px outlines rather than fighting them.
  *
@@ -22,7 +22,14 @@ import { cn } from "./cn";
  * is noise. `EmptyState` below is what carries the text.
  */
 
-const STROKE = { stroke: "var(--color-ink)", strokeWidth: 3, strokeLinejoin: "round" } as const;
+const STROKE = { stroke: "var(--color-line)", strokeWidth: 3, strokeLinejoin: "round" } as const;
+
+/**
+ * Sparky's face is drawn ON a pop fill, so it is a label, not an outline: `accent-ink`,
+ * which stays near-black in both themes. In Light the two are the same colour; in Night
+ * the outline turns cream and a face drawn with it would vanish into the grape body.
+ */
+const FACE = { stroke: "var(--color-accent-ink)", strokeWidth: 3, strokeLinejoin: "round" } as const;
 
 export type MascotMood = "happy" | "thinking" | "concerned";
 
@@ -59,8 +66,8 @@ export function Mascot({
         {...STROKE}
       />
       {/* Feet, also behind the body. */}
-      <path d="M20 50h7v6h-7z" fill="var(--color-ink)" />
-      <path d="M37 50h7v6h-7z" fill="var(--color-ink)" />
+      <path d="M20 50h7v6h-7z" fill="var(--color-line)" />
+      <path d="M37 50h7v6h-7z" fill="var(--color-line)" />
       {/* The body. */}
       <rect
         x="9"
@@ -78,26 +85,26 @@ export function Mascot({
               lowered toward the nose, which is the geometry of anger — on a
               deployed error screen it read as cross with the user, which is worse
               than the flippancy the phase warns about. Caught by looking at it. */}
-          <path d="M19 30l8 -3" fill="none" strokeLinecap="round" {...STROKE} />
-          <path d="M45 30l-8 -3" fill="none" strokeLinecap="round" {...STROKE} />
+          <path d="M19 30l8 -3" fill="none" strokeLinecap="round" {...FACE} />
+          <path d="M45 30l-8 -3" fill="none" strokeLinecap="round" {...FACE} />
         </>
       )}
 
       {mood === "thinking" ? (
         <>
           {/* Eyes up and to the side — the universal shorthand for working on it. */}
-          <circle cx="26" cy="33" r="4" fill="var(--color-ink)" />
-          <circle cx="42" cy="33" r="4" fill="var(--color-ink)" />
-          <circle cx="32" cy="43" r="3" fill="none" {...STROKE} />
+          <circle cx="26" cy="33" r="4" fill="var(--color-accent-ink)" />
+          <circle cx="42" cy="33" r="4" fill="var(--color-accent-ink)" />
+          <circle cx="32" cy="43" r="3" fill="none" {...FACE} />
         </>
       ) : (
         <>
-          <circle cx="24" cy="36" r="4.2" fill="var(--color-ink)" />
-          <circle cx="40" cy="36" r="4.2" fill="var(--color-ink)" />
+          <circle cx="24" cy="36" r="4.2" fill="var(--color-accent-ink)" />
+          <circle cx="40" cy="36" r="4.2" fill="var(--color-accent-ink)" />
           {mood === "happy" ? (
-            <path d="M25 44q7 6 14 0" fill="none" strokeLinecap="round" {...STROKE} />
+            <path d="M25 44q7 6 14 0" fill="none" strokeLinecap="round" {...FACE} />
           ) : (
-            <path d="M26 45h12" fill="none" strokeLinecap="round" {...STROKE} />
+            <path d="M26 45h12" fill="none" strokeLinecap="round" {...FACE} />
           )}
         </>
       )}
@@ -143,7 +150,7 @@ function NodeGlyph({
 }) {
   return (
     <>
-      <rect x={x + 3} y={y + 3} width={width} height="22" rx="6" fill="var(--color-ink)" />
+      <rect x={x + 3} y={y + 3} width={width} height="22" rx="6" fill="var(--color-shade)" />
       <rect x={x} y={y} width={width} height="22" rx="6" fill="var(--color-elevated)" {...STROKE} />
       <rect x={x + 5} y={y + 5} width="8" height="8" rx="3" fill={fill} {...STROKE} strokeWidth={2} />
       <path
@@ -182,7 +189,7 @@ export function WorkbenchArt({ className }: { className?: string }) {
         height="22"
         rx="6"
         fill="none"
-        stroke="var(--color-ink)"
+        stroke="var(--color-line)"
         strokeWidth="3"
         strokeDasharray="6 5"
         strokeLinecap="round"
@@ -192,7 +199,7 @@ export function WorkbenchArt({ className }: { className?: string }) {
         d="M52 41q14 0 14 13"
         fill="none"
         strokeLinecap="round"
-        stroke="var(--color-ink)"
+        stroke="var(--color-line)"
         strokeWidth="3"
       />
     </svg>
@@ -213,7 +220,7 @@ export function CanvasArt({ className }: { className?: string }) {
         d="M46 29q18 2 18 23"
         fill="none"
         strokeLinecap="round"
-        stroke="var(--color-ink)"
+        stroke="var(--color-line)"
         strokeWidth="3"
       />
       <path
@@ -221,7 +228,7 @@ export function CanvasArt({ className }: { className?: string }) {
         fill="none"
         strokeLinecap="round"
         strokeDasharray="6 6"
-        stroke="var(--color-ink)"
+        stroke="var(--color-line)"
         strokeWidth="3"
       />
       {/* The cursor, because something is being built rather than watched. */}
@@ -251,7 +258,7 @@ export function QuietArt({ className }: { className?: string }) {
         d="M60 60q22 14 36-2t30 0"
         fill="none"
         strokeLinecap="round"
-        stroke="var(--color-ink)"
+        stroke="var(--color-line)"
         strokeWidth="3"
       />
       <rect
@@ -295,14 +302,14 @@ export function BrokenArt({ className }: { className?: string }) {
         d="M48 51h18"
         fill="none"
         strokeLinecap="round"
-        stroke="var(--color-ink)"
+        stroke="var(--color-line)"
         strokeWidth="3"
       />
       <path
         d="M92 51h16"
         fill="none"
         strokeLinecap="round"
-        stroke="var(--color-ink)"
+        stroke="var(--color-line)"
         strokeWidth="3"
       />
       <path

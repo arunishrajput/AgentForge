@@ -276,7 +276,7 @@ a handful of requests per page, not thirty per workflow run.
 | Component | Responsibility |
 |---|---|
 | **Web / API layer** | Auth, workflow CRUD, run trigger, SSE stream, webhook receiver, cron tick endpoint |
-| **Design system** | **Toybox** (Phase 14). Tokens, component utilities and the React Flow theme in `src/app/globals.css`; keyboard-complete React primitives in `src/components/ui/`; the palette catalogue and the contrast maths in `src/lib/design/`; the living gallery at `/design`. Components name a token and never a raw value |
+| **Design system** | **Toybox** (Phase 14), in Light and Toybox Night (Phase 27). Tokens, component utilities and the React Flow theme in `src/app/globals.css`; keyboard-complete React primitives in `src/components/ui/`; the palette catalogue and the contrast maths in `src/lib/design/`; the living gallery at `/design`. Components name a token and never a raw value |
 | **Node registry** | The single source of node types. Each entry declares its type, schema, and execute function. Serves three consumers: the engine's dispatch, the canvas's palette, and the agent's tool set |
 | **Execution engine** | Walks the workflow DAG in-process, calls the registry per node, threads output forward, writes step records, emits events |
 | **Agent layer** | Provider adapter over the LLM, prompt assembly, and the bounded tool-calling loop whose tools are derived from the registry |
@@ -360,14 +360,17 @@ a registry entry with a schema.
 the codebase.
 
 ```
-src/app/globals.css        @theme    colour, type, radius, elevation, easings, animations
+src/app/globals.css        @custom-variant dark  the reader's choice, and the OS under System
+                           @theme    Light: colour, type, radius, elevation, easings, animations
+                           :root > @variant dark   Toybox Night: every colour re-declared
                            @utility  btn* / field / card* / chip* / eyebrow / squish
                                      dotted / sweep-bar / hero-glow / pad-safe
+                                     focus-ring-within / select-chevron
                            .react-flow  React Flow's variables, pointed at those tokens
                            @media    prefers-reduced-motion — one blanket rule
 src/components/ui/         the React primitives: button, field, card, badge,
                            dialog, toast, notice, tooltip, tabs, menu,
-                           illustration; tone.ts is the shared message table
+                           illustration, theme; tone.ts is the shared message table
 src/components/shell/      the signed-in shell (Phase 15): app-header,
                            account-menu, command-palette, logo
 src/components/landing/    the landing page's demonstration and node catalogue
@@ -375,6 +378,7 @@ src/lib/design/            contrast.ts   the oklch → WCAG maths
                            palette.ts    the token catalogue, with roles
                            illustrations-static.ts  the generated public/ SVGs
 src/lib/ui/command.ts      the command palette's ranking, with tests
+src/lib/ui/theme.ts        the theme preference, its store and the <head> script (Phase 27)
 src/app/design/            the living gallery, prerendered and public
 ```
 
@@ -410,14 +414,26 @@ Properties this arrangement protects, each learned the hard way:
   `src/lib/canvas/motion.ts` covers React Flow's `fitView`, which tweens in JavaScript where a media
   query cannot reach.
 
-The theme is **light only** (D65, superseding D48's dark-only). `color-scheme: light` on `:root` is
-required, not cosmetic: without it the `<select>` in every registry-generated config form renders as
-a dark OS widget inside a cream panel — the exact mirror of the Chapter 1 problem.
+**Three themes since Phase 27: Light, Toybox Night and System, with Light the default** (D110,
+superseding D65's light-only). The shape, and why each part is where it is (D121–D124):
 
-> **Superseded in plan by D110 (2026-10-06): Light, Dark and System, with Light the default.** Built
-> in `BUILD_PLAN.md` Phases 27–28. The `color-scheme` reasoning above carries over unchanged and
-> simply applies once per theme. Until Phase 27 lands, the paragraph above is still what the code
-> does.
+- **The preference lives in the browser.** `<html data-theme>` holds `light`, `dark` or `system`;
+  `localStorage` keeps it. No column, so no read — a theme is not a reason to wake Neon — and a
+  server read could not have stopped a flash anyway, because `/design` is `force-static`
+- **A blocking inline script in `<head>` applies it before the first paint** (`themeScript()` in
+  `src/lib/ui/theme.ts`, tested as the string that ships). The server renders `data-theme="light"`;
+  `<html>` carries `suppressHydrationWarning` because the script corrects it before React arrives.
+  `ThemeSync`, mounted once in the root layout, re-applies it after React's development-only Strict
+  Mode remount and follows other tabs and the device
+- **The stylesheet resolves System itself.** `@custom-variant dark` matches `[data-theme=dark]`, and
+  `[data-theme=system]` inside `prefers-color-scheme: dark`, so a device that switches at sunset
+  takes the page with it without JavaScript. It replaces Tailwind's built-in `dark`, which follows
+  the OS alone and would have gone dark for a reader who chose Light
+- **One source block per theme**: Light in `@theme`, Night in `:root { @variant dark { … } }`, which
+  Tailwind emits twice (once per selector). `tokens.test.ts` reads each block by scope and runs
+  every gate against both
+- **`color-scheme` is declared per theme**, and is still required rather than cosmetic: without it
+  the `<select>` in every registry-generated config form renders as the other theme's OS widget
 
 **Contrast is not a matter of opinion here.** `src/lib/design/contrast.ts` converts the `oklch()`
 tokens to linear sRGB; `src/app/tokens.test.ts` asserts WCAG AA for every pairing the product uses

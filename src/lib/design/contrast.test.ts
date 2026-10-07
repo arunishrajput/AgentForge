@@ -4,26 +4,76 @@ import { test } from "node:test";
 import {
   contrast,
   contrastOfLuminance,
+  declarations,
   grade,
   hex,
   inGamut,
   luminance,
   mixLuminance,
+  parseOklch,
   parseTokens,
   rawRgb,
 } from "./contrast";
 
 test("parses plain oklch tokens and skips the alpha forms", () => {
-  const tokens = parseTokens(`
-    --color-ink: oklch(0.205 0.024 272);
-    --color-line-soft: oklch(0.205 0.024 272 / 0.16);
-    --color-elevated: oklch(1 0 0);
-    --radius-lg: 0.75rem;
-  `);
+  const tokens = parseTokens(
+    `@theme {
+      --color-ink: oklch(0.205 0.024 272);
+      --color-line-soft: oklch(0.205 0.024 272 / 0.16);
+      --color-elevated: oklch(1 0 0);
+      --radius-lg: 0.75rem;
+    }`,
+    "@theme",
+  );
   assert.deepEqual([...tokens.keys()], ["ink", "elevated"]);
   assert.deepEqual(tokens.get("ink"), [0.205, 0.024, 272]);
   // An alpha token has no fixed contrast, so there is nothing honest to measure.
   assert.equal(tokens.has("line-soft"), false);
+});
+
+test("a later block never overwrites an earlier one — each theme is read from its own", () => {
+  // The trap Phase 27 fixed: the first parser let the Night block, later in the file,
+  // replace every light value, so every gate would have measured the wrong theme.
+  const css = `
+    @theme { --color-ink: oklch(0.2 0.02 272); --color-canvas: oklch(0.97 0.03 88); }
+    :root {
+      color-scheme: light;
+      @variant dark { --color-ink: oklch(0.96 0.02 88); color-scheme: dark; }
+    }
+  `;
+  assert.deepEqual(parseTokens(css, "@theme").get("ink"), [0.2, 0.02, 272]);
+  assert.deepEqual(parseTokens(css, ":root > @variant dark").get("ink"), [0.96, 0.02, 88]);
+  // A token the dark block does not redeclare is absent from it, not inherited — so a
+  // gate can tell "Night forgot this token" from "Night kept the light value".
+  assert.equal(parseTokens(css, ":root > @variant dark").has("canvas"), false);
+});
+
+test("declarations carry their scope, and at-rule statements and comments are not declarations", () => {
+  const found = declarations(`
+    @import "tailwindcss";
+    /* --color-ghost: oklch(1 0 0); a commented-out token is not a token */
+    @theme { --shadow-card: 3px 3px 0 0 var(--color-shade); }
+    @utility btn {
+      border: var(--stroke) solid var(--color-line);
+      &:hover:not(:disabled) { transform: translate3d(-1px, -1px, 0); }
+    }
+  `);
+  assert.deepEqual(found, [
+    { property: "--shadow-card", value: "3px 3px 0 0 var(--color-shade)", scope: "@theme" },
+    { property: "border", value: "var(--stroke) solid var(--color-line)", scope: "@utility btn" },
+    {
+      property: "transform",
+      value: "translate3d(-1px, -1px, 0)",
+      scope: "@utility btn > &:hover:not(:disabled)",
+    },
+  ]);
+});
+
+test("parseOklch reads the opaque form only", () => {
+  assert.deepEqual(parseOklch("oklch(0.5 0.1 200)"), [0.5, 0.1, 200]);
+  assert.deepEqual(parseOklch("  oklch( 1 0 0 ) "), [1, 0, 0]);
+  assert.equal(parseOklch("oklch(0.5 0.1 200 / 0.4)"), null);
+  assert.equal(parseOklch("var(--color-ink)"), null);
 });
 
 test("white and black are the extremes of the scale", () => {

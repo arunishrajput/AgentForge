@@ -1,7 +1,9 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 
+import { ThemeSync } from "@/components/ui/theme";
 import { ToastProvider } from "@/components/ui/toast";
+import { DEFAULT_THEME, THEME_COLOR, themeScript } from "@/lib/ui/theme";
 
 import "./globals.css";
 
@@ -64,22 +66,43 @@ export const metadata: Metadata = {
  * `viewport-fit=cover` plus the safe-area padding in `globals.css` keeps the canvas
  * header clear of a phone's notch; `maximum-scale` is deliberately left alone,
  * because capping it stops a user zooming the canvas on a phone.
+ *
+ * No `themeColor` here since Phase 27: the chrome colour depends on the reader's theme,
+ * which only the browser knows, so it is a `<meta>` in `<head>` below that the theme
+ * script recolours before the first paint.
  */
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  // The cream page, so a phone's browser chrome continues the page rather than
-  // ending it in a dark bar. It was still Chapter 1's near-black until Phase 15.
-  themeColor: "#fdf4dd",
 };
 
 export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className={`${sans.variable} ${mono.variable}`}>
+    /* `data-theme="light"` is what the server can know; the script below replaces it
+       with the reader's stored choice before anything paints, which is why the
+       element carries `suppressHydrationWarning` — the DOM is right and the payload
+       is stale, by design (Next's *Preventing flash before hydration* guide). */
+    <html
+      lang="en"
+      data-theme={DEFAULT_THEME}
+      suppressHydrationWarning
+      className={`${sans.variable} ${mono.variable}`}
+    >
+      <head>
+        {/* The page colour, so a phone's browser chrome continues the page rather than
+            ending it in a band of the other theme. Light here; the script recolours it.
+            It must come BEFORE the script, which finds it during parsing. */}
+        <meta name="theme-color" content={THEME_COLOR.light} />
+        {/* Blocking and inline on purpose: it has to run during parsing, before the
+            first paint and long before React, or a Night reader sees cream first. The
+            source is `themeScript()` in `src/lib/ui/theme.ts`, tested as shipped. */}
+        <script dangerouslySetInnerHTML={{ __html: themeScript() }} />
+      </head>
       <body className="min-h-dvh antialiased">
+        <ThemeSync />
         {/* The first thing in the tab order on every page. The canvas puts a lot of
             palette buttons between the top of the document and the graph.
 

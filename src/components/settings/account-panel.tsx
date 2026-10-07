@@ -3,6 +3,7 @@ import Link from "next/link";
 import { signOut } from "@/auth";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { ThemeSwitch } from "@/components/ui/theme";
 
 /**
  * The account tab.
@@ -29,7 +30,7 @@ export function AccountPanel({ name, email }: { name?: string | null; email: str
       <Card className="flex flex-wrap items-center gap-4 p-5">
         <span
           aria-hidden="true"
-          className="border-line bg-accent-pop text-ink grid size-12 shrink-0 place-items-center rounded-2xl border-2 text-lg font-bold"
+          className="border-line bg-accent-pop text-accent-ink grid size-12 shrink-0 place-items-center rounded-2xl border-2 text-lg font-bold"
         >
           {(name ?? email).slice(0, 1).toUpperCase()}
         </span>
@@ -38,6 +39,17 @@ export function AccountPanel({ name, email }: { name?: string | null; email: str
           <p className="text-muted truncate text-sm">{email}</p>
           <p className="text-faint mt-0.5 text-2xs">Signed in with Google</p>
         </div>
+      </Card>
+
+      {/* Phase 27. A client island in a server component: the choice is read from and
+          written to this browser, never the server — `src/lib/ui/theme.ts` says why. */}
+      <Card className="p-5">
+        <h2 className="text-base font-bold">Appearance</h2>
+        <p className="text-muted mt-1 mb-4 text-sm text-pretty">
+          Light is the default. Toybox Night is the same design after dark, held to the same
+          contrast rules.
+        </p>
+        <ThemeSwitch />
       </Card>
 
       <Card className="p-5">

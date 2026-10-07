@@ -1090,7 +1090,7 @@ function EditorInner({
                 the word a viewer needs is the role they hold — that is what they would
                 have to quote to ask for more. */}
             {!canEdit && (
-              <span className="border-line bg-lift text-muted shrink-0 rounded-lg border-2 px-2 py-1 text-2xs font-bold">
+              <span className="border-line bg-elevated text-muted shrink-0 rounded-lg border-2 px-2 py-1 text-2xs font-bold">
                 Read only · {role}
               </span>
             )}
@@ -1133,7 +1133,7 @@ function EditorInner({
                     live. A workflow readable by anybody holding a URL must be visible as
                     such from the screen you edit it on, not only from inside a dialog. */}
                 {saved.shareUrl && (
-                  <span aria-hidden="true" className="bg-accent-ink size-1.5 rounded-full" />
+                  <span aria-hidden="true" className="bg-ink size-1.5 rounded-full" />
                 )}
                 {saved.shareUrl && <span className="sr-only">— a public link is live</span>}
               </button>
@@ -1224,7 +1224,7 @@ function EditorInner({
             <div
               aria-hidden="true"
               onClick={closePanels}
-              className="bg-ink/25 animate-fade absolute inset-0 z-20 lg:hidden"
+              className="bg-scrim/25 animate-fade absolute inset-0 z-20 lg:hidden"
             />
           )}
 

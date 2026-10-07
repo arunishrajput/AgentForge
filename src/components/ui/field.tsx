@@ -63,19 +63,17 @@ export function Textarea({ className, rows = 4, ...rest }: ComponentProps<"texta
  * be Toybox; the closed control, which is what a user looks at, can be.
  *
  * `appearance-none` plus a background chevron rather than a positioned span, so the
- * arrow cannot drift out of alignment when the control is resized.
+ * arrow cannot drift out of alignment when the control is resized. The chevron is the
+ * `select-chevron` utility in `globals.css` — an inline style until Phase 27, which no
+ * theme could override, so it stayed near-black on Toybox Night's indigo well.
  */
 export function Select({ className, children, ...rest }: ComponentProps<"select">) {
   return (
     <select
       className={cn(
-        "field cursor-pointer appearance-none bg-[length:0.7rem] bg-[right_0.75rem_center] bg-no-repeat pr-9",
+        "field select-chevron cursor-pointer appearance-none bg-[length:0.7rem] bg-[right_0.75rem_center] bg-no-repeat pr-9",
         className,
       )}
-      style={{
-        backgroundImage:
-          "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5l5-5' fill='none' stroke='%23131722' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\")",
-      }}
       {...rest}
     >
       {children}
@@ -97,7 +95,7 @@ const CHECKBOX_CLASS = [
   "border-line squish size-5 shrink-0 cursor-pointer appearance-none rounded-md border-2",
   "bg-sunken shadow-flat checked:bg-accent-pop",
   "after:mt-[1px] after:ml-[5px] after:block after:h-[9px] after:w-[5px] after:rotate-45",
-  "after:border-ink after:border-r-2 after:border-b-2 after:opacity-0 after:transition-opacity",
+  "after:border-accent-ink after:border-r-2 after:border-b-2 after:opacity-0 after:transition-opacity",
   "checked:after:opacity-100",
 ].join(" ");
 

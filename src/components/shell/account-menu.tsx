@@ -4,6 +4,8 @@ import { useRouter } from "next/navigation";
 import { useRef } from "react";
 
 import { Menu } from "@/components/ui/menu";
+import { useTheme } from "@/components/ui/theme";
+import { THEME_CHOICES } from "@/lib/ui/theme";
 
 /**
  * The account control in the header.
@@ -17,6 +19,11 @@ import { Menu } from "@/components/ui/menu";
  *
  * The keyboard behaviour (arrows, Home/End, Escape, click-outside, focus return)
  * all comes from the `Menu` primitive.
+ *
+ * **The theme lives here too (Phase 27)**, as a radio set: the account menu is where a
+ * reader looks for "my settings", and it is on every signed-in page except the canvas
+ * — which has the ⌘K palette instead. Choosing one applies it at once, before the menu
+ * has finished closing.
  */
 export function AccountMenu({
   email,
@@ -27,6 +34,7 @@ export function AccountMenu({
 }) {
   const router = useRouter();
   const form = useRef<HTMLFormElement>(null);
+  const { preference, setPreference } = useTheme();
 
   return (
     <>
@@ -39,7 +47,7 @@ export function AccountMenu({
           <span className="flex items-center gap-2">
             <span
               aria-hidden="true"
-              className="border-line bg-accent-pop text-ink text-3xs grid size-5 place-items-center rounded-md border-2 font-bold"
+              className="border-line bg-accent-pop text-accent-ink text-3xs grid size-5 place-items-center rounded-md border-2 font-bold"
             >
               {email.slice(0, 1).toUpperCase()}
             </span>
@@ -68,6 +76,13 @@ export function AccountMenu({
           { id: "who", label: email, onSelect: () => {}, disabled: true },
           { id: "settings", label: "Settings", onSelect: () => router.push("/settings") },
           { id: "design", label: "Design system", onSelect: () => router.push("/design") },
+          ...THEME_CHOICES.map((choice) => ({
+            id: `theme:${choice.value}`,
+            label: choice.label,
+            group: "Theme",
+            checked: preference === choice.value,
+            onSelect: () => setPreference(choice.value),
+          })),
           {
             id: "sign-out",
             label: "Sign out",

@@ -90,7 +90,7 @@ export function Dialog({
         // `<dialog>` centres itself in the top layer; `max-h` plus the inner scroll
         // keeps a long dialog usable on a phone in landscape.
         "card-raised animate-pop m-auto w-[min(32rem,calc(100vw-2rem))] max-h-[calc(100dvh-3rem)] p-0",
-        "backdrop:bg-ink/35 open:flex open:flex-col",
+        "backdrop:bg-scrim/35 open:flex open:flex-col",
         className,
       )}
     >

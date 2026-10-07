@@ -248,7 +248,7 @@ function VersionRow({
       <span className="flex items-center gap-2">
         <span className="text-ui font-bold">v{version.number}</span>
         {version.current && (
-          <span className="chip chip-pop shrink-0">
+          <span className="chip shrink-0">
             <span aria-hidden="true">●</span>
             Current
           </span>

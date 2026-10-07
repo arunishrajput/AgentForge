@@ -13,13 +13,17 @@ import {
   Thinking,
   WorkbenchArt,
 } from "@/components/ui/illustration";
-import { contrast, grade, hex } from "@/lib/design/contrast";
+import { ThemeSwitch } from "@/components/ui/theme";
+import { contrast, grade, hex, type Oklch } from "@/lib/design/contrast";
 import {
   ELEVATION,
   MOTION,
   PALETTE,
   SURFACE_NAMES,
+  THEME_LABEL,
+  THEMES,
   TYPE_SCALE,
+  type Theme,
   type TokenSpec,
   tokenValue,
 } from "@/lib/design/palette";
@@ -57,41 +61,81 @@ export const metadata: Metadata = {
 /** Nothing here is per-request, and nothing should be read from disk at runtime. */
 export const dynamic = "force-static";
 
-const INK = tokenValue("ink");
-const CANVAS = tokenValue("canvas");
+const ALL = PALETTE.flatMap((g) => g.tokens);
+const FILL_NAMES = ALL.filter((t) => t.register === "fill").map((t) => t.name);
 
-/** The number the gallery prints beside a swatch, and what it means. */
-function measure(spec: TokenSpec): { ratio: number; against: string } {
+/**
+ * One theme's half of the page. **Every figure is printed for both themes and the
+ * stylesheet shows the one in use** — the `dark` variant in `globals.css`, which
+ * follows the reader's choice. No script decides it, so nothing flashes, the page stays
+ * `force-static`, and the figure on screen is always the one for the colours on screen.
+ */
+function ForTheme({
+  theme,
+  as: Tag = "div",
+  children,
+}: {
+  theme: Theme;
+  as?: "div" | "span";
+  children: React.ReactNode;
+}) {
+  const shown =
+    theme === "light" ? "dark:hidden" : Tag === "span" ? "hidden dark:inline" : "hidden dark:block";
+  return <Tag className={shown}>{children}</Tag>;
+}
+
+type Measure = { ratio: number; against: string; bar: "text" | "graphic" } | null;
+
+/** The number the gallery prints beside a swatch in one theme, and what it means. */
+function measure(spec: TokenSpec, theme: Theme): Measure {
+  const value = (name: string) => tokenValue(name, theme);
+  const worstSurface = (v: Oklch) =>
+    Math.min(...SURFACE_NAMES.map((surface) => contrast(v, value(surface))));
+  const worstFill = (v: Oklch) => Math.min(...FILL_NAMES.map((fill) => contrast(v, value(fill))));
+  const own = spec[theme];
+
   switch (spec.register) {
-    case "surface": {
-      return { ratio: contrast(INK, spec.value), against: "ink on it" };
-    }
-    case "ink": {
-      return { ratio: contrast(spec.value, CANVAS), against: "on cream" };
-    }
-    case "text": {
+    case "surface":
+      return { ratio: contrast(value("ink"), own), against: "body text on it", bar: "text" };
+    case "ink":
+    case "text":
       // The honest figure for a text token is its WORST surface, not its best.
-      const worst = Math.min(
-        ...SURFACE_NAMES.map((surface) => contrast(spec.value, tokenValue(surface))),
-      );
-      return { ratio: worst, against: "worst surface" };
-    }
-    case "fill": {
-      return { ratio: contrast(INK, spec.value), against: "ink on it" };
-    }
+      return { ratio: worstSurface(own), against: "worst surface", bar: "text" };
+    case "label":
+      return { ratio: worstFill(own), against: "on the worst fill", bar: "text" };
+    case "fill":
+      return { ratio: contrast(value("accent-ink"), own), against: "its label on it", bar: "text" };
+    case "line":
+      // The outline must show against the page AND against every fill it rings; the
+      // shadow only ever sits on a surface.
+      return spec.name === "line"
+        ? { ratio: Math.min(worstSurface(own), worstFill(own)), against: "worst surface or fill", bar: "graphic" }
+        : { ratio: worstSurface(own), against: "worst surface", bar: "graphic" };
+    case "backdrop":
+      return null;
   }
 }
 
 const REGISTER_LABEL: Record<TokenSpec["register"], string> = {
   surface: "surface",
-  ink: "ink",
-  text: "text-safe",
+  ink: "text",
+  label: "fill label",
+  line: "graphic",
+  backdrop: "backdrop",
+  text: "safe as text",
   fill: "fill only",
 };
 
+/** WCAG's grade for text, or the 3:1 non-text bar (SC 1.4.11) for an outline or a shadow. */
+function verdictOf(m: NonNullable<Measure>): { word: string; tone: string } {
+  if (m.bar === "graphic") {
+    return m.ratio >= 3 ? { word: "≥ 3:1", tone: "text-ok" } : { word: "fail", tone: "text-bad" };
+  }
+  const g = grade(m.ratio);
+  return { word: g, tone: g === "fail" ? "text-bad" : g === "AAA" ? "text-ok" : "text-live" };
+}
+
 function Swatch({ spec }: { spec: TokenSpec }) {
-  const { ratio, against } = measure(spec);
-  const verdict = grade(ratio);
   return (
     <div className="card overflow-hidden">
       <div
@@ -101,18 +145,34 @@ function Swatch({ spec }: { spec: TokenSpec }) {
       <div className="space-y-1.5 p-3">
         <div className="flex items-baseline justify-between gap-2">
           <code className="text-2xs font-mono font-bold">--color-{spec.name}</code>
-          <span className="text-faint text-3xs font-mono">{hex(spec.value)}</span>
+          {THEMES.map((theme) => (
+            <ForTheme key={theme} theme={theme} as="span">
+              <span className="text-faint text-3xs font-mono">{hex(spec[theme])}</span>
+            </ForTheme>
+          ))}
         </div>
         <p className="text-muted text-2xs text-pretty">{spec.role}</p>
-        <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-          <Badge>{REGISTER_LABEL[spec.register]}</Badge>
-          <Badge
-            className={verdict === "fail" ? "text-bad" : verdict === "AAA" ? "text-ok" : "text-live"}
-          >
-            {ratio.toFixed(2)}:1 {verdict}
-          </Badge>
-          <span className="text-faint text-3xs">{against}</span>
-        </div>
+        {THEMES.map((theme) => {
+          const m = measure(spec, theme);
+          const verdict = m && verdictOf(m);
+          return (
+            <ForTheme key={theme} theme={theme}>
+              <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                <Badge>{REGISTER_LABEL[spec.register]}</Badge>
+                {m && verdict ? (
+                  <>
+                    <Badge className={verdict.tone}>
+                      {m.ratio.toFixed(2)}:1 {verdict.word}
+                    </Badge>
+                    <span className="text-faint text-3xs">{m.against}</span>
+                  </>
+                ) : (
+                  <span className="text-faint text-3xs">translucent, so no fixed ratio</span>
+                )}
+              </div>
+            </ForTheme>
+          );
+        })}
       </div>
     </div>
   );
@@ -142,6 +202,7 @@ function Section({
 
 const NAV = [
   ["colour", "Colour"],
+  ["themes", "Themes"],
   ["contrast", "Contrast"],
   ["type", "Type"],
   ["shape", "Shape & elevation"],
@@ -151,8 +212,16 @@ const NAV = [
   ["access", "Accessibility"],
 ] as const;
 
+/** The four jobs ink did on one value until Phase 27, and what each is called now. */
+const ROLES = [
+  { name: "ink", job: "Body text, and the focus ring" },
+  { name: "accent-ink", job: "The label on every pop fill" },
+  { name: "line", job: "The outline every object wears" },
+  { name: "shade", job: "The hard shadow under it" },
+] as const;
+
 export default function DesignPage() {
-  const textTones = PALETTE.flatMap((g) => g.tokens).filter((t) => t.register === "text");
+  const tableRows = ALL.filter((t) => t.register === "ink" || t.register === "text");
 
   return (
     <div className="min-h-dvh">
@@ -166,15 +235,18 @@ export default function DesignPage() {
             </div>
           </div>
           <p className="max-w-2xl text-sm text-pretty sm:text-base">
-            Bright, playful and light-first. Saturated colour, thick ink outlines, hard
-            offset shadows, fat corners and springy motion — the reference is a well-made
-            toy: tactile, friendly, obviously clickable. Not a dark IDE, which is what
-            every competing tool looks like.
+            Bright, playful and light-first. Saturated colour, thick outlines, hard offset
+            shadows, fat corners and springy motion — the reference is a well-made toy:
+            tactile, friendly, obviously clickable. Not a dark IDE, which is what every
+            competing tool looks like. Toybox Night is the same toy after dark, held to
+            the same rules.
           </p>
           <p className="text-muted max-w-2xl text-sm text-pretty">
             Every contrast figure on this page is computed by the same module that fails
-            the build when a token drops below WCAG AA. Nothing here is a claim.
+            the build when a token drops below WCAG AA — for the theme you are looking at.
+            Switch it and every number changes with the colours. Nothing here is a claim.
           </p>
+          <ThemeSwitch className="max-w-2xl" />
           <div className="flex flex-wrap gap-2">
             <Link href="/" className="btn btn-ink">
               Back to AgentForge
@@ -212,7 +284,7 @@ export default function DesignPage() {
         <Section
           id="colour"
           title="Colour"
-          lead="Every chromatic token comes in two registers. The plain token is dark and saturated and is safe as text on any surface. The -pop token is bright and saturated and is a fill only, always with an ink label and always inside an ink outline. No token is ever asked to do both jobs, because saturated-accent-on-cream is exactly where AA fails."
+          lead="Every chromatic token comes in two registers. The plain token is safe as text on any surface. The -pop token is a fill only, always with its accent-ink label and always inside its outline. No token is ever asked to do both jobs, because a saturated colour vivid enough to be a good fill is exactly where text fails WCAG AA."
         >
           {PALETTE.map((group) => (
             <div key={group.title} className="space-y-3">
@@ -230,57 +302,49 @@ export default function DesignPage() {
         </Section>
 
         <Section
-          id="contrast"
-          title="Contrast, measured"
-          lead="Every text-register tone against every surface, graded against the 4.5:1 bar for normal-sized text — not the 3:1 large-text allowance, because the smallest tokens in this system carry 10 and 11px captions. These are the figures the build gate asserts."
+          id="themes"
+          title="Themes"
+          lead="Light is the default and the reference; Toybox Night and System are choices a reader makes, kept in their own browser. Until Phase 27 one near-black did four jobs. On a cream page it can; on an indigo one it cannot — text must turn light, a label on a bright fill must stay dark, and an outline and a shadow must still show against the page. So each job has its own name."
         >
           <div className="card overflow-x-auto">
-            <table className="w-full min-w-[34rem] text-left">
+            {/* No minimum width, unlike the contrast table: on a phone the cells wrap
+                rather than scroll, so the Night column — the one this table is for — is on
+                screen without a sideways swipe. */}
+            <table className="w-full text-left">
               <caption className="sr-only">
-                WCAG contrast ratio of each text token against each surface
+                The four ink roles and their value in each theme
               </caption>
               <thead>
                 <tr className="border-line border-b-2">
-                  <th scope="col" className="eyebrow px-4 py-2.5">
-                    Token
+                  <th scope="col" className="eyebrow px-3 py-2.5 sm:px-4">
+                    Role
                   </th>
-                  {SURFACE_NAMES.map((surface) => (
-                    <th key={surface} scope="col" className="eyebrow px-4 py-2.5">
-                      {surface}
+                  {THEMES.map((theme) => (
+                    <th key={theme} scope="col" className="eyebrow px-3 py-2.5 sm:px-4">
+                      {THEME_LABEL[theme]}
                     </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {[
-                  ...PALETTE.flatMap((g) => g.tokens).filter((t) => t.register === "ink"),
-                  ...textTones,
-                ].map((spec) => (
-                  <tr key={spec.name} className="border-line-soft border-b">
-                    <th scope="row" className="px-4 py-2">
-                      <code
-                        className="text-2xs font-mono font-bold"
-                        style={{ color: `var(--color-${spec.name})` }}
-                      >
-                        {spec.name}
-                      </code>
+                {ROLES.map((role) => (
+                  <tr key={role.name} className="border-line-soft border-b last:border-b-0">
+                    <th scope="row" className="px-3 py-2.5 font-normal sm:px-4">
+                      <code className="text-2xs block font-mono font-bold">{role.name}</code>
+                      <span className="text-muted text-2xs">{role.job}</span>
                     </th>
-                    {SURFACE_NAMES.map((surface) => {
-                      const r = contrast(spec.value, tokenValue(surface));
-                      const g = grade(r);
+                    {THEMES.map((theme) => {
+                      const value = tokenValue(role.name, theme);
                       return (
-                        <td key={surface} className="px-4 py-2">
+                        <td key={theme} className="px-3 py-2.5 sm:px-4">
                           <span
-                            className="text-2xs font-mono font-bold"
-                            style={{ backgroundColor: `var(--color-${surface})` }}
-                          >
-                            {r.toFixed(2)}
-                          </span>{" "}
-                          <span
-                            className={`text-3xs font-bold ${g === "fail" ? "text-bad" : g === "AAA" ? "text-ok" : "text-muted"}`}
-                          >
-                            {g}
-                          </span>
+                            aria-hidden="true"
+                            className="border-line inline-block size-5 rounded-md border-2 align-middle sm:mr-2"
+                            style={{ backgroundColor: hex(value) }}
+                          />
+                          <code className="text-faint text-3xs block font-mono sm:inline sm:align-middle">
+                            {hex(value)}
+                          </code>
                         </td>
                       );
                     })}
@@ -289,31 +353,115 @@ export default function DesignPage() {
               </tbody>
             </table>
           </div>
+          <p className="text-muted max-w-3xl text-2xs text-pretty">
+            The fills are the one place the numbers decided the design. In Night a single
+            outline must clear 3:1 against both the indigo page and every fill, which leaves the
+            fills a band between &ldquo;a dark label reads on it&rdquo; and &ldquo;a cream
+            outline shows around it&rdquo; — so Night&apos;s fills are a rich mid-tone rather
+            than Light&apos;s near-pastels, and its text tones are the bright half instead. The
+            two registers still sit twice apart, the other way round.
+          </p>
+        </Section>
+
+        <Section
+          id="contrast"
+          title="Contrast, measured"
+          lead="Every tone in the text register against every surface, graded against the 4.5:1 bar for normal-sized text — not the 3:1 large-text allowance, because the smallest tokens in this system carry 10 and 11px captions. These are the figures the build gate asserts."
+        >
+          {THEMES.map((theme) => (
+            <ForTheme key={theme} theme={theme}>
+              <div className="card overflow-x-auto">
+                <table className="w-full min-w-[34rem] text-left">
+                  <caption className="sr-only">
+                    WCAG contrast ratio of each text token against each surface, in{" "}
+                    {THEME_LABEL[theme]}
+                  </caption>
+                  <thead>
+                    <tr className="border-line border-b-2">
+                      <th scope="col" className="eyebrow px-4 py-2.5">
+                        Token
+                      </th>
+                      {SURFACE_NAMES.map((surface) => (
+                        <th key={surface} scope="col" className="eyebrow px-4 py-2.5">
+                          {surface}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tableRows.map((spec) => (
+                      <tr key={spec.name} className="border-line-soft border-b">
+                        <th scope="row" className="px-4 py-2">
+                          <code
+                            className="text-2xs font-mono font-bold"
+                            style={{ color: `var(--color-${spec.name})` }}
+                          >
+                            {spec.name}
+                          </code>
+                        </th>
+                        {SURFACE_NAMES.map((surface) => {
+                          const r = contrast(spec[theme], tokenValue(surface, theme));
+                          const g = grade(r);
+                          return (
+                            <td key={surface} className="px-4 py-2">
+                              <span
+                                className="text-2xs font-mono font-bold"
+                                style={{ backgroundColor: `var(--color-${surface})` }}
+                              >
+                                {r.toFixed(2)}
+                              </span>{" "}
+                              <span
+                                className={`text-3xs font-bold ${g === "fail" ? "text-bad" : g === "AAA" ? "text-ok" : "text-muted"}`}
+                              >
+                                {g}
+                              </span>
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </ForTheme>
+          ))}
 
           <Card className="p-4">
             <h3 className="text-ui font-bold">Why the focus ring is ink, not the accent</h3>
-            <p className="text-muted mt-1.5 text-sm text-pretty">
-              WCAG 2.2 asks a focus indicator for 3:1 against what surrounds it. The accent
-              fill is{" "}
-              <strong className="text-ink font-mono">
-                {contrast(tokenValue("accent-pop"), CANVAS).toFixed(2)}:1
-              </strong>{" "}
-              against the cream page — under the bar. Ink is{" "}
-              <strong className="text-ink font-mono">
-                {contrast(INK, CANVAS).toFixed(2)}:1
-              </strong>{" "}
-              there, and never below{" "}
-              <strong className="text-ink font-mono">
-                {Math.min(
-                  ...PALETTE.flatMap((g) => g.tokens)
-                    .filter((t) => t.register === "fill")
-                    .map((t) => contrast(INK, t.value)),
-                ).toFixed(2)}
-                :1
-              </strong>{" "}
-              on any fill in the system. So one ink ring is legal everywhere, and there is
-              exactly one focus ring in the product.
-            </p>
+            {THEMES.map((theme) => {
+              const ink = tokenValue("ink", theme);
+              const page = tokenValue("canvas", theme);
+              const worstFill = Math.min(
+                ...FILL_NAMES.map((fill) => contrast(ink, tokenValue(fill, theme))),
+              );
+              const figure = (r: number) => (
+                <strong className="text-ink font-mono">{r.toFixed(2)}:1</strong>
+              );
+              return (
+                <ForTheme key={theme} theme={theme}>
+                  <p className="text-muted mt-1.5 text-sm text-pretty">
+                    {theme === "light" ? (
+                      <>
+                        WCAG 2.2 asks a focus indicator for 3:1 against what surrounds it. The
+                        accent fill is {figure(contrast(tokenValue("accent-pop", theme), page))}{" "}
+                        against the cream page — under the bar. Ink is {figure(contrast(ink, page))}{" "}
+                        there, and never below {figure(worstFill)} on any fill in the system. So
+                        one ink ring is legal everywhere, and there is exactly one focus ring in
+                        the product.
+                      </>
+                    ) : (
+                      <>
+                        In Toybox Night the ring is still ink — which is cream here. It is{" "}
+                        {figure(contrast(ink, page))} against the indigo page and never below{" "}
+                        {figure(worstFill)} on any fill, because the fills were fitted so that one
+                        ring would still clear WCAG&apos;s 3:1 on every one of them. The same single
+                        ring, in both themes.
+                      </>
+                    )}
+                  </p>
+                </ForTheme>
+              );
+            })}
           </Card>
         </Section>
 
@@ -339,7 +487,7 @@ export default function DesignPage() {
         <Section
           id="shape"
           title="Shape and elevation"
-          lead="A hard ink offset shadow, down-right, no blur and no spread. Blur would read as a drop shadow; the hard edge is what makes an object read as a solid thing sitting on the page. The build gate refuses a shadow with a blur radius."
+          lead="A hard offset shadow, down-right, no blur and no spread — ink in Light, cream in Night, drawn in the shade token either way. Blur would read as a drop shadow; the hard edge is what makes an object read as a solid thing sitting on the page. The build gate refuses a shadow with a blur radius in either theme."
         >
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {ELEVATION.map((step) => (
@@ -468,15 +616,15 @@ export default function DesignPage() {
             {[
               [
                 "One focus ring, and it is ink",
-                "2.5px, offset 3px, keyboard only. The offset leaves a gap of page colour between an object's own outline and the ring, which is what stops the two reading as one thicker border. No control anywhere sets outline-none.",
+                "Near-black in Light, cream in Night. 2.5px, offset 3px, keyboard only. The offset leaves a gap of page colour between an object's own outline and the ring, which is what stops the two reading as one thicker border. No control anywhere sets outline-none.",
               ],
               [
                 "Never colour alone",
                 "Every status pairs its tone with a word, an icon or a position. A pressed tab is darker AND moved. A failed toast is red AND says “Error” to a screen reader AND shakes.",
               ],
               [
-                "A pop fill is never drawn without its outline",
-                "Some fills sit as little as 1.3:1 off the cream page. The outline carries the separation, not the lightness — the build gate asserts both halves of that.",
+                "An object is never drawn without its outline",
+                "Some fills sit as little as 1.3:1 off the cream page; in Night it is the cards that sit flat on the indigo. Either way the outline carries the separation, not the lightness — the build gate asserts both halves of that, in both themes.",
               ],
               [
                 "Reduced motion is honoured, and the press is not motion",
@@ -503,8 +651,8 @@ export default function DesignPage() {
       <footer className="border-line dotted border-t-2">
         <div className="text-muted mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-5 py-8 text-2xs">
           <p>
-            Toybox — AgentForge&apos;s design language. Phase 14. Every figure on this page
-            is computed, not claimed.
+            Toybox — AgentForge&apos;s design language. Phase 14; Toybox Night, Phase 27. Every
+            figure on this page is computed, not claimed.
           </p>
           <Link href="/" className="text-accent font-semibold">
             AgentForge →

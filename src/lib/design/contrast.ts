@@ -16,18 +16,83 @@
 /** A parsed `oklch(L C H)` triple: lightness 0–1, chroma, hue in degrees. */
 export type Oklch = [L: number, C: number, H: number];
 
+/** One declaration in a stylesheet, and the chain of blocks it sits inside. */
+export type Declaration = {
+  property: string;
+  value: string;
+  /** The enclosing block headers, outermost first, joined by ` > ` — `@theme`, or `:root > @variant dark`. */
+  scope: string;
+};
+
 /**
- * Pull every `--color-*: oklch(L C H)` declaration out of a stylesheet.
+ * Every declaration in a stylesheet, with its scope.
+ *
+ * **Phase 27 made this selector-aware, and the reason is a trap rather than a nicety.**
+ * The first version matched `--color-x: oklch(…)` anywhere in the file and let a later
+ * match overwrite an earlier one. With one theme that was harmless. With two, the Toybox
+ * Night block — later in the file — would have silently replaced every light value, and
+ * every gate in `tokens.test.ts` would have gone on passing while measuring the wrong
+ * theme. Now each declaration carries the blocks around it, and a caller asks for one
+ * block by name.
+ *
+ * Deliberately small: comments are removed, `{` opens a block whose header is the text
+ * before it, `}` closes one, and a statement ending in `;` with a `:` in it is a
+ * declaration. At-rule statements (`@import "…";`) are not declarations and are skipped.
+ * That is all `globals.css` needs, and `contrast.test.ts` pins the edges.
+ */
+export function declarations(css: string): Declaration[] {
+  const source = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  const found: Declaration[] = [];
+  const stack: string[] = [];
+  let statement = "";
+
+  for (const character of source) {
+    if (character === "{") {
+      stack.push(statement.trim().replace(/\s+/g, " "));
+      statement = "";
+    } else if (character === "}") {
+      stack.pop();
+      statement = "";
+    } else if (character === ";") {
+      const text = statement.trim();
+      const colon = text.indexOf(":");
+      if (colon > 0 && !text.startsWith("@")) {
+        found.push({
+          property: text.slice(0, colon).trim(),
+          value: text.slice(colon + 1).trim().replace(/\s+/g, " "),
+          scope: stack.join(" > "),
+        });
+      }
+      statement = "";
+    } else {
+      statement += character;
+    }
+  }
+  return found;
+}
+
+/** `oklch(L C H)` → its triple, or `null` for anything else — including the alpha form. */
+export function parseOklch(value: string): Oklch | null {
+  const match = /^oklch\(\s*([\d.]+)\s+([\d.]+)\s+([\d.]+)\s*\)$/.exec(value.trim());
+  return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null;
+}
+
+/**
+ * Every `--color-*: oklch(L C H)` declared directly in one block of a stylesheet.
+ *
+ * `scope` is the block, exactly as `declarations()` reports it. A declaration anywhere
+ * else is ignored, so the light block and the dark block can never overwrite each other.
  *
  * Alpha forms (`oklch(L C H / A)`) are deliberately skipped: a token with alpha has
  * no fixed contrast, because it depends on what is behind it, so there is nothing
  * honest to measure. Those tokens are hairlines and tints, never text.
  */
-export function parseTokens(css: string): Map<string, Oklch> {
+export function parseTokens(css: string, scope: string): Map<string, Oklch> {
   const found = new Map<string, Oklch>();
-  const pattern = /--color-([\w-]+):\s*oklch\(([\d.]+)\s+([\d.]+)\s+([\d.]+)\s*\)\s*;/g;
-  for (const [, name, l, c, h] of css.matchAll(pattern)) {
-    found.set(name, [Number(l), Number(c), Number(h)]);
+  for (const declaration of declarations(css)) {
+    if (declaration.scope !== scope || !declaration.property.startsWith("--color-")) continue;
+    const value = parseOklch(declaration.value);
+    if (value) found.set(declaration.property.slice("--color-".length), value);
   }
   return found;
 }

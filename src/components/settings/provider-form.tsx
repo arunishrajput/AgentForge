@@ -281,7 +281,7 @@ export function ProviderForm({ initial }: { initial: ProviderSettings }) {
                             "border-line flex w-full items-baseline justify-between gap-3 rounded-lg border-2 px-3 py-2 text-left",
                             "transition-colors duration-(--dur-fast)",
                             selected
-                              ? "bg-accent-pop text-ink cursor-default font-semibold"
+                              ? "bg-accent-pop text-accent-ink cursor-default font-semibold"
                               : "bg-canvas hover:bg-elevated",
                           )}
                         >

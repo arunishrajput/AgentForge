@@ -42,8 +42,8 @@ is the file it means.
 
 ```
 26  Timers — schedules that fire, at zero idle cost       ✅
-27  Themes I — Toybox Night: tokens, gates, switching      ← START HERE
-28  Themes II — every screen in both themes
+27  Themes I — Toybox Night: tokens, gates, switching      ✅
+28  Themes II — every screen in both themes                ← START HERE
 29  Canvas I — editing ergonomics
 30  Canvas II — sticky notes and disabled nodes
 31  Canvas III — the test loop: pinned data and partial runs
@@ -332,6 +332,74 @@ invariants), `ARCHITECTURE.md` (*Design system*), `DECISIONS.md`, `PROGRESS.md`.
 
 **Commit.** `feat: complete phase 27 toybox night theme foundations`
 
+**Status: COMPLETE, 2026-10-07 — deployed as `agentforge-00064-jmm` and verified there, in Light,
+Toybox Night and System.** What was built, and what the numbers decided:
+
+- **Ink's four jobs became four roles** — `ink`, `accent-ink`, `line`, `shade` — plus `scrim` (D121).
+  ~30 pop-fill labels moved from `ink` to `accent-ink`, identical in Light, where every token and
+  every probed component computes exactly as on `00063-zt5` (measured with `getComputedStyle`,
+  deployed against local)
+- **Toybox Night** is fitted to the gates, not the gates to it: one cream outline must clear 3:1
+  against both the indigo page and every fill, which puts every Night fill at luminance 0.24 — label
+  ≥ 4.95:1, outline and ring ≥ 3.22:1. The text register became the bright half. Its structure is
+  cream (D122); a near-black shadow vanished on indigo and a mid-tone one read as a second stripe,
+  both tried in the browser
+- **The gates run per theme.** `parseTokens()` is selector-aware (`declarations()` carries each
+  declaration's block), so the Night block can no longer silently replace the light values.
+  **Ten deliberate breaks of Night were each caught** — a pastel fill, a dark ink, a black shadow, a
+  cream label, a forgotten token, `color-scheme: light`, a stray token, a blurred shadow, the
+  variant reverted to the OS, a mid-grey page
+- **Switching** (D123): a blocking `<head>` script tested as shipped; the stylesheet resolves System.
+  **No flash, measured as frames:** a throttled, cache-disabled hard reload with Dark stored painted
+  218 frames locally and 121 deployed, every one indigo; the control, with the script stripped,
+  painted 64 cream frames before React applied the theme. A first visit on a dark OS is Light;
+  System follows the OS live, with no reload
+- **The controls**: the account menu (a `menuitemradio` group — `Menu` gained radio items), *Settings
+  → Account → Appearance* (`ThemeSwitch`, native radios), ⌘K, and a switch on `/design`
+- **`/design` in both themes**, every figure printed for both and CSS showing the one in use, plus a
+  *Themes* section showing the role split
+
+**Found on the way, all fixed:**
+
+- **`bg-lift` was in six places, not four**, and **two more classes named tokens that never existed**
+  — `text-ok-ink` (the webhook "Rotated" message) and `text-warn-ink` (the vault's warning figure).
+  `utilities.test.ts` now asks Tailwind's own compiler about every colour class in `src/` (D124); it
+  failed on all three before the fix
+- **Three Night defects the gates could not see, found in the browser**: the quiet badge inside a
+  filled `CardHeader` inherited the near-black label (an empty capsule), the select chevron was an
+  inline near-black data URI (now the `select-chevron` utility, moved forward from Phase 28), and the
+  Share dot used `accent-ink` on a quiet button. Plus the Themes table needed a sideways scroll at
+  375 px, which hid the Night column
+- **A stale verify instruction**: `PROGRESS.md` told `verify-templates.mjs` to take its URL as an
+  argument; it reads only `APP_BASE_URL`
+
+**Not done here, and why:** the three signed-in placements (account menu, Settings, ⌘K) were not
+seen in a browser — the only Chrome connected to the extension was signed out, and minting a session
+for the automated browser is refused as credential leakage. Their components are verified live on
+`/design`; the placements are Phase 28's task 4.
+
+**The first-frame check**, for the next UI phase (Playwright, `page` in scope):
+
+```js
+const client = await page.context().newCDPSession(page); const frames = [];
+client.on('Page.screencastFrame', async (f) => { frames.push(f.data);
+  await client.send('Page.screencastFrameAck', { sessionId: f.sessionId }); });
+await client.send('Network.enable'); await client.send('Network.setCacheDisabled', { cacheDisabled: true });
+await client.send('Page.startScreencast', { format: 'png', everyNthFrame: 1, maxWidth: 240, maxHeight: 150 });
+await page.reload({ waitUntil: 'load' }); await page.waitForTimeout(1000);
+await client.send('Page.stopScreencast');
+// then decode each frame in the page (createImageBitmap → OffscreenCanvas → getImageData)
+// and read one corner pixel per frame: a flash is any frame in the other theme's page colour
+```
+
+**The battery, on `00064-jmm`, acting as the owner — 0 failed:** `verify-security` 68, `verify-a11y`
+92, `verify-api` 404 / 4 skipped, `verify-templates` 47, `verify-postgres` 65, `verify-providers` 55,
+`verify-vault` 62, `verify-observability` 68 / 1 structural skip, `verify-integrations` 60 / 2 skipped
+(Notion, Airtable), `verify-timers` 34, `verify-durable all` passed, `smoke.mjs` **CLEAN**. The first
+`verify-api` run failed one check — "an agent that will not converge fails at its cap" — because the
+model answered instead of looping, so the cap was never reached; the cap itself is unit-tested
+(`loop.test.ts`), and the re-run passed it.
+
 ---
 
 ## Phase 28 — Themes II — every screen in both themes
@@ -345,19 +413,28 @@ invariants), `ARCHITECTURE.md` (*Design system*), `DECISIONS.md`, `PROGRESS.md`.
    `src/components/canvas/editor.tsx:1167` and `src/components/share/shared-canvas.tsx`); the
    minimap mask is a literal `oklch()` in `globals.css`; arrow markers; every edge state (traversed,
    live, added, removed); node cards in all five statuses; the diff bar; the run panel.
-2. **Hardcoded colours.** The select chevron is an inline data-URI with a fixed stroke
-   (`src/components/ui/field.tsx`); hover states use `color-mix(…, white)`; `src/app/icon.svg` has
-   hex fills.
-3. **Illustrations and Sparky.** The inline SVGs already use `var(--color-*)` — verify they read
-   right on a dark page, especially `concerned` on an error screen. The static
+2. **Hardcoded colours.** Hover states use `color-mix(…, white)`; `src/app/icon.svg` has hex
+   fills. *(The select chevron — an inline data URI with a fixed stroke — was done in Phase 27,
+   because it sits on `/design` and that gallery had to be complete in both themes; it is the
+   `select-chevron` utility now, and `tokens.test.ts` ties its stroke to each theme's ink.)*
+3. **Illustrations and Sparky.** The inline SVGs use `var(--color-*)`, and Phase 27 gave them the
+   role tokens (outline `line`, Sparky's face `accent-ink`, the glyph shadow `shade`) and checked
+   them on `/design` in Night — verify them everywhere else they appear, especially `concerned` on
+   an error screen. The static
    `public/illustrations/*.svg` gain dark variants from `npm run design:export`, and the README
    uses `<picture>` with `prefers-color-scheme` so GitHub's dark mode gets them. The export test
    must cover both.
-4. **Every page.** Landing, `/workflows` with the onboarding guide, `/templates`, `/analytics` (the
+4. **The three theme controls, signed in, in both themes — carried from Phase 27.** The account
+   menu's Theme group, *Settings → Account → Appearance* and the ⌘K theme commands. Phase 27
+   verified the components they are built from (`Menu`'s radio items and `ThemeSwitch`, both live
+   on `/design`) but the only browser it could drive was signed out, so these three placements, and
+   ⌘K at all, have not been seen in a browser.
+5. **Every page.** Landing, `/workflows` with the onboarding guide, `/templates`, `/analytics` (the
    hand-drawn chart), `/settings` (all five tabs, the vault), `/s/[token]`, `/invite/[token]`,
    `not-found`, `error.tsx`, and `global-error.tsx` — **which renders its own `<html>` and so needs
    the theme script too**. Toasts, notices, dialogs, menus, tooltips.
-5. **Screenshots.** `docs/assets/*` refreshed, and the README shows the product in both themes.
+6. **Screenshots.** `docs/assets/*` refreshed, and the README shows the product in both themes —
+   and its *What comes next* list loses the items Phases 26 and 27 shipped.
 
 **Primary files.** `src/components/canvas/*`, `src/components/share/*`, `src/app/globals.css`,
 `src/components/ui/field.tsx`, `src/lib/design/illustrations-static.ts`, `public/illustrations/*`,

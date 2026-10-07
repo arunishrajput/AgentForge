@@ -18,22 +18,17 @@ that is the point, and it is the one thing a stranger notices in the first secon
 The direction was chosen deliberately in `BUILD_PLAN.md` Chapter 2 and is **binding**. It is not
 re-litigated phase by phase.
 
-### Themes — decided 2026-10-06, built in Phases 27–28
+### Themes — Light, Toybox Night and System (Phase 27)
 
-**Toybox gains a dark theme, "Toybox Night", and a System option** (`DECISIONS.md` D110, chosen by
-the user, superseding D65's light-only). Three things do not move:
+**Toybox has a dark theme, "Toybox Night", and a System option** (`DECISIONS.md` D110, chosen by
+the user, superseding D65's light-only; built in Phase 27, D121–D124). Three things do not move:
 
 - **Light is the default and the reference.** The product opens in Light even for a visitor whose OS
   is dark, and everything in this file describes Light unless it says otherwise
 - **Night is Toybox, not a dark IDE.** Same outlines, same hard no-blur shadows, same press, same
-  saturation — and the same gates, run per theme
-- **Until Phase 27 lands, light-only is still what the build enforces.** `tokens.test.ts` asserts
-  `color-scheme: light`, and Phase 27 is what changes that assertion
-
-**The problem Phase 27 must solve first** is that `--color-ink` does four jobs today: text, the
-label on a `-pop` fill, the outline, and the shadow. On a cream page one value does all four. On a
-dark page it cannot. `BUILD_PLAN.md` → *Phase 27* lays it out, along with the traps this file
-already names: the glow, the focus ring on a dark object, and the outline that carries separation.
+  saturation — and the same gates, run per theme. See *Themes* below
+- **The choice is the reader's, per browser.** The account menu, *Settings → Account →
+  Appearance*, the ⌘K palette, and the switch at the top of `/design`
 
 ---
 
@@ -55,8 +50,9 @@ Three consequences that are easy to get wrong:
 
 1. **`text-accent` is correct. `text-accent-pop` is a bug.** The plain token is the default because
    the safe thing should be the short thing.
-2. **The label on any `-pop` fill is `--color-ink`.** Never white. Every fill in the palette clears
-   AA against ink (worst case 6.2:1) and none of them clears it against white.
+2. **The label on any `-pop` fill is `--color-accent-ink`.** Never white, and never cream in Night.
+   Every fill in the palette clears AA against it (worst case 6.2:1 in Light, 4.95:1 in Night).
+   Write `bg-ok-pop text-accent-ink`, not `text-ink` — identical in Light, broken in Night
 3. **A `-pop` fill is never drawn without its ink outline.** Some fills sit as little as **1.3:1**
    off the cream page — the amber and the lime especially. In this language the outline carries the
    separation between an object and its background, *not* the lightness. Take the outline off and
@@ -91,8 +87,9 @@ a large step, because doing so would be asserting the wrong design.
 placeholders and footnotes. **All three clear AA on all four surfaces**, `faint` included — which was
 not true in Chapter 1, where `faint` was documented as decorative-only. That exemption is gone.
 
-`--color-line` is the outline. It is ink by another name so a later phase can tint outlines without
-tinting text.
+`--color-line` is the outline and `--color-shade` the hard shadow. In Light both are ink by another
+name; they have their own names because in Night they are not text — see *Themes*. The label on a
+fill is `--color-accent-ink`, which is the one ink role that stays near-black in both themes.
 
 ### Hue assignments
 
@@ -105,6 +102,59 @@ carried by shape, icon and label — see *Never colour alone*.
 
 ---
 
+## Themes
+
+Built in Phase 27. **Night is the same toy after dark, and every rule above holds in it** —
+`tokens.test.ts` runs each gate once per theme.
+
+### The split that made it possible
+
+Until Phase 27 `--color-ink` did four jobs, and on a cream page one value can do all four. On an
+indigo page it cannot, so each job has its own name (D121):
+
+| Role | Token | Light | Night |
+|---|---|---|---|
+| Body text, and the focus ring | `ink` | near-black | cream |
+| The label on a pop fill | `accent-ink` | near-black | **near-black** — unchanged |
+| The outline | `line` | near-black | cream |
+| The hard shadow | `shade` | near-black | cream |
+| A modal's backdrop | `scrim` | near-black | near-black, deeper |
+
+### Toybox Night's rules
+
+- **The page is a deep indigo**, and the four surfaces keep Light's order (sunken, page, card,
+  lifted) and Light's deliberately small steps. Elevation is still the outline and the shadow
+- **The structure is drawn in cream** — outline, shadow and ring (D122). A near-black shadow on
+  indigo measures ~1.2:1 and vanishes; a mid-tone shadow reads as a second, coloured stripe; cream
+  reads as one object drawn in one material, which is Light mirrored
+- **The fills are a rich mid-tone, and that is arithmetic, not taste.** One outline has to clear 3:1
+  against both the indigo page and every fill. With a cream outline that caps a fill at about 0.25
+  luminance, and the near-black label needs it at least about 0.21 — so every Night fill sits at
+  **0.24**. Light's near-pastels would have needed a dark outline on a dark page. The cost is amber,
+  which cannot be bright at that luminance and comes out bronze
+- **The text register is the bright half.** On indigo a readable tone has to be light, so Night's
+  text tones (~0.53 luminance) are brighter than its fills — the registers are still 2× apart, the
+  other way round
+- **The focus ring is one ring in both themes** — `ink`, cream in Night, never below 3.22:1 on any
+  fill. The trap this file already named, "an ink object on an ink background needs a cream ring",
+  is what Night is made of, and the fitted fills are the answer
+- **No glow.** A dark theme is exactly where a soft glow tries to come back. The gate refuses a
+  shadow with a blur in either theme
+
+### How the switch works
+
+`<html data-theme>` holds the reader's choice — `light`, `dark` or `system` — kept in
+`localStorage` and applied by a blocking script in `<head>` before the first paint (D123). The
+stylesheet's `@custom-variant dark` decides what `system` means through `prefers-color-scheme`, so a
+device that switches at sunset takes the page with it. Measured: a throttled hard reload with Dark
+stored paints 218 frames, all indigo; with the script removed it paints 64 cream frames first.
+
+**Use `dark:` for anything that must differ by theme.** It is this project's variant, not
+Tailwind's — Tailwind's built-in follows the OS alone and would go dark for a reader who chose
+Light. A token that already differs by theme needs no `dark:` at all, which is most of them.
+
+---
+
 ## Shape, elevation and the press
 
 ### Corners
@@ -114,7 +164,7 @@ the Toybox radius — a component does not opt in.
 
 ### Shadows
 
-A **hard ink offset**, down-right, **no blur and no spread**. Blur reads as a drop shadow; the hard
+A **hard offset in `shade`** — ink in Light, cream in Night — down-right, **no blur and no spread**. Blur reads as a drop shadow; the hard
 edge is what makes an object read as a solid thing sitting on the page rather than floating above it.
 One light source, always the same direction.
 
@@ -251,7 +301,9 @@ them.
 
 ### One focus ring, and it is ink
 
-2.5px solid ink, 3px offset, `:focus-visible` only. **No control anywhere sets `outline-none`.**
+2.5px solid ink, 3px offset, `:focus-visible` only — near-black in Light, cream in Night. **No
+control anywhere sets `outline-none`.** A control whose real input is visually hidden (the theme
+switch's radios) wears the ring on its label with `focus-ring-within`.
 
 It is ink rather than the accent because of a measurement: WCAG 2.2 SC 1.4.11 wants 3:1 for a focus
 indicator, the accent fill is **2.6:1** against cream, and ink is **16.4:1** there and never below
@@ -259,8 +311,8 @@ indicator, the accent fill is **2.6:1** against cream, and ink is **16.4:1** the
 leaves a gap of page colour between an object's own outline and the ring, which is what stops the two
 reading as one thicker border.
 
-The one arrangement this does not survive is an ink object on an ink background. There is none, and
-if a later phase adds one it needs a cream ring there.
+The one arrangement this does not survive is an ink object on an ink background. In Light there is
+none. In Night the ring *is* cream, and the fills were fitted so it clears 3:1 on every one of them.
 
 ### Never colour alone
 
@@ -433,7 +485,8 @@ appended last — there is no Tailwind-aware merge, and none is needed.
 | `tone.ts` | `TONE`, `liveRole` — the shared message table |
 | `tooltip.tsx` | `Tooltip` |
 | `tabs.tsx` | `Tabs` — roving tabindex, arrows, Home/End |
-| `menu.tsx` | `Menu` — arrows, Home/End, Escape, click-outside |
+| `menu.tsx` | `Menu` — arrows, Home/End, Escape, click-outside; radio items (`checked`) in a named `group` |
+| `theme.tsx` | `useTheme`, `ThemeSwitch` (the Light / Dark / System radio group), `ThemeSync` |
 | `illustration.tsx` | `Mascot`, `Thinking`, `EmptyState`, and the four scenes |
 
 ### Notice or toast
@@ -493,15 +546,26 @@ primitive in new code because it carries the accessibility behaviour too.
 
 `npm run check` fails on any of these. None of them is a convention:
 
+**Each of these runs once for Light and once for Toybox Night:**
+
 - Every text-register tone clears AA on all four surfaces
-- Ink clears AA as the label on every `-pop` fill
-- The two registers stay at least 2× apart in luminance
+- `accent-ink` clears AA as the label on every `-pop` fill
+- The two registers stay at least 2× apart in luminance — fill brighter in Light, text in Night
 - Ink clears 3:1 against every surface and every fill — the focus-ring rule
-- The ink outline clears 3:1 on every fill and on the page — the outline rule
+- The outline clears 3:1 on every fill and every surface, and some object sits flat on the page
+  without it — the outline rule
+- The shadow clears 3:1 on every surface, and the scrim is darker than the page
 - Every token is inside sRGB, so the measured colour is the rendered colour
-- Every shadow is a hard ink offset with no blur
-- `color-scheme` is `light`
 - The palette catalogue and the stylesheet agree in both directions
+
+**And these once, across both:**
+
+- Night re-declares every colour token Light declares, and no colour is declared anywhere else
+- `color-scheme` is `light` on `:root` and `dark` in the Night block, and nowhere else
+- Every shadow is a hard offset in `shade` with no blur, declared once
+- The `dark` variant follows the reader's choice, and the OS only under System
+- The select chevron (a data URI, which cannot read a variable) is each theme's own ink
+- **Every colour utility in `src/` compiles to CSS** — `utilities.test.ts`, D124
 - `public/illustrations/*.svg` are byte-identical to a fresh export
 
 The maths is in `src/lib/design/contrast.ts` and is shared with the gallery, so **the number on the
@@ -525,15 +589,20 @@ wrong within a phase.
 | **An arbitrary-value colour can drop its opacity modifier silently** | `divide-[--color-line]/40` on the vault's log list. `divide-y` applied; the `/40` did **not**, so every row was separated by a full-strength ink rule inside an already-outlined well — the one thing `--color-line-soft` exists to prevent. Nothing failed: the class was in the DOM, the build passed, and `getComputedStyle` in a browser was the only thing that could see `1px solid ink` where `1px solid ink/0.16` was meant. **Reach for the token the system already has** — `divide-line-soft` — rather than writing an arbitrary value that looks equivalent |
 | **A fuzzy search tier is noise against a sentence** | A subsequence match means something against a short *name* and nothing against a description: any long sentence contains almost any five-letter subsequence. Feeding node descriptions to the shared ranking made `gmail` match **7 of 15** nodes. The fuzzy tier now applies to a title alone; substring and word-start matching on a subtitle are untouched |
 | **React Flow's `colorMode` is a trap even when it looks inert** | The canvas shipped `colorMode="dark"` through Phase 15 on a light-first product. It changed almost nothing visible — React Flow's node colours only reach its *built-in* node types, and Phase 14 had overridden the variables that mattered — but every variable **not** overridden was falling back to a dark default, waiting for the next person to add one |
+| **A class that names a missing token compiles to nothing, silently** | `bg-lift` reached for a `--color-lift` that never existed, and six elements shipped with no background from Phase 19A to Phase 27; `text-ok-ink` and `text-warn-ink` did the same to two messages. Tailwind does not warn. `utilities.test.ts` now asks Tailwind's own compiler about every colour utility in `src/` (D124) |
+| **A label colour set on a container reaches everything inside it** | `CardHeader` set `accent-ink` on its whole strip, so the quiet badge in its `aside` — which paints its own dark pill — inherited a near-black word. Invisible in Light, where the two inks are equal; an empty capsule in Night. Set the label on the label. The same applies to any neutral object placed on a fill: it names its own text colour (`chip bg-surface text-ink` in the diff bar) |
+| **An inline `style` cannot be themed** | The select chevron was an inline data URI with a near-black stroke; no class can override an inline style, so it stayed near-black on Night's indigo. It is the `select-chevron` utility now, with a `dark` variant |
 | **A lint rule can be wrong about a native element** | `role="switch"` on `input[type=checkbox]` is explicitly allowed by ARIA in HTML and its `checked` maps to `aria-checked`; adding `aria-checked` would create a second source of truth. Suppressed inline, with the reason, per the project convention |
 
 ---
 
 ## Changing this system
 
-1. Change `src/app/globals.css` — the stylesheet is the source of truth for values
-2. Mirror the change in `src/lib/design/palette.ts`, or CI fails on the drift gate
+1. Change `src/app/globals.css` — the stylesheet is the source of truth for values. **A colour has
+   two values**: Light in `@theme`, Night in the `@variant dark` block at the end of `:root`
+2. Mirror both in `src/lib/design/palette.ts` (`light` and `dark`), or CI fails on the drift gate
 3. Run `npm run check`. If a contrast gate fails, **the token is wrong, not the gate**
 4. If a colour moved, run `npm run design:export` and commit the regenerated SVGs
-5. Look at `/design` in a real browser. Every phase of this project that drove a browser found
-   something the test suite could not see, and Phase 14 was no exception
+5. Look at `/design` in a real browser **in both themes**. Every phase of this project that drove a
+   browser found something the test suite could not see — Phase 14 was no exception, and Phase 27
+   found three things in Night that no gate could

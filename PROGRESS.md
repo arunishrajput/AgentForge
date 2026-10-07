@@ -16,21 +16,21 @@ Nothing was deleted:
 
 ## Project Status
 
-**CHAPTER 3 IS OPEN. PHASE 26 IS COMPLETE (2026-10-06); PHASE 27 IS NEXT.** The live service is up
-on a paid billing account (M13 resolved, D113), and schedules fire again.
+**CHAPTER 3 IS OPEN. PHASES 26–27 ARE COMPLETE (2026-10-07); PHASE 28 IS NEXT.** The product has
+three themes — Light (the default), Toybox Night and System — on the live service.
 
 | Chapter | Phases | State |
 |---|---|---|
 | **1** — the hackathon MVP | 0–12 | **COMPLETE.** Submitted 2026-09-26 (<https://devpost.com/software/agentforge-kz832x>). Closed, never reopened |
 | **2** — the open-source product | 13–25 | **COMPLETE**, 2026-10-01. Durable runs, versioning, workspaces, roles and sharing, a credential vault, observability, 30 nodes, two LLM providers, docs, an a11y and security audit |
-| **3** — a product people use every day | **26–42** | **OPEN — planned 2026-10-06. Phase 26 complete; 27 next.** `BUILD_PLAN.md` is the scope contract |
+| **3** — a product people use every day | **26–42** | **OPEN — planned 2026-10-06. Phases 26–27 complete; 28 next.** `BUILD_PLAN.md` is the scope contract |
 
 **Chapter 3, in one line:** themes (Light, Dark, System), a canvas that edits like a serious tool,
 an AI copilot that edits and repairs workflows, workflows that can handle errors, wait, ask a person
 and call each other, and the daily-use basics — tags, run history, import/export and an API.
 
 **The live system must keep working:** **https://agentforge-733000675212.asia-southeast1.run.app** —
-revision `agentforge-00063-zt5`.
+revision `agentforge-00064-jmm`.
 Launch demo video: <https://www.youtube.com/watch?v=3txmpCPEWd4>.
 
 ### The binding decisions, restated for Chapter 3
@@ -38,7 +38,7 @@ Launch demo video: <https://www.youtube.com/watch?v=3txmpCPEWd4>.
 | Decision | Value |
 |---|---|
 | **Budget** | **Still zero**, now inside Always Free on a **paid** billing account with a ₹100/month budget alert (D113, after the trial closed), and build artefacts held by cleanup rules (D120). Escalate anything billed beyond cents |
-| **Visual direction** | **Toybox — bright, playful, light-first.** Light is the default and the reference. **Dark ("Toybox Night") and System become opt-in themes in Phases 27–28** (D110, decided 2026-10-06, superseding D65's light-only). Until Phase 27 lands, the code still enforces light-only |
+| **Visual direction** | **Toybox — bright, playful, light-first.** Light is the default and the reference. **Dark ("Toybox Night") and System are opt-in themes since Phase 27** (D110, D121–D123), held to the same gates per theme. Phase 28 takes every screen through both |
 | **Restored scope** | Teams, versioning, observability and the vault are **built** (Chapter 2) |
 | **Purpose** | **Open-source showpiece**, and now a product a stranger can use daily |
 | **Neon** | The binding free tier: **never add a new reason to wake an idle database** — no polling, no frequent timers. `BUILD_PLAN.md` → *The zero-cost problem, Chapter 3 edition* |
@@ -48,16 +48,15 @@ Launch demo video: <https://www.youtube.com/watch?v=3txmpCPEWd4>.
 
 ## Current Phase
 
-## ▶ PHASE 27 — Themes I — Toybox Night: tokens, gates, switching — NOT STARTED
+## ▶ PHASE 28 — Themes II — every screen in both themes — NOT STARTED
 
-**Next.** `BUILD_PLAN.md` → *Phase 27* is the definition; D110 is the decision it builds. Read
-`DESIGN.md` before starting, and `src/app/tokens.test.ts` — its `color-scheme: light` assertion is the
-line D110 says Phase 27 changes. The `bg-lift` Known Issue below is Phase 27's too.
+**Next.** `BUILD_PLAN.md` → *Phase 28* is the definition; `DESIGN.md` → *Themes* is what it builds on.
+Its task 4 is carried from Phase 27: **the account menu's Theme group, *Settings → Appearance* and
+the ⌘K theme commands have not yet been seen in a browser** — the only browser Phase 27 could drive
+was signed out (see *Notes*). The phone toolbar Known Issue below is Phase 28's too.
 
-**Phase 26 closed on 2026-10-06** — `agentforge-00063-zt5`, verified on the deployed service and in
-a real browser. Its evidence is in `BUILD_PLAN.md` → *Phase 26* → *Status* and in *Recent Changes*
-below. Nothing from it is open except **M14**, a non-blocking Neon reading a week from now — and the
-registry-size re-read in *Notes*.
+**Phase 27 closed on 2026-10-07** — `agentforge-00064-jmm`, verified on the deployed service and in a
+real browser in Light, Night and System. Its evidence is in `BUILD_PLAN.md` → *Phase 27* → *Status*.
 
 ---
 
@@ -66,8 +65,8 @@ registry-size re-read in *Notes*.
 | Phase | Status |
 |---|---|
 | **26** — Timers: schedules that fire, at zero idle cost | **COMPLETE**, 2026-10-06 — `agentforge-00063-zt5` |
-| **27** — Themes I: Toybox Night tokens, gates, switching | NOT STARTED ← next |
-| **28** — Themes II: every screen in both themes | NOT STARTED |
+| **27** — Themes I: Toybox Night tokens, gates, switching | **COMPLETE**, 2026-10-07 — `agentforge-00064-jmm` |
+| **28** — Themes II: every screen in both themes | NOT STARTED ← next |
 | **29** — Canvas I: editing ergonomics | NOT STARTED |
 | **30** — Canvas II: sticky notes and disabled nodes | NOT STARTED |
 | **31** — Canvas III: pinned data and partial runs | NOT STARTED |
@@ -94,7 +93,7 @@ in `archive/progress-chapters-1-2.md` → *Completed Phases*.
 |---|---|
 | **Canonical URL** | **`https://agentforge-733000675212.asia-southeast1.run.app`** — the deterministic URL (D10). The legacy `https://agentforge-i5d2u66boa-as.a.run.app` works; do not publish it |
 | Service | `agentforge` on Cloud Run, `asia-southeast1`, project `agentforge-hackathon-2026` (`733000675212`) |
-| **Revision** | **`agentforge-00063-zt5`**, 100% of traffic — Phase 26 (2026-10-06). `00062-kxm` carried the phase; `00063-zt5` the four things deployed verification found. **Rollback targets are only the revisions behind the five kept images (D120)**: `00062-kxm`, `00061-lwl`/`00060-z9v` (one image), `00059-pd2`, `00058-q2z`. Rollback tested (`update-traffic --to-revisions <rev>=100`, ~15 s) |
+| **Revision** | **`agentforge-00064-jmm`**, 100% of traffic — Phase 27 (2026-10-07). **Rollback targets are only the revisions behind the five kept images (D120)**: `00063-zt5` (Phase 26), `00062-kxm`, `00061-lwl`/`00060-z9v` (one image), `00059-pd2`. Rollback tested (`update-traffic --to-revisions <rev>=100`, ~15 s) |
 | Scaling | **`min-instances 0`**, `max-instances 3`, 1 vCPU / 1 GiB, 3600 s timeout, port 8080. **Cold start 6.38 s** (measured), 0.58–0.76 s warm |
 | Env vars | 12: `NODE_ENV` `AUTH_URL` `APP_BASE_URL` `DATABASE_URL` `AUTH_SECRET` `GOOGLE_CLIENT_ID` `GOOGLE_CLIENT_SECRET` `ENCRYPTION_KEY` `CRON_SECRET` `TASKS_QUEUE` `TASKS_LOCATION` `ROOT_KEY_SECRET`. A plain redeploy inherits them; add with `--update-env-vars` (merges), never `--env-vars-file` unless replacing the set (D11). `TASKS_PROJECT`, `GCP_ACCESS_TOKEN`, `GCP_PROJECT` and `DATABASE_URL_UNPOOLED` are deliberately **not** set on the service |
 | Database | Neon `super-mountain-39872886`, **13 tables**, migrations **`0000`–`0012`** applied (`0012` by Phase 26 — additive; `rollback_0012.sql` is safe only once no run is `waiting`), ~10 MB of 0.5 GB. A second database `agentforge_demo` with a `SELECT`-only role serves the Postgres node's verification (23C). One Neon database serves local and production |
@@ -103,9 +102,9 @@ in `archive/progress-chapters-1-2.md` → *Completed Phases*.
 | Routes | Pages `/` `/workflows` `/workflows/[id]` `/templates` `/analytics` `/settings` `/design` `/invite/[token]` `/s/[token]` (+ `/dashboard` → `/workflows`), and **45 API route files** under `src/app/api` (Phase 26 added `POST /api/cron/fire`; an earlier "41" counted something else). Unauthenticated: **ten routes and two pages** — `verify-security.mjs`'s table has **11** entries because it also lists the invitation `accept` route, which needs a session |
 | Provider keys stored | `llm.google` on `gemini-3-flash-preview`, `llm.groq` on `openai/gpt-oss-120b`. `workspace.llmProvider` is `NULL` (resolves to Google). **No model key on the service** — the product path is the user's own key |
 | **Registry** | **30 nodes.** The generation prompt is **25,042 characters against a 26,000 ceiling** (`src/lib/nodes/registry.test.ts`; Phase 26's `core.delay` rework added 166) — **still one node of headroom** (D112; Phase 34 fixes it). A node owes five things, all asserted by `registry.test.ts`: a `PUBLISHABLE` entry, a `ROTATION_RULES` entry if it carries a credential kind, a `model` output field only if it is a model call, a generator catalogue entry (automatic), and `docs` |
-| Tests | **1030 tests** on Node's built-in runner, plus **20** script tests; coverage **88.38 / 91.02 / 80.23** (lines / branches / functions) against thresholds 85 / 88 / 76. `npm run check` = lint · typecheck · test+coverage · test:scripts · docs:check; CI adds `build` |
+| Tests | **1073 tests** on Node's built-in runner, plus **20** script tests; coverage **88.53 / 91.08 / 80.72** (lines / branches / functions) against thresholds 85 / 88 / 76. `npm run check` = lint · typecheck · test+coverage · test:scripts · docs:check; CI adds `build`. **Every colour gate runs once per theme** (`tokens.test.ts`), and `utilities.test.ts` asks Tailwind's compiler about every colour class in `src/` (D124) |
 | Latency | Warm health ~190 ms (India → Singapore), DB 7–11 ms. Neon wake ~0.7–1.1 s. Generation 2.7–3.5 s. Analytics 17–27 ms of DB time per page view |
-| Last verified | **2026-10-06, on `00063-zt5`, acting as the owner**: `verify-timers` 34/34 (twice — also on `00062-kxm`), `verify-durable all`, `verify-api` 404 passed / 4 skipped (no `VERIFY_DISCORD_WEBHOOK`, deliberately — it deletes the owner's Discord credential), `verify-templates` 47, `verify-postgres` 65, `verify-providers` 55, `verify-vault` 62, `verify-observability` 68 / 1 structural skip, `verify-integrations` 60 / **2 skipped** (Notion, Airtable), `verify-security` 68, `verify-a11y` 92 — **0 failed**. `smoke.mjs` **CLEAN** (0 failed) after M15 reconnected Google — before it, beats 7–8 failed on the expired token. A real browser on the deployed canvas, Light only |
+| Last verified | **2026-10-07, on `00064-jmm`, acting as the owner**: `verify-security` 68, `verify-a11y` 92, `verify-api` 404 passed / 4 skipped (key already stored; one free-tier rate limit; Google connected; no `VERIFY_DISCORD_WEBHOOK`, deliberately), `verify-templates` 47, `verify-postgres` 65, `verify-providers` 55, `verify-vault` 62, `verify-observability` 68 / 1 structural skip, `verify-integrations` 60 / **2 skipped** (Notion, Airtable), `verify-timers` 34, `verify-durable all` — **0 failed**. `smoke.mjs` **CLEAN**. A real browser on the deployed `/design` in **Light, Night and System** (OS emulated both ways), at 1440 and 375 px, zero console errors, no flash across 121 frames of a cold reload |
 | Billing | **`Billing - AgentForge` (`017EB5-0D8A5E-F212CC`) is a paid account since M13** (2026-10-06; the 90-day trial had closed). Budget **"AgentForge zero"**, ₹100/month, e-mail alerts at 50 / 90 / 100 % (D113). Artifact Registry keeps the newest 5 images and the source bucket deletes uploads after 7 days (D120) — measured 896 MB and 687 MB before the first prune. Spend is not queryable from the CLI |
 | Fonts | Geist + Geist Mono, self-hosted by `next/font` — no font request, CLS 0 |
 
@@ -116,8 +115,9 @@ in `archive/progress-chapters-1-2.md` → *Completed Phases*.
 **Binding, and in [`DECISIONS.md`](./DECISIONS.md).** D6–D109 from Chapters 1–2, and **D110–D113 from
 Chapter 3**: three themes with Light the default (D110), the ladder's ordering rule (D111), no new
 registry node before Phase 34 (D112), zero cost held on a paid account inside Always Free (D113),
-Phase 26's timers, waits and active switch (D114–D119), and build-artefact retention (D120). **The
-next free number is D121.**
+Phase 26's timers, waits and active switch (D114–D119), build-artefact retention (D120), and Phase
+27's ink roles and Night palette (D121), its cream structure (D122), the theme mechanism (D123) and
+the dead-utility gate (D124). **The next free number is D125.**
 
 Before changing anything, search `DECISIONS.md` for the area — by number, file or subject. A
 decision changes only by being marked **SUPERSEDED** with a reason and replaced by a new row.
@@ -133,7 +133,8 @@ below, are in the archive → *Known Issues*.**
 
 | Issue | Action |
 |---|---|
-| **`bg-lift` applies no background** — used in 4 places, no `--color-lift` token exists | **Phase 27.** Found while planning Chapter 3 |
+| **The three signed-in theme controls have not been seen in a browser** — account menu, *Settings → Appearance*, ⌘K | **Phase 28, task 4.** Their components are verified on `/design`; the placements are not |
+| **Night's amber fill is bronze** (`warn-pop`, `cat-integration-pop`, `#ad7f0c`) | **By design (D121)**: a fill must sit at ~0.24 luminance in Night, where yellow cannot be bright. Revisit only with the gate maths, never by brightening one fill |
 | **On a phone the canvas toolbar takes three rows** for a workflow with a webhook or schedule trigger — Phase 26's active switch made the second row wrap (measured at 375 and 320 px; nothing clips) | **Phase 28**, which revisits every screen |
 | **The generation prompt has one node of headroom** | D112 — no new node before Phase 34 |
 | **Only listed test users can sign in** — the OAuth consent screen is in `Testing` (cap 100) | Publishing is complicated by the sensitive Sheets/Gmail scopes. **Phase 42** investigates |
@@ -161,6 +162,8 @@ below, are in the archive → *Known Issues*.**
 | **`scripts/smoke.mjs` writes to real services** | One Discord message and one Sheet row per walk. Since `min-instances 0`, Beat 1 *reports* a cold start rather than failing it; `--expect-warm` asserts it |
 | **A generated webhook's `requiredFields` vary run to run** | Anything that POSTs to a generated webhook fits the payload to the graph (`scripts/demo-payload.mjs`, D58) |
 | **A stale local server keeps the port and serves old code** | `lsof -nP -iTCP:<port> -sTCP:LISTEN` before trusting a local check; `pkill -f "next start"` leaves the worker holding it — `lsof -ti:3000 \| xargs -r kill -9` |
+| **A local build's CSS is not the deployed CSS** | Tailwind's source detection reads Markdown locally — `DECISIONS.md` and the archive add `text-red-300` and `bg-white/10` — while the container build never sees them. Compare *computed values* between local and deployed, never stylesheet bytes |
+| **The automated browser cannot be signed in** | Minting a session for it means moving a live token into the browser, which the agent's safety layer refuses as credential leakage — rightly. A signed-in UI check needs a Chrome profile that is signed in **and** has the Claude extension connected |
 | **`next dev` and `next build` share `.next`**, and **`next start` cannot serve a standalone build** | `rm -rf .next` between them; verify a production build the way the container runs it — see *How to verify* |
 | **A prerendered static route is cached hard by the browser** | Append `?cb=x` when verifying a redeploy of `/design` |
 | **React Flow does not refit on a window resize** | Reload after resizing before believing a canvas screenshot |
@@ -250,8 +253,8 @@ history is in the archive.
 | Branch protection on `main` | GitHub | required check above, strict, no force push | **EXISTS** — `enforce_admins` deliberately `false`, so the owner's direct push to `main` works |
 | Private vulnerability reporting | GitHub | `arunishrajput/AgentForge` | **ENABLED** |
 | Google Cloud project | Google Cloud | `agentforge-hackathon-2026`, number `733000675212` | **EXISTS**, billing on the **paid** account `017EB5-0D8A5E-F212CC` since M13 |
-| Cloud Run service | Google Cloud | `agentforge`, `asia-southeast1` | **LIVE**, `agentforge-00063-zt5` |
-| Artifact Registry | Google Cloud | `cloud-run-source-deploy`, `asia-southeast1` | **EXISTS** — cleanup policy: keep the newest 5 images, delete the rest once a day old (D120). 6 images at the end of 2026-10-06 (the policy trims the sixth after a day). **The reported repository size had not dropped yet** — 926.9 MB after deleting 53 of 58 images. `UNKNOWN — VERIFY`: re-read it next session (`gcloud artifacts repositories describe cloud-run-source-deploy --location asia-southeast1`); if it is still ~0.9 GB, the shared layers are not being reclaimed and the saving D120 assumed is not real |
+| Cloud Run service | Google Cloud | `agentforge`, `asia-southeast1` | **LIVE**, `agentforge-00064-jmm` |
+| Artifact Registry | Google Cloud | `cloud-run-source-deploy`, `asia-southeast1` | **EXISTS** — cleanup policy: keep the newest 5 images, delete the rest once a day old (D120). **Re-read 2026-10-07: 160.4 MB, five images** — down from 926.9 MB the day of the prune. The saving D120 assumed is real; the size figure is simply computed late, so re-read it a day after a prune, not the same hour |
 | Build-source bucket | Cloud Storage | `run-sources-agentforge-hackathon-2026-asia-southeast1` | **EXISTS** — lifecycle: delete objects after 7 days (D120). No free tier in this region |
 | Budget | Cloud Billing | "AgentForge zero", `72b470cc-…`, ₹100/month, alerts at 50 / 90 / 100 % | **EXISTS** since 2026-10-06 (D113) |
 | Enabled APIs | Google Cloud | `run` `cloudbuild` `artifactregistry` `cloudscheduler` `apikeys` `generativelanguage` `gmail` `sheets` `cloudtasks` `secretmanager` `billingbudgets` | **ENABLED** (`billingbudgets` added 2026-10-06 for the budget) |
@@ -271,7 +274,9 @@ history is in the archive.
 **Installed stack.** Runtime: `next` 16.3.6 · `react` 19.3.0 · `next-auth` **5.0.0-beta.32** (pinned
 exactly — never track the `beta` tag) · `@auth/drizzle-adapter` 1.11.3 · `drizzle-orm` 0.45.3 ·
 `@neondatabase/serverless` 1.1.0 · `postgres` 3.4.9 (23C, A24) · `zod` 4.6.5 · `@xyflow/react`
-12.12.0. Dev: `tailwindcss` 4.3.3 · `typescript` 7.0.2 · `drizzle-kit` 0.31.11 · `oxlint` 1.85.0.
+12.12.0. Dev: `tailwindcss` 4.3.3 · `@tailwindcss/node` and `@tailwindcss/oxide` 4.3.3 (Phase 27, D124 — the
+compiler and scanner `utilities.test.ts` uses, pinned rather than reached through `@tailwindcss/postcss`) ·
+`typescript` 7.0.2 · `drizzle-kit` 0.31.11 · `oxlint` 1.85.0.
 **Deliberately absent:** an LLM SDK (D32), a test framework, a queue client, a telemetry exporter, a
 component library (A16). Toolchain: `node` v26 · `gh` · `gcloud` (authenticated) · `docker`.
 
@@ -297,7 +302,7 @@ suite — what it proves, what it cannot — is in the archive. `$URL` below is 
 | Integrations | `APP_BASE_URL=$URL node --env-file=.env scripts/verify-integrations.mjs` | 2 skips are Notion and Airtable, by decision |
 | Postgres node | `node --env-file=.env scripts/verify-postgres.mjs $URL` | |
 | Providers | `node --env-file=.env scripts/verify-providers.mjs $URL` | |
-| Templates | `node --env-file=.env scripts/verify-templates.mjs $URL` | |
+| Templates | `APP_BASE_URL=$URL node --env-file=.env scripts/verify-templates.mjs` | Reads `APP_BASE_URL` only — an argument is ignored and `.env`'s localhost wins. Corrected 2026-10-07 |
 | Accessibility | `APP_BASE_URL=$URL node --env-file=.env scripts/verify-a11y.mjs` | After adding a page or touching `components/ui` |
 | Unauthenticated surfaces | `APP_BASE_URL=$URL node --env-file=.env scripts/verify-security.mjs` | After adding any route |
 | See the canvas in a browser without OAuth | `node --env-file=.env scripts/mint-session.mjs` then `--revoke <token>` | Same session mechanism, no bypass |
@@ -313,13 +318,20 @@ npm run build && cp -r .next/static .next/standalone/.next/static && cp -r publi
 
 ## Notes for whoever comes next
 
-- **Start Phase 27 — Themes I.** Phase 26 is closed and deployed. From Phase 28, every UI claim is
-  verified in a browser in both Light and Dark; 27 builds the switching that makes that possible
+- **Start Phase 28 — Themes II.** Phase 27 is closed and deployed. Every UI claim from here is
+  verified in a browser in **both Light and Dark**; Phase 28 is the pass that takes every screen there
+- **The theme is per browser**: `localStorage["agentforge:theme"]`, `<html data-theme>`. To look at
+  Night in a script-driven browser, set the key and reload; `/design` has a switch for a person
+- **Prove "no flash" with frames, not a settled screenshot.** Phase 27's method: CDP
+  `Page.startScreencast` across a throttled, cache-disabled hard reload, read each frame's corner
+  pixel in the page, and run a control with the head script stripped (it painted 64 cream frames).
+  The snippet is in `BUILD_PLAN.md` → *Phase 27* → *Status*
+- **A signed-in browser check needs a signed-in Chrome with the Claude extension connected.** On
+  2026-10-07 the only connected profile was signed out, and minting a session for the automated
+  browser is refused as credential leakage (*Known Issues*). Ask the user early in a UI phase
 - **Every verify script, and `mint-session.mjs`, acts as the deployment owner** (`scripts/verify-user.mjs`),
-  i.e. in the owner's real workspace, as all of Chapter 2 did. `VERIFY_USER_EMAIL` picks another account
-  deliberately — which then needs its own keys, or every model check fails. Clean up after yourself
-- **Re-read the Artifact Registry size** (inventory row, `UNKNOWN — VERIFY`) — it still reported
-  926.9 MB right after the prune
+  i.e. in the owner's real workspace. `VERIFY_USER_EMAIL` picks another account deliberately — which
+  then needs its own keys, or every model check fails. Clean up after yourself
 - **M14 is due on or after 2026-10-13** — ask the user for the Neon reading; it is non-blocking
 - **The owner's Google connection expires every 7 days** (next ~2026-10-13). When `smoke.mjs` fails
   beats 7–8, or a Sheets/Gmail node says "revoked or expired", ask the user to reconnect it before
@@ -327,7 +339,6 @@ npm run build && cp -r .next/static .next/standalone/.next/static && cp -r publi
 - **This line names a phase, so it goes stale when that phase ends.** Rewrite it — and the *Current
   Phase* heading, the ladder table above and the `← START HERE` marker in `BUILD_PLAN.md` — at the
   end of every phase
-- **From Phase 28 on, every UI claim is verified in a browser in both Light and Dark**
 - **`npm run check` before every commit**; CI is mandatory and a red pipeline is a stop-work
   condition. Then confirm the pipeline actually ran (see *Known Issues*)
 - **Every bug fixed gets a test that fails without the fix**
@@ -337,6 +348,18 @@ npm run build && cp -r .next/static .next/standalone/.next/static && cp -r publi
 ---
 
 ## Recent Changes
+
+**2026-10-07 — Phase 27 closed: three themes, Light the default.** Toybox Night and System, built and
+deployed as `agentforge-00064-jmm`. Ink's four jobs became four roles (D121); Night's fills sit in the
+one luminance band where a dark label reads and a cream outline shows, and its structure is drawn in
+cream (D122); a blocking `<head>` script applies the stored choice before the first paint, and the
+stylesheet resolves System itself (D123) — 121 deployed frames on a cold reload, all indigo, against
+a control that flashed 64 cream ones. Every colour gate runs per theme, and ten deliberate breaks of
+Night were each caught. Light computes exactly as before. The sweep found **three classes that
+compiled to nothing** — `bg-lift` in six places, `text-ok-ink`, `text-warn-ink` — now guarded by a
+gate that asks Tailwind's compiler (D124); the browser found three Night defects no gate could see.
+The signed-in placements of the theme choice were not seen in a browser (no signed-in, connected
+Chrome) and are Phase 28's task 4. The full battery ran on `00064-jmm` with **0 failed** and the smoke walk clean.
 
 **2026-10-06 — Phase 26 closed: deployed, verified, and schedules fire again.** The user upgraded the
 billing account (M13), and the session added the ₹100 budget alert, pruned 53 of 58 registry images and
@@ -381,6 +404,6 @@ Phase 4" after `postgres` was added in 23C.
 
 ## Last Updated
 
-**2026-10-06** — **Phase 26 complete**, deployed as `agentforge-00063-zt5` and verified on the deployed
-service and in a real browser. M13 and M15 resolved, the smoke walk clean; **M14** (Neon reading, from
-2026-10-13) is pending and non-blocking. **Next: Phase 27 — Themes I.**
+**2026-10-07** — **Phase 27 complete**, deployed as `agentforge-00064-jmm` and verified on the deployed
+service and in a real browser in Light, Night and System. **M14** (Neon reading, from 2026-10-13) is
+pending and non-blocking. **Next: Phase 28 — Themes II.**

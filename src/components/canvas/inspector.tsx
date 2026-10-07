@@ -190,7 +190,7 @@ function NodeInspector({
       {/* The object, stated. The one loud element in the panel. */}
       <div
         className={cn(
-          "border-line text-ink flex shrink-0 items-center gap-2 border-b-2 px-3 py-2",
+          "border-line text-accent-ink flex shrink-0 items-center gap-2 border-b-2 px-3 py-2",
           category.fill,
         )}
       >

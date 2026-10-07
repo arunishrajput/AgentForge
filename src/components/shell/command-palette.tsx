@@ -4,9 +4,11 @@ import { useRouter } from "next/navigation";
 import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { cn } from "@/components/ui/cn";
+import { useTheme } from "@/components/ui/theme";
 import { useToast } from "@/components/ui/toast";
 import { api, type Workflow } from "@/lib/canvas/client";
 import { rankCommands, type Command } from "@/lib/ui/command";
+import { THEME_CHOICES, type ThemePreference } from "@/lib/ui/theme";
 
 /**
  * The command palette — ⌘K, or Ctrl+K.
@@ -39,9 +41,17 @@ type PaletteCommand = Command & {
 
 const REPOSITORY = "https://github.com/arunishrajput/AgentForge";
 
+/** What else someone might type for each theme. "night" finds Dark and nothing else. */
+const THEME_KEYWORDS: Record<ThemePreference, string[]> = {
+  light: ["light mode", "cream", "day"],
+  dark: ["dark mode", "night", "toybox night"],
+  system: ["device", "os", "automatic", "auto"],
+};
+
 export function CommandPalette({ className }: { className?: string }) {
   const router = useRouter();
   const toast = useToast();
+  const { preference, setPreference } = useTheme();
   const listId = useId();
   const optionId = useId();
 
@@ -185,6 +195,19 @@ export function CommandPalette({ className }: { className?: string }) {
       },
     ];
 
+    // The theme, from the keyboard — and the only place it can be changed from the
+    // canvas, which has no account menu. The current one says so in its hint rather
+    // than being hidden, so the list does not change shape as you choose.
+    const themes: PaletteCommand[] = THEME_CHOICES.map((choice) => ({
+      id: `theme:${choice.value}`,
+      group: "Theme",
+      title: `${choice.label} theme`,
+      subtitle: choice.hint,
+      keywords: ["theme", "appearance", "colour scheme", ...THEME_KEYWORDS[choice.value]],
+      hint: preference === choice.value ? "Current" : undefined,
+      run: () => setPreference(choice.value),
+    }));
+
     const saved: PaletteCommand[] = (workflows ?? []).map((workflow) => ({
       id: `workflow:${workflow.id}`,
       group: "Workflows",
@@ -195,8 +218,8 @@ export function CommandPalette({ className }: { className?: string }) {
       run: () => router.push(`/workflows/${workflow.id}`),
     }));
 
-    return [...navigation, ...saved];
-  }, [createWorkflow, router, workflows]);
+    return [...navigation, ...themes, ...saved];
+  }, [createWorkflow, preference, router, setPreference, workflows]);
 
   const results = useMemo(() => rankCommands(commands, query), [commands, query]);
 
@@ -265,7 +288,7 @@ export function CommandPalette({ className }: { className?: string }) {
         }}
         className={cn(
           "card-raised animate-pop m-auto mt-[12vh] w-[min(34rem,calc(100vw-2rem))] p-0",
-          "backdrop:bg-ink/35 open:flex open:flex-col",
+          "backdrop:bg-scrim/35 open:flex open:flex-col",
         )}
       >
         <div className="border-line bg-sunken flex items-center gap-2.5 border-b-2 px-4 py-3">
@@ -340,7 +363,7 @@ export function CommandPalette({ className }: { className?: string }) {
                     "cursor-pointer rounded-lg px-2.5 py-2",
                     // The cursor is a fill AND a left rule, never the fill alone:
                     // `DESIGN.md` → *Never colour alone*.
-                    selected && "bg-accent-pop text-ink border-line border-l-4",
+                    selected && "bg-accent-pop text-accent-ink border-line border-l-4",
                   )}
                 >
                   <span className="flex items-baseline gap-3">
@@ -349,7 +372,7 @@ export function CommandPalette({ className }: { className?: string }) {
                     </span>
                     {command.hint && (
                       <span
-                        className={cn("text-2xs shrink-0", selected ? "text-ink" : "text-faint")}
+                        className={cn("text-2xs shrink-0", selected ? "text-accent-ink" : "text-faint")}
                       >
                         {command.hint}
                       </span>
@@ -359,7 +382,7 @@ export function CommandPalette({ className }: { className?: string }) {
                     <span
                       className={cn(
                         "text-2xs mt-0.5 block truncate",
-                        selected ? "text-ink/75" : "text-muted",
+                        selected ? "text-accent-ink/75" : "text-muted",
                       )}
                     >
                       {command.subtitle}

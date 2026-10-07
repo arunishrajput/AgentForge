@@ -187,7 +187,7 @@ function WebhookPanel({
         ))}
 
       {rotated && (
-        <p className="text-2xs text-ok-ink" role="status">
+        <p className="text-2xs text-ok" role="status">
           Rotated. The URL above is the new one — the previous URL is already refused.
         </p>
       )}
