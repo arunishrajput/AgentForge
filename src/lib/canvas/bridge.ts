@@ -1,4 +1,4 @@
-import type { Edge as FlowEdge, Node as FlowNode } from "@xyflow/react";
+import type { Edge as FlowEdge, EdgeChange, Node as FlowNode, NodeChange } from "@xyflow/react";
 
 import type { NodePolicy } from "@/lib/engine/policy";
 import {
@@ -103,6 +103,54 @@ export function fromFlow(nodes: CanvasNode[], edges: CanvasEdge[]): WorkflowGrap
       sourceHandle: edge.sourceHandle ?? null,
     })),
   };
+}
+
+/**
+ * A stored graph laid back over the canvas that is already on screen — what Undo and
+ * Redo apply (Phase 29).
+ *
+ * `toFlow` would do, except that it builds every node from nothing: a node that survives
+ * the step would lose its selection, and lose `measured`, which React Flow then has to
+ * re-measure before an edge can find its handles. So every *persisted* field comes from
+ * the graph — that is the step being applied — and everything React Flow keeps on a node
+ * of the same id is carried over. A node the graph no longer has is gone; a node only the
+ * graph has arrives fresh. `fromFlow` of the result is the graph, exactly.
+ *
+ * Two functions rather than one so each can be a functional state update of its own list.
+ */
+export function restoreNodes(nodes: CanvasNode[], graph: WorkflowGraph): CanvasNode[] {
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  return graph.nodes.map((stored) => {
+    const fresh = toFlowNode(stored);
+    const current = byId.get(stored.id);
+    return current ? { ...current, position: fresh.position, data: fresh.data } : fresh;
+  });
+}
+
+export function restoreEdges(edges: CanvasEdge[], graph: WorkflowGraph): CanvasEdge[] {
+  const byId = new Map(edges.map((edge) => [edge.id, edge]));
+  return graph.edges.map((stored) => {
+    const fresh = toFlowEdge(stored);
+    const current = byId.get(stored.id);
+    return current ? { ...current, ...fresh } : fresh;
+  });
+}
+
+/**
+ * The React Flow changes a canvas that cannot be edited still has to apply: selecting,
+ * and the measurements React Flow writes back (Phase 29).
+ *
+ * The editor used to withhold `onNodesChange` from a viewer altogether, so nothing could
+ * move. But a controlled React Flow reports a *selection* through that same callback
+ * and does nothing with it itself — so a viewer's click selected nothing, and the
+ * inspector Phase 20 kept open "because reading a node's configuration is a read" could
+ * never be opened by clicking a node. Filtering keeps what the withholding was for: a
+ * move, a removal or an addition never reaches the graph.
+ */
+export function readOnlyChanges<C extends NodeChange<CanvasNode> | EdgeChange<CanvasEdge>>(
+  changes: C[],
+): C[] {
+  return changes.filter((change) => change.type === "select" || change.type === "dimensions");
 }
 
 /**

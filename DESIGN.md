@@ -502,6 +502,53 @@ sits **outside** the click target so it can be selected and copied.
 
 ---
 
+### Editing — Phase 29
+
+**Every edit is undoable, and the canvas reaches everything from the keyboard.**
+
+**The shortcut vocabulary is one table** — `src/lib/canvas/shortcuts.ts` — and it drives both the
+key handler and the `?` card, so the card cannot promise a key that does nothing. Change a key there
+and nowhere else.
+
+| Group | Keys |
+|---|---|
+| Edit | **⌘Z** undo · **⇧⌘Z** or **⌘Y** redo · **⌘C** copy · **⌘X** cut · **⌘V** paste · **⌘D** duplicate · **Delete** / **⌫** · **⌘S** save |
+| Select | **⌘A** every node · **⇧ Click** add or remove a node · **⇧ Drag** a box · **arrows** move the selection from a focused node (**⇧** for bigger steps) |
+| Canvas | **⌘K** find a node, or any command · **/** the palette's search · **F** fit · **?** this list · **Esc** close a panel or dialog |
+
+The rules the vocabulary keeps:
+
+- **`mod` is written once and printed per platform.** ⌘ and glyphs run together on a Mac (`⇧⌘Z`),
+  Ctrl and `+` everywhere else (`Ctrl+Shift+Z`) — `src/lib/ui/keys.ts`. Matching accepts ⌘ *or* Ctrl
+  on either, as ⌘K always has. A chord is spoken to a screen reader in words ("Command Shift Z"),
+  never as glyphs, and a control announces its key through `aria-keyshortcuts`
+- **Never while typing.** No canvas key fires in a text field, a textarea, a select or editable
+  content — `F` types an F and ⌘Z undoes the field's own typing. The one exception is **⌘S**, which
+  means nothing in a field and would otherwise open the browser's *Save page as*
+- **Never behind a dialog.** A key pressed inside an open `<dialog>` is the dialog's
+- **Nothing the browser or React Flow already owns is bound twice**: Delete, Shift-click, the box and
+  the arrow keys are React Flow's; paste is the browser's `paste` event; **⌘F stays the browser's
+  find** — *find a node* is ⌘K, the shared ranking over every node's label, type and id
+- **A found node takes focus**, so the next key acts on it — the arrows, Delete, ⌘D. ⌘K returns focus
+  to its own button only when the chosen command left it nowhere; and it keeps each group's results
+  together, so a heading is never printed twice
+
+**The edit controls live on the canvas, not in the toolbar.** Undo, Redo, Auto-arrange and `?` sit in
+React Flow's control stack under zoom and fit, set apart by a full-weight rule. The toolbar is two
+rows on a 375 px phone (Phase 28) and four more buttons would make it three; the stack sits over the
+canvas and costs it nothing. Their icons are strokes, where React Flow's are fills — the
+`control-icon` class says so. A viewer and diff mode get only `?`.
+
+**Several nodes selected is an inspector state of its own** — a count, what can be done to all of them
+(Duplicate, Copy, a four-way *Move* pad that nudges one grid step, Delete) and the list, each row
+narrowing the selection to that node. The pad exists because a drag needs a pointer. Only a
+single-node selection opens a railed inspector: a box selection reports a new set on every frame, and
+expanding the column mid-drag would resize the canvas under the box — the rail names the selection
+instead.
+
+**Keycaps are `Keys`** (`ui/kbd.tsx`): a `<kbd>` per key inside a `<kbd>` for the chord, `bg-surface`
+and an ink hairline; `joined` draws one cap, for the ⌘K button.
+
 ## The primitives
 
 `src/components/ui/`. All of them take `className`, and the caller's class wins because it is
@@ -521,6 +568,7 @@ appended last — there is no Tailwind-aware merge, and none is needed.
 | `tabs.tsx` | `Tabs` — roving tabindex, arrows, Home/End |
 | `menu.tsx` | `Menu` — arrows, Home/End, Escape, click-outside; radio items (`checked`) in a named `group`. Focus moves only over enabled items (`menu-focus.ts`) |
 | `theme.tsx` | `useTheme`, `ThemeSwitch` (the Light / Dark / System radio group), `ThemeSync` |
+| `kbd.tsx` | `Keys` (a chord as keycaps, spoken in words), `usePlatform` — Phase 29 |
 | `illustration.tsx` | `Mascot`, `Thinking`, `EmptyState`, and the four scenes |
 
 ### Notice or toast

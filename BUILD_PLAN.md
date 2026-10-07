@@ -44,8 +44,8 @@ is the file it means.
 26  Timers — schedules that fire, at zero idle cost       ✅
 27  Themes I — Toybox Night: tokens, gates, switching      ✅
 28  Themes II — every screen in both themes                ✅
-29  Canvas I — editing ergonomics                          ← START HERE
-30  Canvas II — sticky notes and disabled nodes
+29  Canvas I — editing ergonomics                          ✅
+30  Canvas II — sticky notes and disabled nodes            ← START HERE
 31  Canvas III — the test loop: pinned data and partial runs
 32  Library — organising workflows
 33  Runs — history and recovery
@@ -540,7 +540,9 @@ the keyboard reaches everything.
 1. **Undo / redo.** A bounded history of graph states in the editor, as a pure, tested module.
    Coalesce a drag into one entry and a config edit into one entry per field. ⌘Z / ⇧⌘Z (Ctrl on
    other platforms) and toolbar buttons. Save is not a history boundary; loading, restoring a
-   version and leaving diff mode clear the history.
+   version and leaving diff mode clear the history. *(Built: loading and restoring clear it;
+   **leaving diff mode does not** — diff mode never touches the editing graph, so clearing would
+   only discard the undo of work done before comparing. D128.)*
 2. **Copy, paste, duplicate.** Copy the selection (nodes plus the edges between them) to the
    clipboard as a recognisable JSON envelope. Paste mints new ids, offsets the positions, drops
    edges to nodes not pasted, and refuses a second trigger with a clear message (validation allows
@@ -552,7 +554,8 @@ the keyboard reaches everything.
    (`src/lib/generate/layout.ts`, D40) over the current graph. Undoable.
 5. **Shortcuts, and a way to discover them.** ⌘S save, F fit view, `/` focuses palette search, a
    `?` help dialog (also reachable from ⌘K). Never fire while the user is typing in a field.
-   Platform-aware labels.
+   Platform-aware labels. *(Built with one exception: **⌘S saves from a field** — it means
+   nothing there, and the alternative is the browser's "Save page as". D130.)*
 6. **Find on canvas.** "Find node" jumps to and selects a node by label, reusing the shared ranking
    in `src/lib/ui/command.ts` (D72, D76).
 
@@ -578,6 +581,72 @@ undone; the `?` dialog; the whole flow keyboard-only. Deployed.
 envelope, if another tab can read it), `README.md` features, `PROGRESS.md`.
 
 **Commit.** `feat: complete phase 29 canvas editing ergonomics`
+
+**Status: COMPLETE, 2026-10-07 — deployed as `agentforge-00071-k5m` and verified there in a real
+browser in Light and Toybox Night.** Five deploys, `00067-rxt` to `00071-k5m`: the first shipped the
+phase, and each later one carried what the deployed canvas found. What was built:
+
+- **Undo / redo** — `lib/canvas/history.ts` (pure, 19 tests) and `use-history.ts`, which records the
+  graph from before every structural change by watching the canvas rather than instrumenting each
+  edit (D128). A drag is one step however long; a field is one step until 1.5 s of quiet. Loading
+  and restoring clear it; **leaving diff mode does not** (D128 — the plan said it should). Forms
+  holding drafts remount on every undo, so a field never shows text Undo just replaced
+- **Copy, cut, paste, duplicate** — `lib/canvas/clipboard.ts` (23 tests) and `use-clipboard.ts`: the
+  `agentforge/nodes` envelope on the system clipboard as plain text (`CONTRACT.md`, D129). Ids kept
+  where free, edges re-pointed, `{{steps.<id>}}` references between pasted nodes rewritten, a second
+  trigger left out with a note, a paste of far-away nodes landed in the middle of the screen
+- **Multi-select** — ⌘A, Shift-click (`multiSelectionKeyCode` gains Shift), and the *N nodes
+  selected* inspector: Duplicate, Copy, a four-way Move pad, Delete, and the list
+- **Auto-arrange** — the generator's `layout()` (D40, its types narrowed to what it reads)
+- **Shortcuts** — one table, `lib/canvas/shortcuts.ts`, drives the key handler and the `?` card
+  (D130); platform-aware labels (`lib/ui/keys.ts`, `ui/kbd.tsx`); ⌘S the one key that works while
+  typing. Undo, Redo, Auto-arrange and `?` live in the canvas's control stack, not the toolbar (D131)
+- **Find on canvas** — every node is a ⌘K command (`canvas-commands.ts`, 6 tests), and a found node
+  takes focus
+
+**Found on the deployed canvas, all fixed and re-verified:**
+
+- **A click and an immediate ⌘D acted on the previous selection.** The selection was state set
+  from React Flow's `onSelectionChange`, which runs a render after the click; it is read off the
+  nodes now (D132)
+- **A viewer could never select a node** — since Phase 20, not this phase: withholding
+  `onNodesChange` also dropped the selection. `readOnlyChanges` (D132). *Unit-tested only*: no
+  viewer membership exists, and seeing it would have meant reading another account's workspace,
+  which was declined
+- **The Move pad's buttons overlapped**, squeezed by the caption beside them
+- **The keycaps were monospace and too small to read the ⌘ glyph** — a `<kbd>` inside a `<kbd>`
+  takes the browser's monospace
+- **After *find a node* focus went back to the ⌘K button**, thirty tab stops from the node
+- **⌘K printed a heading twice** when the ranking interleaved two groups (`keepGroupsTogether`)
+- **The D124 gate caught `stroke-icon`** before it shipped — Tailwind read it as a stroke colour
+
+**Verified in a real browser on the deployed service**: a generated six-node graph took **twenty
+mixed edits** — drags, a label, a select, typing, add, delete, duplicates, arrange, the Move pad, bulk
+duplicate (trigger left out, with the note), bulk delete, Shift-click delete, cut, paste, arrow nudges
+— and **twenty ⌘Z returned a canvas snapshot-identical to the generated graph, reading "Saved · v1"**;
+twenty ⇧⌘Z/⌘Y returned the end state exactly, with Redo then disabled. A selection copied with ⌘C
+and pasted with ⌘V into another workflow (ids kept, the edge between them, selected); the trigger
+refused into its own workflow; duplicate; bulk delete; a generated graph disturbed, auto-arranged
+back to exactly its generated layout, and undone exactly; the `?` card; ⌘K finding a node by label;
+`/`, F and ⌘S; ⌘Z after a save. **Keyboard only**: ⌘A, ⌘C, ⌘V, ⌘Z, ⌘K to a node that took focus, the
+arrows, ⌘D, Delete, ⌘Z ×3 back to clean, ⌘K to the card. The audit
+(`scripts/contrast-audit.browser.js`, extended to measure the `aria-hidden` keycaps and hints) was
+**clean in both themes** on the canvas, the selection inspector, the card (35 caps), ⌘K with canvas
+results, and an error toast; at 375 px in Night the toolbar is still two rows and the stack fits.
+
+**What the browser could not do, said plainly.** The paste into a *second tab* was not driven: a tab
+the extension opens sits hidden, and a hidden tab takes no input. It is the same `paste` event on the
+same system clipboard as the cross-workflow paste that was driven. Shift was held by a dispatched
+keydown, because the tool's click modifier sets `shiftKey` without pressing the key. **Safari** was
+not tested — copy is written from the key press precisely so it does not depend on Safari's `copy`
+event, but that is reasoning, not a run.
+
+**The battery, on `00069-nsh`**: `verify-security` 68, `verify-a11y` 92, `verify-api` 404 / 4 skipped
+(the fourth runs only while Google is *dis*connected), `verify-templates` 47, `verify-postgres` 65,
+`verify-providers` 55, `verify-vault` 62, `verify-observability` 68 / 1 structural skip,
+`verify-integrations` 60 / 2 skipped (Notion, Airtable), `verify-timers` 34, `verify-durable all` —
+**0 failed**. On the final `00071-k5m`, `verify-a11y` 92 and `verify-security` 68 again. 1165 tests;
+coverage 89.09 / 91.59 / 82.25.
 
 ---
 

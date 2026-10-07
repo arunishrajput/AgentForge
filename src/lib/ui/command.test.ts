@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { rankCommands, scoreCommand, type Command } from "./command";
+import { keepGroupsTogether, rankCommands, scoreCommand, type Command } from "./command";
 
 const COMMANDS: Command[] = [
   { id: "new", title: "New workflow", keywords: ["create", "blank", "canvas"] },
@@ -138,4 +138,32 @@ test("a subtitle still matches on substring and word start", () => {
   const command: Command = { id: "s", title: "Design system", subtitle: "The Toybox gallery" };
   assert.notEqual(scoreCommand(command, "toybox"), null);
   assert.notEqual(scoreCommand(command, "gallery"), null);
+});
+
+test("a ranking that interleaves groups is regrouped, each heading printed once (Phase 29)", () => {
+  // The ranking ⌘K produced for "log" on the deployed canvas: two nodes, workflows, then a
+  // third node — which printed "Nodes on this canvas" twice.
+  const ranked = [
+    { id: "n1", group: "Nodes" },
+    { id: "n2", group: "Nodes" },
+    { id: "w1", group: "Workflows" },
+    { id: "w2", group: "Workflows" },
+    { id: "n3", group: "Nodes" },
+    { id: "t1", group: "Theme" },
+    { id: "w3", group: "Workflows" },
+  ];
+  assert.deepEqual(
+    keepGroupsTogether(ranked).map((command) => command.id),
+    ["n1", "n2", "n3", "w1", "w2", "w3", "t1"],
+  );
+});
+
+test("regrouping keeps the best match first and leaves an already-grouped list alone", () => {
+  const grouped = [
+    { id: "a", group: "Actions" },
+    { id: "b", group: "Actions" },
+    { id: "c", group: "Go to" },
+  ];
+  assert.deepEqual(keepGroupsTogether(grouped), grouped);
+  assert.deepEqual(keepGroupsTogether([]), []);
 });

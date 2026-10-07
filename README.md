@@ -85,6 +85,7 @@ pretending otherwise.
 |---|---|
 | **Sentence → workflow** | A validated graph, or an honest `unsupported` with a reason. A broken workflow is never saved — the generator does not touch the database |
 | **A real canvas** | React Flow. Move nodes, rewire edges, change any node's configuration, add a trigger, delete half of it |
+| **Edits like a serious tool** | Undo and redo, copy and paste between workflows and tabs, duplicate, multi-select with bulk actions, auto-arrange, find a node from ⌘K, and every action on a key — press `?` for the list |
 | **Agent nodes** | Bounded tool-calling. The model decides; the graph routes. Every tool call is a visible, streamed step |
 | **Live execution** | Per-node status and logs over SSE while it runs. Reload mid-run and the page reattaches |
 | **30 nodes** | Triggers, logic, nine transforms, two AI nodes, and nine integrations. [Full reference](./docs/nodes.md) — generated from the registry |
@@ -254,14 +255,15 @@ Built in 13 phases for the Zero Origin hackathon and
 since into a real product: durable execution, versioning, workspaces, roles and sharing, a
 credential vault with rotation, observability and analytics, a 30-node catalogue, a second model
 provider, and this documentation. Chapter 3 — a product people use every day — has begun with
-schedules that fire from exact-time timers and a dark theme, Toybox Night, on every screen.
+schedules that fire from exact-time timers, a dark theme, Toybox Night, on every screen, and a
+canvas that edits like a serious tool: undo, copy and paste, multi-select and the keyboard.
 
 It is live, it works, and [`PROGRESS.md`](./PROGRESS.md) is the honest status board — including
 what is unfinished.
 
 **What comes next** is Chapter 3, planned phase by phase in [`BUILD_PLAN.md`](./BUILD_PLAN.md):
 
-- undo, copy and paste, and a test loop on the canvas
+- sticky notes, switching a node off, and a test loop on the canvas
 - run history and retries
 - a copilot that edits and repairs workflows by conversation
 - error paths, approval steps and sub-workflows

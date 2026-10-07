@@ -7,6 +7,9 @@ import {
   graphsEqual,
   nextEdgeId,
   nextNodeId,
+  readOnlyChanges,
+  restoreEdges,
+  restoreNodes,
   toFlow,
   type CanvasEdge,
   type CanvasNode,
@@ -221,4 +224,58 @@ test("adding a policy makes the graph dirty, and removing it makes it clean agai
   const flowed = toFlow(withPolicy);
   for (const node of flowed.nodes) node.data.policy = undefined;
   assert.equal(graphsEqual(clean, fromFlow(flowed.nodes, flowed.edges)), true);
+});
+
+test("restoring a graph over the canvas applies every stored field and nothing else", () => {
+  const { nodes, edges } = toFlow(graph);
+  // What React Flow hangs on the nodes and edges on screen.
+  const onScreen: CanvasNode[] = nodes.map((node) => ({
+    ...node,
+    selected: node.id === "shape",
+    measured: { width: 224, height: 119 },
+  }));
+  const onScreenEdges: CanvasEdge[] = edges.map((edge) => ({ ...edge, selected: edge.id === "e2" }));
+
+  // The step being applied: `shape` moved and relabelled, `check` gone, a new node added.
+  const step: WorkflowGraph = {
+    version: GRAPH_VERSION,
+    nodes: [
+      graph.nodes[0],
+      { ...graph.nodes[1], label: "Earlier name", position: { x: 10, y: 20 } },
+      { id: "log", type: "core.log", position: { x: 900, y: 0 }, config: {} },
+    ],
+    edges: [graph.edges[0], { id: "e2", source: "shape", target: "log", sourceHandle: null }],
+  };
+
+  const restored = { nodes: restoreNodes(onScreen, step), edges: restoreEdges(onScreenEdges, step) };
+  assert.deepEqual(fromFlow(restored.nodes, restored.edges), step, "the canvas now holds the step, exactly");
+
+  const shape = restored.nodes.find((node) => node.id === "shape")!;
+  assert.equal(shape.selected, true, "a surviving node keeps its selection");
+  assert.deepEqual(shape.measured, { width: 224, height: 119 }, "and its measurement");
+  const log = restored.nodes.find((node) => node.id === "log")!;
+  assert.equal(log.selected, undefined, "a node only the graph has arrives fresh");
+  assert.equal(restored.nodes.some((node) => node.id === "check"), false);
+  assert.equal(restored.edges.find((edge) => edge.id === "e2")?.target, "log", "an edge id reused takes the graph's ends");
+  assert.equal(restored.edges.find((edge) => edge.id === "e2")?.selected, true);
+});
+
+test("a canvas that cannot be edited still selects and measures, and changes nothing else", () => {
+  const changes = [
+    { type: "select" as const, id: "shape", selected: true },
+    { type: "dimensions" as const, id: "shape", dimensions: { width: 224, height: 119 } },
+    { type: "position" as const, id: "shape", position: { x: 9, y: 9 }, dragging: true },
+    { type: "remove" as const, id: "shape" },
+  ];
+  assert.deepEqual(
+    readOnlyChanges(changes).map((change) => change.type),
+    ["select", "dimensions"],
+  );
+  assert.deepEqual(
+    readOnlyChanges([
+      { type: "select" as const, id: "e1", selected: true },
+      { type: "remove" as const, id: "e1" },
+    ]).map((change) => change.type),
+    ["select"],
+  );
 });

@@ -149,6 +149,32 @@ projection of it, and `fromFlow(toFlow(graph))` must be deeply equal to `graph`.
 - Node ids are readable and derived from the type (`set`, `set_2`), not uuids: they are persisted
   in every run step, and Phase 7 asks a model to produce them
 
+### The canvas clipboard — **DEFINED** (Phase 29)
+
+`src/lib/canvas/clipboard.ts`. Copying nodes puts this on the system clipboard **as plain text**,
+so another tab — or another workflow, or a later version of the product — can read it back:
+
+```jsonc
+{
+  "format": "agentforge/nodes",   // what it is; anything else on the clipboard is ignored
+  "version": 1,                   // CLIPBOARD_VERSION. A reader must reject what it does not know
+  "nodes": [ /* workflowNodeSchema — the stored node shape above, 1–100 of them */ ],
+  "edges": [ /* workflowEdgeSchema — only edges whose two ends are both in `nodes` */ ]
+}
+```
+
+- **Parsed with the graph's own schemas** — a pasted node meets exactly the rules a saved one does,
+  and text that does not parse is not ours and is ignored without a message
+- **Ids.** A pasted node keeps its id if the target workflow does not use it; otherwise it takes the
+  next free `<stem>_<n>`. Edges get fresh `eN` ids and are re-pointed. **`{{steps.<id>…}}` references
+  between pasted nodes are rewritten to the new ids**; a reference to a node that was not copied is
+  left as it was
+- **One trigger.** A trigger the target already has one of is left out, the rest is pasted, and the
+  author is told; a clipboard holding only that trigger is refused
+- **Limits** are the workflow's: a paste that would pass 100 nodes or 200 edges is refused whole
+- Nothing on the clipboard is a credential — a node's credential is resolved by kind from the
+  workspace at run time — so a node pasted into another workspace uses *that* workspace's connection
+
 ### Template references in config
 
 `{{ path }}` is a **lookup, not an expression language** — no eval, no operators, no function

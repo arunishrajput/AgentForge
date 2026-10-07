@@ -121,3 +121,25 @@ export function rankCommands<T extends Command>(commands: T[], query: string): T
     .sort((a, b) => b.score - a.score || a.index - b.index)
     .map((entry) => entry.command);
 }
+
+/**
+ * A ranked list with each group's results kept together — Phase 29.
+ *
+ * The palette prints a group's heading wherever the group changes, so a ranking that
+ * interleaves two groups prints each heading twice. That was always possible and became
+ * common once the canvas added a node to ⌘K for every node on it: "log" ranked two log
+ * nodes, then eight workflows that contain one, then "Check for Outage" — a Logic node —
+ * under a second *Nodes on this canvas* heading.
+ *
+ * Groups come in the order of their best result, and inside a group the ranking's own
+ * order is kept, so the first row is still the best match overall.
+ */
+export function keepGroupsTogether<T extends { group: string }>(ranked: T[]): T[] {
+  const groups = new Map<string, T[]>();
+  for (const command of ranked) {
+    const members = groups.get(command.group);
+    if (members) members.push(command);
+    else groups.set(command.group, [command]);
+  }
+  return [...groups.values()].flat();
+}

@@ -12,6 +12,7 @@ import {
   useNodesState,
   useReactFlow,
   type Connection,
+  type NodeChange,
   type OnSelectionChangeParams,
 } from "@xyflow/react";
 import Link from "next/link";
@@ -20,6 +21,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CommandPalette } from "@/components/shell/command-palette";
 import { cn } from "@/components/ui/cn";
 import { Toggle } from "@/components/ui/field";
+import { usePlatform } from "@/components/ui/kbd";
 import { useTheme } from "@/components/ui/theme";
 import { useToast } from "@/components/ui/toast";
 import {
@@ -28,10 +30,16 @@ import {
   graphsEqual,
   nextEdgeId,
   nextNodeId,
+  readOnlyChanges,
+  restoreEdges,
+  restoreNodes,
   toFlow,
+  toFlowEdge,
+  toFlowNode,
   type CanvasEdge,
   type CanvasNode,
 } from "@/lib/canvas/bridge";
+import type { FlowRect } from "@/lib/canvas/clipboard";
 import {
   ApiRequestError,
   api,
@@ -44,18 +52,26 @@ import { useRunStream } from "@/lib/canvas/run-stream";
 import { isNewScheduledRun, withScheduleOf } from "@/lib/canvas/schedule-sync";
 import { defaultConfig } from "@/lib/canvas/schema";
 import { formatDuration } from "@/lib/format/duration";
+import { layout } from "@/lib/generate/layout";
 import { formatUtc } from "@/lib/triggers/cron";
 import { diffGraph, type GraphDiff, type NodeDiff } from "@/lib/workflow/diff";
+import type { WorkflowEdge, WorkflowGraph, WorkflowNode } from "@/lib/workflow/graph";
 import { mayChangeVisibility } from "@/lib/workflow/visibility";
 import { atLeast, type WorkspaceRole } from "@/lib/workspace/roles";
 
 import { CanvasContext, type NodeRunState } from "./context";
+import { buildCanvasCommands } from "./canvas-commands";
 import { DiffBar } from "./diff/diff-bar";
 import { History } from "./diff/history";
+import { EditControls } from "./edit-controls";
 import { Inspector } from "./inspector";
 import { Palette } from "./palette";
 import { useCollapsed } from "./panel";
 import { ShareDialog } from "./share-dialog";
+import { ShortcutsDialog } from "./shortcuts-dialog";
+import { useClipboard } from "./use-clipboard";
+import { useHistory } from "./use-history";
+import { useShortcuts } from "./use-shortcuts";
 import { WorkflowNodeView } from "./workflow-node";
 
 /**
@@ -169,7 +185,6 @@ function EditorInner({
 
   const [name, setName] = useState(workflow.name);
   const [saved, setSaved] = useState<Workflow>(workflow);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   /**
    * Two breakpoints, two behaviours, and no viewport measurement anywhere — CSS
@@ -212,6 +227,9 @@ function EditorInner({
 
   const { fitView, screenToFlowPosition } = useReactFlow();
   const wrapper = useRef<HTMLDivElement>(null);
+  const paletteSearch = useRef<HTMLInputElement>(null);
+  const platform = usePlatform();
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
 
   // The palette is the registry, delivered with the first render so every node draws
   // its real output handles immediately (see the page component).
@@ -443,19 +461,83 @@ function EditorInner({
 
   const comparing = diffView !== null;
 
-  const selected = nodes.find((node) => node.id === selectedId) ?? null;
+  /**
+   * Whether this canvas takes edits: an editor, outside diff mode. Undo, paste, duplicate,
+   * arrange and the palette shortcut all answer to this one flag, so the two read-only
+   * states — a viewer, a comparison — are inert in exactly the same way (Phase 29).
+   */
+  const editable = canEdit && !comparing;
+
+  /**
+   * The selection, read off the nodes themselves. One opens the node's inspector; several
+   * open the *N nodes selected* state (Phase 29) — before which a box selection looked, to
+   * the inspector, exactly like no selection at all.
+   *
+   * **Derived, never a second copy in state.** Phase 29 first kept the ids in state, set from
+   * `onSelectionChange` — which React Flow calls from an effect, a render *after* the click.
+   * Found on the deployed canvas: a node clicked and ⌘D pressed straight after duplicated
+   * the previous selection, or nothing. The nodes' `selected` flags change in the same
+   * render as the click, so they are the one source of truth.
+   */
+  const selection = useMemo(() => nodes.filter((node) => node.selected), [nodes]);
+  const selectedIds = useMemo(() => selection.map((node) => node.id), [selection]);
+  const selected = selection.length === 1 ? selection[0] : null;
 
   const onSelectionChange = useCallback((params: OnSelectionChangeParams) => {
-    const id = params.nodes.length === 1 ? params.nodes[0].id : null;
-    setSelectedId(id);
+    const ids = params.nodes.map((node) => node.id);
     // Selecting a node has to bring the inspector into view, or tapping a node on a
     // phone appears to do nothing at all — and at `lg` and up, a railed inspector
     // would swallow the selection just as silently.
-    if (id !== null) {
+    //
+    // Only for one node. A box selection reports a new set on every frame of the drag,
+    // and expanding a railed inspector mid-drag would resize the canvas under the box;
+    // the rail names the selection ("3 nodes selected") instead.
+    if (ids.length === 1) {
       setInspectorOpen(true);
       setInspectorCollapsed(false);
     }
   }, [setInspectorCollapsed]);
+
+  /**
+   * Undo and redo (Phase 29). The history watches `graph`; putting a step back on the
+   * canvas keeps everything React Flow knows about a surviving node (`restoreNodes`).
+   */
+  const applyGraph = useCallback(
+    (next: WorkflowGraph) => {
+      setNodes((current) => restoreNodes(current, next));
+      setEdges((current) => restoreEdges(current, next));
+    },
+    [setEdges, setNodes],
+  );
+  const history = useHistory({ graph, apply: applyGraph, enabled: editable });
+  const { beginGesture, endGesture, mark, reset: resetHistory, undo, redo } = history;
+
+  /**
+   * React Flow's own edits, with the drag boundaries the history needs: a position
+   * change that is `dragging` is a frame of a drag, and the first one that is not ends
+   * it. Everything between is one step of undo, however long the drag.
+   */
+  const handleNodesChange = useCallback(
+    (changes: NodeChange<CanvasNode>[]) => {
+      for (const change of changes) {
+        if (change.type !== "position") continue;
+        if (change.dragging) beginGesture();
+        else endGesture();
+      }
+      onNodesChange(changes);
+    },
+    [beginGesture, endGesture, onNodesChange],
+  );
+
+  /** A viewer selects and measures, and nothing else reaches the graph (`readOnlyChanges`). */
+  const handleReadOnlyNodesChange = useCallback(
+    (changes: NodeChange<CanvasNode>[]) => onNodesChange(readOnlyChanges(changes)),
+    [onNodesChange],
+  );
+  const handleReadOnlyEdgesChange = useCallback(
+    (changes: Parameters<typeof onEdgesChange>[0]) => onEdgesChange(readOnlyChanges(changes)),
+    [onEdgesChange],
+  );
 
   const onConnect = useCallback(
     (connection: Connection) => {
@@ -539,26 +621,141 @@ function EditorInner({
     [setNodes],
   );
 
-  const deleteNode = useCallback(
-    (id: string) => {
-      setNodes((current) => current.filter((node) => node.id !== id));
+  /** Delete nodes and every edge touching them — one step of undo, however many. */
+  const removeNodes = useCallback(
+    (ids: readonly string[]) => {
+      const gone = new Set(ids);
+      setNodes((current) => current.filter((node) => !gone.has(node.id)));
       setEdges((current) =>
-        current.filter((edge) => edge.source !== id && edge.target !== id),
+        current.filter((edge) => !gone.has(edge.source) && !gone.has(edge.target)),
       );
-      setSelectedId(null);
     },
     [setEdges, setNodes],
   );
+
+  const deleteNode = useCallback((id: string) => removeNodes([id]), [removeNodes]);
 
   const selectNode = useCallback(
     (id: string) => {
       setNodes((current) =>
         current.map((node) => ({ ...node, selected: node.id === id })),
       );
-      setSelectedId(id);
     },
     [setNodes],
   );
+
+  /**
+   * Add pasted or duplicated nodes as one step, selected — so the next thing a person
+   * does (drag them, delete them, undo) applies to exactly what just arrived.
+   */
+  const insertNodes = useCallback(
+    (added: WorkflowNode[], addedEdges: WorkflowEdge[]) => {
+      mark(null);
+      setNodes((current) => [
+        ...current.map((node) => (node.selected ? { ...node, selected: false } : node)),
+        ...added.map((node) => ({ ...toFlowNode(node), selected: true })),
+      ]);
+      setEdges((current) => [
+        ...current.map((edge) => (edge.selected ? { ...edge, selected: false } : edge)),
+        ...addedEdges.map(toFlowEdge),
+      ]);
+    },
+    [mark, setEdges, setNodes],
+  );
+
+  const selectAll = useCallback(() => {
+    setNodes((current) => current.map((node) => (node.selected ? node : { ...node, selected: true })));
+  }, [setNodes]);
+
+  /** The inspector's arrow buttons. Repeated nudges of one selection are one step. */
+  const moveSelection = useCallback(
+    (dx: number, dy: number) => {
+      setNodes((current) =>
+        current.map((node) =>
+          node.selected
+            ? { ...node, position: { x: node.position.x + dx, y: node.position.y + dy } }
+            : node,
+        ),
+      );
+    },
+    [setNodes],
+  );
+
+  /**
+   * Auto-arrange: the generator's own layout (D40) over the graph as it stands. Columns
+   * by longest path, left to right — the shape a generated workflow arrives in, so an
+   * arranged one reads the same way. One step of undo.
+   */
+  const arrange = useCallback(() => {
+    const positions = layout(graph.nodes, graph.edges);
+    mark(null);
+    setNodes((current) =>
+      current.map((node) => {
+        const position = positions.get(node.id);
+        return position ? { ...node, position } : node;
+      }),
+    );
+    requestAnimationFrame(() => fitView({ ...FIT, duration: tweenMs(300) }));
+  }, [fitView, graph, mark, setNodes]);
+
+  const fit = useCallback(() => {
+    fitView({ ...FIT, duration: tweenMs(250) });
+  }, [fitView]);
+
+  /** `/` — the palette's search, from anywhere on the canvas, opened if it was put away. */
+  const focusPaletteSearch = useCallback(() => {
+    const wasCollapsed = paletteCollapsed;
+    setPaletteCollapsed(false);
+    setPaletteOpen(true);
+    setInspectorOpen(false);
+    if (wasCollapsed) refit();
+    // A frame, so a drawer that was `invisible` is visible — and focusable — first.
+    requestAnimationFrame(() => paletteSearch.current?.focus());
+  }, [paletteCollapsed, refit, setPaletteCollapsed]);
+
+  /**
+   * *Find a node* in ⌘K: select it, open it, bring it to the middle of the screen — and
+   * **focus it**, so a keyboard user can move it with the arrows, delete it or duplicate
+   * it straight away rather than tabbing through the palette to reach the canvas. The
+   * command palette leaves focus where a command put it (`command-palette.tsx`).
+   */
+  const findNode = useCallback(
+    (id: string) => {
+      selectNode(id);
+      setInspectorOpen(true);
+      setInspectorCollapsed(false);
+      // The document, not `wrapper`: this runs from a command built during render, and
+      // a ref read there is what `react/refs` exists to refuse. There is one canvas a page.
+      document
+        .querySelector<HTMLElement>(`.react-flow__node[data-id="${CSS.escape(id)}"]`)
+        ?.focus({ preventScroll: true });
+      requestAnimationFrame(() =>
+        fitView({ nodes: [{ id }], padding: 0.6, maxZoom: 1, duration: tweenMs(300) }),
+      );
+    },
+    [fitView, selectNode, setInspectorCollapsed],
+  );
+
+  /** The canvas on screen, in flow coordinates — where a paste of far-away nodes lands. */
+  const visibleRect = useCallback((): FlowRect | undefined => {
+    const bounds = wrapper.current?.getBoundingClientRect();
+    if (!bounds || bounds.width === 0) return undefined;
+    const from = screenToFlowPosition({ x: bounds.left, y: bounds.top });
+    const to = screenToFlowPosition({ x: bounds.right, y: bounds.bottom });
+    return { x: from.x, y: from.y, width: to.x - from.x, height: to.y - from.y };
+  }, [screenToFlowPosition]);
+
+  const clipboard = useClipboard({
+    graph,
+    selectedIds,
+    registry,
+    canCopy: !comparing,
+    canEdit: editable,
+    viewport: visibleRect,
+    insert: insertNodes,
+    remove: removeNodes,
+    toast,
+  });
 
   /** One PATCH carrying the whole graph — a single atomic row update (D14). */
   const save = useCallback(async (): Promise<Workflow | null> => {
@@ -623,7 +820,6 @@ function EditorInner({
       }
     }
 
-    setSelectedId(null);
     setNodes((all) => all.map((node) => ({ ...node, selected: false })));
     // Clear the previous run first. The stream's first snapshot is a few hundred
     // milliseconds away, and leaving the old run on screen means pressing Run shows a
@@ -834,7 +1030,6 @@ function EditorInner({
     async (from: number, to: number) => {
       try {
         const result = await api.compareVersions(workflow.id, from, to);
-        setSelectedId(null);
         setNodes((all) => all.map((node) => ({ ...node, selected: false })));
         setComparison({ from, to, diff: result.diff });
         requestAnimationFrame(() => fitView({ ...FIT, duration: tweenMs(250) }));
@@ -850,7 +1045,15 @@ function EditorInner({
     [fitView, setNodes, toast, workflow.id],
   );
 
-  /** Leave diff mode. Nothing to restore — the editing graph was never replaced. */
+  /**
+   * Leave diff mode. Nothing to restore — the editing graph was never replaced.
+   *
+   * **Nor does the undo history clear**, though `BUILD_PLAN.md` Phase 29 first said it
+   * should (D128). The history is a history of the editing graph, and a comparison never
+   * touches it: undo is inert while one is on screen, and afterwards the stack is exactly
+   * the work the person did before they looked. Clearing it would throw that work's undo
+   * away for no reason a person could see.
+   */
   const stopComparing = useCallback(() => {
     setComparison(null);
     requestAnimationFrame(() => fitView({ ...FIT, duration: tweenMs(250) }));
@@ -864,15 +1067,17 @@ function EditorInner({
   const adoptRestored = useCallback(
     (restored: Workflow) => {
       const flow = toFlow(restored.graph);
+      // A restored version has no past on this canvas: its undo would step back into a
+      // graph the restore just replaced (Phase 29).
+      resetHistory(restored.graph);
       setSaved(restored);
       setName(restored.name);
       setNodes(flow.nodes);
       setEdges(flow.edges);
-      setSelectedId(null);
       setComparison(null);
       requestAnimationFrame(() => fitView({ ...FIT, duration: tweenMs(250) }));
     },
-    [fitView, setEdges, setNodes],
+    [fitView, resetHistory, setEdges, setNodes],
   );
 
   /**
@@ -952,6 +1157,58 @@ function EditorInner({
    * does nothing is a question the user then has to ask.
    */
   const automatic = saved.webhookUrl !== null || saved.scheduleCron !== null;
+
+  /**
+   * The keyboard — Phase 29. Which key means what is `lib/canvas/shortcuts.ts`; an action
+   * left `undefined` here is not claimed, so its key keeps the browser's meaning. Undo,
+   * paste and the rest are missing for exactly the two states `editable` excludes.
+   *
+   * Duplicate and select-all always claim their key when they are offered, even with
+   * nothing to act on: ⌘D on the canvas opening the browser's bookmark dialog, or ⌘A
+   * selecting the page's text, would be a surprise nobody asked for.
+   */
+  useShortcuts({
+    undo: editable ? undo : undefined,
+    redo: editable ? redo : undefined,
+    copy: comparing ? undefined : clipboard.copy,
+    cut: editable ? clipboard.cut : undefined,
+    duplicate: editable
+      ? () => {
+          clipboard.duplicate();
+        }
+      : undefined,
+    selectAll: comparing ? undefined : selectAll,
+    save: canEdit
+      ? () => {
+          if (busy === null && dirty && !comparing) void save();
+        }
+      : undefined,
+    fit,
+    search: editable ? focusPaletteSearch : undefined,
+    help: () => setShortcutsOpen(true),
+  });
+
+  /** ⌘K on the canvas: its actions, then every node — *find a node* (`canvas-commands.ts`). */
+  const canvasCommands = useMemo(
+    () =>
+      buildCanvasCommands({
+        nodes,
+        registry,
+        platform,
+        editable,
+        comparing,
+        actions: {
+          undo,
+          redo,
+          arrange,
+          fit,
+          selectAll,
+          shortcuts: () => setShortcutsOpen(true),
+          find: findNode,
+        },
+      }),
+    [arrange, comparing, editable, findNode, fit, nodes, platform, redo, registry, selectAll, undo],
+  );
 
   const canvasValue = useMemo(
     () => ({
@@ -1231,7 +1488,7 @@ function EditorInner({
             {/* The shell's palette, mounted here rather than stacking a second bar
                 above a viewport-height graph. It is how the canvas reaches the rest
                 of the product without spending vertical space on nav links. */}
-            <CommandPalette className="max-md:hidden" />
+            <CommandPalette className="max-md:hidden" commands={canvasCommands} />
           </div>
         </header>
 
@@ -1278,6 +1535,7 @@ function EditorInner({
               setPaletteCollapsed(true);
               refit();
             }}
+            searchRef={paletteSearch}
           />
           )}
 
@@ -1299,14 +1557,27 @@ function EditorInner({
               // save would let them rearrange a graph, watch it look edited, and lose the
               // lot on reload. `elementsSelectable` stays on either way — selecting a node
               // opens the inspector, which is how a viewer reads its configuration.
-              onNodesChange={comparing || !canEdit ? undefined : onNodesChange}
-              onEdgesChange={comparing || !canEdit ? undefined : onEdgesChange}
+              //
+              // **Except selection**, since Phase 29: a controlled React Flow reports a
+              // click's selection through `onNodesChange` too, so withholding it from a
+              // viewer meant no click ever selected anything. A viewer gets the select
+              // and measure changes and nothing else (`readOnlyChanges`).
+              onNodesChange={
+                comparing ? undefined : canEdit ? handleNodesChange : handleReadOnlyNodesChange
+              }
+              onEdgesChange={
+                comparing ? undefined : canEdit ? onEdgesChange : handleReadOnlyEdgesChange
+              }
               onConnect={comparing || !canEdit ? undefined : onConnect}
               onSelectionChange={comparing ? undefined : onSelectionChange}
               nodesDraggable={!comparing && canEdit}
               nodesConnectable={!comparing && canEdit}
               elementsSelectable={!comparing}
               deleteKeyCode={comparing || !canEdit ? null : ["Delete", "Backspace"]}
+              // Shift-click adds a node to the selection or takes it out (Phase 29), as
+              // ⌘-click (Ctrl elsewhere) already did. Shift-*drag* is still the box:
+              // React Flow starts a box only when the pointer moves.
+              multiSelectionKeyCode={["Meta", "Control", "Shift"]}
               // The palette the reader's theme resolves to (Phase 28), never React
               // Flow's own `"system"`, which would follow the OS for a reader who
               // chose Light. Every variable `globals.css` sets wins in either mode;
@@ -1321,7 +1592,19 @@ function EditorInner({
               proOptions={{ hideAttribution: false }}
             >
               <Background gap={20} />
-              <Controls showInteractive={false} />
+              <Controls showInteractive={false}>
+                <EditControls
+                  editable={editable}
+                  canUndo={history.canUndo}
+                  canRedo={history.canRedo}
+                  canArrange={nodes.length > 1}
+                  platform={platform}
+                  onUndo={undo}
+                  onRedo={redo}
+                  onArrange={arrange}
+                  onShortcuts={() => setShortcutsOpen(true)}
+                />
+              </Controls>
               {/* A minimap on a phone costs a quarter of the canvas and duplicates
                   what panning already gives. */}
               <MiniMap pannable zoomable className="max-sm:!hidden" />
@@ -1343,6 +1626,10 @@ function EditorInner({
             }}
             node={selected}
             definition={selected ? registry.get(selected.data.nodeType) : undefined}
+            selection={selection}
+            registry={registry}
+            platform={platform}
+            revision={history.revision}
             workflow={saved}
             dirty={dirty}
             problems={saved.problems}
@@ -1366,6 +1653,10 @@ function EditorInner({
             onChangeNode={changeNode}
             onDeleteNode={deleteNode}
             onSelectNode={selectNode}
+            onCopySelection={() => clipboard.copy()}
+            onDuplicateSelection={() => clipboard.duplicate()}
+            onMoveSelection={moveSelection}
+            onDeleteSelection={() => removeNodes(selectedIds)}
           />
         </div>
       </div>
@@ -1381,6 +1672,12 @@ function EditorInner({
         readOnly={!canEdit}
         onRestored={adoptRestored}
         onCompare={compare}
+      />
+
+      <ShortcutsDialog
+        open={shortcutsOpen}
+        onClose={() => setShortcutsOpen(false)}
+        platform={platform}
       />
 
       <ShareDialog

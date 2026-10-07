@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState, type RefObject } from "react";
 
 import { cn } from "@/components/ui/cn";
 import { categoryLook } from "@/lib/canvas/categories";
@@ -32,7 +32,8 @@ import { Panel } from "./panel";
  * Adding is a **click**, not a drag: it places the node in clear space on the canvas,
  * works on any input device, and has no drop-target failure mode. Pressing Enter in
  * the search box adds the top match, so "gmail⏎" is the whole interaction for
- * someone who knows what they want.
+ * someone who knows what they want — and since Phase 29 `/` puts the cursor there
+ * from anywhere on the canvas, so the whole interaction is "/gmail⏎".
  */
 export function Palette({
   id,
@@ -44,6 +45,7 @@ export function Palette({
   onClose,
   onExpand,
   onCollapse,
+  searchRef: search,
 }: {
   id: string;
   nodes: NodeSummary[];
@@ -54,9 +56,10 @@ export function Palette({
   onClose: () => void;
   onExpand: () => void;
   onCollapse: () => void;
+  /** The search field, so the editor's `/` shortcut can put the cursor in it. */
+  searchRef: RefObject<HTMLInputElement | null>;
 }) {
   const [query, setQuery] = useState("");
-  const search = useRef<HTMLInputElement>(null);
 
   const matches = useMemo(() => rankNodes(nodes, query), [nodes, query]);
   const groups = useMemo(() => groupNodes(matches), [matches]);

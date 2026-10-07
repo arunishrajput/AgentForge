@@ -4,10 +4,11 @@ import { useRouter } from "next/navigation";
 import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { cn } from "@/components/ui/cn";
+import { Keys, usePlatform } from "@/components/ui/kbd";
 import { useTheme } from "@/components/ui/theme";
 import { useToast } from "@/components/ui/toast";
 import { api, type Workflow } from "@/lib/canvas/client";
-import { rankCommands, type Command } from "@/lib/ui/command";
+import { keepGroupsTogether, rankCommands, type Command } from "@/lib/ui/command";
 import { THEME_CHOICES, type ThemePreference } from "@/lib/ui/theme";
 
 /**
@@ -30,9 +31,15 @@ import { THEME_CHOICES, type ThemePreference } from "@/lib/ui/theme";
  * narrow the list, which is the whole interaction.
  *
  * The ranking is in `src/lib/ui/command.ts`, with tests. This file is the wiring.
+ *
+ * **A page can add its own commands** (Phase 29). The canvas passes its actions —
+ * Undo, Auto-arrange, *Keyboard shortcuts* — and one command per node on it, which is
+ * what *Find a node* is: the same ranking, so typing part of a node's name finds it the
+ * way typing part of a workflow's name does (D72, D76). They come first, because on the
+ * canvas they are what the reader most likely opened the palette for.
  */
 
-type PaletteCommand = Command & {
+export type PaletteCommand = Command & {
   group: string;
   /** Right-aligned meta on the row — a node count, or a shortcut. */
   hint?: string;
@@ -48,8 +55,19 @@ const THEME_KEYWORDS: Record<ThemePreference, string[]> = {
   system: ["device", "os", "automatic", "auto"],
 };
 
-export function CommandPalette({ className }: { className?: string }) {
+/** A stable empty list, so a page that adds nothing does not re-rank every render. */
+const NO_COMMANDS: PaletteCommand[] = [];
+
+export function CommandPalette({
+  className,
+  commands: pageCommands = NO_COMMANDS,
+}: {
+  className?: string;
+  /** Commands the page contributes, listed before the product-wide ones. */
+  commands?: PaletteCommand[];
+}) {
   const router = useRouter();
+  const platform = usePlatform();
   const toast = useToast();
   const { preference, setPreference } = useTheme();
   const listId = useId();
@@ -109,7 +127,15 @@ export function CommandPalette({ className }: { className?: string }) {
       // the ⌘K path is the document body — a keyboard user would then be tabbing
       // from the top of the page. The visible equivalent of the shortcut is the
       // button, so focus goes there instead, whichever way the palette was opened.
-      trigger.current?.focus();
+      //
+      // **Unless the chosen command put focus somewhere on purpose** (Phase 29): the
+      // canvas's *find a node* focuses the node it found, so the arrow keys, Delete and
+      // ⌘D act on it at once. `close` fires after the command has run, and taking focus
+      // back here would send a keyboard user thirty tab stops away from what they found.
+      const active = document.activeElement;
+      if (active === null || active === document.body || element.contains(active)) {
+        trigger.current?.focus();
+      }
     };
     element.addEventListener("close", onClose);
     return () => element.removeEventListener("close", onClose);
@@ -218,10 +244,13 @@ export function CommandPalette({ className }: { className?: string }) {
       run: () => router.push(`/workflows/${workflow.id}`),
     }));
 
-    return [...navigation, ...themes, ...saved];
-  }, [createWorkflow, preference, router, setPreference, workflows]);
+    return [...pageCommands, ...navigation, ...themes, ...saved];
+  }, [createWorkflow, pageCommands, preference, router, setPreference, workflows]);
 
-  const results = useMemo(() => rankCommands(commands, query), [commands, query]);
+  const results = useMemo(
+    () => keepGroupsTogether(rankCommands(commands, query)),
+    [commands, query],
+  );
 
   // The group heading each row carries, derived rather than tracked with a variable
   // that the render loop reassigns: a value mutated during render is read again on
@@ -271,9 +300,8 @@ export function CommandPalette({ className }: { className?: string }) {
       >
         <span aria-hidden="true">⌕</span>
         <span className="hidden sm:inline">Search</span>
-        <kbd className="border-line bg-sunken text-3xs hidden rounded-md border px-1 py-px font-sans font-bold sm:inline">
-          ⌘K
-        </kbd>
+        {/* ⌘K on a Mac and Ctrl+K elsewhere (Phase 29) — it printed ⌘K to everyone. */}
+        <Keys chord={{ key: "k", mod: true }} platform={platform} joined className="hidden sm:inline-flex" />
       </button>
 
       {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions --

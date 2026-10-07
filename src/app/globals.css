@@ -793,6 +793,28 @@
   box-shadow: var(--shadow-card);
 }
 
+/* Phase 29's edit controls — Undo, Redo, Auto-arrange, `?` — under React Flow's zoom and
+   fit, set apart by a full-weight rule: two groups of different kinds of thing, one
+   object. Their icons are strokes where React Flow's own are fills, so they say so;
+   React Flow's `svg { fill: currentColor }` would otherwise fill the open paths in. */
+.react-flow__controls-button.control-group-start {
+  border-top: var(--stroke) solid var(--color-line);
+}
+
+.react-flow__controls-button svg.control-icon {
+  max-width: 14px;
+  max-height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.react-flow__controls-button:disabled svg.control-icon {
+  stroke-opacity: 0.4;
+}
+
 .react-flow__minimap {
   border: var(--stroke) solid var(--color-line);
   border-radius: var(--radius-lg);

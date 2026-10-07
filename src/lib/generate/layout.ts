@@ -18,6 +18,13 @@ import type { GeneratedEdge, GeneratedNode } from "./schema";
  * leave a clear gutter on both axes at every zoom the demo uses.
  */
 
+/**
+ * What layout reads: a node's id and an edge's two ends. Narrowed from the generator's
+ * own shapes in Phase 29, so the canvas's Auto-arrange can hand it a stored graph too.
+ */
+type LayoutNode = Pick<GeneratedNode, "id">;
+type LayoutEdge = Pick<GeneratedEdge, "source" | "target">;
+
 const X_STEP = 300;
 const Y_STEP = 140;
 
@@ -32,7 +39,7 @@ const Y_STEP = 140;
  * most `n` times cannot loop forever, and a cycle simply saturates at the node
  * count. 100 nodes × 200 edges is 20 000 comparisons — nothing.
  */
-function depths(nodes: GeneratedNode[], edges: GeneratedEdge[]): Map<string, number> {
+function depths(nodes: LayoutNode[], edges: LayoutEdge[]): Map<string, number> {
   const depth = new Map<string, number>();
   for (const node of nodes) depth.set(node.id, 0);
 
@@ -64,10 +71,10 @@ function depths(nodes: GeneratedNode[], edges: GeneratedEdge[]): Map<string, num
  * model's own node order, so a regeneration of the same graph lays out identically
  * and the result is diffable.
  */
-export function layout(nodes: GeneratedNode[], edges: GeneratedEdge[]): Map<string, Position> {
+export function layout(nodes: LayoutNode[], edges: LayoutEdge[]): Map<string, Position> {
   const depth = depths(nodes, edges);
 
-  const columns = new Map<number, GeneratedNode[]>();
+  const columns = new Map<number, LayoutNode[]>();
   for (const node of nodes) {
     const column = depth.get(node.id) ?? 0;
     const members = columns.get(column);

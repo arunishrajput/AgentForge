@@ -6,6 +6,7 @@ import { cn } from "@/components/ui/cn";
 import type { CanvasNode } from "@/lib/canvas/bridge";
 import { categoryLook } from "@/lib/canvas/categories";
 import type { GraphProblem, NodeSummary, Run, Workflow } from "@/lib/canvas/client";
+import type { Platform } from "@/lib/ui/keys";
 
 import { ConfigForm } from "./config-form";
 import { NodeDocs } from "./node-docs";
@@ -13,11 +14,14 @@ import { NodeIcon } from "./node-icon";
 import { Panel } from "./panel";
 import { PolicyForm } from "./policy-form";
 import { RunPanel } from "./run-panel";
+import { SelectionInspector } from "./selection-inspector";
 import { TriggerPanel } from "./trigger-panel";
 
 /**
  * The right-hand panel: the selected node's configuration, or — when nothing is
- * selected — why the workflow cannot run and what the last run did.
+ * selected — why the workflow cannot run and what the last run did. **Since Phase 29 a
+ * third state**: several nodes selected, and what can be done to all of them
+ * (`selection-inspector.tsx`).
  *
  * Validation problems are **shown, not enforced**. A half-built canvas must be
  * saveable (`CONTRACT.md` → "Graph validation"), so the honest UI is "saved, and here
@@ -47,6 +51,10 @@ export function Inspector({
   onCollapse,
   node,
   definition,
+  selection,
+  registry,
+  platform,
+  revision,
   workflow,
   dirty,
   problems,
@@ -64,6 +72,10 @@ export function Inspector({
   onChangeNode,
   onDeleteNode,
   onSelectNode,
+  onCopySelection,
+  onDuplicateSelection,
+  onMoveSelection,
+  onDeleteSelection,
 }: {
   id: string;
   open: boolean;
@@ -73,6 +85,15 @@ export function Inspector({
   onCollapse: () => void;
   node: CanvasNode | null;
   definition: NodeSummary | undefined;
+  /** Every selected node when there is more than one — Phase 29. Empty otherwise. */
+  selection: CanvasNode[];
+  registry: Map<string, NodeSummary>;
+  platform: Platform;
+  /**
+   * Bumped by undo and redo (`use-history.ts`). The node's forms are keyed on it, so a
+   * draft of a value that Undo just replaced is thrown away rather than shown.
+   */
+  revision: number;
   /** The workflow as last SAVED — a webhook URL or a due time only exists once stored. */
   workflow: Workflow;
   dirty: boolean;
@@ -105,10 +126,16 @@ export function Inspector({
   onChangeNode: (id: string, data: Partial<CanvasNode["data"]>) => void;
   onDeleteNode: (id: string) => void;
   onSelectNode: (id: string) => void;
+  onCopySelection: () => void;
+  onDuplicateSelection: () => void;
+  onMoveSelection: (dx: number, dy: number) => void;
+  onDeleteSelection: () => void;
 }) {
   // The panel's own title names what it is showing, so the rail does too — a
   // collapsed inspector that says "Send email" is worth reopening.
-  const title = node
+  const title = selection.length > 1
+    ? `${selection.length} nodes selected`
+    : node
     ? (node.data.label || definition?.label || node.data.nodeType)
     : run
       ? run.status === "running"
@@ -128,10 +155,23 @@ export function Inspector({
       onExpand={onExpand}
       onCollapse={onCollapse}
     >
-      {node ? (
+      {selection.length > 1 ? (
+        <SelectionInspector
+          nodes={selection}
+          registry={registry}
+          platform={platform}
+          readOnly={readOnly}
+          onSelectNode={onSelectNode}
+          onCopy={onCopySelection}
+          onDuplicate={onDuplicateSelection}
+          onMove={onMoveSelection}
+          onDelete={onDeleteSelection}
+        />
+      ) : node ? (
         <NodeInspector
           node={node}
           definition={definition}
+          revision={revision}
           workflow={workflow}
           dirty={dirty}
           problems={problems.filter((problem) => problem.nodeId === node.id)}
@@ -163,6 +203,7 @@ export function Inspector({
 function NodeInspector({
   node,
   definition,
+  revision,
   workflow,
   dirty,
   problems,
@@ -174,6 +215,7 @@ function NodeInspector({
 }: {
   node: CanvasNode;
   definition: NodeSummary | undefined;
+  revision: number;
   workflow: Workflow;
   dirty: boolean;
   problems: GraphProblem[];
@@ -255,9 +297,10 @@ function NodeInspector({
           </Labelled>
 
           {definition && (
-            // Remounts on selection change, which reloads the form's local drafts.
+            // Remounts on selection change, and on undo and redo, which reloads the
+            // form's local drafts from the value now on the canvas.
             <ConfigForm
-              key={node.id}
+              key={`${node.id}:${revision}`}
               schema={definition.configSchema}
               config={node.data.config}
               onChange={(config) => onChange(node.id, { config })}
@@ -285,7 +328,7 @@ function NodeInspector({
             <hr className="border-line-soft" />
             <fieldset disabled={readOnly} className="min-w-0 border-0 p-0">
               <PolicyForm
-                key={node.id}
+                key={`${node.id}:${revision}`}
                 policy={node.data.policy}
                 onChange={(policy) => onChange(node.id, { policy })}
               />
