@@ -3,7 +3,14 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 
-import { STATIC_ILLUSTRATION_DIR, renderStaticIllustrations } from "./illustrations-static";
+import { hex } from "./contrast";
+import {
+  ICON_PATH,
+  renderIcon,
+  renderStaticIllustrations,
+  STATIC_ILLUSTRATION_DIR,
+} from "./illustrations-static";
+import { THEMES, tokenValue } from "./palette";
 
 /**
  * The static SVGs in `public/illustrations/` are generated, and this is what stops
@@ -57,4 +64,40 @@ test("every colour in them is a resolved hex, not a token name or a gradient", (
     }
     assert.doesNotMatch(svg, /Gradient/, `${name} uses a gradient — Toybox has no gradients in artwork`);
   }
+});
+
+test("every illustration is drawn in both themes, from each theme's own palette", () => {
+  // Phase 28. A Night copy that quietly reused a Light colour would be a near-black
+  // outline on GitHub's dark page — the exact failure the copies exist to prevent.
+  const light = [...rendered.keys()].filter((name) => !name.endsWith("-dark.svg"));
+  assert.ok(light.length >= 4, "the Light set is missing");
+  for (const name of light) {
+    const dark = name.replace(/\.svg$/, "-dark.svg");
+    assert.ok(rendered.has(dark), `${name} has no Night copy, ${dark}`);
+    const outline = (svg: string) => /stroke="(#[0-9a-f]{6})" stroke-width="3"/.exec(svg)?.[1];
+    assert.equal(outline(rendered.get(name)!), hex(tokenValue("line", "light")), `${name}'s outline is not Light's line`);
+    assert.equal(outline(rendered.get(dark)!), hex(tokenValue("line", "dark")), `${dark}'s outline is not Night's line`);
+  }
+});
+
+test("the favicon is on disk, up to date, and carries both palettes", () => {
+  const expected = renderIcon();
+  assert.equal(
+    readFileSync(path.join(process.cwd(), ICON_PATH), "utf8"),
+    expected,
+    `${ICON_PATH} is stale — run \`npm run design:export\` and commit the result`,
+  );
+  const style = /<style>([\s\S]*?)<\/style>/.exec(expected)?.[1] ?? "";
+  const [light, dark] = style.split("@media (prefers-color-scheme:dark)");
+  assert.ok(dark, "the favicon has no dark palette");
+  for (const theme of THEMES) {
+    const block = theme === "light" ? light : dark;
+    for (const name of ["canvas", "line", "accent-pop", "live-pop", "ok-pop"]) {
+      assert.ok(
+        block.includes(hex(tokenValue(name, theme))),
+        `the favicon's ${theme} palette does not use ${theme}'s ${name}`,
+      );
+    }
+  }
+  assert.doesNotMatch(expected, /(?:fill|stroke)="#/, "a colour attribute cannot follow the theme — use a class");
 });

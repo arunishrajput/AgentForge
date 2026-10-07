@@ -174,7 +174,7 @@ function StepRow({
              * never intersect — and leaning on an exception for a control that can be
              * made compliant by one class is the wrong trade, on a phone most of all.
              */
-            className="focus-visible:ring-accent -mx-1 flex min-h-6 w-full items-center gap-2 rounded-lg px-1 text-left focus-visible:ring-2 focus-visible:outline-none"
+            className="-mx-1 flex min-h-6 w-full items-center gap-2 rounded-lg px-1 text-left"
           >
             <span
               className={step.done ? "text-muted text-sm font-semibold line-through" : "text-sm font-semibold"}

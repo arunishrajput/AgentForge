@@ -140,6 +140,12 @@ indigo page it cannot, so each job has its own name (D121):
   is what Night is made of, and the fitted fills are the answer
 - **No glow.** A dark theme is exactly where a soft glow tries to come back. The gate refuses a
   shadow with a blur in either theme
+- **A hovered fill does not get lighter in Night** (D125). In Light, `btn-primary` and `btn-danger`
+  mix 14% white into their fill on hover, a second cue beside the lift. Night's fills sit at 0.24 in a
+  band of luminance from 0.21 (the near-black label's 4.5:1) to 0.26 (the cream outline's 3:1), and
+  the same 14% lifts them to 0.31 — the outline falls to 2.61:1. So the amount is a per-theme value,
+  `--pop-hover-white` (14% / 0%), and in Night the hover is the lift alone. The gate computes every
+  fill's hover in both themes, and refuses any white mix that does not go through that value
 
 ### How the switch works
 
@@ -152,6 +158,26 @@ stored paints 218 frames, all indigo; with the script removed it paints 64 cream
 **Use `dark:` for anything that must differ by theme.** It is this project's variant, not
 Tailwind's — Tailwind's built-in follows the OS alone and would go dark for a reader who chose
 Light. A token that already differs by theme needs no `dark:` at all, which is most of them.
+
+### Everything the tokens do not reach — Phase 28
+
+Phase 27 made the tokens two-themed; Phase 28 found what was drawn without them.
+
+- **The canvas.** React Flow's `colorMode` is the reader's *resolved* theme (`useTheme().theme`),
+  never React Flow's own `"system"`, which follows the OS. Every `--xy-*` variable `globals.css`
+  sets wins in either mode, because React Flow's dark rule only changes the `*-default` fallbacks;
+  what the mode decides is the fallback for a variable nobody set. The minimap's mask is the recess
+  colour now, not a literal cream, and the dot grid is ink — see *Traps*
+- **The error page that replaces the layout.** `global-error.tsx` renders its own `<html>`, so it
+  carries `ThemeSync` itself. Next 16 never server-renders it — a root-layout failure gets Next's
+  bare `__next_error__` shell, and the page is rendered into it on the client — so the head script
+  would never run there, and is not copied in. Measured on a probe build: both a server-side and a
+  client-side throw painted the page in Night
+- **Files read outside the page** cannot see `data-theme`, so they follow their own environment.
+  The static illustrations are written twice, `name.svg` and `name-dark.svg`, and the README picks
+  with `<picture>` and `prefers-color-scheme` — GitHub's own theme. The favicon is drawn in the
+  browser's chrome, which follows the device, so it is one file holding both palettes behind a
+  media query. All of them are generated from the palette catalogue and compared byte for byte
 
 ---
 
@@ -291,9 +317,10 @@ deployed page for its headings rather than by looking at it.
 
 `public/illustrations/*.svg` are **generated** by `npm run design:export` from
 `src/lib/design/illustrations-static.ts`, for the README and the docs site, where an `<img src>`
-cannot read a CSS variable. `illustrations-static.test.ts` regenerates them in memory and compares
-byte for byte, so **a colour token change fails CI until the export is re-run.** Do not hand-edit
-them.
+cannot read a CSS variable — **each in Light and in Night** (`-dark.svg`) since Phase 28, and the
+README chooses with `<picture>`. The same command writes the favicon, `src/app/icon.svg`.
+`illustrations-static.test.ts` regenerates them all in memory and compares byte for byte, so **a
+colour token change fails CI until the export is re-run.** Do not hand-edit them.
 
 ---
 
@@ -565,8 +592,13 @@ primitive in new code because it carries the accessibility behaviour too.
 - Every shadow is a hard offset in `shade` with no blur, declared once
 - The `dark` variant follows the reader's choice, and the OS only under System
 - The select chevron (a data URI, which cannot read a variable) is each theme's own ink
+- A hovered pop fill still carries its label, its outline and the ring — every fill, each theme's
+  `--pop-hover-white` (D125) — and white is mixed into a colour nowhere else
 - **Every colour utility in `src/` compiles to CSS** — `utilities.test.ts`, D124
-- `public/illustrations/*.svg` are byte-identical to a fresh export
+- **No control removes the focus ring** (`outline-none`), except the ⌘K input, listed with its
+  reason — `utilities.test.ts`, Phase 28
+- Every file that renders an `<html>` applies the theme before it paints — `theme.test.ts`
+- `public/illustrations/*.svg`, both themes, and the favicon are byte-identical to a fresh export
 
 The maths is in `src/lib/design/contrast.ts` and is shared with the gallery, so **the number on the
 `/design` page is the number in the gate.** A gallery quoting figures from a hand-kept table would be
@@ -592,6 +624,8 @@ wrong within a phase.
 | **A class that names a missing token compiles to nothing, silently** | `bg-lift` reached for a `--color-lift` that never existed, and six elements shipped with no background from Phase 19A to Phase 27; `text-ok-ink` and `text-warn-ink` did the same to two messages. Tailwind does not warn. `utilities.test.ts` now asks Tailwind's own compiler about every colour utility in `src/` (D124) |
 | **A label colour set on a container reaches everything inside it** | `CardHeader` set `accent-ink` on its whole strip, so the quiet badge in its `aside` — which paints its own dark pill — inherited a near-black word. Invisible in Light, where the two inks are equal; an empty capsule in Night. Set the label on the label. The same applies to any neutral object placed on a fill: it names its own text colour (`chip bg-surface text-ink` in the diff bar) |
 | **An inline `style` cannot be themed** | The select chevron was an inline data URI with a near-black stroke; no class can override an inline style, so it stayed near-black on Night's indigo. It is the `select-chevron` utility now, with a `dark` variant |
+| **A style that names the wrong property applies nothing, silently** | The canvas's dot grid set `color` on React Flow's pattern, and React Flow paints each dot with `fill` from its own variable, `--xy-background-pattern-color` — so from Phase 14 to Phase 28 the dots were React Flow's grey, not ink, and in Night they would have been its dark-mode grey. Point a third-party component at the variable it actually reads; read its stylesheet to find out which |
+| **A script React renders on the client never runs** | Phase 28's first fix for `global-error.tsx` copied the root layout's blocking theme script into it. A probe build showed Next 16 never server-renders that file — it renders it into a bare shell on the client — so the script was dead code that looked like the fix. `ThemeSync` was what actually worked, and is all the page carries now |
 | **A lint rule can be wrong about a native element** | `role="switch"` on `input[type=checkbox]` is explicitly allowed by ARIA in HTML and its `checked` maps to `aria-checked`; adding `aria-checked` would create a second source of truth. Suppressed inline, with the reason, per the project convention |
 
 ---

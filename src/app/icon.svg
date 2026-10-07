@@ -1,11 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="AgentForge">
-  <rect x="1.25" y="1.25" width="29.5" height="29.5" rx="8.5" fill="#fdf4dd" stroke="#131722" stroke-width="2.5"/>
-  <g stroke="#131722" stroke-width="2.2" stroke-linecap="round" fill="none">
+  <style>.tile{fill:#fdf4dd}.line{stroke:#131722}.n1{fill:#b57cff}.n2{fill:#5fcbff}.n3{fill:#00f199}@media (prefers-color-scheme:dark){.tile{fill:#15162a}.line{stroke:#f8f1e2}.n1{fill:#a567f0}.n2{fill:#1190c1}.n3{fill:#109a61}}</style>
+  <rect class="tile line" x="1.25" y="1.25" width="29.5" height="29.5" rx="8.5" stroke-width="2.5"/>
+  <g class="line" stroke-width="2.2" stroke-linecap="round" fill="none">
     <path d="M12.8 16H15"/>
     <path d="m15 16 3.2-4.2"/>
     <path d="m15 16 3.2 4.2"/>
   </g>
-  <circle cx="9" cy="16" r="3.3" fill="#b57cff" stroke="#131722" stroke-width="2"/>
-  <circle cx="21.6" cy="10.6" r="2.9" fill="#5fcbff" stroke="#131722" stroke-width="2"/>
-  <circle cx="21.6" cy="21.4" r="2.9" fill="#00f199" stroke="#131722" stroke-width="2"/>
+  <circle class="n1 line" cx="9" cy="16" r="3.3" stroke-width="2"/>
+  <circle class="n2 line" cx="21.6" cy="10.6" r="2.9" stroke-width="2"/>
+  <circle class="n3 line" cx="21.6" cy="21.4" r="2.9" stroke-width="2"/>
 </svg>

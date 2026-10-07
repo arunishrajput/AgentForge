@@ -1,5 +1,6 @@
 /**
- * Write the standalone SVG copies of the mascot and the empty-state scene.
+ * Write the standalone SVG copies of the mascot and the empty-state scene, in Light and
+ * in Toybox Night, and the favicon (both palettes in one file) — Phase 28.
  *
  *   npm run design:export
  *
@@ -15,7 +16,7 @@ import path from "node:path";
 
 // Run with `--import ./scripts/test-register.mjs`, which installs the resolve hook that
 // lets Node load the TypeScript sources and their extensionless relative imports.
-const { renderStaticIllustrations, STATIC_ILLUSTRATION_DIR } = await import(
+const { ICON_PATH, renderIcon, renderStaticIllustrations, STATIC_ILLUSTRATION_DIR } = await import(
   "../src/lib/design/illustrations-static.ts"
 );
 
@@ -26,3 +27,6 @@ for (const [name, contents] of renderStaticIllustrations()) {
   writeFileSync(path.join(dir, name), contents, "utf8");
   console.log(`wrote ${STATIC_ILLUSTRATION_DIR}/${name}`);
 }
+
+writeFileSync(path.join(process.cwd(), ICON_PATH), renderIcon(), "utf8");
+console.log(`wrote ${ICON_PATH}`);

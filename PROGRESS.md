@@ -30,7 +30,7 @@ an AI copilot that edits and repairs workflows, workflows that can handle errors
 and call each other, and the daily-use basics — tags, run history, import/export and an API.
 
 **The live system must keep working:** **https://agentforge-733000675212.asia-southeast1.run.app** —
-revision `agentforge-00064-jmm`.
+revision `agentforge-00065-d2r`.
 Launch demo video: <https://www.youtube.com/watch?v=3txmpCPEWd4>.
 
 ### The binding decisions, restated for Chapter 3
@@ -48,12 +48,15 @@ Launch demo video: <https://www.youtube.com/watch?v=3txmpCPEWd4>.
 
 ## Current Phase
 
-## ▶ PHASE 28 — Themes II — every screen in both themes — NOT STARTED
+## ▶ PHASE 28 — Themes II — every screen in both themes — IN PROGRESS
 
-**Next.** `BUILD_PLAN.md` → *Phase 28* is the definition; `DESIGN.md` → *Themes* is what it builds on.
-Its task 4 is carried from Phase 27: **the account menu's Theme group, *Settings → Appearance* and
-the ⌘K theme commands have not yet been seen in a browser** — the only browser Phase 27 could drive
-was signed out (see *Notes*). The phone toolbar Known Issue below is Phase 28's too.
+**Part 1 deployed (2026-10-07, `agentforge-00065-d2r`)**: React Flow's `colorMode` follows the theme,
+the minimap mask and the dot grid read tokens, Night's fill hover no longer breaks the outline (D125),
+the favicon and the static illustrations exist in both themes, `global-error.tsx` applies the theme,
+and four new gates guard them. Every signed-out route was driven in Light and Night at 375–1920 px.
+**Waiting on a signed-in Chrome** (the connected profile is signed out) for the rest: the canvas, the
+settings tabs, the three theme controls (task 4, carried from Phase 27), the phone toolbar Known Issue
+below, a generated workflow run in Dark, and the canvas screenshot.
 
 **Phase 27 closed on 2026-10-07** — `agentforge-00064-jmm`, verified on the deployed service and in a
 real browser in Light, Night and System. Its evidence is in `BUILD_PLAN.md` → *Phase 27* → *Status*.
@@ -66,7 +69,7 @@ real browser in Light, Night and System. Its evidence is in `BUILD_PLAN.md` → 
 |---|---|
 | **26** — Timers: schedules that fire, at zero idle cost | **COMPLETE**, 2026-10-06 — `agentforge-00063-zt5` |
 | **27** — Themes I: Toybox Night tokens, gates, switching | **COMPLETE**, 2026-10-07 — `agentforge-00064-jmm` |
-| **28** — Themes II: every screen in both themes | NOT STARTED ← next |
+| **28** — Themes II: every screen in both themes | **IN PROGRESS** — part 1 deployed as `00065-d2r` |
 | **29** — Canvas I: editing ergonomics | NOT STARTED |
 | **30** — Canvas II: sticky notes and disabled nodes | NOT STARTED |
 | **31** — Canvas III: pinned data and partial runs | NOT STARTED |
@@ -93,7 +96,7 @@ in `archive/progress-chapters-1-2.md` → *Completed Phases*.
 |---|---|
 | **Canonical URL** | **`https://agentforge-733000675212.asia-southeast1.run.app`** — the deterministic URL (D10). The legacy `https://agentforge-i5d2u66boa-as.a.run.app` works; do not publish it |
 | Service | `agentforge` on Cloud Run, `asia-southeast1`, project `agentforge-hackathon-2026` (`733000675212`) |
-| **Revision** | **`agentforge-00064-jmm`**, 100% of traffic — Phase 27 (2026-10-07). **Rollback targets are only the revisions behind the five kept images (D120)**: `00063-zt5` (Phase 26), `00062-kxm`, `00061-lwl`/`00060-z9v` (one image), `00059-pd2`. Rollback tested (`update-traffic --to-revisions <rev>=100`, ~15 s) |
+| **Revision** | **`agentforge-00065-d2r`**, 100% of traffic — Phase 28 part 1 (2026-10-07). **Rollback targets are only the revisions behind the five kept images (D120)**: `00064-jmm` (Phase 27), `00063-zt5` (Phase 26), `00062-kxm`, `00061-lwl`/`00060-z9v` (one image). Rollback tested (`update-traffic --to-revisions <rev>=100`, ~15 s) |
 | Scaling | **`min-instances 0`**, `max-instances 3`, 1 vCPU / 1 GiB, 3600 s timeout, port 8080. **Cold start 6.38 s** (measured), 0.58–0.76 s warm |
 | Env vars | 12: `NODE_ENV` `AUTH_URL` `APP_BASE_URL` `DATABASE_URL` `AUTH_SECRET` `GOOGLE_CLIENT_ID` `GOOGLE_CLIENT_SECRET` `ENCRYPTION_KEY` `CRON_SECRET` `TASKS_QUEUE` `TASKS_LOCATION` `ROOT_KEY_SECRET`. A plain redeploy inherits them; add with `--update-env-vars` (merges), never `--env-vars-file` unless replacing the set (D11). `TASKS_PROJECT`, `GCP_ACCESS_TOKEN`, `GCP_PROJECT` and `DATABASE_URL_UNPOOLED` are deliberately **not** set on the service |
 | Database | Neon `super-mountain-39872886`, **13 tables**, migrations **`0000`–`0012`** applied (`0012` by Phase 26 — additive; `rollback_0012.sql` is safe only once no run is `waiting`), ~10 MB of 0.5 GB. A second database `agentforge_demo` with a `SELECT`-only role serves the Postgres node's verification (23C). One Neon database serves local and production |
@@ -117,7 +120,7 @@ Chapter 3**: three themes with Light the default (D110), the ladder's ordering r
 registry node before Phase 34 (D112), zero cost held on a paid account inside Always Free (D113),
 Phase 26's timers, waits and active switch (D114–D119), build-artefact retention (D120), and Phase
 27's ink roles and Night palette (D121), its cream structure (D122), the theme mechanism (D123) and
-the dead-utility gate (D124). **The next free number is D125.**
+the dead-utility gate (D124), and Phase 28's per-theme fill hover (D125). **The next free number is D126.**
 
 Before changing anything, search `DECISIONS.md` for the area — by number, file or subject. A
 decision changes only by being marked **SUPERSEDED** with a reason and replaced by a new row.
@@ -253,7 +256,7 @@ history is in the archive.
 | Branch protection on `main` | GitHub | required check above, strict, no force push | **EXISTS** — `enforce_admins` deliberately `false`, so the owner's direct push to `main` works |
 | Private vulnerability reporting | GitHub | `arunishrajput/AgentForge` | **ENABLED** |
 | Google Cloud project | Google Cloud | `agentforge-hackathon-2026`, number `733000675212` | **EXISTS**, billing on the **paid** account `017EB5-0D8A5E-F212CC` since M13 |
-| Cloud Run service | Google Cloud | `agentforge`, `asia-southeast1` | **LIVE**, `agentforge-00064-jmm` |
+| Cloud Run service | Google Cloud | `agentforge`, `asia-southeast1` | **LIVE**, `agentforge-00065-d2r` |
 | Artifact Registry | Google Cloud | `cloud-run-source-deploy`, `asia-southeast1` | **EXISTS** — cleanup policy: keep the newest 5 images, delete the rest once a day old (D120). **Re-read 2026-10-07: 160.4 MB, five images** — down from 926.9 MB the day of the prune. The saving D120 assumed is real; the size figure is simply computed late, so re-read it a day after a prune, not the same hour |
 | Build-source bucket | Cloud Storage | `run-sources-agentforge-hackathon-2026-asia-southeast1` | **EXISTS** — lifecycle: delete objects after 7 days (D120). No free tier in this region |
 | Budget | Cloud Billing | "AgentForge zero", `72b470cc-…`, ₹100/month, alerts at 50 / 90 / 100 % | **EXISTS** since 2026-10-06 (D113) |

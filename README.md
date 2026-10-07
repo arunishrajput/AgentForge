@@ -1,6 +1,9 @@
 <div align="center">
 
-<img src="./public/illustrations/mascot-happy.svg" alt="Sparky, the AgentForge mascot" width="88" height="88" />
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="./public/illustrations/mascot-happy-dark.svg" />
+  <img src="./public/illustrations/mascot-happy.svg" alt="Sparky, the AgentForge mascot" width="88" height="88" />
+</picture>
 
 # AgentForge
 
@@ -85,6 +88,8 @@ pretending otherwise.
 | **Read-only sharing** | Publish a workflow as a page anyone with the link can open. Shows the shape, withholds every value its author typed |
 | **A credential vault** | Envelope encryption. Rotating the root key re-wraps the data keys **without decrypting a single secret** |
 | **Observability** | Structured logs carrying the request's trace, grouped errors, five-check health, and per-workspace analytics computed on demand |
+| **Schedules that fire on time** | Each slot is a queued timer armed for its exact due time — no clock in the app, so an idle install wakes its database once a day, for a safety sweep, not every few minutes |
+| **Three themes** | Light by default, Toybox Night, or System — chosen per browser, applied before the first paint, and held to the same contrast gates |
 | **Free to operate** | Cloud Run always-free, Neon free tier, an LLM free tier. [Zero, and it binds](./docs/self-hosting.md) |
 
 ### Integrations
@@ -200,7 +205,8 @@ written down:
 
 **Toybox** — bright, playful, light-first. Saturated colour, thick ink outlines, hard offset
 shadows and springy motion. Deliberately not a dark IDE, which is what every competing tool looks
-like.
+like — and its dark theme, **Toybox Night**, is not one either: the same toy after dark, cream
+outlines and hard shadows on deep indigo, held to every contrast gate Light is.
 
 <img src="./docs/assets/design-system.png" alt="The Toybox design system page, showing surface colour tokens with their computed contrast ratios" width="100%" />
 
@@ -238,15 +244,14 @@ Built in 13 phases for the Zero Origin hackathon and
 [submitted](https://devpost.com/software/agentforge-kz832x) on 2026-09-26. It has been built out
 since into a real product: durable execution, versioning, workspaces, roles and sharing, a
 credential vault with rotation, observability and analytics, a 30-node catalogue, a second model
-provider, and this documentation.
+provider, and this documentation. Chapter 3 — a product people use every day — has begun with
+schedules that fire from exact-time timers and a dark theme, Toybox Night, on every screen.
 
 It is live, it works, and [`PROGRESS.md`](./PROGRESS.md) is the honest status board — including
 what is unfinished.
 
 **What comes next** is Chapter 3, planned phase by phase in [`BUILD_PLAN.md`](./BUILD_PLAN.md):
 
-- schedules that fire without a frequent cron
-- a dark theme beside the light one
 - undo, copy and paste, and a test loop on the canvas
 - run history and retries
 - a copilot that edits and repairs workflows by conversation

@@ -20,6 +20,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CommandPalette } from "@/components/shell/command-palette";
 import { cn } from "@/components/ui/cn";
 import { Toggle } from "@/components/ui/field";
+import { useTheme } from "@/components/ui/theme";
 import { useToast } from "@/components/ui/toast";
 import {
   CANVAS_NODE_TYPE,
@@ -161,6 +162,7 @@ function EditorInner({
 }) {
   const initial = useMemo(() => toFlow(workflow.graph), [workflow.graph]);
   const toast = useToast();
+  const { theme } = useTheme();
 
   const [nodes, setNodes, onNodesChange] = useNodesState<CanvasNode>(initial.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<CanvasEdge>(initial.edges);
@@ -1277,12 +1279,12 @@ function EditorInner({
               nodesConnectable={!comparing && canEdit}
               elementsSelectable={!comparing}
               deleteKeyCode={comparing || !canEdit ? null : ["Delete", "Backspace"]}
-              // Light, because the product is light-first. The `dark` this replaces
-              // was inert for our own custom node — React Flow's node colours only
-              // reach its built-in types — but it left every variable Phase 14 did
-              // not explicitly override falling back to a dark default, which is a
-              // trap for the next person to add one.
-              colorMode="light"
+              // The palette the reader's theme resolves to (Phase 28), never React
+              // Flow's own `"system"`, which would follow the OS for a reader who
+              // chose Light. Every variable `globals.css` sets wins in either mode;
+              // what this decides is the fallback for any it does not — and a fallback
+              // in the wrong mode is the trap `DESIGN.md` records from Phase 15.
+              colorMode={theme}
               fitView
               // Low enough that a seven-node graph still fits a 375px screen; the
               // default floor of 0.5 cropped it and the graph's spine ran off-canvas.

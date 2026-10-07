@@ -6,6 +6,7 @@ import { useMemo } from "react";
 
 import { CanvasContext } from "@/components/canvas/context";
 import { WorkflowNodeView } from "@/components/canvas/workflow-node";
+import { useTheme } from "@/components/ui/theme";
 import { CANVAS_NODE_TYPE, toFlow, type CanvasEdge } from "@/lib/canvas/bridge";
 import type { NodeSummary, SharedWorkflow } from "@/lib/canvas/client";
 import { GRAPH_VERSION } from "@/lib/workflow/graph";
@@ -45,6 +46,8 @@ export function SharedCanvas({
   graph: SharedWorkflow["graph"];
   registry: NodeSummary[];
 }) {
+  const { theme } = useTheme();
+
   /**
    * The redacted graph mapped onto the canvas through the **same** `toFlow` the editor
    * uses, so a shared node is positioned and handled identically to an edited one.
@@ -113,7 +116,8 @@ export function SharedCanvas({
           nodesFocusable={false}
           edgesFocusable={false}
           deleteKeyCode={null}
-          colorMode="light"
+          // The reader's resolved theme, as on the editor's canvas.
+          colorMode={theme}
           fitView
           minZoom={0.15}
           fitViewOptions={FIT}

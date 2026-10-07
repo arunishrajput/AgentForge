@@ -10,9 +10,12 @@ import {
   inGamut,
   luminance,
   mixLuminance,
+  mixOklab,
+  type Oklch,
   parseOklch,
   parseTokens,
   rawRgb,
+  WHITE,
 } from "./contrast";
 
 test("parses plain oklch tokens and skips the alpha forms", () => {
@@ -137,4 +140,20 @@ test("grades at the WCAG boundaries", () => {
   assert.equal(grade(4.5), "AA");
   assert.equal(grade(4.49), "fail");
   assert.equal(grade(1), "fail");
+});
+
+test("an oklab mix is a straight interpolation, and the ends are the colours themselves", () => {
+  const grape: Oklch = [0.7, 0.19, 302];
+  assert.deepEqual(mixOklab(grape, WHITE, 0).map((v) => +v.toFixed(9)), grape);
+  assert.deepEqual(mixOklab(grape, WHITE, 1).map((v) => +v.toFixed(9)), [1, 0, 0]);
+
+  // 14% white: lightness moves 14% of the way to 1, chroma shrinks by 14%, hue is kept —
+  // exactly what `color-mix(in oklab, grape, white 14%)` renders.
+  const [L, C, H] = mixOklab(grape, WHITE, 0.14);
+  assert.ok(Math.abs(L - (0.86 * 0.7 + 0.14)) < 1e-9);
+  assert.ok(Math.abs(C - 0.86 * 0.19) < 1e-9);
+  assert.ok(Math.abs(H - 302) < 1e-9);
+
+  // …and a lighter fill means a higher luminance, which is what the gate cares about.
+  assert.ok(luminance(mixOklab(grape, WHITE, 0.14)) > luminance(grape));
 });

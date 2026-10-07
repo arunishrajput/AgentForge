@@ -10,7 +10,9 @@ import {
   inGamut,
   luminance as luminanceOf,
   mixLuminance,
+  mixOklab,
   parseTokens,
+  WHITE,
 } from "../lib/design/contrast";
 import { ALL_TOKENS, PALETTE, THEME_LABEL, THEMES, type Theme } from "../lib/design/palette";
 
@@ -61,6 +63,23 @@ const TOKENS: Record<Theme, ReturnType<typeof parseTokens>> = {
   light: parseTokens(CSS, SCOPE.light),
   dark: parseTokens(CSS, SCOPE.dark),
 };
+
+/**
+ * Where each theme says how much white a pop-filled button mixes in on hover (D125).
+ * Not a `--color-*` token — it is an amount, not a colour — so it sits in `:root` beside
+ * `color-scheme`, and Night overrides it in the same block that overrides the colours.
+ */
+const HOVER_SCOPE: Record<Theme, string> = { light: ":root", dark: SCOPE.dark };
+
+function hoverWhite(theme: Theme): number {
+  const declared = declarations(CSS).filter(
+    (d) => d.property === "--pop-hover-white" && d.scope === HOVER_SCOPE[theme],
+  );
+  assert.equal(declared.length, 1, `--pop-hover-white is not declared once in ${HOVER_SCOPE[theme]}`);
+  const match = /^(\d+(?:\.\d+)?)%$/.exec(declared[0].value);
+  assert.ok(match, `--pop-hover-white is "${declared[0].value}" in ${theme} — want a percentage`);
+  return Number(match[1]) / 100;
+}
 
 /** The four surfaces. Everything readable must be readable on all of them. */
 const SURFACES = ["canvas", "surface", "elevated", "sunken"];
@@ -273,6 +292,25 @@ for (const theme of THEMES) {
       }
     });
 
+    test("a pop fill under the pointer still carries its label, its outline and the ring", () => {
+      // D125. `btn-primary` and `btn-danger` mix `--pop-hover-white` into their fill on
+      // hover, and a hovered button is still a fill with a label, inside an outline, that
+      // may be wearing the focus ring. Light's 14% only makes the fill lighter, so all
+      // three improve. In Night the same 14% took the cream outline from 3.23:1 to
+      // 2.61:1 — every Night fill sits in one narrow band — which is why Night mixes in
+      // none. Checked for every fill, not just the two used today.
+      const white = hoverWhite(theme);
+      for (const fill of POP_FILLS) {
+        const hovered = mixOklab(token(fill), WHITE, white);
+        const label = contrast(token("accent-ink"), hovered);
+        const outline = contrast(token("line"), hovered);
+        const ring = contrast(token("ink"), hovered);
+        assert.ok(label >= 4.5, `hovered ${fill}: the label is ${label.toFixed(2)}:1, want >= 4.5`);
+        assert.ok(outline >= 3, `hovered ${fill}: the outline is ${outline.toFixed(2)}:1, want >= 3`);
+        assert.ok(ring >= 3, `hovered ${fill}: the focus ring is ${ring.toFixed(2)}:1, want >= 3`);
+      }
+    });
+
     test("the hard shadow reads as a solid edge on every surface", () => {
       // Phase 27 gave the shadow its own token because in Night a near-black one would
       // vanish into the indigo. 3:1 is the non-text bar: the shadow is the object's
@@ -416,6 +454,21 @@ describe("both themes", () => {
         value,
         /^-?\d+px -?\d+px 0 0 var\(--color-shade\)$/,
         `${property} is "${value}" — want "<x>px <y>px 0 0 var(--color-shade)"`,
+      );
+    }
+  });
+
+  test("white is mixed into a colour only through each theme's hover amount", () => {
+    // The gate above computes `--pop-hover-white` per theme; it can only vouch for a mix
+    // that uses it. A literal `86%, white` — which is what both buttons carried until
+    // Phase 28 — would apply one amount to both themes and nothing would measure it.
+    const withWhite = all.filter((d) => /\bwhite\b/.test(d.value) && d.value.includes("color-mix("));
+    assert.ok(withWhite.length >= 2, "the pop-button hovers are missing");
+    for (const { property, value, scope } of withWhite) {
+      assert.match(
+        value,
+        /^color-mix\(in oklab, var\(--color-[a-z-]+-pop\), white var\(--pop-hover-white\)\)$/,
+        `${property} in ${scope} mixes white without --pop-hover-white: "${value}"`,
       );
     }
   });

@@ -2,6 +2,9 @@
 
 import { Geist } from "next/font/google";
 
+import { ThemeSync } from "@/components/ui/theme";
+import { DEFAULT_THEME, THEME_COLOR } from "@/lib/ui/theme";
+
 import "./globals.css";
 
 /**
@@ -42,6 +45,21 @@ import "./globals.css";
  * the `btn` utility class from the stylesheet — which is exactly the case the Toybox system
  * put `btn` in CSS for rather than only in React (`components/ui/button.tsx` says so).
  *
+ * ## It applies the reader's theme itself — Phase 28
+ *
+ * Replacing the root layout also replaces the `<head>` script that sets `data-theme`, so
+ * until Phase 28 a root-layout failure was cream for every reader, Night included. The
+ * fix is `ThemeSync`, not a copy of the script, and that is measured rather than assumed:
+ * **Next 16 never server-renders this file.** When the root layout throws on the server,
+ * Next sends its own bare `<html id="__next_error__">` shell (`app-render.js`) and renders
+ * this component into it on the client — where an inline `<script>` React renders never
+ * runs. `ThemeSync`'s layout effect applies the stored theme before this page first paints,
+ * and recolours the `theme-color` below. Driven both ways on a probe build: a server-side
+ * and a client-side throw in the root layout, each painted this page in Night. The one
+ * frame before it on the server path is Next's unstyled shell — white, in either theme —
+ * which nothing in the app can style. `src/lib/ui/theme.test.ts` checks every file that
+ * renders an `<html>`.
+ *
  * `error.message` is not rendered, for the same reason it is not in `error.tsx`: Next
  * replaces it with a generic string in production, and printing whatever leaked through
  * would put internal detail on screen. The digest is shown, because it is what makes
@@ -69,8 +87,12 @@ export default function GlobalError({
   retry: () => void;
 }) {
   return (
-    <html lang="en" className={sans.variable}>
+    <html lang="en" data-theme={DEFAULT_THEME} className={sans.variable}>
+      <head>
+        <meta name="theme-color" content={THEME_COLOR.light} />
+      </head>
       <body className="min-h-dvh antialiased">
+        <ThemeSync />
         <main
           id="main"
           className="mx-auto flex min-h-dvh max-w-lg flex-col justify-center px-6 py-16 text-center"

@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, test } from "node:test";
+import { fileURLToPath } from "node:url";
 
 import { hex } from "@/lib/design/contrast";
 import { tokenValue } from "@/lib/design/palette";
@@ -152,6 +155,53 @@ describe("the blocking script in <head>", () => {
     assert.match(script, /^\(function\(\)\{[\s\S]*\}\)\(\)$/);
     assert.doesNotMatch(script, /=>|\blet\b|\bconst\b|`|import/);
     assert.ok(script.includes(JSON.stringify(THEME_STORAGE_KEY)));
+  });
+});
+
+describe("every document the app renders", () => {
+  /**
+   * Phase 28. `global-error.tsx` replaces the root layout — `<html>`, `<head>` and all —
+   * so the layout's theme script never reached it, and until Phase 28 a root-layout
+   * failure was cream for every reader. Any file that renders its own `<html>` is the same
+   * trap, so the rule is about the element rather than the one file: each carries
+   * `ThemeSync`, whose layout effect applies the stored theme before the page paints.
+   *
+   * The blocking script is required only of the root layout, the one document the server
+   * renders. Next 16 never server-renders `global-error.tsx` — a root-layout failure gets
+   * Next's bare `__next_error__` shell and the error page is rendered into it on the
+   * client, where an inline script never runs (measured on a probe build, Phase 28).
+   */
+  const APP = fileURLToPath(new URL("../../app/", import.meta.url));
+  const files = (directory: string): string[] =>
+    readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) return files(path);
+      return entry.name.endsWith(".tsx") ? [path] : [];
+    });
+  const code = (path: string) =>
+    readFileSync(path, "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
+  const roots = files(APP).filter((path) => /<html[\s>]/.test(code(path)));
+  const name = (path: string) => path.slice(APP.length);
+
+  test("there are document roots to check — the layout and the global error page", () => {
+    assert.deepEqual(roots.map(name).sort(), ["global-error.tsx", "layout.tsx"]);
+  });
+
+  test("each applies the reader's theme before it paints", () => {
+    for (const path of roots) {
+      const source = code(path);
+      assert.match(source, /<ThemeSync \/>/, `${name(path)} renders <html> without ThemeSync`);
+      assert.match(source, /data-theme=\{DEFAULT_THEME\}/, `${name(path)}'s <html> does not start from the default theme`);
+      assert.match(source, /<meta name="theme-color"/, `${name(path)} has no theme-color to recolour`);
+    }
+  });
+
+  test("the server-rendered root runs the blocking script before the first paint", () => {
+    const layout = code(join(APP, "layout.tsx"));
+    assert.match(layout, /__html: themeScript\(\)/, "layout.tsx renders <html> without the theme script");
+    assert.match(layout, /suppressHydrationWarning/, "layout.tsx's <html> will warn when the script changes it");
   });
 });
 

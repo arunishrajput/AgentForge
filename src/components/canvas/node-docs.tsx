@@ -35,7 +35,7 @@ export function NodeDocs({ definition }: { definition: NodeSummary }) {
             className={[
               "text-faint flex cursor-pointer list-none items-center gap-1.5 px-2 py-1.5",
               "text-3xs font-bold tracking-wide uppercase select-none",
-              "hover:text-ink focus-visible:ring-accent rounded-lg focus-visible:ring-2 focus-visible:outline-none",
+              "hover:text-ink rounded-lg",
             ].join(" ")}
           >
             {/* `list-none` plus an own marker: the default triangle is the one piece of

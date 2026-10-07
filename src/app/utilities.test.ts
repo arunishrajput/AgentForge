@@ -101,3 +101,46 @@ test("every colour utility used in src/ compiles to CSS", async () => {
   const stale = [...NOT_CLASSES.keys()].filter((c) => !dead.includes(c));
   assert.deepEqual(stale, [], `NOT_CLASSES lists strings the source no longer contains: ${stale.join(", ")}`);
 });
+
+/**
+ * **No control turns the one focus ring off.** Phase 28.
+ *
+ * `DESIGN.md` → *One focus ring, and it is ink* says no control sets `outline-none`, and
+ * nothing checked it: the onboarding guide's step rows and the inspector's node-docs
+ * toggle both replaced the ink ring with a 2px accent one. It happened to clear 3:1 in
+ * both themes, so this was never a contrast failure — it was a second ring, the thing
+ * Phase 27 restated the rule to rule out, and the way a third one would arrive is with
+ * a colour that does not clear 3:1 in Night.
+ *
+ * A class that removes the outline is allowed only where it is listed here with the
+ * reason, and a listing whose class has gone fails, as `NOT_CLASSES` does above.
+ */
+const RING_REMOVED = /(?:^|[\s"'`])(?:[\w-]+:)*outline-(?:none|hidden)(?=[\s"'`]|$)/gm;
+
+const RING_EXCEPTIONS = new Map<string, string>([
+  [
+    "components/shell/command-palette.tsx",
+    "the ⌘K search input. Focus never leaves it while the palette is open — the arrow keys move a virtual cursor (`DESIGN.md` → *The shell*) — so a ring would be permanent rather than an indicator",
+  ],
+]);
+
+test("no control removes the focus ring, except where focus can never leave it", () => {
+  const offenders: string[] = [];
+  const seen = new Set<string>();
+  for (const file of sourceFiles(ROOT)) {
+    const relative = file.slice(ROOT.length);
+    for (const match of withoutComments(readFileSync(file, "utf8")).matchAll(RING_REMOVED)) {
+      if (RING_EXCEPTIONS.has(relative)) seen.add(relative);
+      else offenders.push(`${relative}: ${match[0].trim()}`);
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    "these remove the ink focus ring, which `:focus-visible` in globals.css draws for every " +
+      "control in both themes. Delete the class; if focus genuinely cannot leave the element, " +
+      "list it in RING_EXCEPTIONS with the reason.",
+  );
+  const stale = [...RING_EXCEPTIONS.keys()].filter((f) => !seen.has(f));
+  assert.deepEqual(stale, [], `RING_EXCEPTIONS lists files that no longer remove the ring: ${stale.join(", ")}`);
+});

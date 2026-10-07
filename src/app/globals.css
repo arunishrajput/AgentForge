@@ -197,6 +197,15 @@
   /* Native controls — `<select>`, the checkbox, the scrollbars — read this. */
   color-scheme: light;
 
+  /* How much white a pop-filled button mixes in on hover (`btn-primary`,
+     `btn-danger`). Phase 28, D125. In Light a lighter fill is a second hover cue
+     beside the lift, and every gate still holds — the label and the outline only
+     gain. Night's fills have no such room: they sit in the one luminance band where
+     the near-black label reads AND the cream outline shows, and 14% white takes the
+     outline from 3.23:1 to 2.61:1. So in Night the hover is the lift alone, and
+     `tokens.test.ts` computes every fill's hover in both themes to keep it that way. */
+  --pop-hover-white: 14%;
+
   /* -------------------------------------------------------------------------
      Toybox Night. The same toy at night: every token below re-declared, the same
      invariants asserted against it (`src/app/tokens.test.ts` runs every gate once
@@ -225,6 +234,7 @@
      ------------------------------------------------------------------------- */
   @variant dark {
     color-scheme: dark;
+    --pop-hover-white: 0%;
 
     --color-canvas: oklch(0.21 0.04 280);
     --color-surface: oklch(0.232 0.042 280);
@@ -502,7 +512,7 @@
   color: var(--color-accent-ink);
 
   &:hover:not(:disabled, [aria-disabled="true"]) {
-    background-color: color-mix(in oklab, var(--color-accent-pop) 86%, white);
+    background-color: color-mix(in oklab, var(--color-accent-pop), white var(--pop-hover-white));
   }
 }
 
@@ -551,7 +561,7 @@
   color: var(--color-accent-ink);
 
   &:hover:not(:disabled, [aria-disabled="true"]) {
-    background-color: color-mix(in oklab, var(--color-bad-pop) 86%, white);
+    background-color: color-mix(in oklab, var(--color-bad-pop), white var(--pop-hover-white));
   }
 }
 
@@ -753,19 +763,27 @@
   --xy-controls-button-border-color: var(--color-line);
 
   --xy-minimap-background-color: var(--color-surface);
-  /* The mask dims the area *outside* the viewport. On a light canvas that is a
-     wash of cream, not a black rectangle. */
-  --xy-minimap-mask-background-color: oklch(0.936 0.042 86 / 0.72);
+  /* The mask dims the area *outside* the viewport, in the recess colour: a wash of
+     cream in Light and of deep indigo in Night, never a black rectangle. It was a
+     literal cream `oklch()` until Phase 28, which would have laid a cream fog over
+     Night's minimap; Light computes the same colour it always did. */
+  --xy-minimap-mask-background-color: color-mix(in oklab, var(--color-sunken) 72%, transparent);
   --xy-minimap-node-background-color: var(--color-accent);
+
+  /* The dot grid. React Flow's stylesheet draws each dot with `fill:
+     var(--xy-background-pattern-color, <its own grey>)`. Until Phase 28 this was a
+     `color` on the pattern itself, which that rule never reads — so the dots were
+     React Flow's grey rather than ink, and would have been its dark-mode grey in Night. */
+  --xy-background-pattern-color: color-mix(in oklab, var(--color-ink) 17%, transparent);
+
+  /* Nothing draws an edge label today. Pointed at the tokens anyway, because with
+     `colorMode` following the theme an unset variable falls back to React Flow's own
+     default for that mode — `DESIGN.md` → *Traps*. */
+  --xy-edge-label-background-color: var(--color-surface);
+  --xy-edge-label-color: var(--color-ink);
 
   --xy-selection-background-color: color-mix(in oklab, var(--color-accent-pop) 18%, transparent);
   --xy-selection-border: var(--stroke) dashed var(--color-accent);
-}
-
-/* The dot grid. `<Background>` renders a pattern whose colour is a prop default
-   we do not pass, so it is set here rather than threaded through the component. */
-.react-flow__background-pattern.dots {
-  color: color-mix(in oklab, var(--color-ink) 17%, transparent);
 }
 
 .react-flow__controls {

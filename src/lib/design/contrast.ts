@@ -159,6 +159,30 @@ export function mixLuminance(tone: Oklch, behind: Oklch, alpha: number): number 
   return 0.2126 * mixed[0] + 0.7152 * mixed[1] + 0.0722 * mixed[2];
 }
 
+/**
+ * `color-mix(in oklab, a, b <weight>)` for two opaque colours, as the browser computes it.
+ *
+ * Phase 28: the pop-filled buttons mix white into their fill on hover, and that hover is
+ * gated in both themes (`tokens.test.ts`). In oklab a mix of opaque colours is a straight
+ * interpolation of `L`, `a` and `b` — no premultiplying, because nothing is translucent —
+ * which in oklch terms keeps the hue of a chromatic colour mixed with a neutral one and
+ * scales its chroma. `weight` is the share of `b`, 0–1.
+ */
+export function mixOklab(a: Oklch, b: Oklch, weight: number): Oklch {
+  const toLab = ([L, C, H]: Oklch) => {
+    const hr = (H * Math.PI) / 180;
+    return [L, C * Math.cos(hr), C * Math.sin(hr)];
+  };
+  const [p, q] = [toLab(a), toLab(b)];
+  const [L, A, B] = p.map((v, i) => v * (1 - weight) + q[i] * weight);
+  const C = Math.hypot(A, B);
+  const H = C < 1e-9 ? 0 : ((Math.atan2(B, A) * 180) / Math.PI + 360) % 360;
+  return [L, C, H];
+}
+
+/** White, as an `Oklch` — the far end of the hover mix. */
+export const WHITE: Oklch = [1, 0, 0];
+
 /** The contrast ratio between two already-computed luminances. */
 export function contrastOfLuminance(a: number, b: number): number {
   const [hi, lo] = a > b ? [a, b] : [b, a];
