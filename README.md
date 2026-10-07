@@ -86,6 +86,7 @@ pretending otherwise.
 | **Sentence → workflow** | A validated graph, or an honest `unsupported` with a reason. A broken workflow is never saved — the generator does not touch the database |
 | **A real canvas** | React Flow. Move nodes, rewire edges, change any node's configuration, add a trigger, delete half of it |
 | **Edits like a serious tool** | Undo and redo, copy and paste between workflows and tabs, duplicate, multi-select with bulk actions, auto-arrange, find a node from ⌘K, and every action on a key — press `?` for the list |
+| **Explains itself, and switches off** | Sticky notes on the canvas for whoever reads the workflow next, and any step switched off without deleting it — its input passes straight on, and nothing is sent. A share link shows where the notes are, never what they say |
 | **Agent nodes** | Bounded tool-calling. The model decides; the graph routes. Every tool call is a visible, streamed step |
 | **Live execution** | Per-node status and logs over SSE while it runs. Reload mid-run and the page reattaches |
 | **30 nodes** | Triggers, logic, nine transforms, two AI nodes, and nine integrations. [Full reference](./docs/nodes.md) — generated from the registry |
@@ -256,7 +257,8 @@ since into a real product: durable execution, versioning, workspaces, roles and 
 credential vault with rotation, observability and analytics, a 30-node catalogue, a second model
 provider, and this documentation. Chapter 3 — a product people use every day — has begun with
 schedules that fire from exact-time timers, a dark theme, Toybox Night, on every screen, and a
-canvas that edits like a serious tool: undo, copy and paste, multi-select and the keyboard.
+canvas that edits like a serious tool: undo, copy and paste, multi-select, the keyboard, sticky
+notes and steps that switch off.
 
 It is live, it works, and [`PROGRESS.md`](./PROGRESS.md) is the honest status board — including
 what is unfinished.

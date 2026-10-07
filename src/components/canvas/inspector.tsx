@@ -272,7 +272,9 @@ function NodeInspector({
         <span className="text-3xs truncate font-bold tracking-wide uppercase">
           {category.noun}
         </span>
-        <span className="ml-auto shrink-0 font-mono text-3xs opacity-70">{node.id}</span>
+        {/* Full strength: `opacity-70` here measured 3.26:1 on Night's logic fill — D126's
+            dimmed label on a fill, found by the contrast audit in Phase 30. Mono sets it apart. */}
+        <span className="ml-auto shrink-0 font-mono text-3xs">{node.id}</span>
       </div>
 
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-3 py-3.5">
@@ -430,7 +432,9 @@ function OnOffSwitch({
           ? "A trigger cannot be switched off — every run starts at it. Switch it back on; to stop the workflow running by itself, use the Active switch."
           : passes
             ? `${off ? "Switched off:" : "Switch it off to skip it without deleting it:"} when a run reaches it, its input goes straight to the next node — nothing is sent, called or written.`
-            : `${off ? "Switched off:" : "Switched off,"} a ${noun} decides nothing, so nothing after it runs — there is no neutral way for it to go.`}
+            : off
+              ? `Switched off: this ${noun} decides nothing, so nothing after it runs — there is no neutral way for it to go.`
+              : `Switch it off and this ${noun} decides nothing: nothing after it runs, because there is no neutral way for it to go.`}
         {definition?.agentCallable &&
           " An agent that lists this node's type among its tools can still call it."}
       </p>

@@ -42,24 +42,11 @@ export function NoteView({ id, data, selected }: NodeProps<CanvasNote>) {
   const withheld = notes.withheld.has(id);
 
   return (
-    // The note fills the box React Flow sizes from its stored width and height.
-    // oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- double-click is the pointer shortcut; the inspector is the keyboard path
-    <div
-      onDoubleClick={(event) => {
-        if (!editable) return;
-        // The canvas zooms on a double-click; on a note it means "write here".
-        event.stopPropagation();
-        notes.setEditing(id);
-      }}
-      className={cn(
-        "relative flex h-full w-full flex-col overflow-hidden rounded-xl border-2 transition-[box-shadow,translate] duration-200",
-        // A removed note is not in the newer workflow: recessed and dashed like a removed
-        // card, and so not a fill — its words are ink, never `accent-ink` off a fill.
-        removed ? cn(change?.surface, "text-ink") : cn(look.fill, "text-accent-ink"),
-        change ? change.outline : "border-line",
-        selected ? "shadow-lift -translate-x-px -translate-y-px" : (change?.shadow ?? "shadow-node"),
-      )}
-    >
+    <>
+      {/* **Outside the note's box, not inside it.** The box clips its contents to its rounded
+          corners (`overflow-hidden`), and the resizer's handles sit half outside the corners —
+          inside, they were clipped to nothing and a note could not be resized. Found in a real
+          browser in Phase 30; positioned against React Flow's node wrapper, they are whole. */}
       <NodeResizer
         isVisible={selected && editable && !editing}
         minWidth={NOTE_SIZE.minWidth}
@@ -69,45 +56,63 @@ export function NoteView({ id, data, selected }: NodeProps<CanvasNote>) {
         handleClassName="note-handle"
         lineClassName="note-line"
       />
+      {/* The note fills the box React Flow sizes from its stored width and height. */}
+      {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- double-click is the pointer shortcut; the inspector is the keyboard path */}
+      <div
+        onDoubleClick={(event) => {
+          if (!editable) return;
+          // The canvas zooms on a double-click; on a note it means "write here".
+          event.stopPropagation();
+          notes.setEditing(id);
+        }}
+        className={cn(
+          "relative flex h-full w-full flex-col overflow-hidden rounded-xl border-2 transition-[box-shadow,translate] duration-200",
+          // A removed note is not in the newer workflow: recessed and dashed like a removed
+          // card, and so not a fill — its words are ink, never `accent-ink` off a fill.
+          removed ? cn(change?.surface, "text-ink") : cn(look.fill, "text-accent-ink"),
+          change ? change.outline : "border-line",
+          selected ? "shadow-lift -translate-x-px -translate-y-px" : (change?.shadow ?? "shadow-node"),
+        )}
+      >
+        {change?.ribbon && (
+          <div
+            className={cn(
+              "border-line flex shrink-0 items-center gap-1.5 border-b-2 px-2.5 py-1",
+              change.fill,
+              change.ink,
+            )}
+          >
+            <span aria-hidden="true" className="text-2xs leading-none font-bold">
+              {change.glyph}
+            </span>
+            <span className="text-3xs font-bold tracking-wide uppercase">{change.label}</span>
+            {diff && diff.fields.length > 0 && (
+              <span className="text-3xs ml-auto truncate font-medium">{fieldWords(diff.fields)}</span>
+            )}
+          </div>
+        )}
 
-      {change?.ribbon && (
-        <div
-          className={cn(
-            "border-line flex shrink-0 items-center gap-1.5 border-b-2 px-2.5 py-1",
-            change.fill,
-            change.ink,
-          )}
-        >
-          <span aria-hidden="true" className="text-2xs leading-none font-bold">
-            {change.glyph}
-          </span>
-          <span className="text-3xs font-bold tracking-wide uppercase">{change.label}</span>
-          {diff && diff.fields.length > 0 && (
-            <span className="text-3xs ml-auto truncate font-medium">{fieldWords(diff.fields)}</span>
-          )}
-        </div>
-      )}
-
-      {editing ? (
-        <NoteEditor
-          text={data.text}
-          onChange={(text) => notes.change(id, { text })}
-          onDone={() => notes.setEditing(null)}
-        />
-      ) : withheld ? (
-        <p className="flex-1 px-3 py-2.5 text-xs leading-snug font-medium italic">
-          <span aria-hidden="true">⊘ </span>A note — its text is not shared on this link.
-        </p>
-      ) : data.text === "" ? (
-        editable && (
-          <p className="flex-1 px-3 py-2.5 text-xs leading-snug italic">Double-click to write a note.</p>
-        )
-      ) : (
-        <p className="flex-1 px-3 py-2.5 text-sm leading-snug break-words whitespace-pre-wrap">
-          {data.text}
-        </p>
-      )}
-    </div>
+        {editing ? (
+          <NoteEditor
+            text={data.text}
+            onChange={(text) => notes.change(id, { text })}
+            onDone={() => notes.setEditing(null)}
+          />
+        ) : withheld ? (
+          <p className="flex-1 px-3 py-2.5 text-xs leading-snug font-medium italic">
+            <span aria-hidden="true">⊘ </span>A note — its text is not shared on this link.
+          </p>
+        ) : data.text === "" ? (
+          editable && (
+            <p className="flex-1 px-3 py-2.5 text-xs leading-snug italic">Double-click to write a note.</p>
+          )
+        ) : (
+          <p className="flex-1 px-3 py-2.5 text-sm leading-snug break-words whitespace-pre-wrap">
+            {data.text}
+          </p>
+        )}
+      </div>
+    </>
   );
 }
 

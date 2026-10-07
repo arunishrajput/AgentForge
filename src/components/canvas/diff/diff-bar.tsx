@@ -55,17 +55,26 @@ export function DiffBar({
         <span className="sr-only">with</span> v{to}
       </span>
 
-      {shown.length === 0 && edges === 0 ? (
+      {shown.length === 0 && edges === 0 && summary.notes === 0 ? (
         <span className="text-2xs">These two versions have identical graphs.</span>
       ) : (
         <span className="flex flex-wrap items-center gap-1.5">
           {shown.map(({ change, count }) => {
             const look = changeLook(change);
             return (
-              // `chip-pop`, not `chip`: it takes its fill from the call site and sets
-              // an ink label, which is the rule, and its full ink border is what keeps
-              // it legible sitting on another pop fill.
-              <span key={change} className={cn("chip-pop shrink-0", look.fill)}>
+              // `chip-pop` on a fill: it sets the fill's ink label, which is the rule, and
+              // its full ink border keeps it legible sitting on another pop fill. **Not on
+              // `moved`**, whose ribbon is `surface` rather than a fill: `chip-pop` drew
+              // `accent-ink` there — 1.06:1 in Night, an empty capsule — until Phase 30's
+              // audit. That one is the quiet chip, in the ribbon's own ink.
+              <span
+                key={change}
+                className={
+                  look.fill.endsWith("-pop")
+                    ? cn("chip-pop shrink-0", look.fill)
+                    : cn("chip shrink-0", look.fill, look.ink)
+                }
+              >
                 <span aria-hidden="true" className="font-bold">
                   {look.glyph}
                 </span>
@@ -77,6 +86,14 @@ export function DiffBar({
             <span className="chip bg-surface text-ink shrink-0">
               <span aria-hidden="true">↔</span>
               {edges} connection{edges === 1 ? "" : "s"} rewired
+            </span>
+          )}
+          {/* Phase 30. Without it, a comparison that only edited a note said the two
+              versions were identical. */}
+          {summary.notes > 0 && (
+            <span className="chip bg-surface text-ink shrink-0">
+              <span aria-hidden="true">✎</span>
+              {summary.notes} note{summary.notes === 1 ? "" : "s"} edited
             </span>
           )}
         </span>

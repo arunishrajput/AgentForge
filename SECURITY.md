@@ -353,6 +353,15 @@ draws is **shape and settings are published, typed-in values are not**. A test a
 covers the node registry in both directions, so adding a node fails the build until somebody
 decides.
 
+**Sticky notes (Phase 30) are withheld, not published** (D135). A note's text is free text written for
+colleagues — the likeliest place in a graph for a name, a phone number or "the password is in the
+vault under X" — so the share response carries a note's place, size and tone and **never its text**;
+`shareNote` builds a note field by field, so a field added to notes later is withheld until somebody
+decides otherwise. The page draws each note as *its text is not shared on this link* and counts them,
+so a reader is not shown an empty note. The test searches the whole response and the page's HTML for
+the note's *words*, not for a `text` key. A node's **switched-off flag is published**: it is shape —
+whether a step runs — not content.
+
 ---
 
 ## The agent, and what it cannot reach

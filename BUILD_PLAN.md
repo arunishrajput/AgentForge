@@ -45,8 +45,8 @@ is the file it means.
 27  Themes I — Toybox Night: tokens, gates, switching      ✅
 28  Themes II — every screen in both themes                ✅
 29  Canvas I — editing ergonomics                          ✅
-30  Canvas II — sticky notes and disabled nodes            ← START HERE
-31  Canvas III — the test loop: pinned data and partial runs
+30  Canvas II — sticky notes and disabled nodes            ✅
+31  Canvas III — the test loop: pinned data and partial runs  ← START HERE
 32  Library — organising workflows
 33  Runs — history and recovery
 34  Generator at scale — catalogue selection and evals
@@ -695,6 +695,63 @@ page withholds note text. The diff shows note and disabled changes. In a real br
 the disabled look), `SECURITY.md` (what a share page now withholds), `PROGRESS.md`.
 
 **Commit.** `feat: complete phase 30 sticky notes and disabled nodes`
+
+**Status: COMPLETE, 2026-10-08 — deployed as `agentforge-00075-566` and verified there in a real
+browser in Light and Toybox Night.** Two sessions (the first stopped on a usage limit with the work
+deployed as `00072-n8v` and committed as WIP, `b9da4ac`); four deploys, `00072` to `00075`. What was
+built:
+
+- **The contract first** — `CONTRACT.md` → *Disabled nodes* was written before the engine code (D133):
+  a switched-off node passes its input straight through its default output; Branch, Switch and Loop,
+  which have none, stop their path; the trigger cannot be switched off (`disabled_trigger`, naming the
+  Active switch); the run records a `disabled` step — its own status, not `skipped` — with no
+  timestamps and its input as its output; resume rehydrates it; a switched-off node's config is not
+  validated but its structure is. 15 engine tests, one per clause
+- **The graph** — `disabled: true` (never `false`) and `notes` (written only while there is one), no
+  `GRAPH_VERSION` bump, one id space for nodes and notes refused at the schema (D134). Undo coalesces
+  typing in a note (`note:<id>`) and a resize (a gesture); the clipboard envelope carries notes as an
+  optional field at version 1 (`CONTRACT.md`); diffs report notes (`added` … `unchanged`, fields
+  `text`/`tone`/`size`) and the off switch as a named field
+- **The share page** withholds a note's text and counts it, and publishes the off switch (D135); the
+  test searches for the note's *words*. **The generator** drops both (D136) — dropped, not refused,
+  against the plan's wording
+- **The canvas** — notes as a second React Flow node type in their own list (D137), behind the nodes,
+  edited by double-click or from the inspector, resized by their corners, five tones that are existing
+  `-pop` fills; *Run this node* in the inspector with a hint per node kind, *Switch off / on* for a
+  selection, **D** and **N**; the switched-off look joins the status table — "Switched off", `⊘`,
+  dotted, recessed — and the lit path runs through it
+
+**Found in the real browser, all fixed and re-verified:** the resize handles were clipped by the note's
+`overflow-hidden`, so a note could not be resized; below `lg` the inspector drawer covered a note being
+typed into; the hint on a Branch that is on read as if it were off; and the contrast audit found four
+dimmed or mis-inked labels — the inspector header's node id (`opacity-70`, **3.26:1** in Night), the
+diff bar's *moved* count (`accent-ink` on `surface`, **1.06:1** in Night, since Phase 18), the moved
+ribbon's matching pair, and the Run label dimmed while running. A first finding — a new note not
+opening for typing — was the background window, not the code: re-run in front, it opens at 1920 and
+at 600 px.
+
+**Verified in a real browser on the deployed service**, Light and Night: a note added, typed into
+(three edits one step of undo, undone to "Saved · v1"), double-clicked and typed into with real keys,
+dragged under a node (it sits behind nodes and edges), resized from a corner and undone in one step,
+recoloured; the keyboard path — a note focused by its accessible name ("Sticky note: …"), Enter into
+the inspector, the arrows, one ⌘Z; copy and paste of a note; D on a node, the inspector switch, D on
+the trigger (refused with the Active-switch message); a save read back exactly from the API; a run
+with input whose switched-off nodes recorded "Switched off" with their line and whose branch targets
+were skipped, the path lit through the switched-off nodes; version history counting notes, and diffs
+v3→v4 and v1→v4 with *Changed · switched off*, *Added* and *Moved* ribbons and the bar's counts; the
+share page; the 600 px drawer. **The contrast audit is clean** on the editor, the run panel, the node
+and note inspectors, the selection inspector, both diffs and the share page, **in both themes**,
+including the `aria-hidden` glyphs.
+
+**The battery, on `00075-566`:** `verify-security` 68, `verify-a11y` 92, `verify-api` 425 / 3 skipped
+(a stored key, a free-tier rate limit on one probe, Google connected) — its new Phase 30 block of 15
+included — `verify-templates` 47, `verify-postgres` 65, `verify-providers` 55, `verify-vault` 62,
+`verify-observability` 68 / 1 structural skip, `verify-integrations` 60 / 2 skipped (Notion,
+Airtable), `verify-timers` 34, `verify-durable all` — **0 failed**. `smoke.mjs` **CLEAN**. 1222 tests;
+coverage 89.36 / 91.72 / 82.74.
+
+**Not driven, said plainly:** a *viewer* reading a note (no viewer membership exists — the standing
+Known Issue), and Safari.
 
 ---
 

@@ -33,9 +33,10 @@ export interface ChangeLook {
   fill: string;
   /**
    * The ribbon's label. `text-accent-ink` on a `-pop` fill, and `text-ink` on the one ribbon
-   * that is not a fill — `moved`, on `bg-surface`. Phase 30 found the moved ribbon drawing
-   * `accent-ink` on `surface`: identical to ink in Light, and near-black on indigo in Night,
-   * which D126 says `accent-ink` must never be drawn anywhere but a fill.
+   * that is not a fill — `moved`, on `bg-surface`. Until Phase 30 the moved ribbon, and the
+   * diff bar's moved count, drew `accent-ink` on `surface`: identical to ink in Light, and
+   * near-black on indigo in Night — the bar's chip measured **1.06:1** in a browser. D126 says
+   * `accent-ink` is never drawn anywhere but a fill.
    */
   ink: string;
   /** The card's border treatment. */

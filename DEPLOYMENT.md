@@ -1484,6 +1484,17 @@ gcloud run services update-traffic agentforge --region "$GCP_REGION" --to-latest
 revision, **the whole demo path was walked clean on it**, and `--to-latest` restored the newest
 revision. **Each shift took ~15 seconds** and neither required a rebuild.
 
+**Never roll back past `agentforge-00072-n8v` (Phase 30) while any workflow uses a sticky note or a
+switched-off node** (D134). Neither is a migration — both are optional fields inside the graph's
+`jsonb` — so nothing in the database stops an older revision serving them, and that is the hazard: a
+revision from before Phase 30 does not know either field, **runs a switched-off node** (a Discord post
+someone switched off is sent), and drops both fields from any graph it saves. Check first:
+
+```sql
+select count(*) from workflow
+where graph->'notes' is not null or jsonb_path_exists(graph, '$.nodes[*] ? (@.disabled == true)');
+```
+
 **Caveat:** a rollback does **not** revert migrations. Prefer additive migrations so an older
 revision still runs against the newer schema. Before demo day, avoid destructive schema changes
 entirely. Phase 3's migration is purely additive, so `agentforge-00001-h4k` still runs correctly

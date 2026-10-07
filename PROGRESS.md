@@ -16,22 +16,23 @@ Nothing was deleted:
 
 ## Project Status
 
-**CHAPTER 3 IS OPEN. PHASES 26–29 ARE COMPLETE (2026-10-07); PHASE 30 IS NEXT.** The product has
+**CHAPTER 3 IS OPEN. PHASES 26–30 ARE COMPLETE (2026-10-08); PHASE 31 IS NEXT.** The product has
 three themes, every screen works in both, and the canvas edits like a serious tool — undo, copy and
-paste between workflows, multi-select, auto-arrange and a keyboard for everything.
+paste between workflows, multi-select, auto-arrange, a keyboard for everything, sticky notes, and
+steps that switch off without being deleted.
 
 | Chapter | Phases | State |
 |---|---|---|
 | **1** — the hackathon MVP | 0–12 | **COMPLETE.** Submitted 2026-09-26 (<https://devpost.com/software/agentforge-kz832x>). Closed, never reopened |
 | **2** — the open-source product | 13–25 | **COMPLETE**, 2026-10-01. Durable runs, versioning, workspaces, roles and sharing, a credential vault, observability, 30 nodes, two LLM providers, docs, an a11y and security audit |
-| **3** — a product people use every day | **26–42** | **OPEN — planned 2026-10-06. Phases 26–29 complete; 30 next.** `BUILD_PLAN.md` is the scope contract |
+| **3** — a product people use every day | **26–42** | **OPEN — planned 2026-10-06. Phases 26–30 complete; 31 next.** `BUILD_PLAN.md` is the scope contract |
 
 **Chapter 3, in one line:** themes (Light, Dark, System), a canvas that edits like a serious tool,
 an AI copilot that edits and repairs workflows, workflows that can handle errors, wait, ask a person
 and call each other, and the daily-use basics — tags, run history, import/export and an API.
 
 **The live system must keep working:** **https://agentforge-733000675212.asia-southeast1.run.app** —
-revision `agentforge-00071-k5m`.
+revision `agentforge-00075-566`.
 Launch demo video: <https://www.youtube.com/watch?v=3txmpCPEWd4>.
 
 ### The binding decisions, restated for Chapter 3
@@ -49,28 +50,16 @@ Launch demo video: <https://www.youtube.com/watch?v=3txmpCPEWd4>.
 
 ## Current Phase
 
-## ▶ PHASE 30 — Canvas II — sticky notes and disabled nodes — IN PROGRESS (session 1 stopped on a usage limit)
+## ▶ PHASE 31 — Canvas III — the test loop: pinned data and partial runs — NOT STARTED
 
-**State at the stop, 2026-10-07:** contract written first (`CONTRACT.md` → *Disabled nodes*, graph shape,
-clipboard, diff, share allowlist, generation); engine, validation, bridge, history, clipboard, diff,
-share, generator, notes UI, inspector switch, D/N shortcuts all built; `npm run check` green (1221+
-tests); `verify-api.mjs` gained a Phase 30 block that passed locally; the share page was verified in a
-browser in both themes with the contrast audit clean. **Deployed as `agentforge-00072-n8v` (health ok).**
-**Remaining:** (1) the editor walk in a real browser, Light and Night — **first finding: a note created
-from the control-stack button was selected but did not open in typing mode** (`setEditingNote` in
-`addNote`; seen only in a hidden window, so re-check with the window in front); (2) the deployed battery;
-(3) docs — `DESIGN.md` (note, disabled look, D/N keys), `SECURITY.md` (note text withheld),
-`DECISIONS.md` D133–D136 (cited in code and `CONTRACT.md` but not yet written), `DEPLOYMENT.md` →
-*Rollback* (no rollback past `00072-n8v` while a workflow uses notes or `disabled`), `BUILD_PLAN.md`
-status, this board; (4) the final commit as `feat: complete phase 30 sticky notes and disabled nodes`.
+**Next.** `BUILD_PLAN.md` → *Phase 31* is the definition: pin a node's output, run one node or run up
+to here seeded from pinned data or the last run, label test runs and keep them out of analytics, and a
+manual-trigger input form. **Pinned data applies to manual and test runs only**, is size-capped and is
+never published on a share link. A config field on the manual trigger grows the generation prompt, so
+check the budget (D112). Every UI it adds is built and verified in **both themes** (D126).
 
-**Next.** `BUILD_PLAN.md` → *Phase 30* is the definition: a `notes` list on the graph (not a registry
-node) and a `disabled` flag on a node, both undoable and copyable through Phase 29's history and
-clipboard. **Decide the disabled-node engine semantics and write them into `CONTRACT.md` before the
-code.** Every UI it adds is built and verified in **both themes**, through the contrast audit (D126).
-
-**Phase 29 closed on 2026-10-07** — `agentforge-00071-k5m`, verified on the deployed service and in a
-real browser in Light and Night. Its evidence is in `BUILD_PLAN.md` → *Phase 29* → *Status*.
+**Phase 30 closed on 2026-10-08** — `agentforge-00075-566`, verified on the deployed service and in a
+real browser in Light and Night. Its evidence is in `BUILD_PLAN.md` → *Phase 30* → *Status*.
 
 ---
 
@@ -82,8 +71,8 @@ real browser in Light and Night. Its evidence is in `BUILD_PLAN.md` → *Phase 2
 | **27** — Themes I: Toybox Night tokens, gates, switching | **COMPLETE**, 2026-10-07 — `agentforge-00064-jmm` |
 | **28** — Themes II: every screen in both themes | **COMPLETE**, 2026-10-07 — `agentforge-00066-wvx` |
 | **29** — Canvas I: editing ergonomics | **COMPLETE**, 2026-10-07 — `agentforge-00071-k5m` |
-| **30** — Canvas II: sticky notes and disabled nodes | NOT STARTED ← next |
-| **31** — Canvas III: pinned data and partial runs | NOT STARTED |
+| **30** — Canvas II: sticky notes and disabled nodes | **COMPLETE**, 2026-10-08 — `agentforge-00075-566` |
+| **31** — Canvas III: pinned data and partial runs | NOT STARTED ← next |
 | **32** — Library: organising workflows | NOT STARTED |
 | **33** — Runs: history and recovery | NOT STARTED |
 | **34** — Generator at scale: catalogue selection and evals | NOT STARTED |
@@ -107,7 +96,7 @@ in `archive/progress-chapters-1-2.md` → *Completed Phases*.
 |---|---|
 | **Canonical URL** | **`https://agentforge-733000675212.asia-southeast1.run.app`** — the deterministic URL (D10). The legacy `https://agentforge-i5d2u66boa-as.a.run.app` works; do not publish it |
 | Service | `agentforge` on Cloud Run, `asia-southeast1`, project `agentforge-hackathon-2026` (`733000675212`) |
-| **Revision** | **`agentforge-00071-k5m`**, 100% of traffic — Phase 29 (2026-10-07). **Rollback targets are only the revisions behind the five kept images (D120)**: `00070-6mv`, `00069-nsh`, `00068-wvr` and `00067-rxt` (all Phase 29), and nothing older — **`00066-wvx` (Phase 28) is no longer a rollback target** once its image is pruned. Rollback tested (`update-traffic --to-revisions <rev>=100`, ~15 s) |
+| **Revision** | **`agentforge-00075-566`**, 100% of traffic — Phase 30 (2026-10-08). **Rollback targets are only the revisions behind the five kept images (D120)**: `00074-bps`, `00073-sh5`, `00072-n8v` (Phase 30) and `00071-k5m` (Phase 29). **Never roll back past `00072-n8v` while any workflow uses a sticky note or a switched-off node** — an older revision runs the switched-off node (D134; the check query is in `DEPLOYMENT.md` → *Rollback*; it counted 0 on 2026-10-08). Rollback tested (`update-traffic --to-revisions <rev>=100`, ~15 s) |
 | Scaling | **`min-instances 0`**, `max-instances 3`, 1 vCPU / 1 GiB, 3600 s timeout, port 8080. **Cold start 6.38 s** (measured), 0.58–0.76 s warm |
 | Env vars | 12: `NODE_ENV` `AUTH_URL` `APP_BASE_URL` `DATABASE_URL` `AUTH_SECRET` `GOOGLE_CLIENT_ID` `GOOGLE_CLIENT_SECRET` `ENCRYPTION_KEY` `CRON_SECRET` `TASKS_QUEUE` `TASKS_LOCATION` `ROOT_KEY_SECRET`. A plain redeploy inherits them; add with `--update-env-vars` (merges), never `--env-vars-file` unless replacing the set (D11). `TASKS_PROJECT`, `GCP_ACCESS_TOKEN`, `GCP_PROJECT` and `DATABASE_URL_UNPOOLED` are deliberately **not** set on the service |
 | Database | Neon `super-mountain-39872886`, **13 tables**, migrations **`0000`–`0012`** applied (`0012` by Phase 26 — additive; `rollback_0012.sql` is safe only once no run is `waiting`), ~10 MB of 0.5 GB. A second database `agentforge_demo` with a `SELECT`-only role serves the Postgres node's verification (23C). One Neon database serves local and production |
@@ -116,9 +105,9 @@ in `archive/progress-chapters-1-2.md` → *Completed Phases*.
 | Routes | Pages `/` `/workflows` `/workflows/[id]` `/templates` `/analytics` `/settings` `/design` `/invite/[token]` `/s/[token]` (+ `/dashboard` → `/workflows`), and **45 API route files** under `src/app/api` (Phase 26 added `POST /api/cron/fire`; an earlier "41" counted something else). Unauthenticated: **ten routes and two pages** — `verify-security.mjs`'s table has **11** entries because it also lists the invitation `accept` route, which needs a session |
 | Provider keys stored | `llm.google` on `gemini-3-flash-preview`, `llm.groq` on `openai/gpt-oss-120b`. `workspace.llmProvider` is `NULL` (resolves to Google). **No model key on the service** — the product path is the user's own key |
 | **Registry** | **30 nodes.** The generation prompt is **25,042 characters against a 26,000 ceiling** (`src/lib/nodes/registry.test.ts`; Phase 26's `core.delay` rework added 166) — **still one node of headroom** (D112; Phase 34 fixes it). A node owes five things, all asserted by `registry.test.ts`: a `PUBLISHABLE` entry, a `ROTATION_RULES` entry if it carries a credential kind, a `model` output field only if it is a model call, a generator catalogue entry (automatic), and `docs` |
-| Tests | **1165 tests** on Node's built-in runner, plus **20** script tests; coverage **89.09 / 91.59 / 82.25** (lines / branches / functions) against thresholds 85 / 88 / 76. `npm run check` = lint · typecheck · test+coverage · test:scripts · docs:check; CI adds `build`. **Every colour gate runs once per theme** (`tokens.test.ts`), `utilities.test.ts` asks Tailwind's compiler about every colour class in `src/` (D124) and refuses `outline-none` and a dimmed fill label (D126). **The rendered half of contrast is `scripts/contrast-audit.browser.js`**, run in a browser in both themes (D126) |
+| Tests | **1222 tests** on Node's built-in runner, plus **20** script tests; coverage **89.36 / 91.72 / 82.74** (lines / branches / functions) against thresholds 85 / 88 / 76. `npm run check` = lint · typecheck · test+coverage · test:scripts · docs:check; CI adds `build`. **Every colour gate runs once per theme** (`tokens.test.ts`), `utilities.test.ts` asks Tailwind's compiler about every colour class in `src/` (D124) and refuses `outline-none` and a dimmed fill label (D126). **The rendered half of contrast is `scripts/contrast-audit.browser.js`**, run in a browser in both themes (D126) |
 | Latency | Warm health ~190 ms (India → Singapore), DB 7–11 ms. Neon wake ~0.7–1.1 s. Generation 2.7–3.5 s. Analytics 17–27 ms of DB time per page view |
-| Last verified | **2026-10-07, Phase 29, acting as the owner.** On `00069-nsh`: `verify-security` 68, `verify-a11y` 92, `verify-api` 404 passed / 4 skipped (the fourth runs only while Google is disconnected), `verify-templates` 47, `verify-postgres` 65, `verify-providers` 55, `verify-vault` 62, `verify-observability` 68 / 1 structural skip, `verify-integrations` 60 / **2 skipped** (Notion, Airtable), `verify-timers` 34, `verify-durable all` — **0 failed**; on the final `00071-k5m`, `verify-a11y` 92 and `verify-security` 68 again (later deploys changed client UI only). `smoke.mjs` was not walked — Phase 29 changed no generator, engine or node code. In a real browser, Light and Night: twenty mixed edits undone to the generated graph and redone exactly, copy and paste between workflows, the keyboard-only flow, and the contrast audit clean on every new state |
+| Last verified | **2026-10-08, Phase 30, acting as the owner, on `00075-566`:** `verify-security` 68, `verify-a11y` 92, `verify-api` 425 passed / 3 skipped (a stored key, a free-tier rate limit on one probe, Google connected) — including its 15 Phase 30 checks — `verify-templates` 47, `verify-postgres` 65, `verify-providers` 55, `verify-vault` 62, `verify-observability` 68 / 1 structural skip, `verify-integrations` 60 / **2 skipped** (Notion, Airtable), `verify-timers` 34, `verify-durable all` — **0 failed**; `smoke.mjs` **CLEAN**. In a real browser, Light and Night: notes added, typed, double-clicked, dragged behind nodes, resized and recoloured; the keyboard path to a note; the off switch by D, by the inspector and refused on the trigger; a run lit through switched-off nodes; diffs with the new ribbons and counts; the share page; 600 px; the contrast audit clean on every new state |
 | Billing | **`Billing - AgentForge` (`017EB5-0D8A5E-F212CC`) is a paid account since M13** (2026-10-06; the 90-day trial had closed). Budget **"AgentForge zero"**, ₹100/month, e-mail alerts at 50 / 90 / 100 % (D113). Artifact Registry keeps the newest 5 images and the source bucket deletes uploads after 7 days (D120) — measured 896 MB and 687 MB before the first prune. Spend is not queryable from the CLI |
 | Fonts | Geist + Geist Mono, self-hosted by `next/font` — no font request, CLS 0 |
 
@@ -131,7 +120,7 @@ Chapter 3**: three themes with Light the default (D110), the ladder's ordering r
 registry node before Phase 34 (D112), zero cost held on a paid account inside Always Free (D113),
 Phase 26's timers, waits and active switch (D114–D119), build-artefact retention (D120), and Phase
 27's ink roles and Night palette (D121), its cream structure (D122), the theme mechanism (D123) and
-the dead-utility gate (D124), and Phase 28's per-theme fill hover (D125), the fill's label belonging to the fill with a rendered contrast audit (D126), and files outside the page following their environment (D127), and Phase 29's undo history (D128), clipboard envelope (D129), shortcut table (D130), canvas edit controls (D131) and selection read off the nodes (D132). **The next free number is D133.**
+the dead-utility gate (D124), and Phase 28's per-theme fill hover (D125), the fill's label belonging to the fill with a rendered contrast audit (D126), and files outside the page following their environment (D127), and Phase 29's undo history (D128), clipboard envelope (D129), shortcut table (D130), canvas edit controls (D131) and selection read off the nodes (D132), and Phase 30's disabled-node semantics (D133), additive graph fields with no version bump (D134), what a share link does with notes (D135), the generator dropping both (D136) and notes on the canvas (D137). **The next free number is D138.**
 
 Before changing anything, search `DECISIONS.md` for the area — by number, file or subject. A
 decision changes only by being marked **SUPERSEDED** with a reason and replaced by a new row.
@@ -150,7 +139,8 @@ below, are in the archive → *Known Issues*.**
 | **Night's amber fill is bronze** (`warn-pop`, `cat-integration-pop`, `#ad7f0c`) | **By design (D121)**: a fill must sit at ~0.24 luminance in Night, where yellow cannot be bright. Revisit only with the gate maths, never by brightening one fill |
 | **The generation prompt has one node of headroom** | D112 — no new node before Phase 34 |
 | **The demo prompt sometimes generates a Sheets cell that resolves to `null`** — `smoke.mjs` failed 2 walks of 3 on 2026-10-07 (`00066-wvx`) with `Invalid config: values.N Invalid input`: a whole-string `{{ }}` reference to a path the run never produced. The third walk was CLEAN. The generated graph is valid and runs; one cell is wrong | **Phase 34** (generator evals) — exactly the "valid graph, wrong behaviour" case evals exist for. Re-run the walk before believing a regression; Phase 28 changed no generator, engine or node code |
-| **The viewer canvas fix has not been seen in a browser** (D132) — since Phase 20 a viewer's click selected nothing, so the inspector could not be opened from the canvas. Fixed (`readOnlyChanges`) and unit-tested; no viewer membership exists to drive it, and borrowing the test account's workspace to make one was declined (it reads another account's data) | Drive it the first time a real viewer exists — an invitation accepted as `viewer`. Then remove this row |
+| **The viewer canvas fix has not been seen in a browser** (D132) — since Phase 20 a viewer's click selected nothing, so the inspector could not be opened from the canvas. Fixed (`readOnlyChanges`) and unit-tested; no viewer membership exists to drive it, and borrowing the test account's workspace to make one was declined (it reads another account's data). **Phase 30 adds to it**: a viewer reading a note (read-only note inspector, no double-click editing) is reasoned, not driven | Drive it the first time a real viewer exists — an invitation accepted as `viewer`. Then remove this row |
+| **A rollback past `00072-n8v` runs switched-off nodes** (D134) — notes and `disabled` are fields inside the graph's `jsonb`, so nothing stops an older revision serving a graph that uses them; it ignores both, runs the switched-off node and strips both on save | Run the count in `DEPLOYMENT.md` → *Rollback* before any rollback past it. 0 on 2026-10-08. Ages out as Phase 30's images become the only ones kept (D120) |
 | **Copy and paste are untested in Safari** | Copy is written from the key press with `writeText` precisely so it does not depend on Safari's `copy` event (D129); paste relies on the `paste` event. Reasoned, not run — try it when a Safari is to hand |
 | **No anti-framing header** — the app sends neither `X-Frame-Options` nor a CSP `frame-ancestors`, so another site can frame it (clickjacking). Found in Phase 28 while measuring the canvas in a same-origin iframe | **Phase 42** (launch polish), with the CSP D123 already anticipates. `frame-ancestors 'self'` keeps the same-origin measurement working |
 | **Only listed test users can sign in** — the OAuth consent screen is in `Testing` (cap 100) | Publishing is complicated by the sensitive Sheets/Gmail scopes. **Phase 42** investigates |
@@ -275,7 +265,7 @@ history is in the archive.
 | Branch protection on `main` | GitHub | required check above, strict, no force push | **EXISTS** — `enforce_admins` deliberately `false`, so the owner's direct push to `main` works |
 | Private vulnerability reporting | GitHub | `arunishrajput/AgentForge` | **ENABLED** |
 | Google Cloud project | Google Cloud | `agentforge-hackathon-2026`, number `733000675212` | **EXISTS**, billing on the **paid** account `017EB5-0D8A5E-F212CC` since M13 |
-| Cloud Run service | Google Cloud | `agentforge`, `asia-southeast1` | **LIVE**, `agentforge-00071-k5m` |
+| Cloud Run service | Google Cloud | `agentforge`, `asia-southeast1` | **LIVE**, `agentforge-00075-566` |
 | Artifact Registry | Google Cloud | `cloud-run-source-deploy`, `asia-southeast1` | **EXISTS** — cleanup policy: keep the newest 5 images, delete the rest once a day old (D120). **Re-read 2026-10-07: 160.4 MB, five images** — down from 926.9 MB the day of the prune. The saving D120 assumed is real; the size figure is simply computed late, so re-read it a day after a prune, not the same hour |
 | Build-source bucket | Cloud Storage | `run-sources-agentforge-hackathon-2026-asia-southeast1` | **EXISTS** — lifecycle: delete objects after 7 days (D120). No free tier in this region |
 | Budget | Cloud Billing | "AgentForge zero", `72b470cc-…`, ₹100/month, alerts at 50 / 90 / 100 % | **EXISTS** since 2026-10-06 (D113) |
@@ -340,16 +330,23 @@ npm run build && cp -r .next/static .next/standalone/.next/static && cp -r publi
 
 ## Notes for whoever comes next
 
-- **Start Phase 30 — Canvas II.** Phase 29 is closed and deployed. Notes and the disabled flag must be
-  **undoable and copyable**, and Phase 29 made that mostly free — *if* both live in the stored graph:
-  - the history (`use-history.ts`) records any structural change of `fromFlow(nodes, edges)`, so a
-    field on the graph is undoable the moment `fromFlow`/`toFlow` carry it. Notes are not React Flow
-    nodes of the registry, so `restoreNodes` (`bridge.ts`) and `changeKey` (`history.ts`, which keys
-    coalescing) need to learn them — a note dragged should be one step, like a node
-  - the clipboard envelope (`clipboard.ts`, `CONTRACT.md` → *The canvas clipboard*) parses nodes with
-    `workflowNodeSchema`, so a `disabled` flag rides along once the schema has it. Notes would be a new
-    envelope field: optional, so version 1 readers keep working, or a `CLIPBOARD_VERSION` bump — decide
-  - the shortcut table (`lib/canvas/shortcuts.ts`) is where a new key goes; the `?` card follows it
+- **Start Phase 31 — Canvas III.** Phase 30 is closed and deployed. What it leaves for 31:
+  - **the engine already has a "this node does not run" path** — a `disabled` step passes its input
+    through (`execute.ts`, D133). Pinned data is the same shape of idea — a node whose output comes from
+    somewhere other than `execute` — so read that branch before writing a second one, and decide
+    deliberately whether a pinned step is its own status the way `disabled` became one
+  - **pinned data is the second free-text-sized value on a node** after config: the share allowlist must
+    withhold it (the plan says so), the generation schema must drop it (D136's pattern), and the
+    clipboard carries whatever the node schema carries — decide whether a copy carries pinned data
+  - a field added to `core.manual_trigger`'s config grows the generation prompt (D112) — measure it with
+    `registry.test.ts` before and after
+- **The Chrome window must be in front for any canvas check.** In the background React Flow measures no
+  node (every node `visibility: hidden`, so no edges are drawn), timers throttle past the tool's 45 s
+  limit, and a finding there can be an artefact: Phase 30's "a new note does not open for typing" was
+  one. `document.visibilityState` read `hidden` even with the window in front, so look at a screenshot
+  instead
+- **Keys sent in one batch can race the async clipboard**: ⌘C then ⌘V in the same batch pasted nothing,
+  because `writeText` had not resolved. A person never presses them that fast; send ⌘V separately
 - **Every new UI is built in both themes** and verified in a browser in **Light and Night**
 - **Run `scripts/contrast-audit.browser.js` on every screen you touch, in both themes** (D126). Evaluate
   the file in the page; an empty list is a pass. The token gates cannot see which pair a component
@@ -393,6 +390,20 @@ npm run build && cp -r .next/static .next/standalone/.next/static && cp -r publi
 ---
 
 ## Recent Changes
+
+**2026-10-08 — Phase 30 closed: sticky notes, and steps that switch off.** The disabled-node semantics
+were written into `CONTRACT.md` before the code (D133): pass-through on the default output, a routing
+node stops its path, the trigger cannot be switched off, a `disabled` step of its own status. Notes and
+the off switch are optional graph fields with no version bump (D134), undoable, copyable, diffed and
+versioned; a share link withholds a note's text and publishes the switch (D135); the generator drops
+both (D136); notes sit behind the graph, edited in place or from the inspector, with D and N (D137).
+Two sessions — the first stopped on a usage limit after deploying `00072-n8v` and committing WIP — and
+four deploys to `00075-566`. The real browser found what the tests could not: **resize handles clipped
+to nothing** by the note's own `overflow-hidden`, the drawer covering a note being typed at 600 px, a
+hint that read as "off" on a node that was on, and four dimmed or mis-inked labels — among them **the
+diff bar's moved count at 1.06:1 in Night, empty since Phase 18**, and the inspector's node id at
+3.26:1. All fixed; the audit is clean on every new state in both themes; the battery 0 failed and the
+smoke walk clean.
 
 **2026-10-07 — Phase 29 closed: the canvas edits like a serious tool.** Undo and redo over a history of
 graphs recorded by watching the canvas (D128); copy, cut, paste and duplicate through a plain-text
@@ -477,6 +488,6 @@ Phase 4" after `postgres` was added in 23C.
 
 ## Last Updated
 
-**2026-10-07** — **Phase 29 complete**, deployed as `agentforge-00071-k5m` and verified on the deployed
+**2026-10-08** — **Phase 30 complete**, deployed as `agentforge-00075-566` and verified on the deployed
 service and in a real browser in Light and Night. **M14** (Neon reading, from 2026-10-13) is pending and
-non-blocking. **Next: Phase 30 — Canvas II.**
+non-blocking. **Next: Phase 31 — Canvas III.**

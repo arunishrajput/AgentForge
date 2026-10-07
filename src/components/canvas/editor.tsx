@@ -16,10 +16,9 @@ import {
   type OnSelectionChangeParams,
 } from "@xyflow/react";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { CommandPalette } from "@/components/shell/command-palette";
-import { cn } from "@/components/ui/cn";
 import { Toggle } from "@/components/ui/field";
 import { usePlatform } from "@/components/ui/kbd";
 import { useTheme } from "@/components/ui/theme";
@@ -541,8 +540,24 @@ function EditorInner({
   const selected = selection.length === 1 && selectedNotes.length === 0 ? selection[0] : null;
   const selectedNote = selectedNotes.length === 1 && selection.length === 0 ? selectedNotes[0] : null;
 
+  /**
+   * The note being typed into on the canvas, mirrored for `onSelectionChange` (Phase 30).
+   * Below `lg` the inspector is a drawer over the canvas, and opening it for a note somebody is
+   * typing into covered that note with a second field for the same text — found at 600 px in a
+   * browser. A layout effect, so it is current before React Flow reports the selection, which
+   * it does from a passive one.
+   */
+  const typingInPlace = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    typingInPlace.current = editingNote;
+  }, [editingNote]);
+
   const onSelectionChange = useCallback((params: OnSelectionChangeParams) => {
     const ids = params.nodes.map((node) => node.id);
+    if (ids.length === 1 && ids[0] === typingInPlace.current) {
+      setInspectorCollapsed(false);
+      return;
+    }
     // Selecting a node has to bring the inspector into view, or tapping a node on a
     // phone appears to do nothing at all — and at `lg` and up, a railed inspector
     // would swallow the selection just as silently.
@@ -1660,7 +1675,9 @@ function EditorInner({
               // under the user's cursor (`DESIGN.md`).
               aria-busy={busy === "running"}
               disabled={busy === "saving" || comparing}
-              className={cn("btn btn-primary shrink-0 max-sm:px-2.5", busy === "running" && "opacity-70")}
+              // Not dimmed while running: the label on a fill stays at full strength (D126) —
+              // the bobbing dots and the word already say it is busy. Phase 30.
+              className="btn btn-primary shrink-0 max-sm:px-2.5"
             >
               {busy === "running" ? (
                 <>

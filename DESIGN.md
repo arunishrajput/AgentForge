@@ -428,9 +428,18 @@ not make two statuses look alike.
 | succeeded | "Succeeded" | `✓` | ink | raised | `boing` |
 | failed | "Failed" | `!` | **red** | raised | `wiggle` |
 | skipped | "Skipped" | `–` | **dashed** | **sunken, flatter shadow** | — |
+| disabled | "Switched off" | `⊘` | **dotted** | **sunken, flatter shadow** | — |
 
-A greyscale screenshot of a run still reads: dashed and recessed was skipped, bobbing is working,
-ticked finished.
+A greyscale screenshot of a run still reads: dashed and recessed was skipped, dotted and recessed is
+switched off, bobbing is working, ticked finished.
+
+**Switched off is a property of the graph as well as a step status** (Phase 30). A switched-off node
+wears it whether or not a run has reached it — the card's job is to say *this will not run* — and it
+outranks the last run's status, which described a node that was on. A run that reaches one records a
+`disabled` step, so the run panel says the same thing in the same word. It is recessed like
+`skipped`, because the run does not execute either, and told apart from it by the outline's *shape*:
+dashed is *the run went another way*, dotted is *this is off*. In diff mode the change owns the outline
+and the surface, and the chip stays — being off is a fact about that version of the graph.
 
 **A skipped node is recessed, not faded.** That is the design answer — elevation here is the
 outline and the shadow, never the lightness — and it is also the only one that *works*; see the
@@ -474,6 +483,11 @@ Three things say so, and all three are needed:
 | moved | "Moved" | `⤢` | ink | raised |
 | unchanged | — | — | ink | raised |
 
+**A ribbon's words are at full strength, and its ink follows its fill** (Phase 30): `accent-ink` on
+the three `-pop` ribbons, `ink` on *moved*, which sits on `surface`. The field list was dimmed with
+`opacity-75` until then — D126's dimmed label on a fill by another mechanism — and is told apart from
+the word by weight instead. A node switched off or on says which: *switched off*, *switched on*.
+
 **An unchanged node is undecorated, deliberately.** A diff where every card is decorated is a diff
 with no signal in the decoration; the point of the mode is that the nodes which changed are the
 ones that stand out. A `changed` ribbon also names *what* changed — "configuration", "name" — in
@@ -512,8 +526,8 @@ and nowhere else.
 
 | Group | Keys |
 |---|---|
-| Edit | **⌘Z** undo · **⇧⌘Z** or **⌘Y** redo · **⌘C** copy · **⌘X** cut · **⌘V** paste · **⌘D** duplicate · **Delete** / **⌫** · **⌘S** save |
-| Select | **⌘A** every node · **⇧ Click** add or remove a node · **⇧ Drag** a box · **arrows** move the selection from a focused node (**⇧** for bigger steps) |
+| Edit | **⌘Z** undo · **⇧⌘Z** or **⌘Y** redo · **⌘C** copy · **⌘X** cut · **⌘V** paste · **⌘D** duplicate · **D** switch off or on · **N** a sticky note · **Delete** / **⌫** · **⌘S** save |
+| Select | **⌘A** every node and note · **⇧ Click** add or remove a node · **⇧ Drag** a box · **arrows** move the selection from a focused node (**⇧** for bigger steps) |
 | Canvas | **⌘K** find a node, or any command · **/** the palette's search · **F** fit · **?** this list · **Esc** close a panel or dialog |
 
 The rules the vocabulary keeps:
@@ -545,6 +559,37 @@ narrowing the selection to that node. The pad exists because a drag needs a poin
 single-node selection opens a railed inspector: a box selection reports a new set on every frame, and
 expanding the column mid-drag would resize the canvas under the box — the rail names the selection
 instead.
+
+### Sticky notes and the off switch — Phase 30
+
+**A note is an object like every other**: one of five `-pop` fills — yellow, pink, blue, green,
+purple, each a fill the palette already has (`lib/canvas/notes.ts`) — with an `accent-ink` label at
+full strength, inside a 2px ink outline, on the hard shadow. No new colour tokens: a note's tone
+carries no meaning, so it needed no new row in either theme's contrast matrix, and it is never
+"colour alone" because it is never information. In Night the yellow is bronze, as every amber fill is
+(D121).
+
+- **Behind the nodes.** A note sits under the graph (`zIndex: -1`) and lifts like a card when
+  selected, so it explains a corner without covering it
+- **Edited in place by double-click**; Escape or a click away ends it. The keyboard path is the
+  inspector, which opens on a selected note with the same text in a field and the tone as a radio
+  group of swatches — the chosen one pressed in and ticked
+- **Resized by its corners**, with handles drawn as small objects — elevated fill, ink outline — and
+  no second frame: the note's own outline is the edge being dragged. The resizer sits *outside* the
+  note's clipped box, or its handles are clipped to nothing (found in the browser)
+- **On a phone a new note is typed into where it is.** Below `lg` the inspector is a drawer over the
+  canvas, so a note being typed into does not open it — the drawer would cover the note with a second
+  field for the same text
+- **Plain text.** Nothing renders a note as HTML or Markdown
+- **Not in the palette.** The palette is the registry and a note is not a node; *Add a sticky note*
+  sits in the control stack beside Auto-arrange, in ⌘K, and on **N**
+- **On a share link** a note keeps its place and tone and says *its text is not shared on this link* —
+  never an empty note
+
+**The off switch** is a *Run this node* switch in the inspector, whose hint says what off will do for
+that node in particular — pass its input straight on, or, for a Branch, Switch or Loop, stop its path —
+and *Switch off* / *Switch on* for a selection, and **D**. A trigger has no switch (a run starts at
+it), and D on one says so and names the Active switch.
 
 **Keycaps are `Keys`** (`ui/kbd.tsx`): a `<kbd>` per key inside a `<kbd>` for the chord, `bg-surface`
 and an ink hairline; `joined` draws one cap, for the ⌘K button.
