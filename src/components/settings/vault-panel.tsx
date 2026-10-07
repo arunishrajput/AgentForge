@@ -123,7 +123,7 @@ export function VaultPanel({
       <Card className="p-5">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <h2 className="text-base font-bold">How these are encrypted</h2>
-          <Badge tone="pop" className={vault.rootKey.provider === "secret-manager" ? "bg-ok-pop" : "bg-warn-pop"}>
+          <Badge tone="pop" fill={vault.rootKey.provider === "secret-manager" ? "bg-ok-pop" : "bg-warn-pop"}>
             {vault.rootKey.provider === "secret-manager" ? "Versioned root key" : "Environment key"}
           </Badge>
         </div>
@@ -337,7 +337,7 @@ function CredentialCard({
         <h2 className="text-base font-bold">{entry.title}</h2>
         <div className="flex flex-wrap items-center gap-1.5">
           {entry.legacy ? (
-            <Badge tone="pop" className="bg-warn-pop">
+            <Badge tone="pop" fill="bg-warn-pop">
               old scheme
             </Badge>
           ) : (

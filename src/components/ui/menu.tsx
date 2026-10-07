@@ -3,6 +3,7 @@
 import { Fragment, type ReactNode, useEffect, useId, useRef, useState } from "react";
 
 import { cn } from "./cn";
+import { firstFocusable, lastFocusable, stepFocus } from "./menu-focus";
 
 /**
  * A dropdown menu.
@@ -75,10 +76,17 @@ export function Menu({
     if (returnFocus) button.current?.focus();
   };
 
-  // Open, then focus the first item. The effect rather than the click handler,
-  // because the items do not exist until after the render that opens the menu.
+  // Open, then focus the first item that can take focus — not item 0, which in the
+  // account menu is a disabled address that refuses it (`menu-focus.ts`, Phase 28). The
+  // effect rather than the click handler, because the items do not exist until after
+  // the render that opens the menu.
   useEffect(() => {
-    if (open) itemRefs.current[0]?.focus();
+    if (!open) return;
+    const first = firstFocusable(items);
+    if (first !== null) itemRefs.current[first]?.focus();
+    // `items` is deliberately not a dependency: a parent re-rendering with a new array
+    // while the menu is open must not pull focus back to the top mid-walk.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   useEffect(() => {
@@ -90,12 +98,8 @@ export function Menu({
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, [open]);
 
-  const move = (from: number, delta: number) => {
-    const enabled = items.map((item, i) => (item.disabled ? -1 : i)).filter((i) => i >= 0);
-    if (enabled.length === 0) return;
-    const at = enabled.indexOf(from);
-    const to = enabled[(at + delta + enabled.length) % enabled.length];
-    itemRefs.current[to]?.focus();
+  const focusItem = (index: number | null) => {
+    if (index !== null) itemRefs.current[index]?.focus();
   };
 
   return (
@@ -163,10 +167,10 @@ export function Menu({
                   close();
                 }}
                 onKeyDown={(event) => {
-                  if (event.key === "ArrowDown") move(index, 1);
-                  else if (event.key === "ArrowUp") move(index, -1);
-                  else if (event.key === "Home") move(-1, 1);
-                  else if (event.key === "End") move(0, -1);
+                  if (event.key === "ArrowDown") focusItem(stepFocus(items, index, 1));
+                  else if (event.key === "ArrowUp") focusItem(stepFocus(items, index, -1));
+                  else if (event.key === "Home") focusItem(firstFocusable(items));
+                  else if (event.key === "End") focusItem(lastFocusable(items));
                   else if (event.key === "Escape") close();
                   else if (event.key === "Tab") close(false);
                   else return;

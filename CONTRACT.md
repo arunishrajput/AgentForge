@@ -1863,7 +1863,7 @@ Night, where `ink` is cream and the label stays near-black.
 | Token | Job | Light | Night |
 |---|---|---|---|
 | `ink` | Body text, and the focus ring | near-black | cream |
-| `accent-ink` | The label on a pop fill | near-black | near-black |
+| `accent-ink` | The label on a pop fill — **only on a fill, and only at full strength** (D126, Phase 28) | near-black | near-black |
 | `line` | The outline | near-black | cream |
 | `shade` | The hard shadow — every `--shadow-*` draws in it | near-black | cream |
 | `scrim` | A modal's backdrop, used translucent | near-black | deeper near-black |
@@ -1886,6 +1886,7 @@ Every `--color-*` token has a value in each theme, and both are part of the cont
 | `localStorage` key | `agentforge:theme` | A reader's stored choice. Renaming it silently resets every reader to Light |
 | Default | `light` | D110: Light even on a dark device. An absent, blocked or unknown value is Light |
 | `dark:` variant | this project's, not Tailwind's | Follows `data-theme`; Tailwind's built-in follows the OS alone |
+| `--pop-hover-white` | `14%` in Light, `0%` in Night | D125, Phase 28: how much white a pop-filled button mixes in on hover. Not a colour token — an amount — so it sits in `:root` and the Night block beside `color-scheme` |
 
 ### Invariants the build enforces
 
@@ -1905,6 +1906,7 @@ Every `--color-*` token has a value in each theme, and both are part of the cont
 | The **shadow** clears 3:1 on every surface; the scrim is darker than the page | A shadow nobody can see is no thickness; a backdrop must recede |
 | Every token is **inside sRGB** | A clamped channel means the rendered colour is not the measured colour |
 | `palette.ts` and `globals.css` **agree in both directions** | The catalogue is a mirror, never a second source of truth |
+| A **hovered** pop fill — every fill, mixed with that theme's `--pop-hover-white` — still clears AA for its label and 3:1 for its outline and the ring | D125: 14% white took Night's outline to 2.61:1 |
 
 **Across both themes:**
 
@@ -1916,7 +1918,10 @@ Every `--color-*` token has a value in each theme, and both are part of the cont
 | The `dark` variant matches `data-theme`, and the OS only under `system` | Light is the default even on a dark device (D110) |
 | The select chevron's stroke is each theme's ink | A data URI cannot read a CSS variable |
 | **Every colour utility in `src/` compiles to CSS** (`utilities.test.ts`, D124) | A class naming a missing token builds to nothing, silently |
-| `public/illustrations/*.svg` match a fresh export | Baked-in hex goes stale silently |
+| White is mixed into a colour **only** through `--pop-hover-white` | A literal mix applies one amount to both themes, unmeasured |
+| `public/illustrations/*.svg` (Light and `-dark`) and `src/app/icon.svg` match a fresh export (`illustrations-static.test.ts`) | Baked-in hex goes stale silently |
+| No `outline-none` outside the listed exception, and no opacity on `text-accent-ink` (`utilities.test.ts`) | One focus ring; a dimmed fill label is under AA (D126) |
+| Every file rendering `<html>` applies the theme (`theme.test.ts`) | `global-error.tsx` replaces the root layout and its script |
 
 ### Consumers
 

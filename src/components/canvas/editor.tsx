@@ -987,6 +987,23 @@ function EditorInner({
           ? `Saved · v${saved.version}`
           : `v${saved.version} · ${saved.problems.length} problem${saved.problems.length === 1 ? "" : "s"}`;
 
+  /**
+   * The same state in the width a phone can spare (Phase 28). The version button beside
+   * the status already reads `vN`, so on a phone the status does not say it twice; and the
+   * diff bar under the toolbar names both versions being compared. Measured at 375 px:
+   * with these, the shorter padding below and the switch's gap, the toolbar is two rows
+   * instead of three, and 104 px tall instead of 151.
+   */
+  const statusShort = comparison
+    ? "Comparing"
+    : busy === "saving"
+      ? "Saving…"
+      : dirty
+        ? "Unsaved"
+        : saved.runnable
+          ? "Saved"
+          : `${saved.problems.length} problem${saved.problems.length === 1 ? "" : "s"}`;
+
   return (
     <CanvasContext value={canvasValue}>
       {/* Not an interactive element — a keyboard-shortcut scope wrapping the page, so
@@ -1024,14 +1041,14 @@ function EditorInner({
               value={name}
               maxLength={200}
               onChange={(event) => setName(event.target.value)}
-              className="field min-w-0 flex-1 basis-32 border-transparent bg-transparent font-bold shadow-none"
+              className="field min-w-0 flex-1 basis-32 border-transparent bg-transparent font-bold shadow-none max-sm:basis-24"
             />
           ) : (
             // A text field nobody can type in is a lie about what it is, and a `readOnly`
             // input still takes a caret and still looks like the place to start. The name
             // is a heading to a viewer, so it is rendered as text — the `h1` above carries
             // it for assistive technology either way.
-            <p className="min-w-0 flex-1 basis-32 truncate px-3 py-2 font-bold">{name}</p>
+            <p className="min-w-0 flex-1 basis-32 truncate px-3 py-2 font-bold max-sm:basis-24">{name}</p>
           )}
 
           {/* Drawer toggles. Only below `lg`, where the panels are not columns — at
@@ -1067,10 +1084,19 @@ function EditorInner({
 
           {/* `max-sm:flex-wrap` since Phase 26: the active switch made this row one control
               wider, and at 375px a row that cannot wrap clips its first item — the save
-              status — off the left edge rather than moving it down a line. */}
-          <div className="flex min-w-0 items-center justify-end gap-2 max-sm:order-last max-sm:basis-full max-sm:flex-wrap sm:flex-1">
+              status — off the left edge rather than moving it down a line.
+
+              Phase 28 made it fit instead of wrap: below `sm` the status is its short form,
+              the buttons' padding and the row's gap are tighter, and the name field's
+              minimum is smaller so the first row holds at 320 px. Two rows at 375 px (was
+              three), three at 320 (was four) — measured in a browser on the deployed canvas.
+              The wrap stays as the fallback: a run in flight adds Stop and widens Run. */}
+          <div className="flex min-w-0 items-center justify-end gap-2 max-sm:order-last max-sm:basis-full max-sm:flex-wrap max-sm:gap-1.5 sm:flex-1">
+            {/* Both forms are in the live region, and only the visible one is in the
+                accessibility tree — `hidden` is `display: none`. */}
             <span className="text-muted shrink-0 text-2xs" role="status">
-              {status}
+              <span className="max-sm:hidden">{status}</span>
+              <span className="sm:hidden">{statusShort}</span>
             </span>
 
             {/* The version number *is* the affordance. A button reading "v7" says both
@@ -1113,7 +1139,9 @@ function EditorInner({
                     if (busy === null) void toggleActive();
                   }}
                   aria-busy={busy === "switching"}
-                  className="text-2xs shrink-0"
+                  // The label is visually hidden below `sm`, but its wrapper is still in
+                  // the flow, so the gap would be 10 px of nothing beside the switch.
+                  className="text-2xs shrink-0 max-sm:gap-0"
                 />
               ) : (
                 !saved.active && (
@@ -1128,7 +1156,7 @@ function EditorInner({
                 type="button"
                 onClick={() => setShareOpen(true)}
                 aria-haspopup="dialog"
-                className="btn btn-quiet shrink-0"
+                className="btn btn-quiet shrink-0 max-sm:px-2.5"
               >
                 Share
                 {/* The dot is the only place on the canvas that says a public link is
@@ -1148,7 +1176,7 @@ function EditorInner({
                 // Nothing on the canvas in diff mode belongs to the editing graph, so
                 // there is nothing here that Save could honestly write.
                 disabled={busy !== null || !dirty || comparing}
-                className="btn btn-quiet shrink-0"
+                className="btn btn-quiet shrink-0 max-sm:px-2.5"
               >
                 Save
               </button>
@@ -1162,7 +1190,7 @@ function EditorInner({
                 type="button"
                 onClick={stopRun}
                 aria-busy={busy === "stopping"}
-                className="btn btn-danger shrink-0"
+                className="btn btn-danger shrink-0 max-sm:px-2.5"
               >
                 {run?.cancelRequested ? "Stopping…" : "Stop"}
               </button>
@@ -1179,7 +1207,7 @@ function EditorInner({
               // under the user's cursor (`DESIGN.md`).
               aria-busy={busy === "running"}
               disabled={busy === "saving" || comparing}
-              className={cn("btn btn-primary shrink-0", busy === "running" && "opacity-70")}
+              className={cn("btn btn-primary shrink-0 max-sm:px-2.5", busy === "running" && "opacity-70")}
             >
               {busy === "running" ? (
                 <>

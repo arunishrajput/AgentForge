@@ -263,7 +263,7 @@ export function WorkspacePanel({
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {workspace.own && <Badge icon="●">Personal</Badge>}
-            <Badge tone="pop" icon="◆">
+            <Badge tone="outline" icon="◆">
               {members.length} {members.length === 1 ? "member" : "members"}
             </Badge>
           </div>
@@ -356,7 +356,7 @@ export function WorkspacePanel({
                   </Select>
                 </label>
               ) : (
-                <Badge tone="pop" className="shrink-0" icon="◆">
+                <Badge tone="outline" className="shrink-0" icon="◆">
                   {member.role}
                 </Badge>
               )}

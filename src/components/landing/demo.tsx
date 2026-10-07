@@ -205,7 +205,7 @@ export function Demo() {
       <div className="card overflow-hidden">
         <div className="border-line bg-surface flex flex-wrap items-center justify-between gap-2 border-b-2 px-4 py-2.5">
           <p className="eyebrow">Then it runs, and you watch</p>
-          <Badge tone="pop" className="bg-live-pop">
+          <Badge tone="pop" fill="bg-live-pop">
             <span aria-hidden="true" className="animate-breathe">
               ●
             </span>{" "}

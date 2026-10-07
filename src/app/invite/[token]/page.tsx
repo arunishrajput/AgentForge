@@ -93,7 +93,7 @@ export default async function InvitePage({
           </Card>
         ) : (
           <Card raised className="animate-rise p-6">
-            <Badge tone="pop" icon="◆">
+            <Badge tone="outline" icon="◆">
               Invitation
             </Badge>
             <h1 className="mt-3 text-xl font-bold tracking-tight text-pretty">

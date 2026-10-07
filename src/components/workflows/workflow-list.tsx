@@ -285,19 +285,19 @@ function Row({
               important as whether it runs — and the list is where somebody scanning their
               workspace would expect to find out, not a dialog two clicks in. */}
           {card.visibility === "private" && (
-            <Badge tone="pop" icon="●">
+            <Badge tone="outline" icon="●">
               private
             </Badge>
           )}
           {card.shared && (
-            <Badge tone="pop" icon="↗">
+            <Badge tone="outline" icon="↗">
               public link
             </Badge>
           )}
           {/* Phase 26. The one state on this card that means "this will not run by itself",
               so it is as loud as the two above it. */}
           {!card.active && card.triggers.some((trigger) => trigger !== "manual") && (
-            <Badge tone="pop" icon="⏻">
+            <Badge tone="outline" icon="⏻">
               switched off
             </Badge>
           )}
@@ -372,7 +372,10 @@ function Filters<T extends StatusKey | TriggerKey>({
             )}
           >
             {option.label}
-            <span className={cn("text-3xs", active ? "text-accent-ink/70" : "text-faint")}>
+            {/* The full label colour on the fill, never a dimmed one: `accent-ink` at 70%
+                measured 3.77:1 on the grape fill in Light (Phase 28's contrast audit). The
+                count is set apart by its size instead. */}
+            <span className={cn("text-3xs", active ? "text-accent-ink" : "text-faint")}>
               {option.count}
             </span>
           </button>

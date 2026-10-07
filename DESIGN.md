@@ -393,6 +393,13 @@ Two breakpoints, two behaviours, and **no viewport measurement in JavaScript**: 
 is a drawer driven by `open`, at `lg` and up a column driven by `collapsed`. CSS decides, so there
 is nothing to mismatch on the server render.
 
+**On a phone the toolbar is two rows, not three** (Phase 28). Below `sm` the save status drops the
+version it shared with the `vN` button beside it ("Saved", not "Saved · v1"), the buttons' padding
+and the row's gap tighten, the hidden "Active" label stops spending a gap, and the name field's
+minimum shrinks so the first row holds at 320 px. Measured on the deployed canvas through a
+same-origin iframe: 151 → 104 px at 375, 197 → 149 px at 320 for a webhook workflow. Nothing was
+removed; a run in flight, which adds Stop and widens Run, still wraps rather than clips.
+
 ### A node card
 
 An object, built the way every other object in this language is built: a 2px ink outline, a hard
@@ -505,14 +512,14 @@ appended last — there is no Tailwind-aware merge, and none is needed.
 | `button.tsx` | `Button` (tones `ink`, `primary`, `quiet`, `ghost`, `danger`), `Spinner` |
 | `field.tsx` | `Labelled`, `Input`, `Textarea`, `Select`, `Checkbox`, `Switch`, `Toggle` |
 | `card.tsx` | `Card` (flat / `raised`), `CardHeader` (optional `-pop` fill strip) |
-| `badge.tsx` | `Badge` (`quiet` / `pop`) |
+| `badge.tsx` | `Badge` (`quiet` / `outline` / `pop`) — `pop` requires its `fill`, and the type refuses one without |
 | `dialog.tsx` | `Dialog` — native `<dialog>`, modal |
 | `toast.tsx` | `ToastProvider`, `useToast` |
 | `notice.tsx` | `Notice` — the anchored message |
 | `tone.ts` | `TONE`, `liveRole` — the shared message table |
 | `tooltip.tsx` | `Tooltip` |
 | `tabs.tsx` | `Tabs` — roving tabindex, arrows, Home/End |
-| `menu.tsx` | `Menu` — arrows, Home/End, Escape, click-outside; radio items (`checked`) in a named `group` |
+| `menu.tsx` | `Menu` — arrows, Home/End, Escape, click-outside; radio items (`checked`) in a named `group`. Focus moves only over enabled items (`menu-focus.ts`) |
 | `theme.tsx` | `useTheme`, `ThemeSwitch` (the Light / Dark / System radio group), `ThemeSync` |
 | `illustration.tsx` | `Mascot`, `Thinking`, `EmptyState`, and the four scenes |
 
@@ -597,6 +604,8 @@ primitive in new code because it carries the accessibility behaviour too.
 - **Every colour utility in `src/` compiles to CSS** — `utilities.test.ts`, D124
 - **No control removes the focus ring** (`outline-none`), except the ⌘K input, listed with its
   reason — `utilities.test.ts`, Phase 28
+- **The fill's label is never dimmed** — no opacity modifier on `text-accent-ink` — and a `pop`
+  badge without a `fill` does not typecheck (D126)
 - Every file that renders an `<html>` applies the theme before it paints — `theme.test.ts`
 - `public/illustrations/*.svg`, both themes, and the favicon are byte-identical to a fresh export
 
@@ -622,6 +631,9 @@ wrong within a phase.
 | **A fuzzy search tier is noise against a sentence** | A subsequence match means something against a short *name* and nothing against a description: any long sentence contains almost any five-letter subsequence. Feeding node descriptions to the shared ranking made `gmail` match **7 of 15** nodes. The fuzzy tier now applies to a title alone; substring and word-start matching on a subtitle are untouched |
 | **React Flow's `colorMode` is a trap even when it looks inert** | The canvas shipped `colorMode="dark"` through Phase 15 on a light-first product. It changed almost nothing visible — React Flow's node colours only reach its *built-in* node types, and Phase 14 had overridden the variables that mattered — but every variable **not** overridden was falling back to a dark default, waiting for the next person to add one |
 | **A class that names a missing token compiles to nothing, silently** | `bg-lift` reached for a `--color-lift` that never existed, and six elements shipped with no background from Phase 19A to Phase 27; `text-ok-ink` and `text-warn-ink` did the same to two messages. Tailwind does not warn. `utilities.test.ts` now asks Tailwind's own compiler about every colour utility in `src/` (D124) |
+| **A fill's label without the fill is an empty capsule in Night** | Seven badges were `tone="pop"` with no `bg-*-pop` — "private", "public link", "switched off", a member count, a role, "shared read-only", "Invitation". `chip-pop` sets `accent-ink`, which is near-black in both themes, so each drew a near-black word on whatever was behind it: a deliberate-looking outlined pill on cream, **1.06:1** on indigo. Every token pair was legal, so no gate could see it; `scripts/contrast-audit.browser.js` found it in one pass of the signed-in pages. A pill without a fill is `outline` now (`ink`, identical in Light), and `pop` without a `fill` does not typecheck |
+| **A dimmed label on a fill is under AA** | `text-accent-ink/70` — a count on the active filter tab — measured **3.77:1** on the grape fill, in Light. The label clears AA on every fill at full strength and has no margin to spend; `utilities.test.ts` refuses an opacity modifier on it |
+| **A menu that focuses item 0 is dead when item 0 is disabled** | The account menu's first row is the signed-in address, disabled. `focus()` on a disabled button does nothing, so opening the menu from the keyboard left focus on the trigger — and the items are `tabIndex={-1}`, so Settings, the theme and Sign out were unreachable without a pointer. `/design`'s menu, whose first item is enabled, could never show it. Focus now moves over enabled items only (`menu-focus.ts`, tested) |
 | **A label colour set on a container reaches everything inside it** | `CardHeader` set `accent-ink` on its whole strip, so the quiet badge in its `aside` — which paints its own dark pill — inherited a near-black word. Invisible in Light, where the two inks are equal; an empty capsule in Night. Set the label on the label. The same applies to any neutral object placed on a fill: it names its own text colour (`chip bg-surface text-ink` in the diff bar) |
 | **An inline `style` cannot be themed** | The select chevron was an inline data URI with a near-black stroke; no class can override an inline style, so it stayed near-black on Night's indigo. It is the `select-chevron` utility now, with a `dark` variant |
 | **A style that names the wrong property applies nothing, silently** | The canvas's dot grid set `color` on React Flow's pattern, and React Flow paints each dot with `fill` from its own variable, `--xy-background-pattern-color` — so from Phase 14 to Phase 28 the dots were React Flow's grey, not ink, and in Night they would have been its dark-mode grey. Point a third-party component at the variable it actually reads; read its stylesheet to find out which |
@@ -640,3 +652,7 @@ wrong within a phase.
 5. Look at `/design` in a real browser **in both themes**. Every phase of this project that drove a
    browser found something the test suite could not see — Phase 14 was no exception, and Phase 27
    found three things in Night that no gate could
+6. Run **`scripts/contrast-audit.browser.js`** in the browser on every screen the change touches, in
+   both themes — evaluate the file in the page; an empty list is a pass. The gates prove the tokens;
+   the audit proves the pairs a component actually draws. It is how Phase 28 found seven badges at
+   1.06:1 in Night and a dimmed label at 3.77:1 in Light

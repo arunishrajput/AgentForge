@@ -37,7 +37,10 @@ do at runtime** instead of following a fixed script.
   <em>The 1:46 demo: one sentence becomes a workflow, it runs, and the agent picks the branch. <a href="https://www.youtube.com/watch?v=3txmpCPEWd4">Watch on YouTube</a></em>
 </p>
 
-<img src="./docs/assets/workflow-demo.png" alt="A sentence becomes a five-node workflow — webhook trigger, an LLM summary, an agent that picks a branch, a Discord post and a log node — and then a live run log streaming beneath it" width="100%" />
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="./docs/assets/workflow-demo-dark.png" />
+  <img src="./docs/assets/workflow-demo.png" alt="A sentence becomes a five-node workflow — webhook trigger, an LLM summary, an agent that picks a branch, a Discord post and a log node — and then a live run log streaming beneath it" width="100%" />
+</picture>
 
 ---
 
@@ -67,7 +70,10 @@ product — not sandboxed, not behind a flag.
 oracle — which is why the canvas is editable and why the product says so out loud rather than
 pretending otherwise.
 
-<img src="./docs/assets/canvas-run.png" alt="The AgentForge canvas after a run: six nodes — a manual trigger, a set node, a filter, a sort, an aggregate and a log — each outlined and marked Succeeded, with the run panel beside them showing the run succeeded on version 1 in 291 ms and every step's own duration and log line" width="100%" />
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="./docs/assets/canvas-run-dark.jpg" />
+  <img src="./docs/assets/canvas-run.jpg" alt="The AgentForge canvas after a run: six nodes — a manual trigger, a set node, a filter, a sort, an aggregate and a log — each outlined and marked Succeeded, with the node palette on the left and the run panel on the right showing the run succeeded on version 1 in 280 ms and every step's own duration and log line" width="100%" />
+</picture>
 
 <p align="center"><em>A real run on the deployed app — six nodes, each reporting as it finished, and the per-step log beside them.</em></p>
 
@@ -208,7 +214,10 @@ shadows and springy motion. Deliberately not a dark IDE, which is what every com
 like — and its dark theme, **Toybox Night**, is not one either: the same toy after dark, cream
 outlines and hard shadows on deep indigo, held to every contrast gate Light is.
 
-<img src="./docs/assets/design-system.png" alt="The Toybox design system page, showing surface colour tokens with their computed contrast ratios" width="100%" />
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="./docs/assets/design-system-dark.png" />
+  <img src="./docs/assets/design-system.png" alt="The Toybox design system page: its Light, Dark and System theme switch, and the colour section whose every contrast figure is computed for the theme on screen" width="100%" />
+</picture>
 
 Every contrast figure on
 [`/design`](https://agentforge-733000675212.asia-southeast1.run.app/design) is computed by the
@@ -258,7 +267,10 @@ what is unfinished.
 - error paths, approval steps and sub-workflows
 - forms, and a public API
 
-<img src="./docs/assets/landing.png" alt="The deployed AgentForge landing page — 'Describe the automation. Get a workflow that runs.'" width="100%" />
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="./docs/assets/landing-dark.png" />
+  <img src="./docs/assets/landing.png" alt="The deployed AgentForge landing page — 'Describe the automation. Get a workflow that runs.'" width="100%" />
+</picture>
 
 ---
 

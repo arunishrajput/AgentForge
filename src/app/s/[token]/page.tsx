@@ -77,7 +77,7 @@ export default async function SharedWorkflowPage({
             Version {shared.version} · updated {formatUtc(shared.updatedAt)}
           </p>
         </div>
-        <Badge tone="pop" className="ml-auto shrink-0 sm:ml-0" icon="↗">
+        <Badge tone="outline" className="ml-auto shrink-0 sm:ml-0" icon="↗">
           shared read-only
         </Badge>
       </header>

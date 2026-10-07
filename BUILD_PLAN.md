@@ -43,8 +43,8 @@ is the file it means.
 ```
 26  Timers — schedules that fire, at zero idle cost       ✅
 27  Themes I — Toybox Night: tokens, gates, switching      ✅
-28  Themes II — every screen in both themes                ← START HERE
-29  Canvas I — editing ergonomics
+28  Themes II — every screen in both themes                ✅
+29  Canvas I — editing ergonomics                          ← START HERE
 30  Canvas II — sticky notes and disabled nodes
 31  Canvas III — the test loop: pinned data and partial runs
 32  Library — organising workflows
@@ -455,6 +455,77 @@ canvas **in Dark**. The public share page in Dark, signed out. `verify-a11y.mjs`
 **Documentation updates.** `DESIGN.md`, `README.md`, `PROGRESS.md`.
 
 **Commit.** `feat: complete phase 28 every screen in both themes`
+
+**Status: COMPLETE, 2026-10-07 — deployed as `agentforge-00066-wvx` and verified there in Light and
+Toybox Night.** Two deploys, not a split: part 1 (`00065-d2r`) shipped what could be verified signed out
+while the only Chrome connected to the extension was signed out; part 2 is what the signed-in pass
+found. What was built:
+
+- **The canvas follows the theme.** React Flow's `colorMode` is the reader's resolved theme on the
+  editor and the share page. The minimap mask is the recess colour, not a literal cream. **The dot grid
+  had never been ink**: it set `color` on a pattern React Flow paints with `fill` from its own variable —
+  measured on the live canvas, the dots fall back to `rgb(145,145,154)` in Light and `rgb(85,85,85)` in
+  dark mode when the variable is unset, and a `color` on them changes nothing
+- **Night's fill hover broke the outline rule** — 14% white took a hovered primary button's outline and
+  ring from 3.23:1 to 2.61:1. The amount is per theme now (D125), gated for every fill in both themes
+- **Assets outside the page** (D127): the static illustrations in both themes with `<picture>` in the
+  README, and the favicon generated from the palette with both palettes behind `prefers-color-scheme`
+- **`global-error.tsx`** applies the theme through `ThemeSync`. A copy of the head script was tried
+  first and found dead on a probe build — Next 16 never server-renders that page — and a probe with a
+  server-side and a client-side throw in the root layout painted it in each stored theme
+- **The three theme controls, signed in (task 4)**: the account menu (pointer), *Settings → Account →
+  Appearance* (arrow keys, the ring on the label) and ⌘K ("light" + Enter) each switched the theme, stored
+  it and recoloured `theme-color`, and the others followed live
+- **The phone toolbar Known Issue**: two rows at 375 px (was three; 151 → 104 px) and three at 320 (was
+  four; 197 → 149 px), measured on the deployed canvas through a same-origin iframe
+
+**Found by the signed-in pass, all fixed:**
+
+- **The account menu was a dead end from the keyboard.** Its first item is the disabled address; the
+  menu focused item 0, which refuses focus, so focus stayed on the trigger and nothing else was
+  reachable. End also counted from item 0. `menu-focus.ts`, tested; verified on `00066-wvx`
+- **Seven badges were an empty capsule in Night (1.06:1)** — `tone="pop"` with no fill (D126). Now the
+  `outline` register, identical in Light, and a pop badge without a `fill` does not typecheck
+- **Two labels on fills were dimmed under AA** — 3.77:1 in Light, older than the themes (D126)
+- **Two controls replaced the ink focus ring** with an accent one and `outline-none`; a gate now refuses it
+
+**Verified in a real browser on the deployed service**: every signed-out route at 375 / 1024 / 1440 /
+1920 px in both themes, zero horizontal overflow, no console errors beyond each 404's own status. Every
+signed-in page — `/workflows`, `/templates`, `/analytics`, all five settings tabs, the canvas with and
+without a node selected, a run, version history, the diff, both dialogs — read by
+`scripts/contrast-audit.browser.js` in both themes and **clean** on `00066-wvx`. **A workflow generated,
+edited and run on the canvas in Night**: five nodes from a sentence, renamed and relabelled, saved as v2,
+run to five successes with the branch taking `true` (the first attempt met a Gemini timeout, which the
+failure notice reported in Night). **The share page in Night, signed out**, at 375 and 1440, with a link
+the user approved, then revoked (404 after). The README's screenshots are re-shot in both themes —
+landing, the demo, the design system and a real run (the run's are JPEG captures at 1512 × 695: the
+connected Chrome's screen is 838 px tall, and a 256-colour PNG of them shifted the palette's hues).
+
+**Driven, not clicked, for the last part.** The connected Chrome window went to the background midway,
+and a hidden window receives no pointer or keyboard input and advances no CSS transitions. The
+generate-edit-run pass and the canvas screenshots were therefore driven through the UI's own controls
+with DOM events (`click()`, native `input`), which run the same React handlers; pointer and keyboard
+behaviour — the menu, the radios, ⌘K, Run — had been exercised for real while the window was visible.
+The one false alarm it produced is recorded: a cross-tab switch to Light read grey node cards at 1.13:1
+until the frozen colour transition was allowed to settle; settled, the audit was clean.
+
+**Gates added** — every one mutation-tested against the old code: each fill's hover per theme, and no
+white mix outside the variable (`tokens.test.ts`); no control removes the ring, and no opacity on the
+fill's label (`utilities.test.ts`); every `<html>` applies the theme (`theme.test.ts`); the favicon and
+both illustration sets byte-identical to an export; the menu's focus order (`menu-focus.test.ts`); and
+`Badge`'s type. **`scripts/contrast-audit.browser.js`** is the rendered half of the contrast check
+(D126), now step 6 of `DESIGN.md` → *Changing this system*.
+
+**The battery, on `00066-wvx`, acting as the owner:** `verify-security` 68 (one run died on a local
+`EHOSTUNREACH` mid-suite; the re-run passed), `verify-a11y` 92, `verify-api` 405 / 3 skipped,
+`verify-templates` 47, `verify-postgres` 65, `verify-providers` 55, `verify-vault` 62,
+`verify-observability` 68 / 1 structural skip, `verify-integrations` 60 / 2 skipped (Notion, Airtable),
+`verify-timers` 34, `verify-durable all` passed — **0 failed**. **`smoke.mjs` failed two walks of three
+and passed the third CLEAN.** Both failures were one cause: the generated Google Sheets node wrote a
+cell as a whole-string `{{ }}` reference to a path the run never produced, so it resolved to `null` and
+the cell refused it (`values.2`, then `values.0`/`values.1`); the branch and Discord beats failed after
+it. Phase 28 changed no generator, engine or node code — this is generation quality, the run-to-run
+variance `PROGRESS.md` already records — and it is a *Known Issue* owned by Phase 34's evals.
 
 ---
 

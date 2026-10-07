@@ -325,17 +325,25 @@ function CardBoard() {
             </Badge>
           </div>
           <div className="flex flex-wrap gap-1.5">
-            <Badge tone="pop" className="bg-cat-trigger-pop">
+            <Badge tone="pop" fill="bg-cat-trigger-pop">
               trigger
             </Badge>
-            <Badge tone="pop" className="bg-cat-agent-pop">
+            <Badge tone="pop" fill="bg-cat-agent-pop">
               agent
             </Badge>
-            <Badge tone="pop" className="bg-cat-logic-pop">
+            <Badge tone="pop" fill="bg-cat-logic-pop">
               logic
             </Badge>
-            <Badge tone="pop" className="bg-cat-integration-pop">
+            <Badge tone="pop" fill="bg-cat-integration-pop">
               integration
+            </Badge>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            <Badge tone="outline" icon={<span aria-hidden="true">●</span>}>
+              private
+            </Badge>
+            <Badge tone="outline" icon={<span aria-hidden="true">↗</span>}>
+              public link
             </Badge>
           </div>
         </div>

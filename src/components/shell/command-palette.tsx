@@ -382,7 +382,9 @@ export function CommandPalette({ className }: { className?: string }) {
                     <span
                       className={cn(
                         "text-2xs mt-0.5 block truncate",
-                        selected ? "text-accent-ink/75" : "text-muted",
+                        // Full strength on the fill: a dimmed label is under AA there
+                        // (Phase 28) — the subtitle is set apart by its size.
+                        selected ? "text-accent-ink" : "text-muted",
                       )}
                     >
                       {command.subtitle}

@@ -144,3 +144,23 @@ test("no control removes the focus ring, except where focus can never leave it",
   const stale = [...RING_EXCEPTIONS.keys()].filter((f) => !seen.has(f));
   assert.deepEqual(stale, [], `RING_EXCEPTIONS lists files that no longer remove the ring: ${stale.join(", ")}`);
 });
+
+/**
+ * **The label on a fill is never dimmed.** Phase 28.
+ *
+ * `accent-ink` is the one legal label on a `-pop` fill, and `tokens.test.ts` proves it
+ * clears AA there — at full strength. Two places dimmed it for a secondary line, a count
+ * on the active filter tab (`/70`) and a ⌘K subtitle (`/75`), and the first measured
+ * **3.77:1** on the grape fill in Light, found by `scripts/contrast-audit.browser.js`.
+ * In Night, where the label clears 4.95:1 at best, a dimmed one has no margin at all.
+ * Secondary text on a fill is set apart by size or weight, never by opacity.
+ */
+test("the label on a fill never takes an opacity modifier", () => {
+  const offenders: string[] = [];
+  for (const file of sourceFiles(ROOT)) {
+    for (const match of withoutComments(readFileSync(file, "utf8")).matchAll(/\btext-accent-ink\/\d+/g)) {
+      offenders.push(`${file.slice(ROOT.length)}: ${match[0]}`);
+    }
+  }
+  assert.deepEqual(offenders, [], "a dimmed fill label drops under AA — use the full text-accent-ink");
+});

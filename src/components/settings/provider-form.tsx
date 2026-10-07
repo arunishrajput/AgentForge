@@ -241,7 +241,7 @@ export function ProviderForm({ initial }: { initial: ProviderSettings }) {
             <div className="border-line-soft mt-5 border-t-2 pt-4">
               <div className="flex flex-wrap items-baseline justify-between gap-2">
                 <h3 className="text-sm font-bold">Model</h3>
-                <Badge tone="pop" className="bg-accent-pop font-mono">
+                <Badge tone="pop" fill="bg-accent-pop" className="font-mono">
                   {provider.model}
                 </Badge>
               </div>

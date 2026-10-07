@@ -30,6 +30,12 @@
  * (`DESIGN.md` → *Changing this system*). Re-deriving contrast from served HTML would mean
  * a second, worse implementation of maths that already has one.
  *
+ * **That gate proves the tokens, not the pairs a component draws** — Phase 28 found seven
+ * badges putting a fill's label on no fill, legal token by token and 1.06:1 on Toybox
+ * Night. The rendered half lives in `scripts/contrast-audit.browser.js`, evaluated in a
+ * real browser on every screen in both themes, because computed colours, opacity and the
+ * background actually behind a word only exist after layout.
+ *
  * **Keyboard operation, focus visibility, reflow and target size** need a browser with a
  * layout engine and a real focus ring, so they are driven by hand in a browser at the end
  * of the phase and recorded in `PROGRESS.md`. A script that claimed to have checked them
