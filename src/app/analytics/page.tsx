@@ -100,6 +100,10 @@ export default async function AnalyticsPage({
           Computed from {analytics.totals.runs} run
           {analytics.totals.runs === 1 ? "" : "s"} in {analytics.queryMs} ms, on request.
           Nothing here runs on a schedule.
+          {/* Phase 31: test runs are in no figure above, and saying how many keeps the page
+              honest about the runs a person can see on their canvas. */}
+          {analytics.testRuns > 0 &&
+            ` ${analytics.testRuns} test run${analytics.testRuns === 1 ? " is" : "s are"} not counted.`}
         </p>
       </main>
     </>

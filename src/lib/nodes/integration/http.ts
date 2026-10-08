@@ -34,6 +34,10 @@ export const httpNode = defineNode({
   outputShape:
     "{ status: the HTTP status number, ok: true for 2xx, json: the parsed response body or null, text: the raw response body, contentType, redirectedTo }. For a JSON API, reference output.json.field.",
   agentCallable: true,
+  effect: {
+    does: "send a request that can change something at its URL",
+    when: { field: "method", is: ["POST", "PUT", "PATCH", "DELETE"], default: "GET" },
+  },
   configSchema: z.object({
     method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]).default("GET"),
     /**

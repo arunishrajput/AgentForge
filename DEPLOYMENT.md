@@ -16,10 +16,10 @@ Every step is labelled **`AUTOMATED BY CLAUDE CODE`** or **`MANUAL HUMAN ACTION`
 | Field | Value |
 |---|---|
 | Service | `agentforge`, Cloud Run, `asia-southeast1` |
-| Revision | **`agentforge-00063-zt5`** — 100% of traffic, **Phase 26** (2026-10-06). Two deploys that day: `00062-kxm` carried the phase, and `00063-zt5` carried what verifying it on the deployed service found — the trigger panel naming a past slot after a firing, the next slot armed before the run starts, and a build upload filtered to what git tracks. Migration `0012` was applied first and is additive; `00061-lwl` served against it for the whole outage and after. **Rollback targets are the revisions behind the five kept images (D120)**: `00062-kxm`, `00061-lwl` / `00060-z9v` (one image, Phase 25), `00059-pd2`, `00058-q2z` (23D). Older revisions have no image. Cold start measured **6.38 s** on `00061-lwl`, warm 0.58–0.76 s |
+| Revision | **`agentforge-00077-wtm`** — 100% of traffic, **Phase 31** (2026-10-08; `00076-pv6` shipped the phase, `00077-wtm` the browser walk's fixes). Migration `0013` (`run.test`) was applied first and is additive; `00075-566` served against it. **Rollback targets are the revisions behind the five kept images (D120)** — list them with the commands in *Rollback*; never roll back past `00072-n8v` while a workflow uses a note or a switched-off node, and read *Rollback* before going past `00076-pv6` while a workflow holds a pin. *(This row read `00063-zt5`, Phase 26, until Phase 31 corrected it: Phases 27–30 updated `PROGRESS.md` and not this table.)* Cold start measured **6.38 s** on `00061-lwl`, warm 0.58–0.76 s |
 | Scaling | **`min-instances 0`** (M12, 2026-10-01 — was 1 through the hackathon window), `max-instances 3`, 1 vCPU / 1 GiB, 3600 s timeout |
 | Root key | **Secret Manager `agentforge-root-key`, version `1`.** Every credential's data key is wrapped by it; `GET /api/health` reports `rootKey.provider` so a deployment silently on `ENCRYPTION_KEY` cannot hide |
-| Database | Neon `super-mountain-39872886`, `aws-ap-southeast-1` — **13 tables**, migrations `0000`–`0012` applied. **Phase 26 added `0012`**, all additive: `workflow.active` (default `true`), `workflow.scheduleArmedFor`, `run.wakeAt` and the partial index `run_wake_idx` — applied 2026-10-06 ahead of the deploy, and ignored by the revision that was live. ~10 MB of 0.5 GB. Each earlier migration's story is in *Migrations* below |
+| Database | Neon `super-mountain-39872886`, `aws-ap-southeast-1` — **13 tables**, migrations `0000`–`0013` applied. **Phase 31 added `0013`**: one nullable column, `run.test` — applied 2026-10-08 ahead of the deploy, and ignored by the revision that was live. **Phase 26 added `0012`**, all additive: `workflow.active` (default `true`), `workflow.scheduleArmedFor`, `run.wakeAt` and the partial index `run_wake_idx`. ~10 MB of 0.5 GB. Each earlier migration's story is in *Migrations* below |
 | Observability | **Structured JSON logging on stdout, four log-based metrics, and `/api/health` reporting five dependency checks.** `OPERATIONS.md` is the runbook |
 | Last verified | **2026-10-06, after Phase 26** — on `agentforge-00063-zt5`, acting as the owner (`scripts/verify-user.mjs`): `verify-timers.mjs` **34/34** (a schedule fired from its Cloud Tasks timer 0.1 s after its slot; a burst of 8 fired within 8.1 s), `verify-durable.mjs all`, `verify-api.mjs` 404 passed / 4 skipped, `verify-templates.mjs` 47, `verify-postgres.mjs` 65, `verify-providers.mjs` 55, `verify-vault.mjs` 62, `verify-observability.mjs` 68 (22 ms of database time per page view on 87 runs), `verify-integrations.mjs` 60 / 2 skipped (M10), `verify-security.mjs` 68, `verify-a11y.mjs` 92 — **0 failed**. `smoke.mjs` **clean** once the owner reconnected Google (its 7-day `Testing` token had expired — `PROGRESS.md` → M15). A **real browser** on the deployed canvas watched a schedule fire and light up an open canvas, and the trigger panel move to the next slot without a reload. Local `npm run check`: **1030 passing**, coverage 88.38 / 91.02 / 80.23 |
 
@@ -711,7 +711,7 @@ example, and the pattern to copy:
 `drizzle/rollback_0005_0006.sql`, Phase 19B's is `drizzle/rollback_0007.sql`, Phase 20's is
 `drizzle/rollback_0008.sql`, Phase 21's is `drizzle/rollback_0009.sql`, Phase 23D's is
 `drizzle/rollback_0010.sql`, Phase 25's is `drizzle/rollback_0011.sql` and Phase 26's is
-`drizzle/rollback_0012.sql` — **safe only once no run is `waiting`**, because a pre-26 revision can neither
+`drizzle/rollback_0012.sql` — **safe only once no run is `waiting`**; Phase 31's is `drizzle/rollback_0013.sql`, because a pre-26 revision can neither
 resume nor sweep one (the file says how to check, and how to close them); each is applied with a SQL
 client and each also removes its ledger row, so a later `db:migrate` re-applies rather than believing
 the work is already done.
@@ -1493,6 +1493,17 @@ someone switched off is sent), and drops both fields from any graph it saves. Ch
 ```sql
 select count(*) from workflow
 where graph->'notes' is not null or jsonb_path_exists(graph, '$.nodes[*] ? (@.disabled == true)');
+```
+
+**Rolling back past `agentforge-00076-pv6` (Phase 31) is safe, and loses pins.** A pinned output is
+a field inside the graph's `jsonb` like a note, so an older revision serves it unknowingly — but in the
+safe direction: it does not know pins, so it **executes every node for real** in every run, which is
+what every production run does anyway (D139). What it costs is the pins themselves, dropped from any
+graph that revision saves, and the test label: an older revision never writes `run.test`, and counts
+earlier test runs in analytics again. To see what would be lost:
+
+```sql
+select count(*) from workflow where jsonb_path_exists(graph, '$.nodes[*].pinned');
 ```
 
 **Caveat:** a rollback does **not** revert migrations. Prefer additive migrations so an older

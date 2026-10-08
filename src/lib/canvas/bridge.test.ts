@@ -307,6 +307,21 @@ test("a switched-off node and two notes survive the trip to the canvas and back,
   assert.deepEqual(workflowGraphSchema.parse(JSON.parse(JSON.stringify(annotated))), annotated);
 });
 
+test("a pinned output survives the trip to the canvas and back, and an unpinned node gains no key", () => {
+  // Phase 31. `null` is a real pin — the wrapper is what makes it present.
+  const pinned: WorkflowGraph = {
+    ...graph,
+    nodes: graph.nodes.map((node, index) =>
+      index === 0 ? { ...node, pinned: { output: { rows: [1, "two", null] } } } : index === 1 ? { ...node, pinned: { output: null } } : node,
+    ),
+  };
+  const { nodes, edges, notes } = toFlow(pinned);
+  const back = fromFlow(nodes, edges, notes);
+  assert.deepEqual(back, pinned);
+  assert.ok(back.nodes.slice(2).every((node) => !("pinned" in node)));
+  assert.deepEqual(workflowGraphSchema.parse(JSON.parse(JSON.stringify(pinned))), pinned);
+});
+
 test("a note is its own React Flow type, sized by width and height, behind the nodes", () => {
   const [note] = toFlow(annotated).notes;
   assert.equal(note.type, CANVAS_NOTE_TYPE);

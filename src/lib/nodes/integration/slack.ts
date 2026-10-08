@@ -49,6 +49,7 @@ export const slackNode = defineNode({
       },
     ],
   },
+  effect: { does: "post a message to Slack" },
   configSchema: z.object({
     text: z.string().trim().min(1).max(SLACK_TEXT_LIMIT),
   }),

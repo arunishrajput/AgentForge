@@ -54,6 +54,10 @@ import {
   type Workflow,
 } from "@/lib/canvas/client";
 import { tweenMs } from "@/lib/canvas/motion";
+import { edgeRunLook } from "@/lib/canvas/status";
+import { testOutcome } from "@/lib/canvas/test-run";
+import { honouredPin, planTest, type TestScope } from "@/lib/engine/partial";
+import { checkManualInput, manualTrigger } from "@/lib/nodes/core/manual-trigger";
 import { useRunStream } from "@/lib/canvas/run-stream";
 import { isNewScheduledRun, withScheduleOf } from "@/lib/canvas/schedule-sync";
 import { DEFAULT_NOTE_TONE, noteName } from "@/lib/canvas/notes";
@@ -62,7 +66,15 @@ import { formatDuration } from "@/lib/format/duration";
 import { layout } from "@/lib/generate/layout";
 import { formatUtc } from "@/lib/triggers/cron";
 import { diffGraph, type GraphDiff, type NodeDiff, type NoteDiff } from "@/lib/workflow/diff";
-import type { WorkflowEdge, WorkflowGraph, WorkflowNode, WorkflowNote } from "@/lib/workflow/graph";
+import {
+  jsonBytes,
+  PIN_MAX_BYTES,
+  PINNED_TOTAL_MAX_BYTES,
+  type WorkflowEdge,
+  type WorkflowGraph,
+  type WorkflowNode,
+  type WorkflowNote,
+} from "@/lib/workflow/graph";
 import { mayChangeVisibility } from "@/lib/workflow/visibility";
 import { atLeast, type WorkspaceRole } from "@/lib/workspace/roles";
 
@@ -77,6 +89,7 @@ import { Palette } from "./palette";
 import { useCollapsed } from "./panel";
 import { ShareDialog } from "./share-dialog";
 import { ShortcutsDialog } from "./shortcuts-dialog";
+import { TestConfirmDialog } from "./test-confirm-dialog";
 import { useClipboard } from "./use-clipboard";
 import { useHistory } from "./use-history";
 import { useShortcuts } from "./use-shortcuts";
@@ -234,6 +247,14 @@ function EditorInner({
 
   const { run, live, watch, stop: stopStream, setRun } = useRunStream(workflow.id, liveRun);
   const [triggerInput, setTriggerInput] = useState("");
+  /** A test waiting on the author's yes, because it reaches a step that writes (Phase 31). */
+  const [pendingTest, setPendingTest] = useState<{
+    scope: Exclude<TestScope, "workflow">;
+    nodeId: string;
+    title: string;
+    effects: { name: string; does: string }[];
+    aimedOnly: boolean;
+  } | null>(null);
   const [busy, setBusy] = useState<
     null | "saving" | "running" | "queueing" | "stopping" | "switching"
   >(null);
@@ -387,18 +408,15 @@ function EditorInner({
         markerEnd: EDGE_MARKER,
       };
 
-      // A switched-off node the run passed through (Phase 30) is a node the run crossed:
-      // its input went straight out of it, so the path stays lit through it.
-      const source = runStates.get(edge.source);
-      if (source?.status !== "succeeded" && source?.status !== "disabled") return base;
-
-      const target = runStates.get(edge.target);
-      if (running && target?.status === "running") {
-        return { ...base, animated: true, className: "edge-live" };
-      }
-      if (target && target.status !== "skipped") {
-        return { ...base, className: "edge-traversed" };
-      }
+      // The rule is `edgeRunLook`, tested: lit through every node that handed a value on —
+      // succeeded, switched off (Phase 30) or standing in with its pin (Phase 31).
+      const look = edgeRunLook(
+        runStates.get(edge.source)?.status,
+        runStates.get(edge.target)?.status,
+        running,
+      );
+      if (look === "live") return { ...base, animated: true, className: "edge-live" };
+      if (look === "traversed") return { ...base, className: "edge-traversed" };
       return base;
     });
   }, [edges, run?.status, runStates]);
@@ -985,11 +1003,18 @@ function EditorInner({
    * alternative — running a graph the server has not seen — makes the run history
    * describe a workflow that never existed.
    */
-  const prepare = useCallback(async (): Promise<{ input: unknown } | null> => {
+  const prepare = useCallback(async (
+    /**
+     * A test of part of the workflow — Phase 31. It may run on a canvas that is not runnable
+     * as a whole (the server decides what it needs), it keeps the selection so the node being
+     * tested stays in the inspector, and a node tested alone takes no trigger input.
+     */
+    test?: { scope: Exclude<TestScope, "workflow"> },
+  ): Promise<{ input: unknown } | null> => {
     const current = dirty ? await save() : saved;
     if (!current) return null;
 
-    if (!current.runnable) {
+    if (!current.runnable && !test) {
       toast({
         tone: "warn",
         title: "Saved, but this workflow cannot run yet",
@@ -1001,7 +1026,7 @@ function EditorInner({
     }
 
     let input: unknown = null;
-    if (triggerInput.trim() !== "") {
+    if (triggerInput.trim() !== "" && test?.scope !== "node") {
       try {
         input = JSON.parse(triggerInput);
       } catch {
@@ -1010,8 +1035,32 @@ function EditorInner({
       }
     }
 
-    setNodes((all) => all.map((node) => ({ ...node, selected: false })));
-    setNotes((all) => all.map((note) => ({ ...note, selected: false })));
+    /**
+     * **The manual trigger's declared fields — Phase 31.** Checked here as well as by the
+     * trigger, so a missing required field is refused before anything is saved as a run. Not
+     * for a node tested alone, which never runs the trigger, nor for a trigger standing in with
+     * a pin — the trigger does not execute either way, so it checks nothing.
+     */
+    const trigger = current.graph.nodes.find((node) => registry.get(node.type)?.kind === "trigger");
+    if (trigger?.type === manualTrigger.type && test?.scope !== "node") {
+      const config = manualTrigger.configSchema.safeParse(trigger.config ?? {});
+      const pinnedTrigger = honouredPin(trigger, registry.get(trigger.type)) !== undefined;
+      const problem =
+        config.success && !pinnedTrigger
+          ? checkManualInput((config.data as { fields: Parameters<typeof checkManualInput>[0] }).fields, input)
+          : null;
+      if (problem) {
+        toast({ tone: "warn", title: "The run needs its input", detail: problem });
+        setInspectorCollapsed(false);
+        setInspectorOpen(true);
+        return null;
+      }
+    }
+
+    if (!test) {
+      setNodes((all) => all.map((node) => ({ ...node, selected: false })));
+      setNotes((all) => all.map((note) => ({ ...note, selected: false })));
+    }
     // Clear the previous run first. The stream's first snapshot is a few hundred
     // milliseconds away, and leaving the old run on screen means pressing Run shows a
     // canvas full of green "Succeeded" badges for something that has not started.
@@ -1025,7 +1074,7 @@ function EditorInner({
     watch();
 
     return { input };
-  }, [dirty, save, saved, setInspectorCollapsed, setNodes, setNotes, setRun, toast, triggerInput, watch]);
+  }, [dirty, registry, save, saved, setInspectorCollapsed, setNodes, setNotes, setRun, toast, triggerInput, watch]);
 
   const start = useCallback(async () => {
     const prepared = await prepare();
@@ -1072,7 +1121,8 @@ function EditorInner({
       } else if (finished.status === "succeeded") {
         toast({
           tone: "ok",
-          title: "Run finished",
+          // A run that used pinned outputs is a test (Phase 31), and says so where it ends.
+          title: finished.test ? "Test run finished — pinned outputs used" : "Run finished",
           detail:
             finished.durationMs === null
               ? undefined
@@ -1175,6 +1225,103 @@ function EditorInner({
     toast,
     workflow.id,
   ]);
+
+  /**
+   * **Test part of the workflow — Phase 31.** *Test this node* runs one node, fed from pins and
+   * from what ran before; *test up to here* runs the way from the trigger to it. Both are
+   * synchronous, like Run, and both are labelled a test on the run.
+   *
+   * When the test would execute a step that acts outside the product, it waits for the
+   * author's yes first (`TestConfirmDialog`). The plan is the engine's own arithmetic
+   * (`planTest`), over the graph on screen, which `prepare` then saves — so what the dialog
+   * names is what runs.
+   */
+  const startTest = useCallback(
+    async (scope: Exclude<TestScope, "workflow">, nodeId: string, confirmed = false) => {
+      if (!confirmed) {
+        const plan = planTest(graph, { scope, nodeId }, (type) => registry.get(type));
+        if (plan.effects.length > 0) {
+          const name = names.get(nodeId) ?? nodeId;
+          setPendingTest({
+            scope,
+            nodeId,
+            title: scope === "node" ? `Test ${name} alone?` : `Test up to ${name}?`,
+            effects: plan.effects.map((effect) => ({
+              name: names.get(effect.node.id) ?? effect.node.id,
+              does: effect.does,
+            })),
+            // Pinning is no help when the only step that writes is the one being tested: the
+            // node a test is aimed at always runs.
+            aimedOnly: plan.effects.every((effect) => effect.node.id === nodeId),
+          });
+          return;
+        }
+      }
+
+      const prepared = await prepare({ scope });
+      if (!prepared) return;
+      setBusy("running");
+
+      try {
+        const finished = await api.runWorkflow(workflow.id, prepared.input, { scope, nodeId });
+        setRun(finished);
+        const outcome = testOutcome(finished, nodeId, names);
+        toast({ ...outcome, duration: outcome.tone === "bad" ? null : undefined });
+      } catch (error) {
+        toast({
+          tone: "bad",
+          title: "The test could not run",
+          detail: error instanceof ApiRequestError ? error.message : undefined,
+          duration: null,
+        });
+      } finally {
+        stopStream();
+        setBusy(null);
+      }
+    },
+    [
+      graph,
+      names,
+      prepare,
+      registry,
+      setRun,
+      // oxlint-disable-next-line react/memo-dependencies
+      stopStream,
+      toast,
+      workflow.id,
+    ],
+  );
+
+  /**
+   * **Pin a node's output, or unpin it — Phase 31.** An ordinary graph edit — undoable, saved,
+   * versioned — refused here when it would pass the caps the graph schema enforces, so the
+   * author hears why now rather than as a failed save.
+   */
+  const pinOutput = useCallback(
+    (id: string, output: unknown) => {
+      if (output !== undefined) {
+        const size = jsonBytes(output);
+        const others = graph.nodes
+          .filter((node) => node.id !== id && node.pinned)
+          .reduce((total, node) => total + jsonBytes(node.pinned!.output), 0);
+        if (size > PIN_MAX_BYTES || others + size > PINNED_TOTAL_MAX_BYTES) {
+          toast({
+            tone: "warn",
+            title: "Too large to pin",
+            detail:
+              size > PIN_MAX_BYTES
+                ? `This output is ${Math.ceil(size / 1024)} KB, and a pinned output can be at most ${PIN_MAX_BYTES / 1024} KB. Pin a trimmed copy as JSON instead.`
+                : `This workflow's pins would add up to ${Math.ceil((others + size) / 1024)} KB, past the ${PINNED_TOTAL_MAX_BYTES / 1024} KB they may share. Unpin another first.`,
+            duration: null,
+          });
+          return false;
+        }
+      }
+      changeNode(id, { pinned: output === undefined ? undefined : { output } });
+      return true;
+    },
+    [changeNode, graph.nodes, toast],
+  );
 
   /**
    * Stop a run. Honest about what it can promise: a node already talking to Gmail is not
@@ -1841,6 +1988,7 @@ function EditorInner({
             node={selected}
             definition={selected ? registry.get(selected.data.nodeType) : undefined}
             note={selectedNote}
+            nodes={nodes}
             selection={selection}
             selectedNotes={selectedNotes}
             registry={registry}
@@ -1866,6 +2014,8 @@ function EditorInner({
             readOnly={!canEdit}
             onRotateWebhook={rotateWebhook}
             onRunDurably={startDurable}
+            onTest={(scope, nodeId) => void startTest(scope, nodeId)}
+            onPin={pinOutput}
             onChangeNode={changeNode}
             onDeleteNode={deleteNode}
             onSelectNode={selectNode}
@@ -1890,6 +2040,16 @@ function EditorInner({
         readOnly={!canEdit}
         onRestored={adoptRestored}
         onCompare={compare}
+      />
+
+      <TestConfirmDialog
+        pending={pendingTest}
+        onCancel={() => setPendingTest(null)}
+        onConfirm={() => {
+          const confirmed = pendingTest;
+          setPendingTest(null);
+          if (confirmed) void startTest(confirmed.scope, confirmed.nodeId, true);
+        }}
       />
 
       <ShortcutsDialog

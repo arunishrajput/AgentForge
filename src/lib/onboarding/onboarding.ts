@@ -99,7 +99,8 @@ async function anyWorkflow(scope: WorkspaceScope): Promise<boolean> {
 /**
  * **`succeeded`, not "a run exists".** The step's claim is that the product executed
  * something, and a run that failed has not demonstrated that — it is the state the guide
- * is there to help somebody out of.
+ * is there to help somebody out of. **Nor a test** (Phase 31): one node tried alone, or a run
+ * that used pinned outputs, proves a piece of a workflow rather than the workflow.
  *
  * Joined to `workflow` and scoped twice, like every run query in this project (see
  * `lib/analytics/queries.ts` for the reasoning): a run carries its workflow's name, so a
@@ -114,6 +115,8 @@ async function anySuccessfulRun(scope: WorkspaceScope): Promise<boolean> {
       and(
         eq(runs.workspaceId, scope.workspaceId),
         eq(runs.status, "succeeded"),
+        // Phase 31: a test proves a piece, not the workflow — the step is "run a workflow".
+        isNull(runs.test),
         visibleWorkflows(scope),
       ),
     )

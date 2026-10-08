@@ -1,5 +1,6 @@
 import type { StepLog } from "@/lib/nodes/types";
 
+import type { RunTest } from "./partial";
 import {
   RESTING_RUN_STATUSES,
   TERMINAL_RUN_STATUSES,
@@ -61,6 +62,11 @@ export interface StreamRun {
   cancelRequested: boolean;
   /** Phase 26: when a `waiting` run resumes. Null in every other status. */
   wakeAt: string | null;
+  /**
+   * Phase 31: whether this run is a test, and of what. Null on a real run. Like
+   * `workflowVersion` it is fixed at creation, so it is not in `StreamRunPatch`.
+   */
+  test: RunTest | null;
   /**
    * The workflow version this run executed (Phase 18). Null for a run from before
    * versioning existed. It is **not** in `StreamRunPatch` below and must not be: it is

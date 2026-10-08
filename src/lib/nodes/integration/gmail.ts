@@ -35,6 +35,7 @@ export const gmailNode = defineNode({
   outputShape:
     "{ sent: true, messageId, threadId, to, subject }.",
   agentCallable: false,
+  effect: { does: "send an email from the connected Gmail account" },
   configSchema: z.object({
     /**
      * One or more addresses, comma-separated.

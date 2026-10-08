@@ -13,6 +13,7 @@ import {
   type CursorItem,
   type RunCursor,
 } from "./cursor";
+import { aimedAt, honouredPin, scopeOf, type RunTest } from "./partial";
 import { attemptDelayMs, readPolicy, retryable, type NodePolicy } from "./policy";
 import { validateGraph, type GraphProblem } from "./validate";
 import {
@@ -86,6 +87,26 @@ export interface ExecuteOptions {
    * so, rather than a request held open for hours that the platform will cut off anyway.
    */
   allowWait?: boolean;
+  /**
+   * **A test run — Phase 31, `CONTRACT.md` → *Pinned output* and *Partial runs*.** Taken from
+   * the run row (`run.test`) and never from anything else, because it is the one thing that
+   * makes this engine honour a pinned output: a webhook or a schedule run is not a test, so
+   * every node in it executes for real. A `node` or `path` test also narrows what the run may
+   * reach, and stops at the node it was aimed at.
+   */
+  test?: RunTest | null;
+  /**
+   * What a `node` test's target is fed — its input, the upstream values its references read,
+   * and the trigger's (`partial.ts` → `seedNode`). Worked out by the caller, which can read
+   * earlier runs; the engine only starts from it.
+   */
+  seed?: {
+    input: unknown;
+    outputs: ReadonlyMap<string, unknown>;
+    trigger: unknown;
+    /** Lines for the target's log saying where its input came from. */
+    notes?: readonly string[];
+  };
 }
 
 /**
@@ -202,10 +223,53 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
     allowWait = false,
   } = options;
 
+  const test = options.test ?? null;
+  const seed = options.seed;
+  /** Phase 31: the nodes this run may reach — null for all of them. */
+  const reach = scopeOf(graph, test);
+  /** The node a `node` or `path` test is aimed at. It executes, and nothing after it does. */
+  const aimed = aimedAt(test);
+  /** A `node` test starts at its target instead of at the trigger. */
+  const entry = test?.scope === "node" ? test.nodeId : null;
+
+  /**
+   * The pinned output this run uses in place of executing `node`, if any. Only a test run
+   * uses one, and never for the node it is aimed at — that is the node being tested.
+   */
+  const pinOf = (node: WorkflowGraph["nodes"][number]) =>
+    test && node.id !== aimed ? honouredPin(node, getNode(node.type)) : undefined;
+
+  /**
+   * A test only needs the nodes it will execute to be well configured: a half-built node
+   * further down the canvas, or one standing in with a pin, is not a reason to refuse to try
+   * the node in front of the author. Every *structural* problem still refuses the run — the
+   * engine walks the same edges whatever the scope — and so does a bad config on a node this
+   * run will actually execute.
+   */
   const validation = validateGraph(graph);
-  if (!validation.valid || !validation.triggerNodeId) {
-    throw new GraphInvalidError(validation.problems);
+  const executes = (nodeId: string) => {
+    const node = graph.nodes.find((candidate) => candidate.id === nodeId);
+    return !node || ((!reach || reach.has(nodeId)) && !pinOf(node));
+  };
+  const blocking = validation.problems.filter(
+    (problem) =>
+      !(test && problem.code === "invalid_config" && problem.nodeId && !executes(problem.nodeId)),
+  );
+  if (blocking.length > 0 || !validation.triggerNodeId) {
+    throw new GraphInvalidError(blocking.length > 0 ? blocking : validation.problems);
   }
+  if (aimed && !graph.nodes.some((node) => node.id === aimed)) {
+    throw new GraphInvalidError([
+      { code: "dangling_edge", message: `There is no node "${aimed}" in this workflow to test.`, nodeId: aimed },
+    ]);
+  }
+  const triggerNode = graph.nodes.find((node) => node.id === validation.triggerNodeId)!;
+  /**
+   * What `{{trigger.…}}` resolves against. Ordinarily the run's input; in a test whose trigger
+   * holds a pin, that pin — so a reference to the trigger and the trigger's own step agree —
+   * and in a `node` test, the trigger's seeded value.
+   */
+  const triggerValue = entry ? (seed?.trigger ?? null) : (pinOf(triggerNode)?.output ?? input);
 
   // Held separately from the combined signal so an abort can be attributed. A run that
   // ran out of clock and a run whose caller went away are different events, and
@@ -215,7 +279,12 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
 
   const start = resume
     ? rehydrate(resume.cursor, resume.steps)
-    : rehydrate(initialCursor(validation.triggerNodeId), []);
+    : rehydrate(initialCursor(entry ?? validation.triggerNodeId), []);
+  // A node test's upstream values are not steps of this run — they came from pins and from
+  // earlier runs — so they seed the reference scope and nothing else.
+  if (!resume && entry && seed) {
+    for (const [nodeId, value] of seed.outputs) start.outputs.set(nodeId, value);
+  }
 
   /** Every step of the run, resumed ones first, so the outcome describes the whole run. */
   const steps: StepRecord[] = resume ? [...resume.steps] : [];
@@ -233,6 +302,19 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
   let paused: { seq: number; until: string } | null = null;
 
   const cursor = (): RunCursor => snapshotCursor({ queue, executions, seq });
+
+  /**
+   * Queue what follows a node, out of the output it left through. A test never goes past the
+   * node it was aimed at, and never outside its scope (Phase 31); everything else is the
+   * ordinary rule.
+   */
+  const follow = (nodeId: string, handle: string | null, fromSeq: number) => {
+    if (nodeId === aimed) return;
+    for (const edge of edgesFrom(graph, nodeId, handle)) {
+      if (reach && !reach.has(edge.target)) continue;
+      queue.push({ nodeId: edge.target, fromSeq });
+    }
+  };
 
   /**
    * The checkpoint after a step. The frontier is written here, after the step that produced
@@ -309,10 +391,12 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
 
     const definition = getNode(node.type)!;
     const logs: StepLog[] = [];
-    // `fromSeq` is null only for the trigger, whose input is the run's own input. A
-    // resumed queue entry resolves through the step rows rather than through memory,
-    // which is what lets the cursor stay small (`cursor.ts`).
-    const nodeInput = item.fromSeq === null ? input : bySeq.get(item.fromSeq);
+    // `fromSeq` is null only for the run's first node: the trigger, whose input is the run's
+    // own input — or a node tested alone, whose input was seeded (Phase 31). A resumed queue
+    // entry resolves through the step rows rather than through memory, which is what lets
+    // the cursor stay small (`cursor.ts`).
+    const nodeInput =
+      item.fromSeq === null ? (entry ? (seed?.input ?? null) : input) : bySeq.get(item.fromSeq);
 
     /**
      * **A switched-off node — Phase 30, `CONTRACT.md` → *Disabled nodes*.** It is never
@@ -365,11 +449,52 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
       lastOutput = output;
       await recorder.stepFinished(step);
 
-      if (passes) {
-        for (const edge of edgesFrom(graph, node.id, null)) {
-          queue.push({ nodeId: edge.target, fromSeq: mySeq });
-        }
-      }
+      if (passes) follow(node.id, null, mySeq);
+
+      if (await checkpointed()) break;
+      continue;
+    }
+
+    /**
+     * **A pinned node, in a test run — Phase 31, `CONTRACT.md` → *Pinned output*.** Exactly the
+     * shape of a switched-off one: never executed, so nothing is sent and no credential is read.
+     * Its step is `pinned`, its output is the pin, and the run carries on out of its default
+     * output — a node can only hold a pin when it has one (`partial.ts` → `canPin`). A webhook
+     * or schedule run never gets here: `pinOf` answers only for a test.
+     */
+    const pin = pinOf(node);
+    if (pin) {
+      const step: StepRecord = {
+        seq,
+        nodeId: node.id,
+        nodeType: node.type,
+        iteration,
+        status: "pinned",
+        config: null,
+        input: nodeInput ?? null,
+        output: pin.output,
+        branch: null,
+        logs: [
+          {
+            at: new Date().toISOString(),
+            level: "info",
+            message: "Pinned — not run. This is a test run, so its pinned output was used instead.",
+          },
+        ],
+        error: null,
+        startedAt: null,
+        finishedAt: null,
+      };
+      const mySeq = seq;
+      steps.push(step);
+      seq += 1;
+
+      outputs.set(node.id, pin.output);
+      bySeq.set(mySeq, pin.output);
+      executions.set(node.id, iteration + 1);
+      lastOutput = pin.output;
+      await recorder.stepFinished(step);
+      follow(node.id, null, mySeq);
 
       if (await checkpointed()) break;
       continue;
@@ -382,7 +507,7 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
     // would have handed every node the template bag in place of its workspace.
     const templateScope = {
       run: { id: runId, workflowId },
-      trigger: input,
+      trigger: triggerValue,
       input: nodeInput,
       steps: Object.fromEntries(
         [...outputs].map(([nodeId, output]) => [nodeId, { output }]),
@@ -417,6 +542,10 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
       // streams its reasoning instead of dumping it at the end.
       recorder.stepLogged?.(step, entry);
     };
+
+    // A node tested alone says where what it was handed came from (Phase 31), because the
+    // step's input alone cannot tell a pin from an earlier run's output.
+    if (node.id === entry && iteration === 0) for (const note of seed?.notes ?? []) log(note);
 
     try {
       const resolved = resolveConfig(node.config ?? {}, templateScope);
@@ -455,10 +584,14 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
       if (outcome.wait) {
         const until = Date.parse(outcome.wait.until);
         if (!allowWait) {
+          const duration = describeDuration(Math.max(0, until - Date.now()));
           throw new NodeError(
-            `This step asks the run to wait ${describeDuration(Math.max(0, until - Date.now()))}, ` +
-              "which needs the run queue to wake it again — and no queue is configured here " +
-              "(TASKS_QUEUE). Waits of up to 10 seconds run in place.",
+            test && test.scope !== "workflow"
+              ? `A test of part of a workflow does not pause, and this step asks to wait ${duration}. ` +
+                  "Pin this step's output to test what comes after it, or run the whole workflow."
+              : `This step asks the run to wait ${duration}, ` +
+                  "which needs the run queue to wake it again — and no queue is configured here " +
+                  "(TASKS_QUEUE). Waits of up to 10 seconds run in place.",
           );
         }
         if (!Number.isFinite(until) || until - Date.now() > MAX_WAIT_MS + WAIT_SLACK_MS) {
@@ -470,9 +603,7 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
         executions.set(node.id, iteration + 1);
         await recorder.stepFinished(step);
 
-        for (const edge of edgesFrom(graph, node.id, step.branch)) {
-          queue.push({ nodeId: edge.target, fromSeq: mySeq });
-        }
+        follow(node.id, step.branch, mySeq);
         paused = { seq: mySeq, until: new Date(until).toISOString() };
         break;
       }
@@ -508,9 +639,7 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
 
       await recorder.stepFinished(step);
 
-      for (const edge of edgesFrom(graph, node.id, step.branch)) {
-        queue.push({ nodeId: edge.target, fromSeq: mySeq });
-      }
+      follow(node.id, step.branch, mySeq);
     } catch (error) {
       step.status = "failed";
       step.error = message(error);
@@ -566,8 +695,11 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
   }
 
   // Every node that never ran is recorded as skipped, so run history shows the
-  // untaken side of a branch rather than an unexplained gap.
+  // untaken side of a branch rather than an unexplained gap. A test records only what was in
+  // its scope (Phase 31): a node outside it was never part of what was asked, and painting
+  // it "skipped" would say the run went another way.
   for (const node of graph.nodes) {
+    if (reach && !reach.has(node.id)) continue;
     if (executions.has(node.id) || steps.some((step) => step.nodeId === node.id)) continue;
     const skipped: StepRecord = {
       seq: seq++,

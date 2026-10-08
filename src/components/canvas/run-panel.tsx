@@ -4,6 +4,7 @@ import { cn } from "@/components/ui/cn";
 import { Notice } from "@/components/ui/notice";
 import type { Run, RunStep } from "@/lib/canvas/client";
 import { nodeStatusLook, runStatusLook } from "@/lib/canvas/status";
+import { testLabel } from "@/lib/canvas/test-run";
 import { elapsedMs, formatDuration, formatOffset } from "@/lib/format/duration";
 import { formatUtc } from "@/lib/triggers/cron";
 
@@ -51,6 +52,7 @@ export function RunPanel({
   onSelectNode: (id: string) => void;
 }) {
   const look = runStatusLook(run.status);
+  const test = testLabel(run.test ?? null, names);
   const steps = run.steps ?? [];
   const unfinished =
     run.status === "queued" || run.status === "running" || run.status === "waiting";
@@ -72,6 +74,16 @@ export function RunPanel({
           <span className="chip text-muted shrink-0" title="Queued: survives a restart">
             <span aria-hidden="true">⇄</span>
             Durable
+          </span>
+        )}
+
+        {/* A test (Phase 31) says what it tested. It matters most when the run did less than
+            the workflow does: one node alone, a path that stopped, steps that stood in with a
+            pin — and it is why the run is not in analytics. */}
+        {test && (
+          <span className="chip text-accent shrink-0" title="A test run — left out of analytics">
+            <span aria-hidden="true">◇</span>
+            {test}
           </span>
         )}
 

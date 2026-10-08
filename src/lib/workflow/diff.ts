@@ -37,8 +37,10 @@ export type EdgeChange = "added" | "removed" | "unchanged";
 /**
  * The parts of a node whose change is a change of substance, not of layout. `disabled` is
  * Phase 30's: switching a node off changes what a run does, so it is never a mere move.
+ * `pinned` is Phase 31's: a pin changes what a *test* run does, and a version history that
+ * called pinning a node "unchanged" would leave its reader no way to see why a test differed.
  */
-export type NodeField = "type" | "label" | "config" | "policy" | "disabled";
+export type NodeField = "type" | "label" | "config" | "policy" | "disabled" | "pinned";
 
 /**
  * A sticky note's parts (Phase 30). Its size is here rather than with its position: a note's
@@ -129,6 +131,7 @@ function changedFields(before: WorkflowNode, after: WorkflowNode): NodeField[] {
   if (!valuesEqual(before.config ?? {}, after.config ?? {})) fields.push("config");
   if (!valuesEqual(before.policy, after.policy)) fields.push("policy");
   if (Boolean(before.disabled) !== Boolean(after.disabled)) fields.push("disabled");
+  if (!valuesEqual(before.pinned, after.pinned)) fields.push("pinned");
   return fields;
 }
 

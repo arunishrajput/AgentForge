@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { NODE_STATUSES, RUN_STATUSES, nodeStatusLook, runStatusLook } from "./status";
+import { NODE_STATUSES, RUN_STATUSES, edgeRunLook, nodeStatusLook, runStatusLook } from "./status";
 
 /**
  * These assert the *distinctness* the phase asks for, not the specific glyphs.
@@ -154,4 +154,24 @@ test("a step paused inside a waiting run reads as waiting, not as running", () =
   assert.equal(paused.glyph, runStatusLook("waiting").glyph, "one clock for both");
   // The flag means nothing on a step that is not running.
   assert.equal(nodeStatusLook("succeeded", false, true).label, "Succeeded");
+});
+
+test("the lit path runs through every node that handed a value on — a pinned one included", () => {
+  // Phase 31's browser walk: the edge out of a pinned node stayed dark, because the rule named
+  // only succeeded and switched-off sources. A pinned node hands its pin on exactly as a
+  // succeeded one hands its output.
+  for (const source of ["succeeded", "disabled", "pinned"] as const) {
+    assert.equal(edgeRunLook(source, "succeeded", false), "traversed", source);
+    assert.equal(edgeRunLook(source, "pinned", false), "traversed", source);
+  }
+  assert.equal(edgeRunLook("succeeded", "running", true), "live");
+  assert.equal(edgeRunLook("pinned", "running", true), "live");
+});
+
+test("an edge stays plain where the run did not cross it", () => {
+  assert.equal(edgeRunLook("succeeded", "skipped", false), null, "the untaken side of a branch");
+  assert.equal(edgeRunLook("succeeded", undefined, false), null, "a target the run never reached");
+  assert.equal(edgeRunLook("failed", "skipped", false), null);
+  assert.equal(edgeRunLook("skipped", "skipped", false), null);
+  assert.equal(edgeRunLook(undefined, undefined, false), null);
 });

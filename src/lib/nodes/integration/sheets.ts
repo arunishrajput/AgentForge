@@ -29,6 +29,7 @@ export const sheetsNode = defineNode({
   outputShape:
     "{ appended: true, spreadsheetId, updatedRange: where the row landed e.g. Sheet1!A7:E7, updatedRows, values: the row that was written }.",
   agentCallable: true,
+  effect: { does: "append a row to a Google Sheet" },
   configSchema: z.object({
     /**
      * An id or a pasted sheet URL; `spreadsheetIdFrom` accepts either.

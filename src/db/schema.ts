@@ -13,6 +13,7 @@ import {
 import type { AdapterAccountType } from "next-auth/adapters";
 
 import type { RunCursor } from "@/lib/engine/cursor";
+import type { RunTest } from "@/lib/engine/partial";
 import type { RunMode, RunStatus, StepStatus, TriggerKind } from "@/lib/engine/types";
 import type { StepLog } from "@/lib/nodes/types";
 import type { WorkflowGraph } from "@/lib/workflow/graph";
@@ -518,6 +519,18 @@ export const runs = pgTable(
      * task was lost without parsing every cursor.
      */
     wakeAt: timestamp("wakeAt", { withTimezone: true }),
+    /**
+     * **Whether this run is a test, and of what — Phase 31.** Null on every real run. Set at
+     * creation and never changed: `{ scope: "workflow" }` for a manual run of a graph holding
+     * pinned outputs, `{ scope: "node" | "path", nodeId }` for *test this node* and *test up
+     * to here* (`CONTRACT.md` → *Partial runs*).
+     *
+     * It is the **only** thing that lets the engine honour a pin, which is why it lives on the
+     * row rather than in a request: a resumed delivery has no request, and a webhook or a
+     * schedule run is created with it null, so a pinned node executes for real in every run
+     * that is not a test. Analytics and onboarding read it to leave test runs out.
+     */
+    test: jsonb("test").$type<RunTest>(),
   },
   (table) => [
     index("run_owner_idx").on(table.ownerId, table.startedAt),

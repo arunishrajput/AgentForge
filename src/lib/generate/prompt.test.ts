@@ -58,7 +58,10 @@ test("config fields are rendered with their type, requiredness and default", () 
 
 test("a node with no config says so rather than rendering an empty block", () => {
   assert.deepEqual(describeConfigSchema({ type: "object", properties: {} }), []);
-  assert.ok(renderCatalogue().includes("config: none"));
+  // The manual trigger was the last real node with no config until Phase 31 gave it `fields`,
+  // so the rendering is asserted on a node built for the purpose.
+  const bare = { ...describeNodes()[0], configSchema: { type: "object", properties: {} } };
+  assert.ok(renderCatalogue([bare]).includes("config: none"));
 });
 
 test("the prompt states the trigger rule with the trigger types that actually exist", () => {

@@ -1,19 +1,24 @@
 "use client";
 
-import { Labelled, Input, Textarea, Toggle } from "@/components/ui/field";
+import { Labelled, Input, Toggle } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { cn } from "@/components/ui/cn";
 import type { CanvasNode, CanvasNote, CanvasNoteData } from "@/lib/canvas/bridge";
 import { categoryLook } from "@/lib/canvas/categories";
-import type { GraphProblem, NodeSummary, Run, Workflow } from "@/lib/canvas/client";
+import type { GraphProblem, NodeSummary, Run, TestScope, Workflow } from "@/lib/canvas/client";
+import { canPin } from "@/lib/engine/partial";
+import { manualTrigger, type ManualField } from "@/lib/nodes/core/manual-trigger";
 import type { Platform } from "@/lib/ui/keys";
 
 import { ConfigForm } from "./config-form";
 import { NodeDocs } from "./node-docs";
 import { NodeIcon } from "./node-icon";
+import { NodeTestPanel } from "./node-test-panel";
 import { NoteInspector } from "./note-inspector";
 import { Panel } from "./panel";
 import { PolicyForm } from "./policy-form";
+import { RunInput } from "./run-input";
+import type { RunInputFacts } from "./node-test-panel";
 import { RunPanel } from "./run-panel";
 import { SelectionInspector } from "./selection-inspector";
 import { TriggerPanel } from "./trigger-panel";
@@ -54,6 +59,7 @@ export function Inspector({
   node,
   definition,
   note,
+  nodes,
   selection,
   selectedNotes,
   registry,
@@ -73,6 +79,8 @@ export function Inspector({
   readOnly,
   onRotateWebhook,
   onRunDurably,
+  onTest,
+  onPin,
   onChangeNode,
   onDeleteNode,
   onSelectNode,
@@ -93,6 +101,8 @@ export function Inspector({
   definition: NodeSummary | undefined;
   /** One sticky note, selected alone — Phase 30. */
   note: CanvasNote | null;
+  /** Every node on the canvas — Phase 31: the trigger's input fields, and what holds a pin. */
+  nodes: CanvasNode[];
   /** Every selected node — Phase 29. Read as a selection only when more than one thing is. */
   selection: CanvasNode[];
   /** Every selected note — Phase 30. They count towards the selection with the nodes. */
@@ -133,6 +143,10 @@ export function Inspector({
   readOnly: boolean;
   onRotateWebhook: () => Promise<void>;
   onRunDurably: () => void;
+  /** Test part of the workflow — Phase 31. */
+  onTest: (scope: Exclude<TestScope, "workflow">, nodeId: string) => void;
+  /** Pin a node's output, or unpin it with `undefined`. False when refused for its size. */
+  onPin: (nodeId: string, output: unknown) => boolean;
   onChangeNode: (id: string, data: Partial<CanvasNode["data"]>) => void;
   onDeleteNode: (id: string) => void;
   onSelectNode: (id: string) => void;
@@ -198,12 +212,23 @@ export function Inspector({
           readOnly={readOnly}
           canRotateWebhook={canRotateWebhook}
           onRotateWebhook={onRotateWebhook}
+          run={run}
+          canRun={canRun}
+          runInput={{
+            ...runFacts(nodes, registry),
+            value: triggerInput,
+            onChange: onChangeTriggerInput,
+          }}
+          onTest={onTest}
+          onPin={onPin}
           onChange={onChangeNode}
           onDelete={onDeleteNode}
           onSetDisabled={onSetDisabled}
         />
       ) : (
         <WorkflowInspector
+          nodes={nodes}
+          registry={registry}
           problems={problems}
           run={run}
           live={live}
@@ -219,6 +244,28 @@ export function Inspector({
       )}
     </Panel>
   );
+}
+
+/**
+ * What a run will be started with, read off the canvas — Phase 31: the manual trigger's declared
+ * fields, the nodes standing in with a pin (`honouredPin`'s rule: present, switched on, on a node
+ * that can hold one), and whether the trigger is one of them.
+ */
+function runFacts(nodes: CanvasNode[], registry: Map<string, NodeSummary>) {
+  const trigger = nodes.find((node) => registry.get(node.data.nodeType)?.kind === "trigger");
+  const declared =
+    trigger?.data.nodeType === manualTrigger.type
+      ? manualTrigger.configSchema.safeParse(trigger.data.config ?? {})
+      : null;
+  const fields: ManualField[] = declared?.success
+    ? (declared.data as { fields: ManualField[] }).fields
+    : [];
+  const pinned = nodes.filter(
+    (node) =>
+      node.data.pinned !== undefined && !node.data.disabled && canPin(registry.get(node.data.nodeType)),
+  );
+  const pinnedTrigger = trigger !== undefined && pinned.some((node) => node.id === trigger.id);
+  return { fields, pinned, pinnedTrigger };
 }
 
 /** "3 nodes", "a note", "2 nodes and a note" — the selection in words (Phase 30). */
@@ -240,6 +287,11 @@ function NodeInspector({
   readOnly,
   canRotateWebhook,
   onRotateWebhook,
+  run,
+  canRun,
+  runInput,
+  onTest,
+  onPin,
   onChange,
   onDelete,
   onSetDisabled,
@@ -253,6 +305,12 @@ function NodeInspector({
   readOnly: boolean;
   canRotateWebhook: boolean;
   onRotateWebhook: () => Promise<void>;
+  run: Run | null;
+  canRun: boolean;
+  /** The run input, so *test up to here* can be given what the trigger asks for — Phase 31. */
+  runInput: RunInputFacts;
+  onTest: (scope: Exclude<TestScope, "workflow">, nodeId: string) => void;
+  onPin: (nodeId: string, output: unknown) => boolean;
   onChange: (id: string, data: Partial<CanvasNode["data"]>) => void;
   onDelete: (id: string) => void;
   onSetDisabled: (ids: readonly string[], off: boolean) => boolean;
@@ -356,6 +414,19 @@ function NodeInspector({
           onRotate={onRotateWebhook}
         />
 
+        {/* The test loop — Phase 31. Right after the configuration, because the loop is
+            "change this, test it, read what it made". */}
+        <NodeTestPanel
+          node={node}
+          definition={definition}
+          run={run}
+          canRun={canRun}
+          readOnly={readOnly}
+          runInput={runInput}
+          onTest={onTest}
+          onPin={onPin}
+        />
+
         {/* Retry and timeout are properties of *running* a node, so they sit below its
             configuration behind a rule of their own rather than inside the config form.
             Hidden on a trigger: a trigger turns a payload into an output and cannot fail
@@ -443,6 +514,8 @@ function OnOffSwitch({
 }
 
 function WorkflowInspector({
+  nodes,
+  registry,
   problems,
   run,
   live,
@@ -455,6 +528,8 @@ function WorkflowInspector({
   onRunDurably,
   onSelectNode,
 }: {
+  nodes: CanvasNode[];
+  registry: Map<string, NodeSummary>;
   problems: GraphProblem[];
   run: Run | null;
   live: boolean;
@@ -467,6 +542,13 @@ function WorkflowInspector({
   onRunDurably: () => void;
   onSelectNode: (id: string) => void;
 }) {
+  /**
+   * Phase 31. The manual trigger's declared fields become the form below, and any node standing
+   * in with a pin is named here — the place a person looks before pressing Run — because a pin
+   * turns their Run into a test that does not call those steps.
+   */
+  const { fields, pinned, pinnedTrigger } = runFacts(nodes, registry);
+
   return (
     <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-3 py-3.5">
       {problems.length > 0 && (
@@ -491,7 +573,38 @@ function WorkflowInspector({
         <>
           {/* The manual trigger exists to turn a payload into the first node's output, so
               the canvas has to be able to supply one. */}
-          <TriggerInput value={triggerInput} onChange={onChangeTriggerInput} />
+          <RunInput
+            fields={fields}
+            value={triggerInput}
+            onChange={onChangeTriggerInput}
+            pinnedTrigger={pinnedTrigger}
+          />
+
+          {pinned.length > 0 && (
+            <Notice
+              tone="info"
+              title={`${pinned.length === 1 ? "1 step uses" : `${pinned.length} steps use`} a pinned output`}
+            >
+              <span className="block">
+                Run hands on{" "}
+                {pinned.map((node, index) => (
+                  <span key={node.id}>
+                    {index > 0 && (index === pinned.length - 1 ? " and " : ", ")}
+                    <button
+                      type="button"
+                      onClick={() => onSelectNode(node.id)}
+                      className="font-semibold underline underline-offset-2"
+                    >
+                      {names.get(node.id) ?? node.id}
+                    </button>
+                  </span>
+                ))}
+                &rsquo;s pinned output instead of running {pinned.length === 1 ? "it" : "them"}, so it
+                is a test run and stays out of analytics. A webhook or a schedule runs every step for
+                real.
+              </span>
+            </Notice>
+          )}
 
           {/* Durable running lives here rather than in the toolbar, and the reason is the
               explanation. "Run" and "Run in the background" are indistinguishable as two
@@ -558,44 +671,4 @@ function DurableRun({
       </button>
     </section>
   );
-}
-
-function TriggerInput({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  const invalid = value.trim() !== "" && !parses(value);
-
-  return (
-    <Labelled
-      label="Trigger input"
-      hint={
-        <>
-          JSON handed to the trigger. Reach it with <code className="font-mono">{"{{input.x}}"}</code>.
-        </>
-      }
-      error={invalid ? "Not valid JSON — the run will be blocked until this parses." : undefined}
-    >
-      <Textarea
-        value={value}
-        rows={3}
-        spellCheck={false}
-        placeholder={'{ "subject": "launch" }'}
-        onChange={(event) => onChange(event.target.value)}
-        className="font-mono text-2xs"
-      />
-    </Labelled>
-  );
-}
-
-function parses(value: string): boolean {
-  try {
-    JSON.parse(value);
-    return true;
-  } catch {
-    return false;
-  }
 }

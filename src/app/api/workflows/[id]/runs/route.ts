@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { describeRun, listRuns, startDurableRun, startRun } from "@/lib/engine/run";
 import { RUN_MODES } from "@/lib/engine/types";
-import { handle, ok, readJson, requireScope } from "@/lib/api";
+import { ApiError, handle, ok, requireScope } from "@/lib/api";
 import { getWorkflow } from "@/lib/workflow/store";
 
 export const dynamic = "force-dynamic";
@@ -25,9 +25,44 @@ export const dynamic = "force-dynamic";
 const triggerSchema = z.object({
   input: z.unknown().optional(),
   mode: z.enum(RUN_MODES).default("sync"),
+  /**
+   * **Phase 31 — test part of the workflow.** `node` runs that node alone, fed from pins and
+   * from what ran before; `path` runs the way from the trigger to it. Synchronous only, and
+   * labelled a test on the run (`CONTRACT.md` → *Partial runs*).
+   */
+  target: z
+    .object({ scope: z.enum(["node", "path"]), nodeId: z.string().min(1).max(128) })
+    .optional(),
 });
 
 type Context = { params: Promise<{ id: string }> };
+
+/**
+ * The body, leniently, as it always was: one that is empty, not JSON or the wrong shape starts
+ * a plain run — every script and the canvas's first Run relied on that. **Except a test**
+ * (Phase 31): a body that asks for a `target` and does not describe one properly is refused,
+ * because falling back to a whole run would execute every node somebody meant to test one of.
+ */
+async function readTrigger(request: Request): Promise<z.infer<typeof triggerSchema>> {
+  const text = await request.text();
+  let json: unknown = {};
+  try {
+    if (text.trim() !== "") json = JSON.parse(text);
+  } catch {
+    // Not JSON: a plain run, as before.
+  }
+
+  const parsed = triggerSchema.safeParse(json);
+  if (parsed.success) return parsed.data;
+  if (json !== null && typeof json === "object" && "target" in json) {
+    throw new ApiError(
+      "invalid_request",
+      "Request body did not match the expected shape.",
+      parsed.error.issues.map((issue) => ({ path: issue.path.join("."), message: issue.message })),
+    );
+  }
+  return { input: undefined, mode: "sync" };
+}
 
 export async function POST(request: Request, { params }: Context) {
   return handle(async () => {
@@ -35,13 +70,7 @@ export async function POST(request: Request, { params }: Context) {
     const { id } = await params;
     const workflow = await getWorkflow(scope, id);
 
-    const body =
-      request.headers.get("content-length") === "0"
-        ? { input: undefined, mode: "sync" as const }
-        : await readJson(request, triggerSchema).catch(() => ({
-            input: undefined,
-            mode: "sync" as const,
-          }));
+    const body = await readTrigger(request);
 
     if (body.mode === "durable") {
       const outcome = await startDurableRun({
@@ -50,6 +79,7 @@ export async function POST(request: Request, { params }: Context) {
         trigger: "manual",
         input: body.input ?? null,
         signal: request.signal,
+        target: body.target,
       });
 
       // 202 when the queue took it: accepted, not complete. A fallback that executed the
@@ -66,6 +96,7 @@ export async function POST(request: Request, { params }: Context) {
       trigger: "manual",
       input: body.input ?? null,
       signal: request.signal,
+      target: body.target,
     });
 
     return ok(describeRun(run, steps), 201);

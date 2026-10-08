@@ -55,11 +55,19 @@ Every workflow starts at exactly one of these. Nothing may draw an edge into a t
 
 **trigger** · **not** callable by the agent
 
-Starts the workflow when a person runs it. Any JSON supplied at trigger time becomes the output of this node.
+Starts the workflow when somebody presses Run, with whatever you hand it as the first node's input. Declare fields and the canvas asks for them with a form — a required field that is missing stops the run before anything else happens.
+
+**Input.** the values typed into the run form, or JSON sent with the run
 
 **Output.** whatever JSON the run was started with. Reach its fields with {{trigger.<field>}}.
 
-_No configuration._
+| Field | Type | Required | Default |
+|---|---|---|---|
+| `fields` | array of object | no | `[]` |
+
+**Examples**
+
+- *Ask for a topic and an audience* — fields: [{ name: "topic", type: "text", required: true }, { name: "audience", type: "text" }] — then {{trigger.topic}}
 
 <details><summary>What the agent reads</summary>
 

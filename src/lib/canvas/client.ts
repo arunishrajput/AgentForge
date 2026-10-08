@@ -109,6 +109,7 @@ export interface GenerationErrorDetails {
 export type { StreamRun as Run, StreamStep as RunStep } from "@/lib/engine/stream";
 export type { RunMode, RunStatus, StepStatus } from "@/lib/engine/types";
 export type { NodePolicy } from "@/lib/engine/policy";
+export type { RunTest, TestScope } from "@/lib/engine/partial";
 
 export class ApiRequestError extends Error {
   readonly code: ApiErrorCode | "network";
@@ -265,11 +266,14 @@ export const api = {
       `/api/workflows/${id}/versions/compare?from=${from}${to === undefined ? "" : `&to=${to}`}`,
     ),
 
-  /** Synchronous: the request stays open until the run finishes and returns every step. */
-  runWorkflow: (id: string, input?: unknown) =>
+  /**
+   * Synchronous: the request stays open until the run finishes and returns every step.
+   * `target` tests part of the workflow — one node, or the way to it (Phase 31).
+   */
+  runWorkflow: (id: string, input?: unknown, target?: { scope: "node" | "path"; nodeId: string }) =>
     request<StreamRun>(`/api/workflows/${id}/runs`, {
       method: "POST",
-      body: JSON.stringify({ input: input ?? null, mode: "sync" }),
+      body: JSON.stringify({ input: input ?? null, mode: "sync", ...(target ? { target } : {}) }),
     }),
 
   /**

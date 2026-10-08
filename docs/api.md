@@ -116,7 +116,7 @@ Every save is a version. Nothing has to be "committed".
 
 | Method | Route | Role | What it does |
 |---|---|---|---|
-| `POST` | `/api/workflows/[id]/runs` | editor | Starts a run. Records which version it executed |
+| `POST` | `/api/workflows/[id]/runs` | editor | Starts a run. Records which version it executed. `target: { scope: "node" \| "path", nodeId }` tests one node, or the way to it, as a labelled test run (Phase 31) |
 | `GET` | `/api/workflows/[id]/runs` | viewer | That workflow's run history |
 | `GET` | `/api/runs` | viewer | Every run in the workspace |
 | `GET` | `/api/runs/[id]` | viewer | One run with its per-node steps, logs and outputs |

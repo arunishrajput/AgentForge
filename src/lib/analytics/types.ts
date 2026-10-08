@@ -86,6 +86,13 @@ export interface Analytics {
   nodes: NodeStat[];
   models: ModelStat[];
   /**
+   * Test runs in the window — Phase 31. **Counted, and in no other figure on the page**: a test
+   * of one node, or a run that used pinned outputs, says nothing about how the workflow does
+   * when it runs for real, and a morning of building would otherwise read as a failure rate.
+   * The count is shown so the page never quietly holds back runs a person can see elsewhere.
+   */
+  testRuns: number;
+  /**
    * How long the queries took, end to end. Shown on the page and asserted by the
    * deployed suite, because `BUILD_PLAN.md` → Phase 22 makes measuring this feature's
    * database cost a completion criterion rather than a nicety.

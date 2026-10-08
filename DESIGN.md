@@ -429,9 +429,17 @@ not make two statuses look alike.
 | failed | "Failed" | `!` | **red** | raised | `wiggle` |
 | skipped | "Skipped" | `–` | **dashed** | **sunken, flatter shadow** | — |
 | disabled | "Switched off" | `⊘` | **dotted** | **sunken, flatter shadow** | — |
+| pinned | "Pinned" | `◆`, in the accent tone | ink | raised | — |
 
 A greyscale screenshot of a run still reads: dashed and recessed was skipped, dotted and recessed is
-switched off, bobbing is working, ticked finished.
+switched off, bobbing is working, ticked finished, a diamond stood in with its pin.
+
+**Pinned** (Phase 31) is a test run handing on a node's pinned output instead of running it. Raised,
+not recessed, because unlike *skipped* and *switched off* the node did hand a real value on; told
+apart from *succeeded* by its word, its glyph and its stillness — no boing, because nothing happened
+that deserves one. **Holding a pin is also a property of the graph**, like being switched off: the
+card wears the same *◆ Pinned* chip whether or not a run has come by, beside a run's status rather
+than instead of it — after a webhook run the node *did* run, and both are true.
 
 **Switched off is a property of the graph as well as a step status** (Phase 30). A switched-off node
 wears it whether or not a run has reached it — the card's job is to say *this will not run* — and it
@@ -590,6 +598,36 @@ carries no meaning, so it needed no new row in either theme's contrast matrix, a
 that node in particular — pass its input straight on, or, for a Branch, Switch or Loop, stop its path —
 and *Switch off* / *Switch on* for a selection, and **D**. A trigger has no switch (a run starts at
 it), and D on one says so and names the Active switch.
+
+### The test loop — Phase 31
+
+**In the node's own panel**, after its configuration, because the loop is *change this, test it, read
+what it made* — and leaving the node to read the result breaks it. Three quiet-register sections:
+
+- **Test** — *Test this node* and *Test up to here*, side by side, with one sentence on what each
+  does and that either is a test, kept out of analytics. Not on a trigger. A test keeps the
+  selection, so the node stays in the panel through it — and **when the trigger asks for input, the
+  same *Run with* form sits under the buttons**, because *up to here* runs the trigger and a form
+  that lives only in the workflow panel is out of reach with a node selected (found in the browser)
+- **Output** — the node's status chip, its size, and its output from the run on screen in a sunken,
+  height-capped block, with *Pin this output*
+- **Pinned output** — the pin, its size against the 32 KB cap, a blue *info* notice saying **only a
+  test uses it and a webhook or a schedule still runs the node**, and *Edit* / *Unpin*; or, with none,
+  *Pin JSON…*
+
+**The lit path runs through a pinned node** as it does through a switched-off one: an edge is lit when
+its source handed a value on — succeeded, switched off or pinned (`edgeRunLook`, tested; the browser
+found the path going dark after a pin).
+
+**A test run says so** in the run panel: a `◇ Test · …` chip in the accent tone naming what was tested
+— *pinned data*, *Shape them alone*, *up to Shape them*. **Before a partial run reaches a step that
+acts outside the product**, a dialog lists those steps and what each will do — *"This will post a
+message to Slack"* — and suggests pinning them; a full Run does not ask, and never has.
+
+**The run input is a form** when the manual trigger declares fields: each by name, typed, the
+required ones marked, under a *Run with* legend. *Edit as JSON* is one click away, and both edit the
+same value. A list of small records in any config — the trigger's fields, Postgres's conditions — is a
+row editor: text on a row's first line, choices and switches on its second.
 
 **Keycaps are `Keys`** (`ui/kbd.tsx`): a `<kbd>` per key inside a `<kbd>` for the chord, `bg-surface`
 and an ink hairline; `joined` draws one cap, for the ⌘K button.

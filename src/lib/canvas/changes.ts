@@ -123,6 +123,7 @@ export const FIELD_WORDS: Record<string, string> = {
   label: "name",
   config: "configuration",
   policy: "retry and timeout",
+  pinned: "pinned output",
   // Phase 30's note fields. `disabled` is not here: its word depends on which way it went.
   text: "text",
   tone: "colour",

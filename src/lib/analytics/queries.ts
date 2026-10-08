@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 
 import { db } from "@/db";
 import { runs, runSteps, workflows } from "@/db/schema";
@@ -40,7 +40,9 @@ import { DEFAULT_RANGE, type Analytics, type ModelStat, type NodeStat, type Rang
  *     round trips — runs, steps, models — because a statement against a database that is
  *     already awake is close to free and a *round trip* over the pooled connection is the
  *     only part that is not.
- *  4. **The window is bounded and indexed.** Every query opens on
+ *  4. **Test runs are left out of every figure** (Phase 31, `run.test`) and counted on their
+ *     own, in the same round trip as the other two.
+ *  5. **The window is bounded and indexed.** Every query opens on
  *     `(workspaceId, startedAt)`, which is `run_workspace_idx`, already present since
  *     Phase 19A. Nothing here added an index and nothing here scans a table.
  *
@@ -78,6 +80,7 @@ export async function readAnalytics(
     eq(runs.workspaceId, scope.workspaceId),
     gte(runs.startedAt, from),
     visible,
+    isNull(runs.test),
   );
 
   const runRows = await db()
@@ -94,9 +97,10 @@ export async function readAnalytics(
     .orderBy(desc(runs.startedAt))
     .limit(MAX_RUNS);
 
-  const [nodes, models] = await Promise.all([
+  const [nodes, models, testRuns] = await Promise.all([
     readNodeStats(scope, from),
     readModelStats(scope, from),
+    readTestRuns(scope, from),
   ]);
 
   const rows: RunRow[] = runRows;
@@ -110,6 +114,7 @@ export async function readAnalytics(
     failures: groupFailures(rows),
     nodes,
     models,
+    testRuns,
     queryMs: Date.now() - startedAt,
   };
 }
@@ -151,6 +156,7 @@ async function readNodeStats(scope: WorkspaceScope, from: Date): Promise<NodeSta
         eq(runs.workspaceId, scope.workspaceId),
         gte(runs.startedAt, from),
         visibleWorkflows(scope),
+        isNull(runs.test),
         inArray(runSteps.status, ["succeeded", "failed"]),
         sql`${runSteps.finishedAt} is not null and ${runSteps.startedAt} is not null`,
       ),
@@ -206,6 +212,7 @@ async function readModelStats(scope: WorkspaceScope, from: Date): Promise<ModelS
         eq(runs.workspaceId, scope.workspaceId),
         gte(runs.startedAt, from),
         visibleWorkflows(scope),
+        isNull(runs.test),
         sql`${runSteps.output} ? 'model' and jsonb_typeof(${runSteps.output}->'model') = 'string'`,
       ),
     )
@@ -219,4 +226,21 @@ async function readModelStats(scope: WorkspaceScope, from: Date): Promise<ModelS
     inputTokens: Number(row.inputTokens),
     outputTokens: Number(row.outputTokens),
   }));
+}
+
+/** How many test runs the window holds — Phase 31. Scoped exactly as the run query is. */
+async function readTestRuns(scope: WorkspaceScope, from: Date): Promise<number> {
+  const [row] = await db()
+    .select({ count: sql<number>`count(*)::int` })
+    .from(runs)
+    .innerJoin(workflows, eq(workflows.id, runs.workflowId))
+    .where(
+      and(
+        eq(runs.workspaceId, scope.workspaceId),
+        gte(runs.startedAt, from),
+        visibleWorkflows(scope),
+        isNotNull(runs.test),
+      ),
+    );
+  return Number(row?.count ?? 0);
 }

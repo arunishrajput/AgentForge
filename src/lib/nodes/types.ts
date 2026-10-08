@@ -131,6 +131,27 @@ export interface NodeDocs {
   examples?: { title: string; body: string }[];
 }
 
+/**
+ * **What a node does outside the product — Phase 31.** A node that posts, sends or writes
+ * declares it, so a test of part of a workflow can say *"This will post a message to Slack"*
+ * before it does (`lib/engine/partial.ts` → `planTest`).
+ *
+ * Data rather than a function because it crosses to the browser in `NodeSummary`. `when`
+ * narrows it to some configurations — an HTTP GET reads, a POST writes — and is read off the
+ * **stored** config, so a field that is still a `{{ }}` reference counts as writing: the
+ * honest answer to "might this post?" before the run is *yes*. `default` is the value an
+ * unset field takes, which the stored config does not carry.
+ *
+ * Never in the generation prompt (D112): the catalogue renders named fields only
+ * (`generate/prompt.ts`), and this is not one of them.
+ */
+export interface NodeEffect {
+  /** Completes "This will …": "post a message to Slack". */
+  does: string;
+  /** Only when `field` holds one of `is`, or — with no `is` — holds anything non-empty. */
+  when?: { field: string; is?: readonly string[]; default?: string };
+}
+
 export interface NodeDefinition<Config = Record<string, unknown>> {
   /** Stable identifier, namespaced. Persisted in every graph — renaming one breaks saved workflows. */
   type: string;
@@ -161,6 +182,8 @@ export interface NodeDefinition<Config = Record<string, unknown>> {
    * adding one.
    */
   agentCallable?: boolean;
+  /** What running it does outside the product, if anything — see `NodeEffect`. Phase 31. */
+  effect?: NodeEffect;
   execute: (invocation: NodeInvocation<Config>) => Promise<NodeOutcome>;
 }
 

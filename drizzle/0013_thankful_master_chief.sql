@@ -1,0 +1,18 @@
+-- ---------------------------------------------------------------------------
+-- Phase 31 — pinned output and partial runs.
+--
+-- **One nullable column, additive, no backfill.** The previous revision never selects it
+-- and keeps serving correctly while this is applied; every existing run is a real run, and
+-- null is exactly what a real run carries.
+--
+--   run.test   whether a run is a test, and of what: { scope, nodeId }. The only thing that
+--              lets the engine honour a pinned output, so a webhook or schedule run — created
+--              with it null — executes every node for real. Analytics and onboarding leave
+--              runs with it set out of their figures.
+--
+-- Pinned outputs themselves need no migration: they are a field inside `workflow.graph`'s
+-- jsonb, like Phase 30's notes (D134).
+--
+-- Rollback: `rollback_0013.sql`.
+-- ---------------------------------------------------------------------------
+ALTER TABLE "run" ADD COLUMN "test" jsonb;

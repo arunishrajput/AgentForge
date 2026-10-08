@@ -223,8 +223,9 @@ try {
   const from = new Date(Date.now() - 30 * 86_400_000).toISOString();
 
   const statuses = await sql.query(
+    // Phase 31: a test run is in no figure, so every recomputation below leaves them out too.
     `select status, count(*)::int as n from "run"
-       where "workspaceId" = $1 and "startedAt" >= $2 group by status`,
+       where "workspaceId" = $1 and "startedAt" >= $2 and "test" is null group by status`,
     [workspaceId, from],
   );
   const byStatus = Object.fromEntries(statuses.map((r) => [r.status, Number(r.n)]));
@@ -238,6 +239,12 @@ try {
     `api ${a?.totals?.failed}, sql ${byStatus.failed ?? 0}`);
   check("the cancelled count matches SQL", a?.totals?.cancelled === (byStatus.cancelled ?? 0),
     `api ${a?.totals?.cancelled}, sql ${byStatus.cancelled ?? 0}`);
+  const [{ n: testRuns }] = await sql.query(
+    `select count(*)::int as n from "run" where "workspaceId" = $1 and "startedAt" >= $2 and "test" is not null`,
+    [workspaceId, from],
+  );
+  check("test runs are counted on their own, and only there (Phase 31)", a?.testRuns === Number(testRuns),
+    `api ${a?.testRuns}, sql ${testRuns}`);
 
   const settled = (byStatus.succeeded ?? 0) + (byStatus.failed ?? 0) + (byStatus.cancelled ?? 0);
   const expectedRate = settled === 0 ? null : (byStatus.succeeded ?? 0) / settled;
@@ -271,7 +278,7 @@ try {
     `select (floor(extract(epoch from "finishedAt") * 1000)::bigint
              - floor(extract(epoch from "startedAt") * 1000)::bigint) as ms
        from "run"
-      where "workspaceId" = $1 and "startedAt" >= $2
+      where "workspaceId" = $1 and "startedAt" >= $2 and "test" is null
         and status in ('succeeded','failed') and "finishedAt" is not null
       order by 1`,
     [workspaceId, from],
@@ -288,7 +295,7 @@ try {
 
   const dayRows = await sql.query(
     `select to_char("startedAt" at time zone 'UTC','YYYY-MM-DD') as d, count(*)::int as n
-       from "run" where "workspaceId" = $1 and "startedAt" >= $2 group by 1`,
+       from "run" where "workspaceId" = $1 and "startedAt" >= $2 and "test" is null group by 1`,
     [workspaceId, from],
   );
   const activeDays = dayRows.length;
@@ -303,7 +310,7 @@ try {
   const [{ n: stepTypes }] = await sql.query(
     `select count(distinct s."nodeType")::int as n from "run_step" s
        join "run" r on r."id" = s."runId"
-      where r."workspaceId" = $1 and r."startedAt" >= $2
+      where r."workspaceId" = $1 and r."startedAt" >= $2 and r."test" is null
         and s.status in ('succeeded','failed') and s."finishedAt" is not null`,
     [workspaceId, from],
   );
@@ -317,7 +324,7 @@ try {
   const modelRows = await sql.query(
     `select s."output"->>'model' as model, count(*)::int as n from "run_step" s
        join "run" r on r."id" = s."runId"
-      where r."workspaceId" = $1 and r."startedAt" >= $2
+      where r."workspaceId" = $1 and r."startedAt" >= $2 and r."test" is null
         and s."output" ? 'model' and jsonb_typeof(s."output"->'model') = 'string'
       group by 1 order by 2 desc`,
     [workspaceId, from],

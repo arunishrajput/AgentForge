@@ -319,4 +319,26 @@ describe("shareWorkflow builds the whole response from an explicit list", () => 
   it("carries no notes key for a graph with no notes", () => {
     assert.equal("notes" in shareWorkflow(row).graph, false);
   });
+
+  /* --- Phase 31 ------------------------------------------------------------- */
+
+  it("never publishes a pinned output — not its value, not that one exists", () => {
+    // D138. A pin is a captured response: an inbox, an API's answer, a payload somebody sent.
+    // It is test data, not part of what the workflow does, so the link drops it whole and
+    // does not count it among the hidden values. Searched for by its words, as Phase 20 learned.
+    const pinned: WorkflowGraph = {
+      ...graph,
+      nodes: graph.nodes.map((n) =>
+        n.id === "mail"
+          ? { ...n, pinned: { output: { body: "PIN-SECRET-INBOX from the finance thread" } } }
+          : n,
+      ),
+    };
+    const shared = shareWorkflow({ ...row, graph: pinned });
+    const body = JSON.stringify(shared);
+    assert.doesNotMatch(body, /PIN-SECRET-INBOX/);
+    assert.doesNotMatch(body, /finance thread/);
+    assert.doesNotMatch(body, /pinned/);
+    assert.deepEqual(shared, shareWorkflow(row), "a pin changes nothing a link holder can see");
+  });
 });

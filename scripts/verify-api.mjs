@@ -536,6 +536,204 @@ try {
     await api("DELETE", `/api/workflows/${annotatedId}`, undefined, token);
   }
 
+  // --- Phase 31: pinned output, partial runs, test runs, the manual form -----
+  // `CONTRACT.md` → *Pinned output* and *Partial runs*, on the deployed engine. The pinned
+  // node is an HTTP call to a host that cannot resolve, so any run that executes it for real
+  // fails — which is what makes "the pin was used" and "the pin was ignored" observable.
+  {
+    const PIN_SECRET = "PHASE31-PIN-SECRET from the finance inbox";
+    const pinnedOutput = { status: 200, body: { issues: [{ title: "first" }, { title: "second" }] }, note: PIN_SECRET };
+    const pinGraph = (triggerType) => ({
+      version: 1,
+      nodes: [
+        { id: "trigger", type: triggerType, position: { x: 0, y: 0 }, config: {} },
+        {
+          id: "fetch",
+          type: "integration.http",
+          position: { x: 240, y: 0 },
+          config: { url: "https://agentforge-phase31.invalid/issues", method: "GET" },
+          pinned: { output: pinnedOutput },
+        },
+        {
+          id: "shape",
+          type: "core.set",
+          position: { x: 480, y: 0 },
+          config: { fields: { first: "{{input.body.issues}}", count: "{{steps.fetch.output.status}}" } },
+        },
+        { id: "after", type: "core.log", position: { x: 720, y: 0 }, config: { message: "after {{input.count}}" } },
+      ],
+      edges: [
+        { id: "e1", source: "trigger", target: "fetch", sourceHandle: null },
+        { id: "e2", source: "fetch", target: "shape", sourceHandle: null },
+        { id: "e3", source: "shape", target: "after", sourceHandle: null },
+      ],
+    });
+
+    const created = await api("POST", "/api/workflows", { name: "zzzz-phase31 pinned output", graph: pinGraph("core.manual_trigger") }, token);
+    const pinId = created.json?.data?.id;
+    const reread = await api("GET", `/api/workflows/${pinId}`, undefined, token);
+    check(
+      "a pinned output saves and reads back exactly",
+      created.status === 201 && isDeepStrictEqual(reread.json?.data?.graph?.nodes?.[1]?.pinned, { output: pinnedOutput }),
+      JSON.stringify(reread.json?.data?.graph?.nodes?.[1]).slice(0, 300),
+    );
+
+    const analyticsBefore = (await api("GET", "/api/analytics?range=7", undefined, token)).json?.data;
+
+    const testRun = await api("POST", `/api/workflows/${pinId}/runs`, { input: {} }, token);
+    const testSteps = testRun.json?.data?.steps ?? [];
+    const testStep = (id) => testSteps.find((candidate) => candidate.nodeId === id);
+    check(
+      "a manual run of a graph holding a pin is a test run, labelled as one",
+      testRun.status === 201 && testRun.json?.data?.status === "succeeded" &&
+        isDeepStrictEqual(testRun.json?.data?.test, { scope: "workflow", nodeId: null }),
+      JSON.stringify(testRun.json?.data).slice(0, 300),
+    );
+    check(
+      "the pinned HTTP node was not called — its step is `pinned`, its output the pin",
+      testStep("fetch")?.status === "pinned" && testStep("fetch")?.startedAt === null &&
+        isDeepStrictEqual(testStep("fetch")?.output, pinnedOutput),
+      JSON.stringify(testStep("fetch")).slice(0, 300),
+    );
+    check(
+      "the node after it computed from the pin",
+      isDeepStrictEqual(testStep("shape")?.output, { first: pinnedOutput.body.issues, count: 200 }),
+      JSON.stringify(testStep("shape")?.output),
+    );
+
+    const alone = await api("POST", `/api/workflows/${pinId}/runs`, { target: { scope: "node", nodeId: "shape" } }, token);
+    check(
+      "test this node runs exactly that node, fed from the pin before it",
+      alone.status === 201 && alone.json?.data?.steps?.length === 1 &&
+        alone.json.data.steps[0].nodeId === "shape" &&
+        isDeepStrictEqual(alone.json.data.steps[0].input, pinnedOutput) &&
+        isDeepStrictEqual(alone.json.data.test, { scope: "node", nodeId: "shape" }),
+      JSON.stringify(alone.json?.data).slice(0, 300),
+    );
+    check(
+      "and its log says where its input came from",
+      /pinned output of "fetch"|pinned output of "HTTP/i.test(alone.json?.data?.steps?.[0]?.logs?.[0]?.message ?? ""),
+      JSON.stringify(alone.json?.data?.steps?.[0]?.logs),
+    );
+
+    const upTo = await api("POST", `/api/workflows/${pinId}/runs`, { input: {}, target: { scope: "path", nodeId: "shape" } }, token);
+    check(
+      "test up to here runs the way to the node and stops there — nothing after it has a step",
+      upTo.status === 201 &&
+        isDeepStrictEqual((upTo.json?.data?.steps ?? []).map((s) => [s.nodeId, s.status]), [
+          ["trigger", "succeeded"],
+          ["fetch", "pinned"],
+          ["shape", "succeeded"],
+        ]),
+      JSON.stringify((upTo.json?.data?.steps ?? []).map((s) => [s.nodeId, s.status])),
+    );
+
+    const analyticsAfter = (await api("GET", "/api/analytics?range=7", undefined, token)).json?.data;
+    check(
+      "test runs are in no analytics figure, and are counted on their own",
+      analyticsBefore && analyticsAfter &&
+        analyticsAfter.totals.runs === analyticsBefore.totals.runs &&
+        isDeepStrictEqual(analyticsAfter.nodes, analyticsBefore.nodes) &&
+        analyticsAfter.testRuns === analyticsBefore.testRuns + 3,
+      JSON.stringify({ before: analyticsBefore?.totals?.runs, after: analyticsAfter?.totals?.runs, tests: [analyticsBefore?.testRuns, analyticsAfter?.testRuns] }),
+    );
+    const [testRows] = await sql.query(
+      `select count(*)::int as n from run where "workflowId" = $1 and test is not null`,
+      [pinId],
+    );
+    check("and the database agrees: three test runs on the row", testRows?.n === 3, JSON.stringify(testRows));
+
+    const durableTest = await api("POST", `/api/workflows/${pinId}/runs`, { mode: "durable", target: { scope: "node", nodeId: "shape" } }, token);
+    check("a test of part of a workflow cannot be queued", durableTest.status === 400, `got ${durableTest.status}`);
+    const badTarget = await api("POST", `/api/workflows/${pinId}/runs`, { target: { scope: "everything" } }, token);
+    check(
+      "a malformed test is refused, never run as the whole workflow",
+      badTarget.status === 400 && (await sql.query(`select count(*)::int as n from run where "workflowId" = $1`, [pinId]))[0]?.n === 3,
+      `got ${badTarget.status}`,
+    );
+
+    const tooBig = await api(
+      "PATCH",
+      `/api/workflows/${pinId}`,
+      { graph: { ...pinGraph("core.manual_trigger"), nodes: pinGraph("core.manual_trigger").nodes.map((n) => (n.id === "fetch" ? { ...n, pinned: { output: "x".repeat(33 * 1024) } } : n)) } },
+      token,
+    );
+    check("a pin over 32 KB is refused at save", tooBig.status === 400 && /32 KB/.test(JSON.stringify(tooBig.json)), `got ${tooBig.status}`);
+
+    const share = await api("POST", `/api/workflows/${pinId}/share`, undefined, token);
+    const shareToken = (share.json?.data?.shareUrl ?? "").split("/s/")[1] ?? "";
+    const sharedJson = (await api("GET", `/api/share/${shareToken}`)).json;
+    const shared = JSON.stringify(sharedJson);
+    check(
+      "a share link never publishes a pinned output — the words, not just the key",
+      sharedJson?.data?.graph?.nodes?.length === 4 &&
+        !shared.includes("PHASE31-PIN-SECRET") &&
+        !shared.includes("finance inbox") &&
+        sharedJson.data.graph.nodes.every((node) => !("pinned" in node)),
+      shared.slice(0, 200),
+    );
+    await api("DELETE", `/api/workflows/${pinId}/share`, undefined, token);
+    await api("DELETE", `/api/workflows/${pinId}`, undefined, token);
+
+    // The safety property: a webhook run is never a test, so the pinned node runs for real.
+    const hooked = await api("POST", "/api/workflows", { name: "zzzz-phase31 pinned webhook", graph: pinGraph("core.webhook_trigger") }, token);
+    const hookToken = (hooked.json?.data?.webhookUrl ?? "").split("/api/webhook/")[1] ?? "";
+    const hookResponse = await fetch(`${base}/api/webhook/${hookToken}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ from: "verify-api" }),
+    });
+    const hookRun = await hookResponse.json().catch(() => null);
+    const hookFetch = (hookRun?.data?.steps ?? []).find((s) => s.nodeId === "fetch");
+    check(
+      "a webhook run ignores every pin: the pinned HTTP node was called for real, and the run is not a test",
+      hookRun?.data?.test === null && hookFetch?.status === "failed" && hookFetch?.startedAt !== null,
+      JSON.stringify({ test: hookRun?.data?.test, fetch: hookFetch }).slice(0, 300),
+    );
+    await api("DELETE", `/api/workflows/${hooked.json?.data?.id}`, undefined, token);
+
+    // The manual trigger's declared fields, enforced by the trigger itself.
+    const formGraph = {
+      version: 1,
+      nodes: [
+        {
+          id: "trigger",
+          type: "core.manual_trigger",
+          position: { x: 0, y: 0 },
+          config: { fields: [{ name: "topic", type: "text", required: true }, { name: "count", type: "number", required: false }] },
+        },
+        { id: "say", type: "core.log", position: { x: 240, y: 0 }, config: { message: "topic {{trigger.topic}}" } },
+      ],
+      edges: [{ id: "e1", source: "trigger", target: "say", sourceHandle: null }],
+    };
+    const form = await api("POST", "/api/workflows", { name: "zzzz-phase31 manual form", graph: formGraph }, token);
+    const formId = form.json?.data?.id;
+    // Nothing has run in this workflow yet, so a node tested alone has nothing to be fed.
+    const unfed = await api("POST", `/api/workflows/${formId}/runs`, { target: { scope: "node", nodeId: "say" } }, token);
+    check(
+      "test this node refuses a node with nothing on record before it — and says what to do",
+      unfed.status === 400 && /Nothing to feed .*Test up to here instead/.test(unfed.json?.error?.message ?? ""),
+      `got ${unfed.status}: ${unfed.json?.error?.message}`,
+    );
+    const missing = await api("POST", `/api/workflows/${formId}/runs`, { input: { count: 2 } }, token);
+    check(
+      "a manual run missing a required field fails at its trigger, naming the field, and runs nothing after it",
+      missing.json?.data?.status === "failed" &&
+        /needs the field "topic"/.test(missing.json?.data?.steps?.[0]?.error ?? "") &&
+        missing.json?.data?.steps?.find((s) => s.nodeId === "say")?.status === "skipped",
+      JSON.stringify(missing.json?.data?.steps).slice(0, 300),
+    );
+    const wrongType = await api("POST", `/api/workflows/${formId}/runs`, { input: { topic: "x", count: "two" } }, token);
+    check("a field of the wrong type is refused too", /"count" should be a number/.test(wrongType.json?.data?.steps?.[0]?.error ?? ""), JSON.stringify(wrongType.json?.data?.steps?.[0]?.error));
+    const given = await api("POST", `/api/workflows/${formId}/runs`, { input: { topic: "launch" } }, token);
+    check(
+      "and with it given, the run goes through",
+      given.json?.data?.status === "succeeded" && given.json?.data?.steps?.[1]?.logs?.[0]?.message === "topic launch",
+      JSON.stringify(given.json?.data?.steps?.[1]?.logs),
+    );
+    await api("DELETE", `/api/workflows/${formId}`, undefined, token);
+  }
+
   // --- run history ----------------------------------------------------------
   const history = await api("GET", `/api/workflows/${workflowId}/runs`, undefined, token);
   check("run history lists both runs of this workflow",

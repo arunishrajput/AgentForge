@@ -87,6 +87,7 @@ pretending otherwise.
 | **A real canvas** | React Flow. Move nodes, rewire edges, change any node's configuration, add a trigger, delete half of it |
 | **Edits like a serious tool** | Undo and redo, copy and paste between workflows and tabs, duplicate, multi-select with bulk actions, auto-arrange, find a node from ⌘K, and every action on a key — press `?` for the list |
 | **Explains itself, and switches off** | Sticky notes on the canvas for whoever reads the workflow next, and any step switched off without deleting it — its input passes straight on, and nothing is sent. A share link shows where the notes are, never what they say |
+| **Builds step by step** | Test one node alone, or everything up to it, without firing the whole workflow. Pin a step's output and tests use it instead of calling the API, the model or the mailbox again — a webhook or a schedule still runs every step for real. Tests are labelled, kept out of analytics, and ask before they post anywhere. A manual trigger can ask for its input with a form |
 | **Agent nodes** | Bounded tool-calling. The model decides; the graph routes. Every tool call is a visible, streamed step |
 | **Live execution** | Per-node status and logs over SSE while it runs. Reload mid-run and the page reattaches |
 | **30 nodes** | Triggers, logic, nine transforms, two AI nodes, and nine integrations. [Full reference](./docs/nodes.md) — generated from the registry |
@@ -258,14 +259,14 @@ credential vault with rotation, observability and analytics, a 30-node catalogue
 provider, and this documentation. Chapter 3 — a product people use every day — has begun with
 schedules that fire from exact-time timers, a dark theme, Toybox Night, on every screen, and a
 canvas that edits like a serious tool: undo, copy and paste, multi-select, the keyboard, sticky
-notes and steps that switch off.
+notes, steps that switch off, and a test loop — pinned outputs and partial runs.
 
 It is live, it works, and [`PROGRESS.md`](./PROGRESS.md) is the honest status board — including
 what is unfinished.
 
 **What comes next** is Chapter 3, planned phase by phase in [`BUILD_PLAN.md`](./BUILD_PLAN.md):
 
-- sticky notes, switching a node off, and a test loop on the canvas
+- organising workflows: tags, favourites, import and export
 - run history and retries
 - a copilot that edits and repairs workflows by conversation
 - error paths, approval steps and sub-workflows

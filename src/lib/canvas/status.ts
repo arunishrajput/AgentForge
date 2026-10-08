@@ -1,8 +1,9 @@
 import type { RunStatus, StepStatus } from "./client";
 
 /**
- * The six things a node can be on the canvas, and how each one looks — five run states, and
- * since Phase 30 a node that is switched off.
+ * The seven things a node can be on the canvas, and how each one looks — five run states,
+ * since Phase 30 a node that is switched off, and since Phase 31 a node a test run took from
+ * its pinned output.
  *
  * A table rather than a chain of ternaries in the node component, because this is the
  * phase's one hard accessibility requirement and it is worth being able to assert:
@@ -91,9 +92,10 @@ export const NODE_STATUSES: NodeStatus[] = [
   "failed",
   "skipped",
   "disabled",
+  "pinned",
 ];
 
-/** What a card that is not recessed looks like. Four of the six share it. */
+/** What a card that is not recessed looks like. Five of the seven share it. */
 const RAISED = { surface: "bg-elevated", shadow: "shadow-node" } as const;
 
 const LOOK: Record<NodeStatus, StatusLook> = {
@@ -161,6 +163,22 @@ const LOOK: Record<NodeStatus, StatusLook> = {
     outline: "border-line border-dotted",
     surface: "bg-sunken",
     shadow: "shadow-flat",
+    motion: "",
+    dots: false,
+  },
+  /**
+   * Phase 31. A test run reached the node and used its pinned output instead of running it.
+   * Raised, because unlike *skipped* and *switched off* the node did hand a real value on — and
+   * told apart from *succeeded* by its word, its glyph and its stillness: no boing, because
+   * nothing happened that deserves one. The accent tone is the product's colour for *this is
+   * yours* — what was pinned is something the author put there.
+   */
+  pinned: {
+    label: "Pinned",
+    glyph: "◆",
+    tone: "text-accent",
+    outline: "border-line",
+    ...RAISED,
     motion: "",
     dots: false,
   },
@@ -272,4 +290,26 @@ export const RUN_STATUSES = Object.keys(RUN_LOOK) as RunStatus[];
 
 export function runStatusLook(status: RunStatus): StatusLook {
   return RUN_LOOK[status];
+}
+
+/**
+ * **How an edge is drawn once a run has been by — Phase 5's lit path.** `live` animates the
+ * flow into the node working now; `traversed` keeps lit every edge the run actually crossed;
+ * `null` is a plain edge. On a branch the untaken edge never lights, so a finished run leaves
+ * the path it chose on the canvas.
+ *
+ * An edge is crossed when its source **handed a value on** — it succeeded, was switched off and
+ * passed its input through (Phase 30), or stood in with its pinned output (Phase 31) — and the
+ * run reached its target. A pinned node was the one Phase 31's browser walk found the path
+ * going dark after, because this rule named only the first two.
+ */
+export function edgeRunLook(
+  source: StepStatus | undefined,
+  target: StepStatus | undefined,
+  running: boolean,
+): "live" | "traversed" | null {
+  if (source !== "succeeded" && source !== "disabled" && source !== "pinned") return null;
+  if (running && target === "running") return "live";
+  if (target !== undefined && target !== "skipped") return "traversed";
+  return null;
 }

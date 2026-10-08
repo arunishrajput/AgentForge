@@ -7,6 +7,7 @@ import type { CanvasNode } from "@/lib/canvas/bridge";
 import { categoryLook } from "@/lib/canvas/categories";
 import { changeLook, fieldWords } from "@/lib/canvas/changes";
 import { nodeStatusLook } from "@/lib/canvas/status";
+import { canPin } from "@/lib/engine/partial";
 
 import { useCanvas } from "./context";
 import { NodeIcon } from "./node-icon";
@@ -85,6 +86,16 @@ export function WorkflowNodeView({ id, data, selected }: NodeProps<CanvasNode>) 
   const status = off
     ? nodeStatusLook("disabled")
     : nodeStatusLook(state?.status ?? "idle", definition?.category === "agent", state?.paused ?? false);
+
+  /**
+   * **Holds a pinned output — Phase 31.** Like *switched off*, a property of the graph, so the
+   * card says it whether or not a run has come by: a test will hand this node's pin on instead
+   * of running it. Shown beside a run's status rather than instead of it — after a webhook run
+   * the node *did* run, and both are true — and not twice when the status is already "Pinned".
+   */
+  const pinned = !off && data.pinned !== undefined && canPin(definition);
+  const pinnedLook = nodeStatusLook("pinned");
+  const showPin = pinned && (change !== null || state?.status !== "pinned");
 
   const outputs = definition?.outputs ?? [{ key: null, label: "Out" }];
   const isTrigger = definition?.kind === "trigger";
@@ -204,30 +215,44 @@ export function WorkflowNodeView({ id, data, selected }: NodeProps<CanvasNode>) 
           {/* Run status is suppressed in diff mode: the union graph on screen was never
               anybody's workflow, so no run ever executed it and a green "Succeeded"
               badge on a node in a diff would be a statement about a different graph. */}
-          {((state && !change) || off) && (
+          {((state && !change) || off || showPin) && (
             <div className="flex flex-wrap items-center gap-1">
-              <span
-                // Remounting on a status change is what replays the one-shot motion.
-                key={off ? "off" : state?.status}
-                className={cn("chip", status.tone, status.motion)}
-              >
-                {status.dots ? (
-                  <span aria-hidden="true" className="flex items-end gap-0.5">
-                    {[0, 1, 2].map((i) => (
-                      <span
-                        key={i}
-                        style={{ animationDelay: `${i * 140}ms` }}
-                        className="animate-think bg-live size-1 rounded-full"
-                      />
-                    ))}
-                  </span>
-                ) : (
+              {((state && !change) || off) && (
+                <span
+                  // Remounting on a status change is what replays the one-shot motion.
+                  key={off ? "off" : state?.status}
+                  className={cn("chip", status.tone, status.motion)}
+                >
+                  {status.dots ? (
+                    <span aria-hidden="true" className="flex items-end gap-0.5">
+                      {[0, 1, 2].map((i) => (
+                        <span
+                          key={i}
+                          style={{ animationDelay: `${i * 140}ms` }}
+                          className="animate-think bg-live size-1 rounded-full"
+                        />
+                      ))}
+                    </span>
+                  ) : (
+                    <span aria-hidden="true" className="leading-none font-bold">
+                      {status.glyph}
+                    </span>
+                  )}
+                  {status.label}
+                </span>
+              )}
+
+              {showPin && (
+                <span
+                  className={cn("chip", pinnedLook.tone)}
+                  title="Test runs use this node's pinned output instead of running it"
+                >
                   <span aria-hidden="true" className="leading-none font-bold">
-                    {status.glyph}
+                    {pinnedLook.glyph}
                   </span>
-                )}
-                {status.label}
-              </span>
+                  {pinnedLook.label}
+                </span>
+              )}
 
               {state && !change && state.executions > 1 && (
                 <span className="text-muted text-3xs font-bold">×{state.executions}</span>

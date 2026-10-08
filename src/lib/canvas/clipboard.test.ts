@@ -315,6 +315,18 @@ describe("notes and switched-off nodes on the clipboard (Phase 30)", () => {
     assert.equal(envelope.nodes[0].disabled, true);
   });
 
+  it("carries a pinned output through copy and paste — Phase 31, part of the node shape", () => {
+    const pinned: WorkflowGraph = {
+      ...annotated,
+      nodes: annotated.nodes.map((n) => (n.id === "agent" ? { ...n, pinned: { output: { answer: 42 } } } : n)),
+    };
+    const envelope = parseEnvelope(serialiseEnvelope(copySelection(pinned, ["agent"])!))!;
+    assert.deepEqual(envelope.nodes[0].pinned, { output: { answer: 42 } });
+    const plan = planPaste(pinned, envelope, options);
+    assert.ok(plan.ok);
+    assert.deepEqual(plan.nodes[0].pinned, { output: { answer: 42 } });
+  });
+
   it("writes no notes key when no note was selected, so the envelope is the Phase 29 one", () => {
     assert.equal("notes" in copySelection(annotated, ["agent"])!, false);
   });

@@ -3,6 +3,7 @@ import { and, asc, desc, eq, gt, inArray, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { runs, runSteps, workflows, type Run, type RunStep, type Workflow } from "@/db/schema";
 import { ApiError } from "@/lib/api";
+import { getNode } from "@/lib/nodes";
 import { required } from "@/lib/env";
 import { addLogContext, logError, logInfo, logWarn } from "@/lib/logging";
 import { visibleWorkflows } from "@/lib/workflow/visibility";
@@ -24,6 +25,7 @@ import {
   suspendRun,
   sweepAbandonedRuns,
 } from "./lease";
+import { honouredPin, seedNode, upstreamOf, type RunTest } from "./partial";
 import { enqueueRun, queueNamed } from "./queue";
 import { dbRecorder } from "./recorder";
 import type { RunMode, RunOutcome, StepRecord, TriggerKind } from "./types";
@@ -54,7 +56,33 @@ export interface StartOptions {
   trigger: TriggerKind;
   input?: unknown;
   signal?: AbortSignal;
+  /**
+   * **Phase 31 — test part of the workflow**: one node alone, or the way to it. Only a manual
+   * run may carry one, and only synchronously (`CONTRACT.md` → *Partial runs*).
+   */
+  target?: { scope: "node" | "path"; nodeId: string };
 }
+
+/**
+ * **Is this run a test, and of what — Phase 31 (D139).** Decided once, when the run is created,
+ * and written to `run.test`, which is the only thing the engine reads to honour a pin.
+ *
+ *  - a webhook, schedule or agent run is **never** a test, whatever the graph holds — so a
+ *    pinned node executes for real in every run nobody started by hand;
+ *  - a manual run aimed at a node is a `node` or `path` test;
+ *  - a manual run of a graph holding a pin a run would honour is a `workflow` test, whether or
+ *    not it reaches the pinned node — the label says what the author ran, not what a branch
+ *    then chose, so it is predictable before the button is pressed.
+ */
+export function testFor(options: Pick<StartOptions, "trigger" | "workflow" | "target">): RunTest | null {
+  if (options.trigger !== "manual") return null;
+  if (options.target) return { scope: options.target.scope, nodeId: options.target.nodeId };
+  const pinned = options.workflow.graph.nodes.some((node) => honouredPin(node, getNode(node.type)));
+  return pinned ? { scope: "workflow", nodeId: null } : null;
+}
+
+/** How many of a workflow's recent runs a node test looks through for upstream outputs. */
+export const RECORDED_RUNS = 20;
 
 /**
  * Create the run row. Always `queued` — including for a synchronous run, which claims
@@ -64,7 +92,9 @@ export interface StartOptions {
  * and never wrote. It is written now, and it means what it says: the run exists, and
  * nothing is executing it yet.
  */
-async function createRun(options: StartOptions & { mode: RunMode }): Promise<Run> {
+async function createRun(
+  options: StartOptions & { mode: RunMode; test: RunTest | null },
+): Promise<Run> {
   const [created] = await db()
     .insert(runs)
     .values({
@@ -81,6 +111,7 @@ async function createRun(options: StartOptions & { mode: RunMode }): Promise<Run
       // Which graph this run is executing (Phase 18). Recorded at creation, never
       // updated — a resume three deliveries later must still say what it started on.
       workflowVersion: options.workflow.version,
+      test: options.test,
     })
     .returning();
 
@@ -99,6 +130,7 @@ async function createRun(options: StartOptions & { mode: RunMode }): Promise<Run
     trigger: created.trigger,
     mode: created.mode,
     workflowVersion: created.workflowVersion,
+    test: created.test?.scope ?? null,
   });
 
   return created;
@@ -122,8 +154,11 @@ async function drive(options: {
   owner: string;
   signal?: AbortSignal;
   resume?: { cursor: NonNullable<ReturnType<typeof readCursor>>; steps: readonly StepRecord[] };
+  /** A `node` test's seed — Phase 31. */
+  seed?: NodeTestSeed;
 }): Promise<RunOutcome> {
-  const { run, workflow, owner, signal, resume } = options;
+  const { run, workflow, owner, signal, resume, seed } = options;
+  const test = run.test ?? null;
 
   /**
    * **Phase 22 — the one place a run's outcome is observable.**
@@ -146,6 +181,7 @@ async function drive(options: {
       attempt: run.attempt,
       resumed: resume !== undefined,
       workflowVersion: run.workflowVersion,
+      test: test?.scope ?? null,
       /** This attempt, not the run's whole life — a resumed run has several. */
       durationMs: Date.now() - startedAt,
     };
@@ -169,8 +205,12 @@ async function drive(options: {
       resume,
       // A run may pause only where something can wake it (Phase 26). Read synchronously
       // from the environment: a queue that is named but rejecting is the sweep's problem,
-      // not a reason to refuse the wait.
-      allowWait: queueNamed(),
+      // not a reason to refuse the wait. A test of part of a workflow never pauses
+      // (Phase 31): it is somebody at the canvas waiting for one answer.
+      allowWait: queueNamed() && (test === null || test.scope === "workflow"),
+      // From the row, never from the request (D139): this is what makes a pin apply.
+      test,
+      seed,
     });
   } catch (error) {
     const message =
@@ -313,7 +353,18 @@ export async function startRun(
 ): Promise<{ run: Run; steps: RunStep[] }> {
   await sweepAbandonedRuns(options.scope);
 
-  const created = await createRun({ ...options, mode: "sync" });
+  const test = testFor(options);
+  // A node test is fed before its run exists, so a test that has nothing to feed it is
+  // refused with a reason rather than recorded as a run that could not have meant anything.
+  const seed = test?.scope === "node" ? await seedFor(options.workflow, test.nodeId!) : undefined;
+
+  const created = await createRun({
+    ...options,
+    mode: "sync",
+    test,
+    // What `{{trigger.…}}` resolved against is what a node test was started with.
+    ...(seed ? { input: seed.trigger } : {}),
+  });
   const owner = mintLeaseOwner();
   const claimed = await claimOwnRun(created.id, owner);
 
@@ -330,7 +381,7 @@ export async function startRun(
   }
 
   try {
-    await drive({ run: claimed, workflow: options.workflow, owner, signal: options.signal });
+    await drive({ run: claimed, workflow: options.workflow, owner, signal: options.signal, seed });
   } catch (error) {
     if (error instanceof GraphInvalidError) {
       throw new ApiError(
@@ -365,9 +416,17 @@ export interface EnqueueOutcome {
  * binding should degrade to a working product and a loud log, not to a lost run.
  */
 export async function startDurableRun(options: StartOptions): Promise<EnqueueOutcome> {
+  if (options.target) {
+    throw new ApiError(
+      "invalid_request",
+      "A test of part of a workflow runs straight away and cannot be queued. Leave out mode, or use \"sync\".",
+    );
+  }
   await sweepAbandonedRuns(options.scope);
 
-  const created = await createRun({ ...options, mode: "durable" });
+  // A manual run of a graph holding pins is a test here too, and survives a redeploy as one:
+  // the resumed delivery reads `run.test` off the row, so it honours the same pins.
+  const created = await createRun({ ...options, mode: "durable", test: testFor(options) });
 
   const result = await enqueueRun({
     runId: created.id,
@@ -561,6 +620,110 @@ export async function resumeRun(options: {
   }
 }
 
+/** What a `node` test's target is fed, with a line for its log saying where it came from. */
+export interface NodeTestSeed {
+  input: unknown;
+  outputs: ReadonlyMap<string, unknown>;
+  trigger: unknown;
+  notes: string[];
+}
+
+/**
+ * **Feed a node tested alone — Phase 31, `CONTRACT.md` → *Partial runs*.** Each upstream node's
+ * value is its pin, or what it passed through switched off, or its most recent recorded
+ * output among this workflow's last `RECORDED_RUNS` runs (`partial.ts` → `seedNode`). One
+ * statement, opening on `run_workflow_idx`; a person pressing a button has already woken the
+ * database, so it adds no wake.
+ *
+ * A target with something upstream and no value from any of it is refused: run with nothing
+ * where its input should be, it would answer a question nobody asked.
+ */
+export async function seedFor(workflow: Workflow, target: string): Promise<NodeTestSeed> {
+  const graph = workflow.graph;
+  const node = graph.nodes.find((candidate) => candidate.id === target);
+  if (!node) throw new ApiError("not_found", `There is no node "${target}" in this workflow.`);
+
+  const name = (id: string) => {
+    const found = graph.nodes.find((candidate) => candidate.id === id);
+    return `"${found?.label || getNode(found?.type ?? "")?.label || id}"`;
+  };
+
+  const upstream = [...upstreamOf(graph, target)].filter((id) => id !== target);
+  const recorded = await recordedOutputs(workflow, upstream);
+
+  const seed = seedNode(
+    graph,
+    target,
+    getNode,
+    new Map([...recorded].map(([id, entry]) => [id, entry.output])),
+  );
+
+  const feeds = graph.edges.some((edge) => edge.target === target);
+  if (feeds && !seed.from) {
+    throw new ApiError(
+      "invalid_request",
+      `Nothing to feed ${name(target)} yet: the steps before it have not run and hold no pinned output. Test up to here instead, or pin the output of the step before it.`,
+    );
+  }
+
+  const notes: string[] = [];
+  if (seed.from) {
+    const when = recorded.get(seed.from.nodeId)?.at;
+    notes.push(
+      seed.from.source === "pinned"
+        ? `Tested alone. Its input is the pinned output of ${name(seed.from.nodeId)}.`
+        : `Tested alone. Its input is what ${name(seed.from.nodeId)} produced in an earlier run${when ? ` (${formatUtcShort(when)})` : ""}.`,
+    );
+  } else {
+    notes.push("Tested alone, with nothing upstream to feed it.");
+  }
+  if (seed.missing.length > 0) {
+    notes.push(
+      `Nothing on record for ${seed.missing.map(name).join(", ")} — a reference to ${seed.missing.length === 1 ? "it" : "them"} resolves empty.`,
+    );
+  }
+
+  return { input: seed.input, outputs: seed.outputs, trigger: seed.trigger?.value ?? null, notes };
+}
+
+function formatUtcShort(at: Date): string {
+  return `${at.toISOString().slice(0, 16).replace("T", " ")} UTC`;
+}
+
+/** Each node's most recent succeeded output among the workflow's last `RECORDED_RUNS` runs. */
+async function recordedOutputs(
+  workflow: Workflow,
+  nodeIds: readonly string[],
+): Promise<Map<string, { output: unknown; at: Date }>> {
+  if (nodeIds.length === 0) return new Map();
+
+  const recent = db()
+    .select({ id: runs.id })
+    .from(runs)
+    .where(and(eq(runs.workspaceId, workflow.workspaceId), eq(runs.workflowId, workflow.id)))
+    .orderBy(desc(runs.startedAt))
+    .limit(RECORDED_RUNS);
+
+  const rows = await db()
+    .selectDistinctOn([runSteps.nodeId], {
+      nodeId: runSteps.nodeId,
+      output: runSteps.output,
+      at: runs.startedAt,
+    })
+    .from(runSteps)
+    .innerJoin(runs, eq(runs.id, runSteps.runId))
+    .where(
+      and(
+        inArray(runSteps.runId, recent),
+        eq(runSteps.status, "succeeded"),
+        inArray(runSteps.nodeId, [...nodeIds]),
+      ),
+    )
+    .orderBy(runSteps.nodeId, desc(runs.startedAt), desc(runSteps.seq));
+
+  return new Map(rows.map((row) => [row.nodeId, { output: row.output, at: row.at }]));
+}
+
 /** A persisted step row as the engine's own record type, for resuming. */
 function toStepRecord(step: RunStep): StepRecord {
   return {
@@ -725,6 +888,8 @@ export function describeRun(run: Run, steps?: RunStep[]) {
     cancelRequested: run.cancelRequestedAt !== null,
     /** Phase 26: when a `waiting` run resumes. Null in every other status. */
     wakeAt: run.wakeAt?.toISOString() ?? null,
+    /** Phase 31: whether this run is a test, and of what. Null on a real run. */
+    test: run.test ?? null,
     /**
      * The workflow version this run executed (Phase 18). Null for a run recorded
      * before versioning existed — it is not claimed to be v1, because it is unknown.

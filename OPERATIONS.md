@@ -342,6 +342,10 @@ That is the whole reason the analytics page is built the way it is:
 - It **does not poll, does not stream and does not refresh.** The window selector is three links, so
   a new window is a navigation somebody asked for.
 - **Nothing aggregates on a schedule.** There is no rollup table and no cache warmer.
+- **Test runs are in no figure** (Phase 31, `run.test`): one node tested alone, or a run that used
+  pinned outputs, says nothing about how the workflow does for real. They are counted by a fourth
+  statement in the same parallel round trip, and the page says how many it left out. A run that looks
+  missing from the page is first a question of whether it was a test.
 
 **Measured on the deployed service, 2026-09-30: 21 ms of database time per page view**, over 46 runs
 and 200-odd steps. A 30-second auto-refresh on one open tab would have cost 120 wakes an hour

@@ -101,7 +101,8 @@ workflows".
       "position": { "x": 240, "y": 0 },
       "config": { "fields": { "subject": "{{input.topic}}" } },
       "policy": { "retries": 2, "backoffMs": 500, "timeoutMs": 20000 },  // optional, Phase 17
-      "disabled": true                // optional, Phase 30. `true` or absent — never `false`
+      "disabled": true,               // optional, Phase 30. `true` or absent — never `false`
+      "pinned": { "output": { "status": 200 } }  // optional, Phase 31. A test run's stand-in output
     }
   ],
   "edges": [
@@ -140,6 +141,9 @@ workflows".
   *Disabled nodes* below. It is `true` or absent, never `false`: a node that is on carries no key, so
   a graph that never used the feature is exactly what it was, and the dirty check and the version
   debounce never see a phantom `disabled: false`. The canvas writes the key only while it is true
+- **`pinned` is a fixed output for testing** (Phase 31) — *Pinned output*, below. Optional, and
+  absent stays absent, so a graph that never used it is exactly what it was. `{ "output": … }`
+  rather than the bare value, because `null` is a real output somebody may pin
 - **`notes` are sticky notes for people** (Phase 30) — **not registry nodes**. The engine never
   reads them, validation's rules never see them, no agent can call one, and the generator cannot
   write one (D112). **Absent stays absent**: the key is written only while there is a note, so a
@@ -155,7 +159,8 @@ workflows".
   revision older than Phase 30 does not know either field, strips both from a graph it saves, and
   **runs a switched-off node**. Never roll back past Phase 30's first revision while a workflow uses
   either (`DEPLOYMENT.md` → *Rollback*)
-- Limits: 100 nodes, 200 edges, 50 notes per workflow
+- Limits: 100 nodes, 200 edges, 50 notes per workflow; a pinned output 32 KB, a workflow's pins
+  together 128 KB — UTF-8 bytes of their JSON (Phase 31)
 - **Postgres `jsonb` normalises object key order.** A graph read back is deeply equal to what was
   written but not byte-identical. Nothing may depend on key order. `graphsEqual` in
   `src/lib/workflow/graph.ts` is the one structural comparison, and **both the canvas's dirty
@@ -275,6 +280,83 @@ when it *reaches* one:
   lists `integration.discord` from posting. The switch's own hint in the inspector says so
 - **Analytics ignore it**: node latency and failure counts read only `succeeded` and `failed` steps
 
+## Pinned output — **DEFINED** (Phase 31)
+
+`src/lib/engine/execute.ts` and `src/lib/engine/partial.ts`, D138–D140. A node may hold a
+**pinned output** — `pinned: { output }` on the node — which a **test run** hands on in place of
+executing the node, so an author can build what comes after an HTTP call, a model or a mailbox
+without calling it every time.
+
+- **Only a test run honours a pin.** A run is a test when `run.test` is set (*Partial runs*,
+  below), and only a manual run can be one. **A webhook, schedule or agent run executes every
+  node for real, pins and all**: a pinned node silently not running in production is the worst
+  failure this feature could have. The engine reads the flag from the run row, never from a
+  request, so a resumed delivery honours exactly what the run started with
+- **What a test run does when it reaches one** is what it does for a switched-off node, with the
+  pin as the output: the node is never executed (no config resolved, no request, no credential
+  read); its step is recorded **`pinned`** — entered directly, terminal, null timestamps — with
+  its `input` what arrived and its `output` the pin; the run carries on out of its default output.
+  `{{steps.<id>.output}}` reads the pin. A resumed run rehydrates a `pinned` step as it does a
+  succeeded one
+- **Only a node with a default output can hold one** that a run honours. Branch, Switch and Loop
+  choose a way, and a pin has no way to choose — a pin on one is stored and ignored, and the canvas
+  never offers it. A switched-off node stays switched off, pin or not
+- **A pinned trigger** is what `{{trigger.…}}` reads in a test, so a reference to the trigger and
+  the trigger's own step agree; the run's `input` still records what it was started with
+- **A test needs only what it executes to be well configured**: an `invalid_config` problem on a
+  node standing in with a pin, or outside a partial run's scope, does not refuse the test. Every
+  structural problem still does
+- **Size.** 32 KB a pin, 128 KB a workflow, refused at the graph schema. Versions snapshot the
+  whole graph (50 kept), so the worst case is 6.4 MB per workflow against Neon's 0.5 GB
+- **Where it does not go.** A share link drops it whole — not withheld-and-counted like a note's
+  text, because it is test data and not part of what the workflow does (D138). The generator never
+  emits one: the generation schema does not name it, so it is dropped (D136's rule). It is carried
+  by copy and paste, versioned, and named in a diff as the field `pinned`. **When Phase 35 sends a
+  graph to a model, pins are withheld** — nothing does today
+- **Analytics ignore a `pinned` step** for the reason they ignore a `disabled` one: node latency
+  reads only `succeeded` and `failed`
+
+## Partial runs and test runs — **DEFINED** (Phase 31)
+
+`POST /api/workflows/:id/runs` with a `target`, D141. Two ways to run part of a workflow:
+
+| `target.scope` | What runs |
+|---|---|
+| `"node"` — *test this node* | **That node alone.** Its input, and every upstream value its references read, is each upstream node's **pin**, or what it would pass on **switched off**, or its **most recent succeeded output** among the workflow's last 20 runs — in that order (`partial.ts` → `seedNode`). A node with several inputs takes the first incoming edge whose source has a value. A node with something upstream and no value from any of it is refused, 400, *"Nothing to feed …"*. The target's log says where its input came from |
+| `"path"` — *test up to here* | **The trigger and every node on a way to the target** (`upstreamOf`), honouring pins. The run does not follow the target's outgoing edges, and records nothing — not even `skipped` — for a node outside its scope; an in-scope node it never reached is `skipped` as usual |
+
+- **The node a test is aimed at always executes**, its own pin notwithstanding — it is the thing
+  being tested
+- **Synchronous only.** A `target` with `mode: "durable"` is refused, 400. A test of part of a
+  workflow **never pauses**: a `core.delay` longer than 10 s fails its step, saying to pin it
+- **The D16 bounds apply unchanged** — a partial run is the same engine loop over a smaller scope
+- **A body that asks for a test and does not describe one is refused**, 400 — unlike the rest of
+  this route's body, which falls back to a plain run, because that fallback would execute every
+  node somebody meant to test one of
+- **`run.test`** (jsonb, migration `0013`) records it: `null` on a real run;
+  `{ "scope": "workflow", "nodeId": null }` for a manual run of a graph holding a pin a run would
+  honour — decided at creation, whether or not the run then reaches the pinned node, so it is
+  predictable before the button is pressed; `{ "scope": "node" | "path", "nodeId" }` for a
+  partial run. Fixed at creation, returned by `describeRun` as `test`
+- **Test runs are in no analytics figure** — run totals, the day chart, failures, node latency and
+  model usage all filter `test is null` — and the page counts them separately (`testRuns`). **They
+  do not complete onboarding's "a successful run" step**: a test proves a piece, not the workflow
+- **Confirmation.** Before a partial run would execute a node that acts outside the product, the
+  canvas lists those nodes and what each does, and asks (`planTest`, the same arithmetic as the
+  engine). A node declares this as `effect` on its definition — *Node definition interface*,
+  below. It is a canvas courtesy, not an API rule: the API caller could run the whole workflow
+  anyway
+
+## Manual trigger input — **DEFINED** (Phase 31)
+
+`core.manual_trigger` may declare **`fields`**: `[{ name, type, required }]`, `type` one of `text`,
+`number`, `boolean`, `json` (default `text`), `required` default `false`, at most 20. The canvas
+renders a form from them instead of the raw JSON box, which stays one click away; both edit the one
+JSON value the run is started with. **Enforced by the trigger when it runs**, not only by the form:
+a required field that is missing or blank, or a value of the wrong type, fails the trigger's step
+with a message naming it, before anything after it runs. A pinned trigger in a test is not
+executed, so it checks nothing. No fields declared means any input, exactly as before.
+
 ## Node definition interface — **DEFINED**
 
 Source of truth: `src/lib/nodes/types.ts`. Registry: `src/lib/nodes/index.ts`.
@@ -291,6 +373,7 @@ interface NodeDefinition<Config> {
   docs?: NodeDocs;         // Phase 23A. Long-form help for the INSPECTOR — written for a person
   configSchema: z.ZodType<Config>;
   agentCallable?: boolean; // DEFAULTS TO FALSE — widening the agent's reach is always deliberate
+  effect?: NodeEffect;     // Phase 31. What running it does outside the product, for a test's confirmation
   execute(invocation: { config: Config; input: unknown; context: NodeContext }): Promise<NodeOutcome>;
 }
 
@@ -308,6 +391,14 @@ interface NodeContext {
 
 interface NodeOutcome { output: unknown; branch?: string | null }  // `branch` must be a declared output key
 ```
+
+**`effect` — added in Phase 31, optional.** `{ does, when? }`: what running the node does outside
+the product, completing *"This will …"* — "post a message to Slack". `when: { field, is?, default? }`
+narrows it to some configurations (an HTTP `GET` reads; `POST` writes): the effect holds when the
+stored `field` — or `default`, if unset — is one of `is`, or with no `is` when it is non-empty, and
+always when the field is still a `{{ }}` reference. A node that only reads declares none. Plain data,
+because it crosses to the browser in `NodeSummary`, and **never rendered into the generation prompt**
+(D112). `partial.test.ts` asserts every integration that writes declares one and none that reads does.
 
 **`docs` — added in Phase 23A, optional.** Documentation for a *person*, shown in the inspector:
 
@@ -417,6 +508,7 @@ Tables in `src/db/schema.ts`; wire shapes from `describeRun` in `src/lib/engine/
 | `dispatchToken` | 192 bits of CSPRNG. The task carries it and `POST /api/runs/dispatch` demands it, so that route can only ever resume a run that already exists. Never returned to a client |
 | `workflowVersion` | which version of the workflow this run executed (Phase 18). An integer, not a foreign key — see *Workflow versions*. Null for a run recorded before versioning, and **that is not claimed to be v1** |
 | `wakeAt` | **Phase 26.** When a `waiting` run resumes; null in every other status. The claim compares it against the database's `now()`, so an early delivery claims nothing. Returned by `describeRun` as `wakeAt` |
+| `test` | **Phase 31.** Null on a real run; `{ scope, nodeId }` on a test — *Partial runs and test runs*. The only thing that lets the engine honour a pin. Returned by `describeRun` as `test` |
 
 ### `run_step`
 
@@ -431,7 +523,7 @@ Tables in `src/db/schema.ts`; wire shapes from `describeRun` in `src/lib/engine/
 | `branch` | the output handle the run left through; null for a single-output node |
 | `logs` | `{ at, level, message }[]` — what `context.log` wrote. Phase 5 streams these |
 | `error` | failure message, user-readable when the node threw `NodeError` |
-| `startedAt`, `finishedAt` | both null on a `skipped` or `disabled` step, neither of which ran |
+| `startedAt`, `finishedAt` | null on a `skipped`, `disabled` or `pinned` step, none of which ran |
 
 **The config snapshot is load-bearing, and Phase 18 did not make it redundant.** A version says
 what the config *template* was; this says what it resolved to on this run. `{{input.subject}}` is
@@ -557,7 +649,11 @@ step:  running ──▶ succeeded                     both terminal
                └──▶ failed
        skipped                                   entered directly, terminal
        disabled                                  Phase 30. Entered directly, terminal
+       pinned                                    Phase 31. Entered directly, terminal
 ```
+
+- **`pinned` — Phase 31.** A test run reached a node holding a pinned output and handed the pin on
+  instead of running it — *Pinned output* above
 
 - **`disabled` — Phase 30.** The run reached a node that is switched off. It did not run; its input
   was passed on, or its path stopped — *Disabled nodes* above
@@ -692,7 +788,7 @@ through `assertRole`. Both are server-side and neither depends on the UI hiding 
 | `GET /api/share/:token` | — | The redacted graph. **No session** — see *Per-workflow sharing* |
 | `DELETE /api/workflows/:id` | — | `{ deleted: id }` |
 | `GET /api/workflows/:id/versions` and the four routes beside it | — | Version history, restore and diff — see *Workflow versions* (Phase 18) |
-| `POST /api/workflows/:id/runs` | `{ input?, mode? }` | `mode` defaults to `sync` → **201, the finished run with every step**. `mode: "durable"` → **202**, a `queued` run with no steps; it is executed by a Cloud Tasks delivery and watched over the stream. A durable request that could not reach the queue falls back to executing in-process and answers **201**, so the status code says which happened without a flag to interpret |
+| `POST /api/workflows/:id/runs` | `{ input?, mode?, target? }` — `target` is `{ scope: "node" \| "path", nodeId }`, Phase 31, sync only | `mode` defaults to `sync` → **201, the finished run with every step**. `mode: "durable"` → **202**, a `queued` run with no steps; it is executed by a Cloud Tasks delivery and watched over the stream. A durable request that could not reach the queue falls back to executing in-process and answers **201**, so the status code says which happened without a flag to interpret |
 | `GET /api/workflows/:id/runs` | — | Run list for that workflow |
 | `GET /api/runs?workflowId=` | — | Run list |
 | `GET /api/runs/:id` | — | The run with its steps |

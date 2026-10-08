@@ -187,12 +187,16 @@ test("every integration's config renders as form fields, none falling back to ra
   // the exact class of defect `outputShape` exists to prevent. **A generic list editor
   // is the fix and it belongs to a UI phase**, where it would also collect those two
   // older fields, not to the phase that happened to add a third.
+  //
+  // **Phase 31 built it** — the `rows` editor, for the manual trigger's declared fields — and
+  // it collected `where`, a list of small records. `columns`, a list of plain names, is still
+  // raw JSON.
   assert.deepEqual(kindsByNode["integration.postgres"], [
     "operation:enum",
     "schema:string",
     "table:string",
     "columns:json",
-    "where:json",
+    "where:rows",
     "orderBy:string",
     "direction:enum",
     "limit:number",

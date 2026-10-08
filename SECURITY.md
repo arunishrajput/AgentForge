@@ -362,6 +362,18 @@ so a reader is not shown an empty note. The test searches the whole response and
 the note's *words*, not for a `text` key. A node's **switched-off flag is published**: it is shape —
 whether a step runs — not content.
 
+**A pinned output (Phase 31) is never published** (D138). A pin is a captured response — an inbox, an
+API's answer, a payload somebody sent — kept so a test need not call the real thing, so it is the most
+likely place in a graph for somebody else's data. `shareNode` builds a node field by field and never
+names `pinned`, so a link carries neither the value nor the fact that one exists; it is dropped rather
+than withheld-and-counted, because it is test data and not part of what the workflow does. Tested by
+searching the response for the pin's *words*, here and on the deployed service.
+
+**Pins and production.** A pinned node is *not* executed only in a **test run**, and only a manual run
+can be one — the flag is `run.test`, written when the run is created and read by the engine from the
+row (D139). A webhook, schedule or agent run executes every node for real, so a pin can never make a
+production run skip a step that sends, writes or checks something.
+
 ---
 
 ## The agent, and what it cannot reach

@@ -29,6 +29,7 @@ export const discordNode = defineNode({
   outputShape:
     "{ posted: true, messageId: the id Discord created, channelId, content: the message that was sent }.",
   agentCallable: true,
+  effect: { does: "post a message to Discord" },
   configSchema: z.object({
     content: z.string().trim().min(1).max(DISCORD_CONTENT_LIMIT),
     /** Discord shows this as the author. Optional; the webhook's own name is used. */

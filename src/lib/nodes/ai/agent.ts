@@ -46,6 +46,10 @@ export const agentNode = defineNode({
   // An agent that could call an agent would recurse past every cap, since each nested
   // run carries its own fresh iteration budget.
   agentCallable: false,
+  effect: {
+    does: "let an agent call the nodes it lists as tools, and some of those post or write",
+    when: { field: "tools" },
+  },
   configSchema: z.object({
     objective: z.string().min(1).max(20_000),
     system: z.string().max(4000).optional(),

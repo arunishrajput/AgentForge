@@ -54,6 +54,7 @@ export const githubNode = defineNode({
       },
     ],
   },
+  effect: { does: "open an issue or post a comment on GitHub" },
   configSchema: z.object({
     operation: z.enum(["createIssue", "commentOnIssue"]).default("createIssue"),
     /** Empty is allowed for the same reason `integration.sheets` allows an empty id. */

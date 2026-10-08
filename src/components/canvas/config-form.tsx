@@ -78,7 +78,7 @@ function Field({
   // A `label` may wrap exactly one control. The record editor is a list of rows
   // with its own buttons, so it gets a group with a heading instead — wrapping it
   // would make clicking the caption focus an arbitrary row.
-  if (field.kind === "record") {
+  if (field.kind === "record" || field.kind === "rows") {
     return (
       <div role="group" aria-label={field.label} className="block">
         {caption}
@@ -149,6 +149,9 @@ function Control({
 
     case "record":
       return <RecordEditor field={field} value={value} onChange={onChange} />;
+
+    case "rows":
+      return <RowsEditor field={field} value={value} onChange={onChange} />;
 
     case "text":
       return <TextControl field={field} value={value} onChange={onChange} multiline />;
@@ -321,5 +324,180 @@ function RecordEditor({
         Add field
       </button>
     </div>
+  );
+}
+
+/**
+ * **A list of small records — Phase 31.** The manual trigger's declared input fields, and
+ * Postgres's conditions: each row is one record, each column one of its simple fields — text,
+ * a choice, a number or a switch. Read off the schema like everything else here, so no node is
+ * named.
+ *
+ * Rows are held locally, so one whose text is still empty mid-typing keeps its place; only rows
+ * whose required text is filled in reach the config. Text columns sit on the row's first line,
+ * the rest on its second, which is what fits a 320 px panel.
+ */
+function RowsEditor({
+  field,
+  value,
+  onChange,
+}: {
+  field: SchemaField;
+  value: unknown;
+  onChange: (key: string, value: unknown) => void;
+}) {
+  const columns = field.columns ?? [];
+  const blank = () =>
+    Object.fromEntries(
+      columns
+        .filter((column) => column.defaultValue !== undefined)
+        .map((column) => [column.key, column.defaultValue]),
+    ) as Record<string, unknown>;
+
+  const [rows, setRows] = useState<{ id: number; record: Record<string, unknown> }[]>(() =>
+    (Array.isArray(value) ? value : []).map((record, index) => ({
+      id: index,
+      record: (record ?? {}) as Record<string, unknown>,
+    })),
+  );
+  const [nextId, setNextId] = useState(rows.length);
+
+  const complete = (record: Record<string, unknown>) =>
+    columns.every(
+      (column) =>
+        !column.required ||
+        (typeof record[column.key] === "string" ? (record[column.key] as string).trim() !== "" : record[column.key] !== undefined),
+    );
+
+  const commit = (next: typeof rows) => {
+    setRows(next);
+    onChange(
+      field.key,
+      next.map((row) => row.record).filter(complete),
+    );
+  };
+
+  const update = (id: number, key: string, cell: unknown) =>
+    commit(
+      rows.map((row) => {
+        if (row.id !== id) return row;
+        const record = { ...row.record };
+        if (cell === undefined) delete record[key];
+        else record[key] = cell;
+        return { id, record };
+      }),
+    );
+
+  const noun = field.label.toLowerCase().replace(/s$/, "");
+  const text = columns.filter((column) => column.kind === "string" || column.kind === "text");
+  const rest = columns.filter((column) => !text.includes(column));
+
+  return (
+    <div className="space-y-2">
+      {rows.length === 0 && <p className="text-muted text-2xs">None yet.</p>}
+      {rows.map((row, index) => (
+        <div key={row.id} className="border-line-soft space-y-1.5 rounded-lg border-2 p-2">
+          <div className="flex gap-1.5">
+            {text.map((column) => (
+              <input
+                key={column.key}
+                type="text"
+                value={typeof row.record[column.key] === "string" ? (row.record[column.key] as string) : ""}
+                placeholder={column.key}
+                aria-label={`${column.label}, ${noun} ${index + 1}`}
+                maxLength={column.maxLength}
+                onChange={(event) => update(row.id, column.key, event.target.value)}
+                className={`${inputClass} min-w-0 flex-1`}
+              />
+            ))}
+            <button
+              type="button"
+              aria-label={`Remove ${noun} ${index + 1}`}
+              onClick={() => commit(rows.filter((candidate) => candidate.id !== row.id))}
+              className="btn btn-ghost shrink-0 px-1.5"
+            >
+              ×
+            </button>
+          </div>
+          {rest.length > 0 && (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+              {rest.map((column) => (
+                <RowCell
+                  key={column.key}
+                  column={column}
+                  label={`${column.label}, ${noun} ${index + 1}`}
+                  value={row.record[column.key]}
+                  onChange={(cell) => update(row.id, column.key, cell)}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
+      <button
+        type="button"
+        onClick={() => {
+          setRows([...rows, { id: nextId, record: blank() }]);
+          setNextId(nextId + 1);
+        }}
+        className="text-muted hover:text-ink text-xs underline underline-offset-4 transition-colors"
+      >
+        Add {noun}
+      </button>
+    </div>
+  );
+}
+
+/** One non-text cell of a row: a choice, a number or a switch, with its name beside it. */
+function RowCell({
+  column,
+  label,
+  value,
+  onChange,
+}: {
+  column: SchemaField;
+  label: string;
+  value: unknown;
+  onChange: (value: unknown) => void;
+}) {
+  if (column.kind === "boolean") {
+    return (
+      <label className="text-2xs flex items-center gap-1.5">
+        <input
+          type="checkbox"
+          checked={value === true}
+          onChange={(event) => onChange(event.target.checked)}
+          className="accent-accent h-4 w-4 cursor-pointer"
+        />
+        {column.label}
+      </label>
+    );
+  }
+  if (column.kind === "enum") {
+    return (
+      <select
+        aria-label={label}
+        value={typeof value === "string" ? value : String(column.defaultValue ?? "")}
+        onChange={(event) => onChange(event.target.value)}
+        className={`${inputClass} w-auto`}
+      >
+        {column.options?.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+    );
+  }
+  return (
+    <input
+      type="number"
+      aria-label={label}
+      min={column.min}
+      max={column.max}
+      value={typeof value === "number" ? value : ""}
+      onChange={(event) => onChange(event.target.value === "" ? undefined : Number(event.target.value))}
+      className={`${inputClass} w-24`}
+    />
   );
 }

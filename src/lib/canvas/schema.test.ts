@@ -56,6 +56,28 @@ test("numbers carry their bounds, so the loop cap is visible in the form", () =>
   assert.equal(max?.max, 25); // HARD_MAX_ITERATIONS
 });
 
+test("a list of simple records becomes a row editor with its columns — Phase 31", () => {
+  const fields = fieldsFor("core.manual_trigger").get("fields");
+  assert.equal(fields?.kind, "rows");
+  assert.deepEqual(
+    fields?.columns?.map((column) => [column.key, column.kind, column.defaultValue]),
+    [
+      ["name", "string", undefined],
+      ["type", "enum", "text"],
+      ["required", "boolean", false],
+    ],
+  );
+  assert.deepEqual(fields?.columns?.[1].options, ["text", "number", "boolean", "json"]);
+  // Postgres's conditions are the same shape, and get the same editor.
+  assert.equal(fieldsFor("integration.postgres").get("where")?.kind, "rows");
+  // A list of anything richer stays raw JSON, which can say everything.
+  const rich = describeFields({
+    type: "object",
+    properties: { items: { type: "array", items: { type: "object", properties: { any: {} } } } },
+  });
+  assert.equal(rich[0].kind, "json");
+});
+
 test("an open record becomes the key/value editor, not a JSON box", () => {
   assert.equal(fieldsFor("core.set").get("fields")?.kind, "record");
   assert.equal(fieldsFor("core.set").get("merge")?.kind, "boolean");

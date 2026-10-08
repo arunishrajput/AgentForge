@@ -46,7 +46,7 @@ is the file it means.
 28  Themes II — every screen in both themes                ✅
 29  Canvas I — editing ergonomics                          ✅
 30  Canvas II — sticky notes and disabled nodes            ✅
-31  Canvas III — the test loop: pinned data and partial runs  ← START HERE
+31  Canvas III — the test loop: pinned data and partial runs  ← START HERE (in progress)
 32  Library — organising workflows
 33  Runs — history and recovery
 34  Generator at scale — catalogue selection and evals
@@ -799,6 +799,45 @@ missing required field. Analytics unchanged by test runs, recomputed from SQL th
 (regenerated), `PROGRESS.md`.
 
 **Commit.** `feat: complete phase 31 pinned data and partial runs`
+
+**Status: IN PROGRESS, 2026-10-08 — built, deployed as `agentforge-00077-wtm`, verified on the
+deployed API and walked in a real browser in Light and Night; a Light re-check of the walk's three
+fixes and a 600 px check remain.** What was built:
+
+- **Pinned output** — `pinned: { output }` on a node, optional and additive with no `GRAPH_VERSION`
+  bump, capped at 32 KB a pin and 128 KB a workflow at the graph schema (D138). Only a node with a
+  default output can hold one a run honours. Carried by copy and paste, versioned, named in a diff;
+  dropped by a share link and by the generator
+- **Only a test run honours a pin** (D139): `run.test`, migration `0013`, set at creation and read by
+  the engine off the row. A webhook, schedule or agent run is never a test, so a pinned node runs for
+  real — proved on the deployed service with a pinned HTTP node to an unresolvable host
+- **The `pinned` step status** (D140) — never executed, input recorded, output the pin; rehydrated on
+  resume; a raised card with `◆`, and a *Pinned* chip on any node holding a pin
+- **Partial runs** (D141) — `target: { scope: "node" | "path", nodeId }`. *Test this node* seeds the
+  target from pins, pass-through and the latest succeeded outputs of the workflow's last 20 runs,
+  and refuses with what to do when nothing upstream has a value; *test up to here* runs the
+  trigger's way to the target and stops. The target always executes; sync only; no waits; nothing
+  recorded outside the scope; a test needs only what it executes to be well configured. One engine:
+  the frontier starts at the target, and `follow` narrows the edges (`lib/engine/partial.ts`)
+- **Test runs are labelled and kept out of analytics** (D142) — every figure filters `test is null`,
+  a fourth statement counts them and the page says how many; onboarding's "successful run" step
+  does not count one
+- **The confirmation** (D143) — `effect` on seven integrations and the agent, data read off the
+  stored config; the canvas lists what a partial run would really do and asks
+- **The manual trigger's `fields`** (D143) — `{ name, type, required }`, enforced by the trigger at
+  run time (`checkManualInput`) and by the editor first; a *Run with* form that edits the one JSON
+  input, *Edit as JSON* one click away. The prompt grew 39 characters (25,081). A generic **`rows`
+  editor** renders it — and collected Postgres's `where`, which Phase 23C left waiting for one
+- **The canvas** — the node's test loop in its own panel (`node-test-panel.tsx`): *Test this node*,
+  *Test up to here*, the node's output with *Pin this output*, and the pin with *Edit* / *Unpin*;
+  a `◇ Test · …` chip in the run panel; the pins named beside the Run input
+
+**Verified on the deployed service**: `verify-api` 444 passed / 2 skipped, its 18 new Phase 31 checks
+included — the pinned HTTP node not called in a test and called for real by a webhook, a node tested
+alone fed from the pin, up-to-here stopping at its target, analytics unchanged by three test runs and
+counting them, a malformed test refused rather than run whole, a 33 KB pin refused, the share link
+never carrying the pin's words, a missing required field failing the trigger. 1269 tests; coverage
+89.66 / 91.82 / 83.44.
 
 ---
 

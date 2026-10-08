@@ -55,6 +55,7 @@ export const notionNode = defineNode({
       },
     ],
   },
+  effect: { does: "write to a Notion page or database" },
   configSchema: z.object({
     operation: z.enum(["appendToPage", "addDatabaseRow"]).default("appendToPage"),
     /**

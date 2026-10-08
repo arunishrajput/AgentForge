@@ -318,6 +318,22 @@ describe("Phase 30 — switched-off nodes and notes", () => {
     assert.deepEqual(back.nodes[0].fields, ["disabled"]);
   });
 
+  it("names a pinned output added, changed or removed — Phase 31", () => {
+    const pinned = (output: unknown) => node("a", { pinned: { output } });
+    for (const [before, after] of [
+      [node("a"), pinned({ x: 1 })],
+      [pinned({ x: 1 }), pinned({ x: 2 })],
+      [pinned({ x: 1 }), node("a")],
+    ]) {
+      const diff = diffGraphs(graph([before]), graph([after]));
+      assert.equal(diff.nodes[0].change, "changed");
+      assert.deepEqual(diff.nodes[0].fields, ["pinned"]);
+    }
+    // Key order is not a change: jsonb reorders keys (D25).
+    const same = diffGraphs(graph([pinned({ a: 1, b: 2 })]), graph([pinned({ b: 2, a: 1 })]));
+    assert.equal(same.nodes[0].change, "unchanged");
+  });
+
   it("a note can be added, removed, changed or moved, and an untouched one is unchanged", () => {
     const base = withNotes([node("a")], [
       sticky("kept"),

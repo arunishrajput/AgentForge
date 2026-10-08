@@ -124,6 +124,8 @@ export interface NodeSummary {
   /** Long-form help for the inspector — Phase 23A. Plain data, like everything here. */
   docs?: RegisteredNode["docs"];
   agentCallable: boolean;
+  /** What running it does outside the product — Phase 31. Absent for a node that only reads. */
+  effect?: RegisteredNode["effect"];
   configSchema: unknown;
 }
 
@@ -138,6 +140,7 @@ export function describeNode(definition: RegisteredNode): NodeSummary {
     ...(definition.outputShape === undefined ? {} : { outputShape: definition.outputShape }),
     ...(definition.docs === undefined ? {} : { docs: definition.docs }),
     agentCallable: definition.agentCallable ?? false,
+    ...(definition.effect === undefined ? {} : { effect: definition.effect }),
     // Forced through JSON so the result is plain data by construction, not by
     // luck of what `toJSONSchema` happens to build. This shape crosses to the
     // client, and Phase 4 renders the canvas in a server component: React refuses

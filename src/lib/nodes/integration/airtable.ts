@@ -55,6 +55,10 @@ export const airtableNode = defineNode({
       },
     ],
   },
+  effect: {
+    does: "create a record in Airtable",
+    when: { field: "operation", is: ["createRecord"], default: "createRecord" },
+  },
   configSchema: z.object({
     operation: z.enum(["createRecord", "listRecords"]).default("createRecord"),
     /** Empty is allowed for the same reason `integration.sheets` allows an empty id. */

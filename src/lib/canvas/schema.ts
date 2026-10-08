@@ -20,6 +20,7 @@ export type FieldKind =
   | "enum"
   | "record"
   | "value"
+  | "rows"
   | "json";
 
 export interface SchemaField {
@@ -32,6 +33,8 @@ export interface SchemaField {
   min?: number;
   max?: number;
   defaultValue?: unknown;
+  /** A `rows` field's columns — Phase 31: each item's own fields, all of them simple. */
+  columns?: SchemaField[];
 }
 
 interface JsonSchema {
@@ -67,6 +70,15 @@ function kindOf(property: JsonSchema): FieldKind {
   if (property.type === "string") {
     return (property.maxLength ?? 0) > 200 ? "text" : "string";
   }
+  // A list of small records whose every field is text, a choice, a number or a switch —
+  // the manual trigger's declared inputs (Phase 31) — is a row editor. Anything richer stays
+  // raw JSON, which can express everything.
+  if (property.type === "array" && property.items?.type === "object") {
+    const columns = Object.values(property.items.properties ?? {});
+    const simple = (column: JsonSchema) =>
+      column.enum !== undefined || ["string", "boolean", "number", "integer"].includes(column.type ?? "");
+    if (columns.length > 0 && columns.every(simple)) return "rows";
+  }
   // An open map (`z.record`) is a key/value editor; a closed object is raw JSON.
   if (property.type === "object") {
     const hasNamedProperties = Object.keys(property.properties ?? {}).length > 0;
@@ -94,6 +106,7 @@ export function describeFields(schema: unknown): SchemaField[] {
     ...(property.minimum === undefined ? {} : { min: property.minimum }),
     ...(property.maximum === undefined ? {} : { max: property.maximum }),
     ...(property.default === undefined ? {} : { defaultValue: property.default }),
+    ...(kindOf(property) === "rows" ? { columns: describeFields(property.items) } : {}),
   }));
 }
 

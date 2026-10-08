@@ -27,6 +27,25 @@ import { nodePolicySchema } from "@/lib/engine/policy";
  */
 export const GRAPH_VERSION = 1;
 
+/**
+ * **Pinned output — Phase 31 (D138).** A node may carry a fixed output that a *test* run uses
+ * in place of executing it, so an author can build the rest of a workflow without calling the
+ * same API, model or mailbox every time.
+ *
+ * Capped, because the graph is snapshotted into every version (50 kept per workflow, Phase
+ * 18): a pin is stored up to fifty times over in Neon's 0.5 GB. 32 KB a pin and 128 KB a
+ * graph put the worst case at 6.4 MB per workflow, and a typical pin — a webhook body, a
+ * model's answer, a page of an API — is a few kilobytes. Measured in UTF-8 bytes of its JSON,
+ * which is what Postgres stores, not in characters.
+ */
+export const PIN_MAX_BYTES = 32 * 1024;
+export const PINNED_TOTAL_MAX_BYTES = 128 * 1024;
+
+/** The size of a value as stored: UTF-8 bytes of its JSON. */
+export function jsonBytes(value: unknown): number {
+  return new TextEncoder().encode(JSON.stringify(value) ?? "null").length;
+}
+
 export const positionSchema = z.object({
   x: z.number().finite(),
   y: z.number().finite(),
@@ -54,6 +73,9 @@ export const positionSchema = z.object({
  * reason `policy` is optional: a node that is on carries no key, so a graph that never used
  * the feature is exactly what it was, and a stored `disabled: false` can never make the dirty
  * check or the version debounce see a difference nobody made.
+ *
+ * `pinned` is a fixed output for testing — Phase 31, `CONTRACT.md` → *Pinned output*. Absent
+ * stays absent, for the same reason.
  */
 export const workflowNodeSchema = z.object({
   id: z.string().min(1).max(128),
@@ -63,6 +85,15 @@ export const workflowNodeSchema = z.object({
   config: z.record(z.string(), z.unknown()).default({}),
   policy: nodePolicySchema.optional(),
   disabled: z.literal(true).optional(),
+  pinned: z
+    // `z.json()` refuses what JSON cannot carry; the value is still typed `unknown`, because
+    // it arrives from step outputs and editors that hold it as exactly that.
+    .object({ output: z.json().transform((value): unknown => value) })
+    .refine((pin) => jsonBytes(pin.output) <= PIN_MAX_BYTES, {
+      message: `A pinned output can be at most ${PIN_MAX_BYTES / 1024} KB.`,
+      path: ["output"],
+    })
+    .optional(),
 });
 
 /**
@@ -123,6 +154,18 @@ export const workflowGraphSchema = z
     notes: z.array(workflowNoteSchema).max(NOTE_LIMIT).optional(),
   })
   .superRefine((graph, context) => {
+    const pinned = graph.nodes.reduce(
+      (total, node) => total + (node.pinned ? jsonBytes(node.pinned.output) : 0),
+      0,
+    );
+    if (pinned > PINNED_TOTAL_MAX_BYTES) {
+      context.addIssue({
+        code: "custom",
+        path: ["nodes"],
+        message: `This workflow's pinned outputs add up to ${Math.ceil(pinned / 1024)} KB; together they can be at most ${PINNED_TOTAL_MAX_BYTES / 1024} KB.`,
+      });
+    }
+
     const nodeIds = new Set(graph.nodes.map((node) => node.id));
     const seen = new Set<string>();
     for (const [index, note] of (graph.notes ?? []).entries()) {

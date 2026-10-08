@@ -47,6 +47,8 @@ export interface CanvasNodeData extends Record<string, unknown> {
   policy?: NodePolicy;
   /** Switched off (Phase 30). `true` or absent, never `false` — `policy`'s rule again. */
   disabled?: true;
+  /** A fixed output for test runs (Phase 31). Absent stays absent, for the same reason. */
+  pinned?: { output: unknown };
 }
 
 export type CanvasNode = FlowNode<CanvasNodeData, typeof CANVAS_NODE_TYPE>;
@@ -82,6 +84,7 @@ export function toFlowNode(node: WorkflowNode): CanvasNode {
       config: node.config ?? {},
       ...(node.policy === undefined ? {} : { policy: node.policy }),
       ...(node.disabled ? { disabled: true as const } : {}),
+      ...(node.pinned === undefined ? {} : { pinned: node.pinned }),
     },
   };
 }
@@ -141,7 +144,7 @@ export function toFlow(graph: WorkflowGraph): {
 /**
  * Canvas state back to a storable graph.
  *
- * `label`, `policy` and `disabled` are omitted rather than written as `undefined`: the
+ * `label`, `policy`, `disabled` and `pinned` are omitted rather than written as `undefined`: the
  * stored graph is compared structurally after a Postgres `jsonb` round trip, and an explicit
  * `undefined` disappears through JSON while an absent key stays absent. **`notes` is written
  * only when there is one** (Phase 30), for the same reason: a workflow that never had a note,
@@ -162,6 +165,7 @@ export function fromFlow(
       config: node.data.config ?? {},
       ...(node.data.policy === undefined ? {} : { policy: node.data.policy }),
       ...(node.data.disabled ? { disabled: true as const } : {}),
+      ...(node.data.pinned === undefined ? {} : { pinned: node.data.pinned }),
     })),
     edges: edges.map((edge) => ({
       id: edge.id,
