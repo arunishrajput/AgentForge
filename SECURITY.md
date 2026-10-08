@@ -253,6 +253,7 @@ in that file — a node's capability (`send-mail`, `append-row`) or a root key v
 | **One funnel** | `requireScope(minimumRole)` in `src/lib/api.ts` establishes every authenticated route's authority. Its default is **`viewer`** — the least privilege — so a mutating route added later that forgets the argument fails **closed** |
 | **Tenancy** | Every query filters on `scope.workspaceId`. There is no code path that reads a workflow by id alone |
 | **404 versus 403** | Another workspace's resource is **404**, because 403 would confirm the id exists (D20). Insufficient role inside a workspace you *are* in is **403** — you already know it exists, and hiding behind a 404 would make a real permission boundary look like a bug |
+| **Private workflows, and everything that reaches one** | A colleague's private workflow is filtered in the `where`, never checked after the read (D101) — and so is every way to reach it through a run: the run lists, a run by id, one step's bodies, a run's page, a re-run and a retry (Phase 33). **The offer to switch workspaces** that a workflow or run link shows a member looking at another workspace names that workspace only when they could open the thing there; until Phase 33 it confirmed a private workflow existed |
 
 The role matrix is `CONTRACT.md` → *What each role may do*, and the rules a ranking cannot
 express — who may change whose role, which workflow rows a member may see — are pure functions

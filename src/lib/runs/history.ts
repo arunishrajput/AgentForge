@@ -2,7 +2,7 @@ import { and, asc, eq, gte, lt, type SQL } from "drizzle-orm";
 
 import { db } from "@/db";
 import { runs, runSteps, workflows, type Run } from "@/db/schema";
-import { ApiError } from "@/lib/api";
+import { ApiError } from "@/lib/api-error";
 import type { RunTest } from "@/lib/engine/partial";
 import type { RunOrigin } from "@/lib/engine/retry";
 import type { RunMode, RunStatus, StepStatus, TriggerKind } from "@/lib/engine/types";

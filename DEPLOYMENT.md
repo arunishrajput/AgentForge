@@ -16,12 +16,12 @@ Every step is labelled **`AUTOMATED BY CLAUDE CODE`** or **`MANUAL HUMAN ACTION`
 | Field | Value |
 |---|---|
 | Service | `agentforge`, Cloud Run, `asia-southeast1` |
-| Revision | **`agentforge-00080-xwm`** — 100% of traffic, **Phase 32** (2026-10-08; `00078-ktw` shipped the phase, `00079-p99` and `00080-xwm` the browser walk's fixes). Migration `0014` (tags and stars, three new tables) was applied first and is additive; `00077-wtm` served against it. **Rollback targets are the revisions behind the five kept images (D120)** — after the next prune `00080-xwm`, `00079-p99`, `00078-ktw` (Phase 32), `00077-wtm` and `00076-pv6` (Phase 31); list them with the commands in *Rollback*. Rolling back past `00078-ktw` is safe and hides tags and stars (*Rollback*); never roll back past `00072-n8v` while a workflow uses a note or a switched-off node. Cold start measured **6.38 s** on `00061-lwl`, warm 0.58–0.76 s |
+| Revision | **`agentforge-00082-s7r`** — 100% of traffic, **Phase 33** (2026-10-08; `00081-trs` shipped the phase, `00082-s7r` the browser walk's fixes). Migration `0015` (`run.origin`, one nullable column) was applied first and is additive; `00080-xwm` served against it. **Rollback targets are the revisions behind the five kept images (D120)** — after the next prune `00082-s7r`, `00081-trs` (Phase 33), `00080-xwm`, `00079-p99` and `00078-ktw` (Phase 32); list them with the commands in *Rollback*. Rolling back past `00081-trs` hides run history and stops pruning it (*Rollback*); never roll back past `00072-n8v` while a workflow uses a note or a switched-off node. Cold start measured **6.38 s** on `00061-lwl`, warm 0.58–0.76 s |
 | Scaling | **`min-instances 0`** (M12, 2026-10-01 — was 1 through the hackathon window), `max-instances 3`, 1 vCPU / 1 GiB, 3600 s timeout |
 | Root key | **Secret Manager `agentforge-root-key`, version `1`.** Every credential's data key is wrapped by it; `GET /api/health` reports `rootKey.provider` so a deployment silently on `ENCRYPTION_KEY` cannot hide |
-| Database | Neon `super-mountain-39872886`, `aws-ap-southeast-1` — **16 tables**, migrations `0000`–`0014` applied. **Phase 32 added `0014`**: three new tables, `tag`, `workflow_tag` and `workflow_star`, nothing existing altered — applied 2026-10-08 ahead of the deploy. **Phase 31 added `0013`**: one nullable column, `run.test`. **Phase 26 added `0012`**, all additive: `workflow.active` (default `true`), `workflow.scheduleArmedFor`, `run.wakeAt` and the partial index `run_wake_idx`. ~10 MB of 0.5 GB. Each earlier migration's story is in *Migrations* below |
+| Database | Neon `super-mountain-39872886`, `aws-ap-southeast-1` — **16 tables**, migrations `0000`–`0015` applied. **Phase 33 added `0015`**: one nullable column, `run.origin` — applied 2026-10-08 ahead of the deploy. **Phase 32 added `0014`**: three new tables, `tag`, `workflow_tag` and `workflow_star`, nothing existing altered — applied 2026-10-08 ahead of the deploy. **Phase 31 added `0013`**: one nullable column, `run.test`. **Phase 26 added `0012`**, all additive: `workflow.active` (default `true`), `workflow.scheduleArmedFor`, `run.wakeAt` and the partial index `run_wake_idx`. ~12 MB of 0.5 GB, run history ~1.2 MB of it and **pruned by retention since Phase 33** (30 days, or a workflow's newest 200). Each earlier migration's story is in *Migrations* below |
 | Observability | **Structured JSON logging on stdout, four log-based metrics, and `/api/health` reporting five dependency checks.** `OPERATIONS.md` is the runbook |
-| Last verified | **2026-10-08, Phase 32** — acting as the owner (`scripts/verify-user.mjs`), on `agentforge-00078-ktw`: `verify-api` **480 passed / 3 skipped** (its new Phase 32 section and ten new matrix rows included; the third skip is Discord's end-to-end post, left to the smoke walk), `verify-security` 78, `verify-templates` 47, `verify-integrations` 60 / 2 skipped (M10), `verify-timers` 34, `verify-postgres` 65, `verify-providers` 55, `verify-vault` 62, `verify-observability` 69 / 1 structural skip, `verify-durable.mjs all` — **0 failed**; `smoke.mjs` **clean, all eight beats**. `verify-a11y` found an unnamed file input (91 / 1), fixed in `00079-p99` (92 / 0). On `00080-xwm`: the Phase 32 checks 41 / 41, `verify-a11y` 92, `verify-security` 78, `verify-templates` 47. Walked in a real browser in Light and Night. Local `npm run check`: **1333 passing**, coverage 89.98 / 92.18 / 83.52 |
+| Last verified | **2026-10-08, Phase 33** — acting as the owner (`scripts/verify-user.mjs`), on `agentforge-00081-trs`: `verify-api` **522 passed / 3 skipped** (its new Phase 33 section, three matrix rows and eleven private-run checks included), `verify-security` 83, `verify-a11y` 118, `verify-templates` 47, `verify-integrations` 60 / 2 skipped (M10), `verify-postgres` 65, `verify-providers` 55, `verify-vault` 62, `verify-observability` 69 / 1 structural skip, `verify-timers` 34, `verify-durable.mjs all` 33, `verify-retention` — **0 failed**; a queued retry resumed through Cloud Tasks from its carried-over steps. On `00082-s7r`: `verify-security` 83, `verify-a11y` 118, `smoke.mjs` **clean, all eight beats** (second walk; the first hit the generated-Sheets-cell Known Issue). Walked in a real browser in Light and Night. Local `npm run check`: **1384 passing**, coverage 89.53 / 92.23 / 83.62 |
 
 The service also answers on a legacy hashed URL. Do not use it — see *Deploy*.
 
@@ -711,8 +711,11 @@ example, and the pattern to copy:
 `drizzle/rollback_0005_0006.sql`, Phase 19B's is `drizzle/rollback_0007.sql`, Phase 20's is
 `drizzle/rollback_0008.sql`, Phase 21's is `drizzle/rollback_0009.sql`, Phase 23D's is
 `drizzle/rollback_0010.sql`, Phase 25's is `drizzle/rollback_0011.sql` and Phase 26's is
-`drizzle/rollback_0012.sql` — **safe only once no run is `waiting`**; Phase 31's is `drizzle/rollback_0013.sql`, because a pre-26 revision can neither
-resume nor sweep one (the file says how to check, and how to close them); each is applied with a SQL
+`drizzle/rollback_0012.sql` — **safe only once no run is `waiting`**, because a pre-26 revision can
+neither resume nor sweep one (the file says how to check, and how to close them). Phase 31's is
+`drizzle/rollback_0013.sql`, Phase 32's `drizzle/rollback_0014.sql`, and Phase 33's
+`drizzle/rollback_0015.sql` — let any retry still queued or waiting finish first, as that file says.
+Each is applied with a SQL
 client and each also removes its ledger row, so a later `db:migrate` re-applies rather than believing
 the work is already done.
 
@@ -1510,6 +1513,18 @@ select count(*) from workflow where jsonb_path_exists(graph, '$.nodes[*].pinned'
 `0014` only added tables an older revision never reads, so tags and stars stay in the database and
 simply stop showing; duplicated and imported workflows are ordinary workflows and keep working —
 including their `active: false`, which every revision since Phase 26 honours. Nothing to count first.
+
+**Rolling back past `agentforge-00081-trs` (Phase 33) is safe, and hides run history.** Migration
+`0015` only added `run.origin`, which an older revision never reads, so `/runs` and the run pages go,
+retries are no longer offered, and **the daily sweep stops pruning runs** — storage then grows as it
+did before Phase 33 (~7.7 KB a run). An older revision does not know the `reused` step status: it
+draws such a step without a look of its own, and **a retry still queued or waiting when it takes over
+would be resumed by a worker that does not read a reused step's output**. Check first, and let them
+finish:
+
+```sql
+select count(*) from run where origin is not null and status in ('queued', 'running', 'waiting');
+```
 
 **Caveat:** a rollback does **not** revert migrations. Prefer additive migrations so an older
 revision still runs against the newer schema. Before demo day, avoid destructive schema changes

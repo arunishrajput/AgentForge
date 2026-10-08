@@ -268,6 +268,15 @@ nodes added, removed, changed and moved. **Restoring moves the history forward r
 rewinding it**, so a past run still refers to the graph it actually executed. Every run records
 its workflow version, and a resumed durable run executes the graph it started on.
 
+**Run history** (Phase 33). Every run is findable — a workspace-wide list filtered by status,
+trigger, workflow and day, paginated on the server — and openable: the graph at the version it
+executed with its statuses, every step's logs, and each step's input, config and output on request.
+A finished run can be **re-run** with the same input, and a failed one **retried from the step that
+failed** once its cause is fixed: the steps that finished are carried over and **not executed
+again**, so a retry does not repeat what the original already did to the world. Both run the
+workflow as it is saved now. History is kept 30 days, or a workflow's newest 200 runs, and pruned by
+the daily sweep — never a run still going or waiting.
+
 **Execution.** A run is triggered manually, by webhook, or by schedule. The engine walks the DAG,
 executes each node through the registry, passes output forward, and records a step record per node
 with status, timing, input, output, and error. Supports sequential chains, conditional branches,

@@ -90,6 +90,8 @@ pretending otherwise.
 | **Builds step by step** | Test one node alone, or everything up to it, without firing the whole workflow. Pin a step's output and tests use it instead of calling the API, the model or the mailbox again — a webhook or a schedule still runs every step for real. Tests are labelled, kept out of analytics, and ask before they post anywhere. A manual trigger can ask for its input with a form |
 | **Agent nodes** | Bounded tool-calling. The model decides; the graph routes. Every tool call is a visible, streamed step |
 | **Live execution** | Per-node status and logs over SSE while it runs. Reload mid-run and the page reattaches |
+| **Run history and retries** | Every run, filtered and paged, each on the graph it executed with every step's input and output. Fix what failed and **retry from the failed step**: the steps that finished are reused, not run again — so it does not send that email twice. Kept 30 days, or a workflow's newest 200 |
+| **A library** | Tags, stars, duplicate, and export and import as a versioned file that never carries a credential. The list's view lives in the URL |
 | **30 nodes** | Triggers, logic, nine transforms, two AI nodes, and nine integrations. [Full reference](./docs/nodes.md) — generated from the registry |
 | **Durable runs** | Handed to a queue, survives a redeploy or a crash, resumes from the last finished step |
 | **Versioning and diffing** | Every save is a version. Name one, restore one, compare two visually. Every run records which version it executed |
@@ -259,15 +261,15 @@ credential vault with rotation, observability and analytics, a 30-node catalogue
 provider, and this documentation. Chapter 3 — a product people use every day — has begun with
 schedules that fire from exact-time timers, a dark theme, Toybox Night, on every screen, and a
 canvas that edits like a serious tool: undo, copy and paste, multi-select, the keyboard, sticky
-notes, steps that switch off, and a test loop — pinned outputs and partial runs.
+notes, steps that switch off, and a test loop — pinned outputs and partial runs — then a library of
+tags, stars, export and import, and run history you can retry from the step that failed.
 
 It is live, it works, and [`PROGRESS.md`](./PROGRESS.md) is the honest status board — including
 what is unfinished.
 
 **What comes next** is Chapter 3, planned phase by phase in [`BUILD_PLAN.md`](./BUILD_PLAN.md):
 
-- organising workflows: tags, favourites, import and export
-- run history and retries
+- a generator that scales to a larger catalogue, with evals
 - a copilot that edits and repairs workflows by conversation
 - error paths, approval steps and sub-workflows
 - forms, and a public API

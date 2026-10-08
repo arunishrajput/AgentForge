@@ -48,8 +48,8 @@ is the file it means.
 30  Canvas II — sticky notes and disabled nodes            ✅
 31  Canvas III — the test loop: pinned data and partial runs  ✅
 32  Library — organising workflows                         ✅
-33  Runs — history and recovery                            ← START HERE
-34  Generator at scale — catalogue selection and evals
+33  Runs — history and recovery                            ✅
+34  Generator at scale — catalogue selection and evals      ← START HERE
 35  Copilot I — edit a workflow by conversation
 36  Copilot II — explain and repair
 37  Workflows I — when things go wrong
@@ -1047,6 +1047,96 @@ delete, then deletes in a throwaway workspace.
 (retention and storage), `PROGRESS.md`.
 
 **Commit.** `feat: complete phase 33 run history and recovery`
+
+**Status: COMPLETE, 2026-10-08 — deployed as `00082-s7r` and verified there, on the API and in a real
+browser in Light and Toybox Night.** Two deploys: `00081-trs` shipped the phase, `00082-s7r` what the
+browser walk found. Migration `0015` — one nullable column, `run.origin`. What was built:
+
+- **History, a page at a time** (D150) — `GET /api/runs` and a workflow's run list paginated on the
+  server by keyset on `(startedAt, id)`, the cursor formatted by Postgres **to the microsecond** (a
+  `Date` would make the next page skip runs started within the same millisecond); `{ data, page:
+  { next, prev } }`, `data` unchanged; filters by status, trigger, workflow and UTC days; strict at
+  the API (400 naming the parameter), forgiving on the page. List items are summaries — no input,
+  output or steps. **`/runs`**: a `GET` form of filters that navigates on change, *← Newer* /
+  *Older →*, and the retention rule and the page's own read time in its footer
+- **A run's page, `/runs/[id]`** (D154) — the graph at the version it executed (D86), painted and
+  lit; every step with its logs; **config, input and output loaded when a step is opened**
+  (`GET /api/runs/:id/steps/:seq`); a run still going followed over the stream pinned to it, which
+  stops when it rests; the version it ran said when it is not the current one; a click on a node
+  opens its step. Analytics failures link to their newest run. A run link landing in the wrong
+  workspace offers the switch, as a workflow link does
+- **Re-run and retry from the failed step** (D151, D152) — both execute the workflow **as saved
+  now**, as a `manual` run with `origin: { runId, kind }`. A retry rebuilds where the run stopped by
+  **replaying its steps** over the graph it ran (`retry.ts` → `planRetry`, rule for rule with the
+  engine: parallel work queued behind the failure, the pass a loop failed on, switched-off nodes),
+  copies every finished step into the new run as **`reused`** — a new terminal step status, not
+  executed again, no timestamps — and writes the frontier as the new run's cursor before anything
+  runs it, so a queued retry resumes through the ordinary delivery. Refused, 409, when the history
+  does not replay, the failed step is gone, or nothing is left; a succeeded or cancelled run is
+  re-run instead. A test of part of a workflow is re-tested, not retried
+- **Retention** (D153) — a finished run goes after **30 days by `finishedAt`, or past its
+  workflow's newest 200**; never a queued, running or waiting run; by the daily sweep
+  (`prunedRuns`), at most 5,000 a sweep, in one statement with a dry-run form. Numbers from the
+  measurement: ~7.7 KB a run on disk, so ~1.5 MB a workflow at its cap and ~51 MB at the worst a run
+  can be. Stated in *Settings → Workspace* and under `/runs`
+- **The canvas** (D155) — *Recent runs* in the workflow inspector, merged with the run on screen as
+  it changes; choosing one paints it without locking the canvas, the panel says *An earlier run*
+  with a way back, and offers *Retry from failed step* and *Re-run*, which save first
+- **Header and ⌘K** gain *Runs*; the header still fits at 1024 px
+
+**Verified on the deployed service** (`00081-trs`): `verify-api` **522 passed / 3 skipped** — a Phase
+33 section of 31 checks (the retry before and after the fix, **the steps counted in the database:
+2 reused with no timestamps, 2 executed**, a reused step's output read downstream, refusals that
+start nothing, a re-run with the original's input, a durable re-run, a retry refused naming a
+removed step, step bodies, pages that follow on with nothing skipped and step back exactly, every
+filter, six malformed requests refused, `/runs` and `/runs/[id]` rendering headers without bodies)
+plus three matrix rows and eleven private-workflow checks — every new way to reach a run is 404 to
+whom the workflow is hidden from. **A queued retry** went 202 → a Cloud Tasks delivery resumed it
+from its carried-over steps → succeeded, in 2 s. `verify-security` 83 (three new routes, two new
+redirects), `verify-a11y` 118 (now auditing `/runs` and a run's page), `verify-templates` 47,
+`verify-integrations` 60 / 2 skipped, `verify-postgres` 65, `verify-providers` 55, `verify-vault` 62,
+`verify-observability` 69 / 1 structural skip, `verify-timers` 34, `verify-durable all` 33 — **0
+failed** — and **`verify-retention`**: in a throwaway workspace seeded on every edge of the rule, a
+dry run named exactly the 5 runs and 6 steps due and deleted nothing, the prune deleted exactly
+those, a second found nothing; across every workspace the next sweep would delete 0. **Database
+time**: 0.15 ms for a page, 0.13 ms for the next, 0.33 ms for the whole-database retention dry run;
+the deployed `/runs` page read in 18 ms. On `00082-s7r`: `verify-security` 83, `verify-a11y` 118,
+and **`smoke.mjs` clean, all eight beats**, on its second walk — the first stopped at beat 7 on the
+standing generated-Sheets-cell Known Issue (Phase 34's), which this phase touched nothing near.
+
+**Walked in a real browser on the deployed service**, Light and Night, with a workflow that writes
+nowhere (a trigger, a set, a guard with a typo in its field reference, a log): the failure opened
+from **analytics** → its run page → a click on the failed node opened its step, whose bodies loaded
+(`left` resolved to nothing — the bug) → *Open workflow* → *Recent runs* → the failed run painted on
+the canvas as an earlier run → the guard's field fixed, unsaved → **Retry from failed step** saved it
+as v2 and ran the retry: the database holds **2 reused steps and 2 executed**, and the retry's page
+says *2 steps reused, not run again* with both painted *Reused* on the lit path. *Re-run* from a run's
+page queued, landed on the new run, showed it *Live* and streamed it to the end. `/runs` filtered by
+status through the select, and paged 25 + 25 with no overlap and back exactly. **The contrast audit
+was clean on every new screen in both themes** — `/runs`, both run pages with every step's bodies
+open, the canvas with an earlier run open, *Settings → Workspace*, analytics. No sideways scroll at
+375, 1024, 1100 or 1280 px; the header bar fits at each.
+
+**Found in verification, fixed, re-checked:**
+
+- **A retried run's reused steps vanished from the canvas** — the stream had the new run, reused steps
+  and all, before the queued `202` answered; the answer, which has no steps, replaced it. The server
+  held all four rows. `adoptStarted` keeps what the stream has of the same run, in the retry and in
+  Phase 17's queued run, which had the same race in a narrower window; tested
+- **The open run in *Recent runs* was marked by its fill alone**, and in Toybox Night the fill read the
+  same as its neighbours — it says *Showing* now
+- **A private workflow's link, opened by a colleague looking at another workspace, said "This workflow
+  is in …"** (since Phase 19B; a run link would have too) — confirming what `private` hides (D101).
+  The lookup asks `canSeeWorkflow` now; the deployed previous revision answered 200, this one 404
+- **Model usage counted a switched-off node downstream of an agent as a second model call** (since
+  Phase 30), and would have counted a retry's reused agent step — it counts succeeded steps only now
+- The date filters' labels sat higher than their neighbours, the list's separators spaced unevenly
+  around a monospace version, and three run-page links were under 24 px tall
+
+1384 tests; coverage 89.53 / 92.23 / 83.62. **Not driven, said plainly:** a *viewer's* run pages and
+canvas (the standing Known Issue; the API matrix covers their refusals and reads), Safari, and a
+retry of a run whose version snapshot was pruned and whose workflow changed since (tested against
+the engine, refused with a message; no such run exists in the database to drive).
 
 ---
 
