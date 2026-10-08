@@ -46,8 +46,8 @@ is the file it means.
 28  Themes II — every screen in both themes                ✅
 29  Canvas I — editing ergonomics                          ✅
 30  Canvas II — sticky notes and disabled nodes            ✅
-31  Canvas III — the test loop: pinned data and partial runs  ← START HERE (in progress)
-32  Library — organising workflows
+31  Canvas III — the test loop: pinned data and partial runs  ✅
+32  Library — organising workflows                         ← START HERE
 33  Runs — history and recovery
 34  Generator at scale — catalogue selection and evals
 35  Copilot I — edit a workflow by conversation
@@ -800,9 +800,9 @@ missing required field. Analytics unchanged by test runs, recomputed from SQL th
 
 **Commit.** `feat: complete phase 31 pinned data and partial runs`
 
-**Status: IN PROGRESS, 2026-10-08 — built, deployed as `agentforge-00077-wtm`, verified on the
-deployed API and walked in a real browser in Light and Night; a Light re-check of the walk's three
-fixes and a 600 px check remain.** What was built:
+**Status: COMPLETE, 2026-10-08 — deployed as `agentforge-00077-wtm` and verified there, on the API and
+in a real browser in Light and Toybox Night.** Two deploys: `00076-pv6` shipped the phase, `00077-wtm`
+what the browser walk found. What was built:
 
 - **Pinned output** — `pinned: { output }` on a node, optional and additive with no `GRAPH_VERSION`
   bump, capped at 32 KB a pin and 128 KB a workflow at the graph schema (D138). Only a node with a
@@ -836,8 +836,46 @@ fixes and a 600 px check remain.** What was built:
 included — the pinned HTTP node not called in a test and called for real by a webhook, a node tested
 alone fed from the pin, up-to-here stopping at its target, analytics unchanged by three test runs and
 counting them, a malformed test refused rather than run whole, a 33 KB pin refused, the share link
-never carrying the pin's words, a missing required field failing the trigger. 1269 tests; coverage
-89.66 / 91.82 / 83.44.
+never carrying the pin's words, a missing required field failing the trigger. The battery on
+`00076-pv6` — `verify-security` 68, `verify-a11y` 92, `verify-templates` 47, `verify-integrations` 60 /
+2 skipped (Notion, Airtable), `verify-timers` 34, `verify-postgres` 65, `verify-providers` 55,
+`verify-vault` 62, `verify-observability` 69 / 1 structural skip (its new check: test runs counted on
+their own), `verify-durable all` — **0 failed**. `smoke.mjs`: beats 1–6 clean (generation, edit,
+webhook, the live stream); **beats 7–8 stopped on the free-tier Gemini quota** the battery had spent
+("retry in 18h") — a model call, not this phase's code.
+
+**Walked in a real browser on the deployed canvas**, Light and Night, on a five-node workflow
+(manual trigger with a required `topic` → HTTP GET to the GitHub API → Set → Discord → Log): Run
+refused with `topic` empty, naming the field; *Test this node* on the HTTP node refused with what to
+do; *Test up to here* ran two steps; *Pin this output* pinned 11.6 KB, and the card wore *Succeeded* and
+*Pinned*; *Test this node* on the Set node was fed from the pin, showed `repo` and `stars` resolving
+empty because the response nests under `json`, and — references fixed in the form — gave
+`arunishrajput/AgentForge`, `0`, `launch week`, checked by hand against the pin; *Test up to here* on
+Discord opened the confirmation, cancelled; *Pin JSON…* refused half-typed JSON; Run with both writers
+pinned recorded both `pinned` and sent nothing, the run panel reading *◇ Test · pinned data*; the
+trigger's `fields` row editor added a boolean field that appeared in the form at once, undone in two
+steps back to *Saved · v4*; analytics read "6 test runs are not counted" — the walk's six; 600 px in a
+same-origin iframe, the drawer 368 px with both test buttons and the form unclipped, no sideways
+scroll. **The contrast audit was clean on every state in both themes**, with and without the
+`aria-hidden` glyphs.
+
+**Found in the browser, fixed in `00077-wtm`, re-checked in both themes:**
+
+- **The run form was out of reach from a node's Test section.** *Test up to here* runs the trigger,
+  and with a node selected the *Run with* form was in the workflow panel, not on screen; it now sits
+  under the test buttons when the trigger declares fields
+- **The lit path went dark after a pinned node.** An edge lit only when its source *succeeded* or was
+  *switched off*; the rule is now `edgeRunLook` in `status.ts`, with a test that fails on the old rule
+- **The dialog's grammar** ("one step … act"), and its advice to pin when the only writer listed was the
+  node being tested, which always runs
+
+**One real Discord message was posted by mistake during the walk** — Run pressed before a pin had
+landed (the *Pin* button moved up as the JSON error cleared, so the click missed). The product did what
+it says: an unpinned Discord node runs on Run. It is message `1557623006375968789` in
+`#agentforge-demo`. 1271 tests; coverage 89.67 / 91.84 / 83.46.
+
+**Not driven, said plainly:** a *viewer* opening the test panel (it shows the output and the pin
+read-only and no buttons — reasoned, not driven, the standing Known Issue), and Safari.
 
 ---
 
