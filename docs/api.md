@@ -173,15 +173,44 @@ Every save is a version. Nothing has to be "committed".
 | Method | Route | Role | What it does |
 |---|---|---|---|
 | `POST` | `/api/workflows/[id]/runs` | editor | Starts a run. Records which version it executed. `target: { scope: "node" \| "path", nodeId }` tests one node, or the way to it, as a labelled test run (Phase 31) |
-| `GET` | `/api/workflows/[id]/runs` | viewer | That workflow's run history |
-| `GET` | `/api/runs` | viewer | Every run in the workspace |
+| `GET` | `/api/workflows/[id]/runs` | viewer | That workflow's run history, a page at a time — the same filters and cursors as `/api/runs` |
+| `GET` | `/api/runs` | viewer | Every run in the workspace, newest first, **a page at a time** (Phase 33). Filters: `status`, `trigger`, `workflowId`, `from` and `to` (UTC days, inclusive). Each item is a summary — no input, output or steps |
 | `GET` | `/api/runs/[id]` | viewer | One run with its per-node steps, logs and outputs |
+| `GET` | `/api/runs/[id]/steps/[seq]` | viewer | One step's `config`, `input` and `output` — the bodies a run's page loads when a step is opened (Phase 33) |
+| `POST` | `/api/runs/[id]/rerun` | editor | **Re-run** (Phase 33): a new run with this one's input, from the trigger, on the workflow as saved now. Any finished run |
+| `POST` | `/api/runs/[id]/retry` | editor | **Retry from the failed step** (Phase 33): a new run that carries over every step this one finished, marked `reused` and not executed again, and starts at the step it failed at — on the workflow as saved now. A failed run only |
 | `POST` | `/api/runs/[id]/cancel` | editor | Asks a run to stop. The engine checks the signal between steps |
 | `GET` | `/api/workflows/[id]/stream` | viewer | **SSE.** Per-node status and log lines, live |
+
+**Run lists are paginated on the server, by keyset** — run history grows without bound, unlike
+the workflow list. `data` is the page; the cursors ride beside it, and are passed back as
+`before` (older) or `after` (newer). A filter or cursor that does not parse is refused, 400,
+rather than ignored. `limit` is 1–100, 25 by default.
+
+```jsonc
+// GET /api/runs?status=failed&from=2026-10-01&limit=2
+{
+  "data": [
+    { "id": "…", "workflowId": "…", "workflowName": "Triage inbound leads", "status": "failed",
+      "trigger": "webhook", "workflowVersion": 7, "test": null, "origin": null,
+      "error": "Node \"post\" (integration.discord) failed: …", "startedAt": "…", "durationMs": 2310 }
+  ],
+  "page": { "next": "2026-10-08T09:00:09.155123Z_0bcf25b7-…", "prev": null }
+}
+```
+
+**Re-run and retry** answer exactly as starting a run does: `{ "mode": "sync" }` (the default)
+waits and answers **201** with the finished run, `{ "mode": "durable" }` answers **202** with a
+queued one. The new run's `origin` is `{ runId, kind: "rerun" | "retry" }`. A retry is refused,
+**409**, for a run that did not fail, one whose history no longer lines up with the workflow, or
+one whose failed step has been removed since — the message says to re-run instead.
 
 The stream is `text/event-stream` and reconnects natively. Event names and payloads are
 fixed in [`../CONTRACT.md`](../CONTRACT.md) → *SSE event contract* — they are a contract
 precisely because a reconnecting client must be able to rejoin mid-run.
+
+Run history is kept **30 days, and each workflow's newest 200 runs whatever their age** — pruned
+by the daily sweep, finished runs only. See [`../CONTRACT.md`](../CONTRACT.md) → *Run retention*.
 
 ## Triggers
 
@@ -190,7 +219,7 @@ precisely because a reconnecting client must be able to rejoin mid-run.
 | `POST` | `/api/webhook/[token]` | 192-bit token | **No session.** Runs one workflow. Body capped at 64 KB and pattern-checked before the database is touched. A workflow that is switched off answers **409** and starts nothing |
 | `POST` | `/api/workflows/[id]/webhook/rotate` | admin | Issues a new webhook token and refuses the old one immediately |
 | `POST` | `/api/cron/fire` | `CRON_SECRET` **and** an HMAC token for one slot of one workflow | **No session.** A schedule timer's delivery: fires that slot, or arms it again if it is not yet due. A stale or duplicate timer starts nothing — the slot is claimed by compare-and-set. Cloud Tasks calls this |
-| `POST` | `/api/cron/tick` | `CRON_SECRET`, compared in constant time | **No session.** The **daily** safety sweep: fires overdue schedules, re-arms timers, wakes lost waiting runs. Idempotent by compare-and-set. Cloud Scheduler calls this |
+| `POST` | `/api/cron/tick` | `CRON_SECRET`, compared in constant time | **No session.** The **daily** safety sweep: fires overdue schedules, re-arms timers, wakes lost waiting runs, and prunes run history past retention (Phase 33). Idempotent by compare-and-set. Cloud Scheduler calls this |
 | `POST` | `/api/runs/dispatch` | `CRON_SECRET` **and** the run's own 192-bit dispatch token | **No session.** Resumes one run its owner already started — including a `waiting` run at its wake time. A duplicate delivery is harmless — the lease makes it so |
 
 A workflow's automatic triggers have an **active switch**: `PATCH /api/workflows/[id]` with

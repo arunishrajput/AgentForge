@@ -6,6 +6,9 @@ import { Editor } from "@/components/canvas/editor";
 import { WrongWorkspace } from "@/components/workflows/wrong-workspace";
 import { ApiError } from "@/lib/api";
 import { describeRun, liveRun } from "@/lib/engine/run";
+import { listRunPage, type RunSummary } from "@/lib/runs/history";
+import { EMPTY_RUN_QUERY } from "@/lib/runs/query";
+import { RECENT_RUNS } from "@/lib/runs/recent";
 import { describeNodes } from "@/lib/nodes";
 import { describeWorkflow, getWorkflow } from "@/lib/workflow/store";
 import { readActiveWorkspaceId } from "@/lib/workspace/active";
@@ -87,6 +90,8 @@ export default async function WorkflowPage({
         kind: "ok";
         workflow: Awaited<ReturnType<typeof getWorkflow>>;
         inFlight: Awaited<ReturnType<typeof liveRun>>;
+        /** Phase 33: the workflow's newest runs, for the canvas's *Recent runs*. */
+        recent: RunSummary[];
         /** Carried out of the try so the editor can be told what this viewer may do. */
         scope: Awaited<ReturnType<typeof resolveScope>>;
       }
@@ -102,7 +107,12 @@ export default async function WorkflowPage({
       await readActiveWorkspaceId(),
     );
     const workflow = await getWorkflow(scope, id);
-    loaded = { kind: "ok", workflow, inFlight: await liveRun(scope, workflow.id), scope };
+    const [inFlight, recent] = await Promise.all([
+      liveRun(scope, workflow.id),
+      // One indexed read (`run_workflow_idx`), on a request that has already woken the database.
+      listRunPage(scope, { ...EMPTY_RUN_QUERY, workflowId: workflow.id }, { limit: RECENT_RUNS }),
+    ]);
+    loaded = { kind: "ok", workflow, inFlight, recent: recent.runs, scope };
   } catch (error) {
     if (!(error instanceof ApiError) || error.code !== "not_found") throw error;
 
@@ -129,6 +139,7 @@ export default async function WorkflowPage({
       workflow={describeWorkflow(loaded.workflow)}
       registry={describeNodes()}
       liveRun={loaded.inFlight ? describeRun(loaded.inFlight.run, loaded.inFlight.steps) : null}
+      recentRuns={loaded.recent}
       // **Phase 20.** The role is resolved on the server, from the membership row, and
       // handed down — never read in the browser, and never trusted from there. It decides
       // what the canvas draws; every control it hides is separately refused by the API.

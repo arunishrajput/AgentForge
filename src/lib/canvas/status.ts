@@ -1,9 +1,9 @@
 import type { RunStatus, StepStatus } from "./client";
 
 /**
- * The seven things a node can be on the canvas, and how each one looks — five run states,
- * since Phase 30 a node that is switched off, and since Phase 31 a node a test run took from
- * its pinned output.
+ * The eight things a node can be on the canvas, and how each one looks — five run states,
+ * since Phase 30 a node that is switched off, since Phase 31 a node a test run took from its
+ * pinned output, and since Phase 33 a node a retry carried over from the run it retries.
  *
  * A table rather than a chain of ternaries in the node component, because this is the
  * phase's one hard accessibility requirement and it is worth being able to assert:
@@ -93,9 +93,10 @@ export const NODE_STATUSES: NodeStatus[] = [
   "skipped",
   "disabled",
   "pinned",
+  "reused",
 ];
 
-/** What a card that is not recessed looks like. Five of the seven share it. */
+/** What a card that is not recessed looks like. Six of the eight share it. */
 const RAISED = { surface: "bg-elevated", shadow: "shadow-node" } as const;
 
 const LOOK: Record<NodeStatus, StatusLook> = {
@@ -177,6 +178,21 @@ const LOOK: Record<NodeStatus, StatusLook> = {
     label: "Pinned",
     glyph: "◆",
     tone: "text-accent",
+    outline: "border-line",
+    ...RAISED,
+    motion: "",
+    dots: false,
+  },
+  /**
+   * Phase 33. A retry carried this step over from the run it retries — it ran there and handed
+   * the same value on here, so it is raised like a node that ran. It is still and muted, with a
+   * word and a glyph of its own, because nothing happened to it *in this run*: the work on this
+   * canvas starts at the first node that is not wearing it.
+   */
+  reused: {
+    label: "Reused",
+    glyph: "↺",
+    tone: "text-muted",
     outline: "border-line",
     ...RAISED,
     motion: "",
@@ -301,14 +317,15 @@ export function runStatusLook(status: RunStatus): StatusLook {
  * An edge is crossed when its source **handed a value on** — it succeeded, was switched off and
  * passed its input through (Phase 30), or stood in with its pinned output (Phase 31) — and the
  * run reached its target. A pinned node was the one Phase 31's browser walk found the path
- * going dark after, because this rule named only the first two.
+ * going dark after, because this rule named only the first two — and a step a retry carried over
+ * (Phase 33) handed its value on too.
  */
 export function edgeRunLook(
   source: StepStatus | undefined,
   target: StepStatus | undefined,
   running: boolean,
 ): "live" | "traversed" | null {
-  if (source !== "succeeded" && source !== "disabled" && source !== "pinned") return null;
+  if (source !== "succeeded" && source !== "disabled" && source !== "pinned" && source !== "reused") return null;
   if (running && target === "running") return "live";
   if (target !== undefined && target !== "skipped") return "traversed";
   return null;

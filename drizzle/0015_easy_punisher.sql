@@ -1,0 +1,19 @@
+-- ---------------------------------------------------------------------------
+-- Phase 33 — run history and recovery.
+--
+-- **One nullable column, additive, no backfill.** The previous revision never selects it and
+-- keeps serving correctly while this is applied; every existing run was started by a trigger or
+-- a person, not from another run, and null is exactly what such a run carries.
+--
+--   run.origin   where a run came from: { runId, kind } with kind "rerun" (the original's input,
+--                from the trigger) or "retry" (from the step the original failed at). An id inside
+--                a value rather than a foreign key, for D86's reason: retention prunes the
+--                original long before the retry, and the record must stay true.
+--
+-- The `reused` step status needs no migration: `run_step.status` is text, and the set of values
+-- is the application's (`src/lib/engine/types.ts`). Retention is a statement the daily sweep
+-- runs, not a schema change.
+--
+-- Rollback: `rollback_0015.sql`.
+-- ---------------------------------------------------------------------------
+ALTER TABLE "run" ADD COLUMN "origin" jsonb;

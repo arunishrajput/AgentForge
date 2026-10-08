@@ -430,9 +430,17 @@ not make two statuses look alike.
 | skipped | "Skipped" | `–` | **dashed** | **sunken, flatter shadow** | — |
 | disabled | "Switched off" | `⊘` | **dotted** | **sunken, flatter shadow** | — |
 | pinned | "Pinned" | `◆`, in the accent tone | ink | raised | — |
+| reused | "Reused" | `↺`, muted | ink | raised | — |
 
 A greyscale screenshot of a run still reads: dashed and recessed was skipped, dotted and recessed is
-switched off, bobbing is working, ticked finished, a diamond stood in with its pin.
+switched off, bobbing is working, ticked finished, a diamond stood in with its pin, a turning arrow
+was carried over from the run a retry retried.
+
+**Reused** (Phase 33) is a step a retry carried over from the run it retries — it ran there, not
+here. Raised, because it handed a real value on, and lit through on the path like *succeeded*; still
+and muted, with a word and a glyph of its own, because nothing happened to it *in this run*. On a
+retried run the work starts at the first node not wearing it, which is what a person checking "did
+it send that email twice?" looks for.
 
 **Pinned** (Phase 31) is a test run handing on a node's pinned output instead of running it. Raised,
 not recessed, because unlike *skipped* and *switched off* the node did hand a real value on; told
@@ -521,6 +529,26 @@ step gets the bobbing dots in its chip — the same `waiting` motion, without pu
 Three things make an agent's reasoning readable: a step is **named** by its label rather than its
 raw id, every log line carries its **offset from the step's start** (`+3.4s`), and the log block
 sits **outside** the click target so it can be selected and copied.
+
+### Run history — Phase 33
+
+**Three places, one vocabulary** (`lib/runs/words.ts`): a run is its status (word, glyph, tone), what
+started it, the version it ran, when, and how long — and, when it applies, *test* and *retry of*.
+
+- **`/runs`** is a dense list in the quiet register: a card of rows, each a stretched link over the
+  workflow's name, so the row is the target and the name is what is announced. The filters are a
+  real `GET` form above it — status, trigger, workflow, two UTC days — that navigates on change and
+  works without JavaScript. Pagination is *← Newer* / *Older →*, keyed off the server's cursors
+- **`/runs/[id]`** leads with the workflow's name, the run's chips and its actions — *Retry from
+  failed step* is the primary (grape) button when there is a failure to retry from, *Re-run* quiet
+  beside it — then the notices that change how the run should be read (waiting, failed, retried,
+  executed an older version), then **the run on its graph**, read-only, and the steps. A step's
+  logs are always shown; its config, input and output are a `<details>` that loads when opened.
+  Clicking a node on the graph opens and focuses its step
+- **On the canvas**, *Recent runs* is a compact list above the run panel in the workflow inspector.
+  The row on screen is `aria-current` and sunken, the way the header marks the current page.
+  Choosing one paints it; it does not lock the canvas (D155). The run panel says *An earlier run*
+  with a way back, and offers retry and re-run for a finished run
 
 ---
 

@@ -23,7 +23,8 @@ import type { DayBucket, FailureGroup, ModelStat, NodeStat } from "@/lib/analyti
  * The normalised template is the title and the real message is underneath it, because
  * the normaliser deliberately over-groups: two problems landing in one row is a nuisance
  * somebody notices on reading the sample, and one problem scattered over forty rows is
- * invisible.
+ * invisible. **Since Phase 33 each row opens its newest run**, which is where the steps,
+ * the failed one and a retry live.
  */
 export function FailureList({ failures }: { failures: FailureGroup[] }) {
   if (failures.length === 0) {
@@ -55,6 +56,14 @@ export function FailureList({ failures }: { failures: FailureGroup[] }) {
               Last seen {formatUtc(group.lastSeen)} ·{" "}
               <code className="font-mono">{group.id}</code>
             </p>
+            {/* Phase 33: the newest occurrence, opened on its own page — every step it took, the
+                one that failed, and a retry from there. */}
+            <Link
+              href={`/runs/${group.sampleRunId}`}
+              className="text-ink mt-2 inline-flex min-h-6 items-center gap-1 text-xs font-semibold underline underline-offset-2"
+            >
+              Open the latest run<span aria-hidden="true"> →</span>
+            </Link>
           </li>
         ))}
       </ul>

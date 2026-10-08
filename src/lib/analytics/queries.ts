@@ -6,6 +6,7 @@ import { getNode } from "@/lib/nodes";
 import { visibleWorkflows } from "@/lib/workflow/visibility";
 import type { WorkspaceScope } from "@/lib/workspace/scope";
 
+import { modelCallSteps } from "./predicates";
 import {
   bucketByDay,
   groupFailures,
@@ -194,7 +195,8 @@ async function readNodeStats(scope: WorkspaceScope, from: Date): Promise<NodeSta
  *
  * It reads the JSONB rather than a registry list of AI node types, because a node type
  * added in Phase 23 that writes `output.model` is a model call whether or not anybody
- * remembered to add it to a list here.
+ * remembered to add it to a list here. **Only a step that ran** (`predicates.ts`, Phase 33): a
+ * switched-off node or a retry's reused step carries an agent's output without calling anything.
  */
 async function readModelStats(scope: WorkspaceScope, from: Date): Promise<ModelStat[]> {
   const rows = await db()
@@ -213,7 +215,7 @@ async function readModelStats(scope: WorkspaceScope, from: Date): Promise<ModelS
         gte(runs.startedAt, from),
         visibleWorkflows(scope),
         isNull(runs.test),
-        sql`${runSteps.output} ? 'model' and jsonb_typeof(${runSteps.output}->'model') = 'string'`,
+        modelCallSteps(),
       ),
     )
     .groupBy(sql`${runSteps.output}->>'model'`)

@@ -5,7 +5,7 @@ import { Notice } from "@/components/ui/notice";
 import { cn } from "@/components/ui/cn";
 import type { CanvasNode, CanvasNote, CanvasNoteData } from "@/lib/canvas/bridge";
 import { categoryLook } from "@/lib/canvas/categories";
-import type { GraphProblem, NodeSummary, Run, TestScope, Workflow } from "@/lib/canvas/client";
+import type { GraphProblem, NodeSummary, Run, RunSummary, TestScope, Workflow } from "@/lib/canvas/client";
 import { canPin } from "@/lib/engine/partial";
 import { manualTrigger, type ManualField } from "@/lib/nodes/core/manual-trigger";
 import type { Platform } from "@/lib/ui/keys";
@@ -17,6 +17,7 @@ import { NodeTestPanel } from "./node-test-panel";
 import { NoteInspector } from "./note-inspector";
 import { Panel } from "./panel";
 import { PolicyForm } from "./policy-form";
+import { RecentRuns } from "./recent-runs";
 import { RunInput } from "./run-input";
 import type { RunInputFacts } from "./node-test-panel";
 import { RunPanel } from "./run-panel";
@@ -90,6 +91,7 @@ export function Inspector({
   onDuplicateSelection,
   onMoveSelection,
   onDeleteSelection,
+  history,
 }: {
   id: string;
   open: boolean;
@@ -157,6 +159,8 @@ export function Inspector({
   onDuplicateSelection: () => void;
   onMoveSelection: (dx: number, dy: number) => void;
   onDeleteSelection: () => void;
+  /** This workflow's recent runs, and what can be done with one — Phase 33. */
+  history: RunHistory;
 }) {
   // The panel's own title names what it is showing, so the rail does too — a
   // collapsed inspector that says "Send email" is worth reopening.
@@ -170,7 +174,9 @@ export function Inspector({
     : run
       ? run.status === "running"
         ? "Running"
-        : "Last run"
+        : history.past
+          ? "Earlier run"
+          : "Last run"
       : "Workflow";
 
   return (
@@ -240,10 +246,29 @@ export function Inspector({
           readOnly={readOnly}
           onRunDurably={onRunDurably}
           onSelectNode={onSelectNode}
+          history={history}
         />
       )}
     </Panel>
   );
+}
+
+/**
+ * **What the inspector needs for run history — Phase 33.** Grouped, because the six travel
+ * together from the editor to `WorkflowInspector` and mean nothing apart.
+ */
+export interface RunHistory {
+  workflowId: string;
+  runs: RunSummary[];
+  /** The run on the canvas, when it is one of `runs`. */
+  shownId: string | null;
+  /** A run being fetched to be shown. */
+  opening: string | null;
+  onOpen: (runId: string) => void;
+  /** The run on the canvas is an earlier one, opened from the list; `onClose` puts back what was there. */
+  past: { onClose: () => void } | null;
+  /** Retry or re-run the run on the canvas. Null for a viewer. */
+  restart: { onRestart: (kind: "rerun" | "retry") => void; busy: boolean } | null;
 }
 
 /**
@@ -527,6 +552,7 @@ function WorkflowInspector({
   readOnly,
   onRunDurably,
   onSelectNode,
+  history,
 }: {
   nodes: CanvasNode[];
   registry: Map<string, NodeSummary>;
@@ -541,6 +567,7 @@ function WorkflowInspector({
   readOnly: boolean;
   onRunDurably: () => void;
   onSelectNode: (id: string) => void;
+  history: RunHistory;
 }) {
   /**
    * Phase 31. The manual trigger's declared fields become the form below, and any node standing
@@ -616,8 +643,23 @@ function WorkflowInspector({
         </>
       )}
 
+      <RecentRuns
+        workflowId={history.workflowId}
+        runs={history.runs}
+        shownId={history.shownId}
+        opening={history.opening}
+        onOpen={history.onOpen}
+      />
+
       {run ? (
-        <RunPanel run={run} live={live} names={names} onSelectNode={onSelectNode} />
+        <RunPanel
+          run={run}
+          live={live}
+          names={names}
+          onSelectNode={onSelectNode}
+          past={history.past}
+          restart={history.restart}
+        />
       ) : (
         problems.length === 0 &&
         (readOnly ? (

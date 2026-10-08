@@ -25,9 +25,13 @@ import { api, ApiRequestError } from "@/lib/canvas/client";
 export function WrongWorkspace({
   workflowId,
   workspace,
+  kind = "workflow",
 }: {
+  /** The id the link named — a workflow's, or since Phase 33 a run's. */
   workflowId: string;
   workspace: { id: string; name: string };
+  /** What the link was to. A run link lands in the wrong workspace as easily (Phase 33). */
+  kind?: "workflow" | "run";
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -53,7 +57,7 @@ export function WrongWorkspace({
     <main id="main" className="mx-auto max-w-lg px-4 py-16 sm:px-6">
       <Card raised className="animate-rise p-6">
         <h1 className="text-xl font-bold tracking-tight text-pretty">
-          This workflow is in {workspace.name}
+          This {kind} is in {workspace.name}
         </h1>
         <p className="text-muted mt-2 text-sm text-pretty">
           You are a member of that workspace, but you are currently working in a different
@@ -68,7 +72,9 @@ export function WrongWorkspace({
           </Link>
         </div>
         {error && <Notice tone="bad" className="mt-4" title={error} />}
-        <p className="text-faint mt-4 text-3xs">Workflow {workflowId}</p>
+        <p className="text-faint mt-4 text-3xs">
+          {kind === "run" ? "Run" : "Workflow"} {workflowId}
+        </p>
       </Card>
     </main>
   );

@@ -188,6 +188,14 @@ export function CommandPalette({
         run: () => router.push("/workflows"),
       },
       {
+        id: "runs",
+        group: "Go to",
+        title: "Runs",
+        subtitle: "Every run, and why one failed",
+        keywords: ["history", "executions", "failed", "retry", "rerun", "logs"],
+        run: () => router.push("/runs"),
+      },
+      {
         id: "analytics",
         group: "Go to",
         title: "Analytics",

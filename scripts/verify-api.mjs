@@ -1016,6 +1016,281 @@ try {
     }
   }
 
+  // --- Phase 33: run history and recovery ------------------------------------
+  // `CONTRACT.md` → *Run history*, *Re-runs and retries*, on the deployed service. The phase's own
+  // validation step is the heart of it: a run fails, the config is fixed, the run is **retried
+  // from the failed step**, and the steps are counted to prove the ones before it were not
+  // executed again. Probe rows are `zzzz-phase33`.
+  {
+    const P33 = "zzzz-phase33";
+    const guarded = (fixed) => ({
+      version: 1,
+      nodes: [
+        { id: "trigger", type: "core.manual_trigger", position: { x: 0, y: 0 }, config: {} },
+        { id: "shape", type: "core.set", position: { x: 240, y: 0 }, config: { fields: { greeting: "hello {{input.name}}" } } },
+        {
+          id: "guard",
+          type: "core.assert",
+          label: "Check the greeting",
+          position: { x: 480, y: 0 },
+          config: {
+            left: fixed ? "{{input.greeting}}" : "{{input.missing}}",
+            operator: "is_not_empty",
+            message: "PHASE33: expected a value and found none.",
+          },
+        },
+        { id: "after", type: "core.log", position: { x: 720, y: 0 }, config: { message: "said {{steps.shape.output.greeting}}" } },
+      ],
+      edges: [
+        { id: "e1", source: "trigger", target: "shape", sourceHandle: null },
+        { id: "e2", source: "shape", target: "guard", sourceHandle: null },
+        { id: "e3", source: "guard", target: "after", sourceHandle: null },
+      ],
+    });
+    const made = [];
+    try {
+      const created = await api("POST", "/api/workflows", { name: `${P33} retry`, graph: guarded(false) }, token);
+      const subject = created.json?.data?.id;
+      made.push(subject);
+      check("a workflow to fail is created", created.status === 201 && subject);
+
+      const failed = (await api("POST", `/api/workflows/${subject}/runs`, { input: { name: "Ada" } }, token)).json?.data;
+      check(
+        "it fails at the guard, with the steps before it done",
+        failed?.status === "failed" &&
+          isDeepStrictEqual(failed?.steps?.map((step) => step.status), ["succeeded", "succeeded", "failed", "skipped"]),
+        JSON.stringify(failed?.steps?.map((step) => [step.nodeId, step.status])),
+      );
+
+      // --- the run's history, a page at a time ---
+      const listed = await api("GET", `/api/workflows/${subject}/runs`, undefined, token);
+      const item = listed.json?.data?.[0];
+      check(
+        "a workflow's run list is a page of summaries: its name, no input, output or steps",
+        listed.status === 200 && item?.id === failed?.id && item?.workflowName === `${P33} retry` &&
+          !("input" in (item ?? {})) && !("output" in (item ?? {})) && !("steps" in (item ?? {})) &&
+          listed.json?.page && listed.json.page.next === null && listed.json.page.prev === null,
+        JSON.stringify(listed.json).slice(0, 300),
+      );
+
+      // --- retry before the fix: it fails again, at the same place, having reused the rest ---
+      const again = await api("POST", `/api/runs/${failed?.id}/retry`, {}, token);
+      check(
+        "a retry before the fix fails at the same step, reusing the two before it",
+        again.status === 201 && again.json?.data?.status === "failed" &&
+          isDeepStrictEqual(again.json?.data?.steps?.map((step) => step.status), ["reused", "reused", "failed", "skipped"]) &&
+          isDeepStrictEqual(again.json?.data?.origin, { runId: failed?.id, kind: "retry" }),
+        JSON.stringify(again.json).slice(0, 300),
+      );
+
+      // --- fix the config, save, and retry the ORIGINAL from its failed step ---
+      const fixed = await api("PATCH", `/api/workflows/${subject}`, { graph: guarded(true) }, token);
+      check("the guard's config is fixed and saved as a new version", fixed.status === 200 && fixed.json?.data?.version > failed?.workflowVersion);
+
+      const retried = await api("POST", `/api/runs/${failed?.id}/retry`, { mode: "sync" }, token);
+      const retry = retried.json?.data;
+      check(
+        "the retry from the failed step succeeds on the fixed version",
+        retried.status === 201 && retry?.status === "succeeded" && retry?.workflowVersion === fixed.json?.data?.version,
+        JSON.stringify(retried.json).slice(0, 300),
+      );
+      check("and names the run it retried", isDeepStrictEqual(retry?.origin, { runId: failed?.id, kind: "retry" }));
+
+      // **Count the steps.** The rows the database holds for the retry: the two before the failure
+      // are `reused` with no timestamps — never started in this run — and only the guard and what
+      // follows it executed.
+      const rows = await sql.query(
+        'select "nodeId", "status", "startedAt", "output" from "run_step" where "runId" = $1 order by "seq"',
+        [retry?.id],
+      );
+      check(
+        "upstream steps were not re-executed: the retry ran 2 of 4 steps and reused 2",
+        isDeepStrictEqual(rows.map((row) => [row.nodeId, row.status]), [
+          ["trigger", "reused"],
+          ["shape", "reused"],
+          ["guard", "succeeded"],
+          ["after", "succeeded"],
+        ]) && rows.filter((row) => row.startedAt !== null).length === 2,
+        JSON.stringify(rows.map((row) => [row.nodeId, row.status, row.startedAt !== null])),
+      );
+      const original = await sql.query('select "nodeId", "output" from "run_step" where "runId" = $1 order by "seq"', [failed?.id]);
+      check(
+        "a reused step carries the original's output, and the steps after it read it",
+        isDeepStrictEqual(rows[1]?.output, original[1]?.output) &&
+          retry?.steps?.[3]?.logs?.some((log) => log.message.includes("said hello Ada")),
+        JSON.stringify(retry?.steps?.[3]?.logs),
+      );
+
+      // --- refusals that start nothing ---
+      const [{ n: runsBefore }] = await sql.query('select count(*)::int as n from "run" where "workflowId" = $1', [subject]);
+      const succeededRetry = await api("POST", `/api/runs/${retry?.id}/retry`, {}, token);
+      check(
+        "a succeeded run cannot be retried — 409, and told to re-run it",
+        succeededRetry.status === 409 && /Re-run it/.test(succeededRetry.json?.error?.message ?? ""),
+        `got ${succeededRetry.status} ${succeededRetry.json?.error?.message}`,
+      );
+      const badMode = await api("POST", `/api/runs/${failed?.id}/retry`, { mode: "eventually" }, token);
+      check("a body asking for a mode that does not exist is refused", badMode.status === 400, `got ${badMode.status}`);
+      const unknown = await api("POST", `/api/runs/${crypto.randomUUID()}/rerun`, {}, token);
+      check("re-running a run that does not exist is a 404", unknown.status === 404, `got ${unknown.status}`);
+      const waitingId = crypto.randomUUID();
+      await sql.query(
+        `insert into "run" ("id", "workflowId", "ownerId", "workspaceId", "status", "trigger", "mode", "wakeAt")
+         select $1, w."id", $2, w."workspaceId", 'waiting', 'manual', 'durable', now() + interval '1 day' from "workflow" w where w."id" = $3`,
+        [waitingId, user.id, subject],
+      );
+      const waitingRerun = await api("POST", `/api/runs/${waitingId}/rerun`, {}, token);
+      check(
+        "a run still waiting cannot be started again — 409, and told why",
+        waitingRerun.status === 409 && /waiting/.test(waitingRerun.json?.error?.message ?? ""),
+        `got ${waitingRerun.status} ${waitingRerun.json?.error?.message}`,
+      );
+      await sql.query('delete from "run" where "id" = $1', [waitingId]);
+      const [{ n: runsAfter }] = await sql.query('select count(*)::int as n from "run" where "workflowId" = $1', [subject]);
+      check("not one refusal created a run", runsAfter === runsBefore, `${runsBefore} → ${runsAfter}`);
+
+      // --- re-run: the same input, from the trigger, every step executed ---
+      const rerun = await api("POST", `/api/runs/${failed?.id}/rerun`, {}, token);
+      check(
+        "a re-run executes every step again with the original's input",
+        rerun.status === 201 && rerun.json?.data?.status === "succeeded" &&
+          isDeepStrictEqual(rerun.json?.data?.input, { name: "Ada" }) &&
+          rerun.json?.data?.steps?.every((step) => step.status === "succeeded") &&
+          isDeepStrictEqual(rerun.json?.data?.origin, { runId: failed?.id, kind: "rerun" }),
+        JSON.stringify(rerun.json).slice(0, 300),
+      );
+      const queued = await api("POST", `/api/runs/${failed?.id}/rerun`, { mode: "durable" }, token);
+      check(
+        "a durable re-run answers as starting a durable run does — 202 queued, or 201 run here without a queue",
+        (queued.status === 202 && queued.json?.data?.status === "queued") || (queued.status === 201 && queued.json?.data?.status === "succeeded"),
+        `got ${queued.status} ${queued.json?.data?.status}`,
+      );
+
+      // --- a QUEUED retry: what the run pages and the canvas ask for (D154). It is created with its
+      // frontier and its carried-over steps, and a Cloud Tasks delivery resumes it from them through
+      // the ordinary dispatch path — nothing in the worker knows it is a retry.
+      const retryQueued = await api("POST", `/api/runs/${failed?.id}/retry`, { mode: "durable" }, token);
+      let queuedRetry = retryQueued.json?.data;
+      if (retryQueued.status === 202) {
+        for (let waited = 0; waited < 90_000 && !["succeeded", "failed", "cancelled"].includes(queuedRetry?.status); waited += 2000) {
+          await sleep(2000);
+          queuedRetry = (await api("GET", `/api/runs/${queuedRetry?.id}`, undefined, token)).json?.data;
+        }
+      } else {
+        queuedRetry = (await api("GET", `/api/runs/${queuedRetry?.id}`, undefined, token)).json?.data;
+      }
+      check(
+        `a queued retry (${retryQueued.status}) resumes from its carried-over steps and executes only the rest`,
+        [201, 202].includes(retryQueued.status) && queuedRetry?.status === "succeeded" && queuedRetry?.mode === (retryQueued.status === 202 ? "durable" : "sync") &&
+          isDeepStrictEqual(queuedRetry?.steps?.map((step) => step.status), ["reused", "reused", "succeeded", "succeeded"]) &&
+          queuedRetry?.steps?.filter((step) => step.startedAt !== null).length === 2,
+        JSON.stringify({ status: queuedRetry?.status, mode: queuedRetry?.mode, steps: queuedRetry?.steps?.map((step) => step.status) }),
+      );
+
+      // --- the failed step gone: a retry is refused, a re-run is not ---
+      const removed = guarded(true);
+      removed.nodes = removed.nodes.filter((node) => node.id !== "guard");
+      removed.edges = [
+        { id: "e1", source: "trigger", target: "shape", sourceHandle: null },
+        { id: "e2", source: "shape", target: "after", sourceHandle: null },
+      ];
+      await api("PATCH", `/api/workflows/${subject}`, { graph: removed }, token);
+      const gone = await api("POST", `/api/runs/${failed?.id}/retry`, {}, token);
+      check(
+        "a retry whose failed step was removed is refused, naming it",
+        gone.status === 409 && /"Check the greeting" is no longer in the workflow/.test(gone.json?.error?.message ?? ""),
+        `got ${gone.status} ${gone.json?.error?.message}`,
+      );
+
+      // --- one step's bodies, loaded on their own ---
+      const body = await api("GET", `/api/runs/${failed?.id}/steps/1`, undefined, token);
+      check(
+        "one step's config, input and output load on their own",
+        body.status === 200 && body.json?.data?.seq === 1 &&
+          isDeepStrictEqual(body.json?.data?.output, { greeting: "hello Ada" }) &&
+          // The config as it ran — resolved, with the node's defaults filled in.
+          body.json?.data?.config?.fields?.greeting === "hello Ada",
+        JSON.stringify(body.json).slice(0, 300),
+      );
+      check("a step that does not exist is a 404", (await api("GET", `/api/runs/${failed?.id}/steps/99`, undefined, token)).status === 404);
+      check("a step number that is not one is a 404", (await api("GET", `/api/runs/${failed?.id}/steps/one`, undefined, token)).status === 404);
+
+      // --- pages, filters and cursors ---
+      const all = await sql.query('select "id" from "run" where "workflowId" = $1 order by "startedAt" desc, "id" desc', [subject]);
+      const first = await api("GET", `/api/runs?workflowId=${subject}&limit=2`, undefined, token);
+      const second = await api("GET", `/api/runs?workflowId=${subject}&limit=2&before=${encodeURIComponent(first.json?.page?.next ?? "")}`, undefined, token);
+      const back = await api("GET", `/api/runs?workflowId=${subject}&limit=2&after=${encodeURIComponent(second.json?.page?.prev ?? "")}`, undefined, token);
+      check(
+        "pages follow on from each other with nothing skipped and nothing twice",
+        isDeepStrictEqual(
+          [...(first.json?.data ?? []), ...(second.json?.data ?? [])].map((run) => run.id),
+          all.slice(0, 4).map((row) => row.id),
+        ),
+        `${JSON.stringify(first.json?.page)} ${JSON.stringify(second.json?.page)}`,
+      );
+      check(
+        "the cursor is microsecond-precise, and the first page has no newer one",
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z_/.test(first.json?.page?.next ?? "") && first.json?.page?.prev === null,
+        JSON.stringify(first.json?.page),
+      );
+      check(
+        "stepping back from the second page answers the first again",
+        isDeepStrictEqual(back.json?.data?.map((run) => run.id), first.json?.data?.map((run) => run.id)),
+        JSON.stringify(back.json).slice(0, 200),
+      );
+      const onlyFailed = await api("GET", `/api/runs?workflowId=${subject}&status=failed`, undefined, token);
+      check(
+        "filtered by status, only failed runs come back",
+        onlyFailed.status === 200 && onlyFailed.json?.data?.length === 2 && onlyFailed.json.data.every((run) => run.status === "failed"),
+        JSON.stringify(onlyFailed.json?.data?.map((run) => run.status)),
+      );
+      const noWebhooks = await api("GET", `/api/runs?workflowId=${subject}&trigger=webhook`, undefined, token);
+      check("filtered by trigger, a workflow run by hand has no webhook runs", noWebhooks.json?.data?.length === 0);
+      const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+      const future = await api("GET", `/api/runs?workflowId=${subject}&from=${tomorrow}`, undefined, token);
+      const today = new Date().toISOString().slice(0, 10);
+      const thisDay = await api("GET", `/api/runs?workflowId=${subject}&from=${today}&to=${today}`, undefined, token);
+      check(
+        "filtered by day, the range is whole UTC days with the last one included",
+        future.json?.data?.length === 0 && thisDay.json?.data?.length === Math.min(all.length, 25),
+        `${future.json?.data?.length} / ${thisDay.json?.data?.length} of ${all.length}`,
+      );
+      const refusals = await Promise.all(
+        ["status=faild", "trigger=pigeon", "from=2026-02-30", "before=yesterday", "limit=0", "limit=101"].map((query) =>
+          api("GET", `/api/runs?${query}`, undefined, token),
+        ),
+      );
+      check(
+        "a filter or cursor that does not parse is refused, naming it — never answered as the first page",
+        refusals.every((response) => response.status === 400) &&
+          refusals[0].json?.error?.details?.[0]?.path === "status" &&
+          refusals[3].json?.error?.details?.[0]?.path === "before",
+        refusals.map((response) => response.status).join(" "),
+      );
+
+      // --- the pages ---
+      const runsPage = await page(`/runs?workflow=${subject}`, token);
+      check(
+        "/runs renders, filtered to the workflow by URL",
+        runsPage.status === 200 && runsPage.html.includes(`${P33} retry`) && runsPage.html.includes(`href="/runs/${failed?.id}"`),
+        `got ${runsPage.status}`,
+      );
+      check("/runs reads a mangled URL forgivingly", (await page("/runs?status=exploded&before=nope", token)).status === 200);
+      const runPage = await page(`/runs/${failed?.id}`, token);
+      check(
+        "/runs/[id] renders the run with its retry, step headers and no step bodies",
+        // "hello Ada" exists only in step bodies — the shape step's config and output, and what the
+        // guard was given — so its absence is the page holding headers and not bodies.
+        runPage.status === 200 && runPage.html.includes("Retry from failed step") && runPage.html.includes("Check the greeting") &&
+          runPage.html.includes("PHASE33: expected a value") && !runPage.html.includes("hello Ada"),
+        `got ${runPage.status}`,
+      );
+      check("a run that does not exist is the 404 page", (await page(`/runs/${crypto.randomUUID()}`, token)).status === 404);
+    } finally {
+      for (const id of made.filter(Boolean)) await api("DELETE", `/api/workflows/${id}`, undefined, token);
+    }
+  }
+
   // --- run history ----------------------------------------------------------
   const history = await api("GET", `/api/workflows/${workflowId}/runs`, undefined, token);
   check("run history lists both runs of this workflow",
@@ -3851,6 +4126,10 @@ try {
 
     arenaWorkflowId = await makeArenaWorkflow("zzzz matrix subject");
     check("the matrix has a workflow to aim at", arenaWorkflowId !== null);
+    // Phase 33: a run to read a step of, re-run and retry — made by the owner, before the counts.
+    const arenaRunId =
+      (await api("POST", `/api/workflows/${arenaWorkflowId}/runs`, { input: null, mode: "sync" }, token, arena)).json?.data?.id ??
+      "missing";
     // Phase 32: a tag to rename, assign and delete, and an export to import.
     const arenaTagId = (await api("POST", "/api/tags", { name: "zzzz matrix tag" }, token, arena)).json?.data?.id ?? "missing";
     const matrixEnvelope = {
@@ -3885,11 +4164,17 @@ try {
       ["star a workflow", "PUT", `/api/workflows/${wfId}/star`, undefined, "viewer"],
       ["unstar a workflow", "DELETE", `/api/workflows/${wfId}/star`, undefined, "viewer"],
       ["export a workflow", "GET", `/api/workflows/${wfId}/export`, undefined, "viewer"],
+      // Phase 33 — a run's history is a read; starting one from it is starting a run.
+      ["list runs a page at a time", "GET", `/api/runs?limit=5&status=succeeded`, undefined, "viewer"],
+      ["read one step of a run", "GET", `/api/runs/${arenaRunId}/steps/0`, undefined, "viewer"],
 
       // editor — writes inside the workspace
       ["create a workflow", "POST", "/api/workflows", { name: "zzzz matrix created" }, "editor"],
       ["edit a workflow", "PATCH", `/api/workflows/${wfId}`, { description: "matrix" }, "editor"],
       ["run a workflow", "POST", `/api/workflows/${wfId}/runs`, { input: null, mode: "sync" }, "editor"],
+      ["re-run a run", "POST", `/api/runs/${arenaRunId}/rerun`, { mode: "sync" }, "editor"],
+      // A succeeded run answers 409 at the bar — "not 403" is the assertion (Pass B).
+      ["retry a run", "POST", `/api/runs/${arenaRunId}/retry`, { mode: "sync" }, "editor"],
       ["label a version", "PATCH", `/api/workflows/${wfId}/versions/1`, { label: "matrix" }, "editor"],
       ["restore a version", "POST", `/api/workflows/${wfId}/versions/1/restore`, {}, "editor"],
       ["delete a workflow", "DELETE", `/api/workflows/${wfId}`, undefined, "editor", "destructive"],
@@ -4280,6 +4565,37 @@ try {
         runs.status === 200 && !runs.json.data.some((r) => r.workflowId === arenaWorkflowId),
         JSON.stringify(runs.json).slice(0, 160),
       );
+      // Phase 33 — every new way to reach a run goes through the same join (D101).
+      if (privateRunId) {
+        const filtered = await api("GET", `/api/runs?workflowId=${arenaWorkflowId}`, undefined, matrixToken, arena);
+        check(`a ${role} filtering the run list by it gets nothing`, filtered.status === 200 && filtered.json?.data?.length === 0);
+        const stepOf = await api("GET", `/api/runs/${privateRunId}/steps/0`, undefined, matrixToken, arena);
+        check(`a ${role} cannot read a step of its run`, stepOf.status === 404, `got ${stepOf.status}`);
+        // Both with the arena active and from another workspace: in the second case the page
+        // offers to switch workspaces only for what the switch would show (D101) — until Phase 33
+        // a private workflow's link answered "This workflow is in …" to a colleague.
+        for (const active of [arena, null]) {
+          const shown = await fetch(`${base}/runs/${privateRunId}`, {
+            redirect: "manual",
+            headers: { cookie: [`${cookieName}=${matrixToken}`, ...(active ? [`af_workspace=${active}`] : [])].join("; ") },
+          });
+          check(
+            `a ${role} gets the 404 page for its run's page${active ? "" : " from another workspace"}`,
+            shown.status === 404,
+            `got ${shown.status}`,
+          );
+        }
+        const canvasElsewhere = await page(`/workflows/${arenaWorkflowId}`, matrixToken);
+        check(
+          `a ${role} opening it from another workspace is not told it exists there`,
+          canvasElsewhere.status === 404,
+          `got ${canvasElsewhere.status}`,
+        );
+        if (role === "editor") {
+          const rerunIt = await api("POST", `/api/runs/${privateRunId}/rerun`, {}, matrixToken, arena);
+          check("an editor cannot re-run a run of it — 404, not 403", rerunIt.status === 404, `got ${rerunIt.status}`);
+        }
+      }
       const versions = await api("GET", `/api/workflows/${arenaWorkflowId}/versions`, undefined, matrixToken, arena);
       check(`a ${role} cannot read its version history`, versions.status === 404, `got ${versions.status}`);
       const stream = await api("GET", `/api/workflows/${arenaWorkflowId}/stream`, undefined, matrixToken, arena);

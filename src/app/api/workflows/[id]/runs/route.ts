@@ -1,8 +1,11 @@
 import { z } from "zod";
 
-import { describeRun, listRuns, startDurableRun, startRun } from "@/lib/engine/run";
+import { sweepAbandonedRuns } from "@/lib/engine/lease";
+import { describeRun, startDurableRun, startRun } from "@/lib/engine/run";
 import { RUN_MODES } from "@/lib/engine/types";
-import { ApiError, handle, ok, requireScope } from "@/lib/api";
+import { ApiError, handle, ok, okPage, requireScope } from "@/lib/api";
+import { listRunPage } from "@/lib/runs/history";
+import { pageCursors, readRunRequest } from "@/lib/runs/query";
 import { getWorkflow } from "@/lib/workflow/store";
 
 export const dynamic = "force-dynamic";
@@ -103,12 +106,19 @@ export async function POST(request: Request, { params }: Context) {
   });
 }
 
-export async function GET(_request: Request, { params }: Context) {
+/**
+ * This workflow's runs, a page at a time — `GET /api/runs` with the workflow fixed (Phase 33).
+ * `getWorkflow` first, so a workflow the asker cannot see is 404 here exactly as it is everywhere
+ * else, rather than an empty list that confirms nothing and hides nothing.
+ */
+export async function GET(request: Request, { params }: Context) {
   return handle(async () => {
     const scope = await requireScope();
     const { id } = await params;
     await getWorkflow(scope, id);
-    const runs = await listRuns(scope, { workflowId: id });
-    return ok(runs.map((run) => describeRun(run)));
+    const { query, limit } = readRunRequest(new URL(request.url), { workflowId: id });
+    await sweepAbandonedRuns(scope);
+    const page = await listRunPage(scope, query, { limit });
+    return okPage(page.runs, pageCursors(page));
   });
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -19,6 +20,7 @@ import {
   type WorkspaceRole,
 } from "@/lib/canvas/client";
 import type { WorkspaceSummary } from "@/lib/canvas/client";
+import type { RetentionSummary } from "@/lib/runs/retention";
 import { WORKSPACE_ROLES } from "@/lib/workspace/roles";
 
 /**
@@ -48,6 +50,7 @@ export function WorkspacePanel({
   invitations: initialInvitations,
   canAdminister,
   viewerUserId,
+  retention,
 }: {
   workspace: WorkspaceSummary;
   members: WorkspaceMemberSummary[];
@@ -55,6 +58,8 @@ export function WorkspacePanel({
   invitations: InvitationSummary[];
   canAdminister: boolean;
   viewerUserId: string;
+  /** How much run history the workspace holds, and how long it is kept — Phase 33. */
+  retention: RetentionSummary;
 }) {
   const router = useRouter();
 
@@ -294,6 +299,34 @@ export function WorkspacePanel({
             Renaming this workspace needs the admin role.
           </p>
         )}
+      </Card>
+
+      {/* ---------------------------------------------------------------- *
+          Run history — Phase 33. A fixed rule, stated where a person looks for
+          what their workspace keeps (D153). Nothing here is a setting.
+       * ---------------------------------------------------------------- */}
+      <Card className="p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="text-base font-bold">Run history</h2>
+            <p className="text-muted mt-1 text-sm text-pretty">
+              A finished run is kept for <strong className="font-semibold">{retention.days} days</strong>, and
+              each workflow keeps its newest <strong className="font-semibold">{retention.perWorkflow}</strong>{" "}
+              whatever their age. Older runs are removed once a day, with their steps. A run that is still
+              going or waiting is never removed.
+            </p>
+          </div>
+          <Link href="/runs" className="btn btn-quiet shrink-0">
+            Open runs
+          </Link>
+        </div>
+        <p className="text-faint mt-3 text-2xs">
+          {retention.runs === 0
+            ? "This workspace holds no runs yet."
+            : `This workspace holds ${retention.runs} run${retention.runs === 1 ? "" : "s"}${
+                retention.oldest ? `, the oldest from ${formatUtc(retention.oldest)}` : ""
+              }.`}
+        </p>
       </Card>
 
       {/* ---------------------------------------------------------------- *

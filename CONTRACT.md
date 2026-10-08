@@ -15,6 +15,7 @@ Do not pre-empt them.
 | Node definition interface | **DEFINED** | Phase 3 — `src/lib/nodes/types.ts` |
 | Run and step records | **DEFINED** | Phase 3 — `src/lib/engine/types.ts`, `src/db/schema.ts` |
 | Execution state machine | **DEFINED** | Phase 3 — `src/lib/engine/types.ts` |
+| Run history, re-runs, retries and retention | **DEFINED** | Phase 33 — `src/lib/runs/`, `src/lib/engine/{retry,recover}.ts` |
 | API request/response shapes | **DEFINED** for Phases 3's routes | Phase 3, extended by 4–9 |
 | SSE event messages | **DEFINED** | Phase 5 — `src/lib/engine/stream.ts` |
 | Agent tool-call schema | **DEFINED** | Phase 6 — `src/lib/ai/` |
@@ -509,6 +510,7 @@ Tables in `src/db/schema.ts`; wire shapes from `describeRun` in `src/lib/engine/
 | `workflowVersion` | which version of the workflow this run executed (Phase 18). An integer, not a foreign key — see *Workflow versions*. Null for a run recorded before versioning, and **that is not claimed to be v1** |
 | `wakeAt` | **Phase 26.** When a `waiting` run resumes; null in every other status. The claim compares it against the database's `now()`, so an early delivery claims nothing. Returned by `describeRun` as `wakeAt` |
 | `test` | **Phase 31.** Null on a real run; `{ scope, nodeId }` on a test — *Partial runs and test runs*. The only thing that lets the engine honour a pin. Returned by `describeRun` as `test` |
+| `origin` | **Phase 33.** Null on an ordinary run; `{ runId, kind: "rerun" \| "retry" }` on a run started from another one — *Run history, re-runs and retries*. **An id inside a value, not a foreign key** (D86's reason): retention deletes the original long before the retry, and the record must stay true. Fixed at creation; returned by `describeRun` and every summary as `origin` |
 
 ### `run_step`
 
@@ -523,7 +525,7 @@ Tables in `src/db/schema.ts`; wire shapes from `describeRun` in `src/lib/engine/
 | `branch` | the output handle the run left through; null for a single-output node |
 | `logs` | `{ at, level, message }[]` — what `context.log` wrote. Phase 5 streams these |
 | `error` | failure message, user-readable when the node threw `NodeError` |
-| `startedAt`, `finishedAt` | null on a `skipped`, `disabled` or `pinned` step, none of which ran |
+| `startedAt`, `finishedAt` | null on a `skipped`, `disabled`, `pinned` or `reused` step, none of which ran **in this run** |
 
 **The config snapshot is load-bearing, and Phase 18 did not make it redundant.** A version says
 what the config *template* was; this says what it resolved to on this run. `{{input.subject}}` is
@@ -650,7 +652,13 @@ step:  running ──▶ succeeded                     both terminal
        skipped                                   entered directly, terminal
        disabled                                  Phase 30. Entered directly, terminal
        pinned                                    Phase 31. Entered directly, terminal
+       reused                                    Phase 33. Entered directly, terminal
 ```
+
+- **`reused` — Phase 33.** A retry carried this step over from the run it retries: it ran there, and
+  is not executed again here. Its config, input, output, branch and logs are the original's; its
+  timestamps are null. The cursor reads its output like a succeeded step's, the lit path runs
+  through it, and analytics counts neither its latency nor its model call — *Re-runs and retries*
 
 - **`pinned` — Phase 31.** A test run reached a node holding a pinned output and handed the pin on
   instead of running it — *Pinned output* above
@@ -712,6 +720,99 @@ step:  running ──▶ succeeded                     both terminal
 The loop cap and the per-node execution cap are **independent**: a malformed graph that defeats one
 still hits the other. No workflow — including one an agent generates — can request an unbounded
 loop.
+
+## Run history, re-runs, retries and retention — **DEFINED** (Phase 33)
+
+`src/lib/runs/` (reading and housekeeping), `src/lib/engine/{retry,recover}.ts` (starting a run from
+another). The pages are `/runs` and `/runs/[id]`; the canvas lists a workflow's recent runs.
+
+### Run history — a page at a time
+
+Run history grows without bound, so unlike the workflow list (D69) it is **paginated on the server,
+by keyset** on `(startedAt, id)`, newest first (D150).
+
+- **The cursor is `<startedAt>_<id>`**, the time in UTC **to the microsecond**, formatted by the
+  database (`to_char(... 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`). Never a JavaScript `Date`: Postgres
+  stores microseconds and a `Date` holds milliseconds, so a truncated cursor would make the next page
+  skip every run started later within the same millisecond
+- `before` reads the older page, `after` the newer one (asked oldest first and turned round). A
+  request carrying both is read as `before`
+- **The envelope grew in one place**: `{ data, page: { next, prev } }`. `data` is still the array a
+  client read before; the cursors are beside it, null where there is no neighbour
+- **Filters**: `status`, `trigger`, `workflowId` (`workflow` on the page), and `from`/`to` as UTC
+  days, both inclusive — `[from 00:00, to + 1 day 00:00)`. **The API refuses**, 400 with the failing
+  parameter, any filter or cursor that does not parse, and a `limit` outside 1–100 (25 by default);
+  **the page reads its URL forgivingly** — a pasted link with a stale value opens the history
+- **A list item is a summary**: the run's fields without `input`, `output` or steps, plus
+  `workflowName`. `GET /api/runs/:id` is the whole run
+- **Visibility is a join** (D101): every read here joins `workflow` and applies
+  `visibleWorkflows`, so a colleague's private workflow's runs are absent from a list, and 404 by id,
+  by step, by page and by re-run. The API list still sweeps abandoned runs first, as it always has;
+  the pages never write
+
+### A run's detail
+
+`/runs/[id]` draws the run on **the graph at the version it executed** (D86) — the current graph,
+said so, when that version is no longer kept — with its statuses and lit path, and every step with
+its logs. **Step bodies load when a step is opened**: the page carries step headers (no `config`,
+`input`, `output`), and `GET /api/runs/:id/steps/:seq` answers one step's three. A run still going is
+followed over the workflow's stream pinned to it (D28), which stops when the run is over or waiting.
+
+### Re-runs and retries
+
+| | Re-run | Retry from the failed step |
+|---|---|---|
+| Route | `POST /api/runs/:id/rerun` | `POST /api/runs/:id/retry` |
+| Of | any finished run | a **failed** run; **409** for a succeeded or cancelled one, saying to re-run |
+| Starts at | the trigger, with the original's `input` | the step the original failed at — or, for a run that stopped between steps (out of time, at a cap), at what it had queued |
+| Before that | nothing | **every step the original finished, copied into the new run as `reused`** and not executed again |
+| Executes | the workflow **as saved now** | the workflow **as saved now** |
+
+- **Both execute the current saved version** (D151), and the new run records it as every run does:
+  the reason to start a run again is almost always that somebody fixed something. The page says when
+  the version differs from the one the original ran
+- **Both are manual runs** started by the person who pressed — `trigger: "manual"`,
+  `ownerId` theirs — and carry **`origin: { runId, kind }`**
+- **The body is `{ mode? }`**, `sync` by default; the answer is `POST /runs`'s, status code included
+- **A test** is re-run as the same test (Phase 31: a `node` or `path` test re-tests its target, and
+  synchronously), and is **not retried** — 400, re-run it. A retry of a `workflow` test is a test;
+  otherwise D139's rule decides, as for any manual run
+- **A run still queued, running or waiting is not started again** — 409, with what to do
+
+**How a retry finds where to start** (`retry.ts` → `planRetry`, D152). The cursor a failed run
+leaves cannot be used — the engine takes the failing node off its queue before running it and
+records everything unreached as `skipped`. So the original's steps are **replayed** over the graph
+it executed (its version snapshot, or the live graph if pruned): from the trigger, each step takes
+the next queue entry and follows the edges out of the handle it left through, mirroring the engine
+rule for rule (a switched-off node with no default output stops its path; a `failed` — or, for a run
+the sweeper closed mid-step, `running` — step is where the run stopped). That reproduces the queue at
+the moment of failure exactly, including the `fromSeq` that says which step fed each entry. The new
+run is written with that frontier as its `cursor` and the copied steps as its rows, **before**
+anything executes it — so a synchronous retry and a queued one resume from the same rows, and the
+retry needs nothing from the original once it exists. **Refused, 409**, never guessed at, when:
+
+- the history does not replay on the graph — every step is checked against the entry it took, node
+  and pass — which happens when the version snapshot is gone and the workflow changed since
+- the step it would start at is no longer in the workflow (named in the message)
+- nothing is left: every step the run reached finished
+
+### Run retention
+
+**A finished run is deleted when it is more than 30 days old, or when 200 newer runs of its workflow
+exist** (D153). Measured 2026-10-08: ~7.7 KB a run on disk with its steps and indexes (3.6 KB of row
+data on average, 10.3 KB at most), so a workflow at its cap holds ~1.5 MB — and at the worst a run can
+be (an HTTP step's body is capped at 256 KB) ~51 MB, a tenth of Neon's 0.5 GB.
+
+- **Only `succeeded`, `failed` and `cancelled` runs.** A queued, running or waiting run is never
+  deleted, however old — a wait may be 30 days long
+- **Age is from `finishedAt`**, so a run that waited 29 days and then finished is not deleted the next
+  morning; the count is over every run of the workflow, finished or not
+- **Pruned by the daily sweep** (`POST /api/cron/tick` → `prunedRuns`), oldest first and at most
+  5,000 a sweep — never by a schedule of its own. Steps go with their run (`run_step.runId`
+  cascades). One statement (`history-sql.ts` → `pruneRunsSql`), which has a dry-run form
+- **A retry survives its original's deletion**: it copied what it reused, and `origin` is an id,
+  not a reference. A link to a deleted run is the 404 page
+- Stated in *Settings → Workspace* and under `/runs`. It is a rule, not a setting
 
 ## API request/response shapes — **DEFINED** for Phase 3's routes
 
@@ -796,9 +897,12 @@ through `assertRole`. Both are server-side and neither depends on the UI hiding 
 | `POST /api/workflows/import` | an export envelope | 201, the workflow, in the active workspace. `editor` |
 | `GET /api/workflows/:id/versions` and the four routes beside it | — | Version history, restore and diff — see *Workflow versions* (Phase 18) |
 | `POST /api/workflows/:id/runs` | `{ input?, mode?, target? }` — `target` is `{ scope: "node" \| "path", nodeId }`, Phase 31, sync only | `mode` defaults to `sync` → **201, the finished run with every step**. `mode: "durable"` → **202**, a `queued` run with no steps; it is executed by a Cloud Tasks delivery and watched over the stream. A durable request that could not reach the queue falls back to executing in-process and answers **201**, so the status code says which happened without a flag to interpret |
-| `GET /api/workflows/:id/runs` | — | Run list for that workflow |
-| `GET /api/runs?workflowId=` | — | Run list |
-| `GET /api/runs/:id` | — | The run with its steps |
+| `GET /api/workflows/:id/runs` | — | That workflow's runs, **a page at a time** — `GET /api/runs` with the workflow fixed (Phase 33) |
+| `GET /api/runs` | `?status=&trigger=&workflowId=&from=&to=&before=&after=&limit=` | `{ data: RunSummary[], page: { next, prev } }`, newest first — **paginated on the server by keyset** (Phase 33, D150). See *Run history* |
+| `GET /api/runs/:id` | — | The run with its steps, bodies included |
+| `GET /api/runs/:id/steps/:seq` | — | One step's `{ seq, config, input, output }` (Phase 33) |
+| `POST /api/runs/:id/rerun` | `{ mode? }` | **`editor`.** A new run from this one's input, from the trigger, on the workflow as saved now. Answers as `POST /runs` does (Phase 33) |
+| `POST /api/runs/:id/retry` | `{ mode? }` | **`editor`.** A new run from the step this one failed at, its finished steps carried over as `reused`. A failed run only; **409** otherwise (Phase 33) |
 | `POST /api/runs/:id/cancel` | — | The run as it now stands. `cancelled` if nothing was executing it; otherwise still `running` with `cancelRequested: true` and the engine stopping at its next step boundary. Idempotent by construction |
 | `GET /api/workflows/:id/stream` | — | **SSE.** The workflow's current run, live. `?runId=` pins one |
 | `POST /api/webhook/:token` | any JSON object | 201, the finished run — or a `waiting` one, if it reached a long delay. **409 `conflict`** if the workflow is switched off. **No session** — see *Trigger shapes* |
@@ -1894,13 +1998,14 @@ whose `scheduleNextAt` is due, ordered by due time, then for each one:
    slot instead of re-firing for ever.
 
 Response: `{ checkedAt, due, fired: [{ workflowId, runId, status, scheduledFor, queued }], skipped,
-cleared, armed, woken, swept, pruned }`. Runs are attributed `trigger: "schedule"` and receive
+cleared, armed, woken, swept, pruned, prunedRuns }` — `prunedRuns` since Phase 33, *Run retention*. Runs are attributed `trigger: "schedule"` and receive
 `{ scheduledFor, firedAt, cron }` as input.
 
 **Since Phase 26 this is a daily safety sweep, not the clock.** On top of firing what is due (now
 only slots whose timer was lost), it arms every unarmed schedule and every schedule due within 26
 hours (`armed`), re-schedules the wake of any `waiting` run more than ten minutes past `wakeAt`
-(`woken`), sweeps abandoned runs and prunes the audit log.
+(`woken`), sweeps abandoned runs, prunes the audit log — and, since Phase 33, prunes run history past
+its retention (`prunedRuns`).
 
 The bound was 3 while runs were synchronous and in-process — the tick held its request open for the
 sum of its runs, and three at the engine's 120 s ceiling was 360 s inside the job's 540 s deadline.

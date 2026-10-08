@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { db } from "@/db";
 import {
+  runs,
   users,
   workflows,
   workspaceInvitations,
@@ -34,6 +35,8 @@ import {
   type InvitableRole,
   type WorkspaceRole,
 } from "./roles";
+import { canSeeWorkflow } from "@/lib/workflow/visibility";
+
 import type { WorkspaceScope } from "./scope";
 
 /**
@@ -554,13 +557,24 @@ export function describeMember(member: Member, viewerUserId: string) {
  * It reads `workflow` joined to the caller's memberships, so it can only ever name a
  * workspace they are already in: a workflow belonging to a stranger answers null and is
  * indistinguishable from one that does not exist.
+ *
+ * **And only a workflow they could open there** (Phase 33). Until then it ignored visibility,
+ * so a colleague's *private* workflow — or, from Phase 33, its run — linked to a member who was
+ * looking at another workspace answered "This workflow is in …" where switching across would
+ * have answered 404: the page confirmed what `private` hides (D101). `canSeeWorkflow` is the
+ * same decision the queries make, asked of the role they hold in that workspace.
  */
 export async function findMembershipForWorkflow(
   userId: string,
   workflowId: string,
 ): Promise<Membership | null> {
   const [row] = await db()
-    .select({ workspace: workspaces, role: workspaceMembers.role })
+    .select({
+      workspace: workspaces,
+      role: workspaceMembers.role,
+      visibility: workflows.visibility,
+      ownerId: workflows.ownerId,
+    })
     .from(workflows)
     .innerJoin(workspaces, eq(workspaces.id, workflows.workspaceId))
     .innerJoin(
@@ -574,10 +588,23 @@ export async function findMembershipForWorkflow(
     .limit(1);
 
   if (!row) return null;
-  return {
-    workspace: row.workspace,
-    role: isWorkspaceRole(row.role) ? row.role : ("viewer" as WorkspaceRole),
-  };
+  const role = isWorkspaceRole(row.role) ? row.role : ("viewer" as WorkspaceRole);
+  if (!canSeeWorkflow({ role, userId }, row)) return null;
+  return { workspace: row.workspace, role };
+}
+
+/**
+ * `findMembershipForWorkflow` for a link to a **run** — Phase 33. A pasted `/runs/:id` from a
+ * colleague is as likely to land in the wrong active workspace as a workflow link, and the run
+ * names its workspace, so the same answer applies: only a workspace this person is already in.
+ */
+export async function findMembershipForRun(userId: string, runId: string): Promise<Membership | null> {
+  const [row] = await db()
+    .select({ workflowId: runs.workflowId })
+    .from(runs)
+    .where(eq(runs.id, runId))
+    .limit(1);
+  return row ? findMembershipForWorkflow(userId, row.workflowId) : null;
 }
 
 /* ---------------------------- invitations ---------------------------- */

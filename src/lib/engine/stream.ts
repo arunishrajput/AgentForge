@@ -1,6 +1,7 @@
 import type { StepLog } from "@/lib/nodes/types";
 
 import type { RunTest } from "./partial";
+import type { RunOrigin } from "./retry";
 import {
   RESTING_RUN_STATUSES,
   TERMINAL_RUN_STATUSES,
@@ -67,6 +68,11 @@ export interface StreamRun {
    * `workflowVersion` it is fixed at creation, so it is not in `StreamRunPatch`.
    */
   test: RunTest | null;
+  /**
+   * Phase 33: the run this one was re-run or retried from. Null on an ordinary run. Fixed at
+   * creation like `test`, so it is not in `StreamRunPatch` either.
+   */
+  origin: RunOrigin | null;
   /**
    * The workflow version this run executed (Phase 18). Null for a run from before
    * versioning existed. It is **not** in `StreamRunPatch` below and must not be: it is

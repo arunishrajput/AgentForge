@@ -11,6 +11,7 @@ import { recoveryOf, type ApiErrorCode, type Recovery } from "@/lib/api-error";
 import type { RekeyOutcome } from "@/lib/credentials/rekey";
 import type { Vault, VaultEntry } from "@/lib/credentials/vault";
 import type { StreamRun } from "@/lib/engine/stream";
+import type { RunSummary, StepBodies, StepHeader } from "@/lib/runs/history";
 import type { GraphProblem } from "@/lib/engine/validate";
 import type {
   DiscordStatus,
@@ -113,6 +114,7 @@ export interface GenerationErrorDetails {
  * streamed step and a fetched step cannot drift into two different shapes.
  */
 export type { StreamRun as Run, StreamStep as RunStep } from "@/lib/engine/stream";
+export type { RunSummary, StepBodies, StepHeader };
 export type { RunMode, RunStatus, StepStatus } from "@/lib/engine/types";
 export type { NodePolicy } from "@/lib/engine/policy";
 export type { RunTest, TestScope } from "@/lib/engine/partial";
@@ -346,7 +348,26 @@ export const api = {
   cancelRun: (runId: string) =>
     request<StreamRun>(`/api/runs/${runId}/cancel`, { method: "POST" }),
 
-  listRuns: (workflowId: string) => request<StreamRun[]>(`/api/workflows/${workflowId}/runs`),
+  /** A workflow's newest runs, as summaries — no input, output or steps (Phase 33). */
+  listRuns: (workflowId: string, limit = 8) =>
+    request<RunSummary[]>(`/api/workflows/${workflowId}/runs?limit=${limit}`),
+
+  /** One run, whole: its input, output and every step with its bodies. */
+  getRun: (runId: string) => request<StreamRun>(`/api/runs/${runId}`),
+
+  /** One step's config, input and output — loaded when it is opened (Phase 33). */
+  getStepBodies: (runId: string, seq: number) => request<StepBodies>(`/api/runs/${runId}/steps/${seq}`),
+
+  /**
+   * Start a run from this one — Phase 33: `rerun` from the trigger with its input, `retry` from the
+   * step it failed at. `durable` answers as soon as the new run is queued, which is what a page
+   * that then opens the new run wants.
+   */
+  restartRun: (runId: string, kind: "rerun" | "retry", mode: "sync" | "durable" = "durable") =>
+    request<StreamRun>(`/api/runs/${runId}/${kind}`, {
+      method: "POST",
+      body: JSON.stringify({ mode }),
+    }),
 
   /**
    * Provider settings. Write-only by design: none of these ever returns the stored

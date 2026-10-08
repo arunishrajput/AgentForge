@@ -10,7 +10,7 @@ import { visibleWorkflows } from "@/lib/workflow/visibility";
 import { versionGraph } from "@/lib/workflow/versions";
 import { systemScope, type WorkspaceScope } from "@/lib/workspace/scope";
 
-import { readCursor } from "./cursor";
+import { readCursor, type RunCursor } from "./cursor";
 import { executeWorkflow, GraphInvalidError } from "./execute";
 import {
   claimOwnRun,
@@ -28,6 +28,7 @@ import {
 import { honouredPin, seedNode, upstreamOf, type RunTest } from "./partial";
 import { enqueueRun, queueNamed } from "./queue";
 import { dbRecorder } from "./recorder";
+import type { RunOrigin } from "./retry";
 import type { RunMode, RunOutcome, StepRecord, TriggerKind } from "./types";
 
 /**
@@ -61,6 +62,19 @@ export interface StartOptions {
    * run may carry one, and only synchronously (`CONTRACT.md` → *Partial runs*).
    */
   target?: { scope: "node" | "path"; nodeId: string };
+  /** **Phase 33** — the run this one was started from, by a re-run or a retry. */
+  origin?: RunOrigin;
+  /**
+   * **Phase 33 — a retry's head start**: the frontier to begin from and the steps it carries
+   * over as `reused`. Written to the new run before anything executes it, so a synchronous retry
+   * and a queued one resume from the same rows (`retry.ts` → `planRetry`).
+   */
+  carry?: { cursor: RunCursor; steps: StepRecord[] };
+  /**
+   * Whether the run is a test, decided by the caller — **Phase 33**: a retry keeps its
+   * original's label. Left out, `testFor` decides, as it does for every other run.
+   */
+  test?: RunTest | null;
 }
 
 /**
@@ -112,8 +126,14 @@ async function createRun(
       // updated — a resume three deliveries later must still say what it started on.
       workflowVersion: options.workflow.version,
       test: options.test,
+      origin: options.origin ?? null,
+      // A retry starts where its original stopped (Phase 33): the frontier is on the row before
+      // anything claims it, exactly as a durable run's is between two deliveries.
+      cursor: options.carry?.cursor ?? null,
     })
     .returning();
+
+  if (options.carry && options.carry.steps.length > 0) await insertSteps(created.id, options.carry.steps);
 
   /**
    * The run id joins the **context** rather than being passed as a field, so this entry
@@ -131,9 +151,43 @@ async function createRun(
     mode: created.mode,
     workflowVersion: created.workflowVersion,
     test: created.test?.scope ?? null,
+    origin: created.origin?.kind ?? null,
+    reused: options.carry?.steps.length ?? 0,
   });
 
   return created;
+}
+
+/**
+ * A retry's carried-over steps, in **one statement** (D6: no transaction) — so the run either has
+ * its whole head start or, if this fails, none of it and a frontier the sweeper will close.
+ */
+async function insertSteps(runId: string, steps: readonly StepRecord[]): Promise<void> {
+  await db()
+    .insert(runSteps)
+    .values(
+      steps.map((step) => ({
+        runId,
+        seq: step.seq,
+        nodeId: step.nodeId,
+        nodeType: step.nodeType,
+        iteration: step.iteration,
+        status: step.status,
+        config: step.config ?? null,
+        input: step.input ?? null,
+        output: step.output ?? null,
+        branch: step.branch,
+        logs: [...step.logs],
+        error: step.error,
+        startedAt: step.startedAt ? new Date(step.startedAt) : null,
+        finishedAt: step.finishedAt ? new Date(step.finishedAt) : null,
+      })),
+    );
+}
+
+/** A head start as the engine resumes from it. */
+function resumeOf(options: StartOptions) {
+  return options.carry ? { cursor: options.carry.cursor, steps: options.carry.steps } : undefined;
 }
 
 /**
@@ -353,7 +407,7 @@ export async function startRun(
 ): Promise<{ run: Run; steps: RunStep[] }> {
   await sweepAbandonedRuns(options.scope);
 
-  const test = testFor(options);
+  const test = options.test !== undefined ? options.test : testFor(options);
   // A node test is fed before its run exists, so a test that has nothing to feed it is
   // refused with a reason rather than recorded as a run that could not have meant anything.
   const seed = test?.scope === "node" ? await seedFor(options.workflow, test.nodeId!) : undefined;
@@ -381,7 +435,14 @@ export async function startRun(
   }
 
   try {
-    await drive({ run: claimed, workflow: options.workflow, owner, signal: options.signal, seed });
+    await drive({
+      run: claimed,
+      workflow: options.workflow,
+      owner,
+      signal: options.signal,
+      seed,
+      resume: resumeOf(options),
+    });
   } catch (error) {
     if (error instanceof GraphInvalidError) {
       throw new ApiError(
@@ -426,7 +487,11 @@ export async function startDurableRun(options: StartOptions): Promise<EnqueueOut
 
   // A manual run of a graph holding pins is a test here too, and survives a redeploy as one:
   // the resumed delivery reads `run.test` off the row, so it honours the same pins.
-  const created = await createRun({ ...options, mode: "durable", test: testFor(options) });
+  const created = await createRun({
+    ...options,
+    mode: "durable",
+    test: options.test !== undefined ? options.test : testFor(options),
+  });
 
   const result = await enqueueRun({
     runId: created.id,
@@ -460,7 +525,13 @@ export async function startDurableRun(options: StartOptions): Promise<EnqueueOut
   const claimed = await claimOwnRun(downgraded.id, owner);
   if (claimed) {
     try {
-      await drive({ run: claimed, workflow: options.workflow, owner, signal: options.signal });
+      await drive({
+        run: claimed,
+        workflow: options.workflow,
+        owner,
+        signal: options.signal,
+        resume: resumeOf(options),
+      });
     } catch {
       // Recorded on the run by `drive`. A durable start has no caller waiting on a
       // throw, so it becomes a failed run rather than an exception.
@@ -724,8 +795,8 @@ async function recordedOutputs(
   return new Map(rows.map((row) => [row.nodeId, { output: row.output, at: row.at }]));
 }
 
-/** A persisted step row as the engine's own record type, for resuming. */
-function toStepRecord(step: RunStep): StepRecord {
+/** A persisted step row as the engine's own record type, for resuming — and, since Phase 33, retrying. */
+export function toStepRecord(step: RunStep): StepRecord {
   return {
     seq: step.seq,
     nodeId: step.nodeId,
@@ -744,16 +815,17 @@ function toStepRecord(step: RunStep): StepRecord {
 }
 
 /**
- * **Phase 20 — the two run reads that do not go through `getWorkflow`.**
+ * **Phase 20 — the run reads that do not go through `getWorkflow`.**
  *
  * Every other workflow-scoped route reaches its rows by calling `getWorkflow` first, so
  * the visibility filter in that one function covers versions, per-workflow run lists, the
- * SSE stream and execution without any of them knowing about it. These two are the
- * exceptions: `getRun` and the unfiltered `listRuns` are addressed by *run* id, and a run
- * carries the name of its workflow. Left alone, a viewer would read the steps, inputs and
- * outputs of a colleague's private workflow by asking about its runs.
+ * SSE stream and execution without any of them knowing about it. The exceptions are the
+ * reads addressed by *run* id or across the workspace — `getRun` here, and since Phase 33 the
+ * history in `lib/runs/history.ts` — because a run carries the name of its workflow. Left
+ * alone, a viewer would read the steps, inputs and outputs of a colleague's private workflow by
+ * asking about its runs.
  *
- * So both join `workflow` and apply the same predicate. The join is free — it is an
+ * So each joins `workflow` and applies the same predicate. The join is free — it is an
  * equality on a primary key — and it can never drop a row it should have kept, because
  * `run.workflowId` cascades on delete, so there is no run whose workflow is missing.
  */
@@ -780,33 +852,6 @@ export async function getRun(
     .orderBy(asc(runSteps.seq));
 
   return { run, steps };
-}
-
-export async function listRuns(
-  scope: WorkspaceScope,
-  options: { workflowId?: string; limit?: number } = {},
-): Promise<Run[]> {
-  await sweepAbandonedRuns(scope);
-
-  const rows = await db()
-    .select({ run: runs })
-    .from(runs)
-    // See `getRun` above for why the join is here. It is applied even when `workflowId`
-    // narrows the query, because that caller has already been through `getWorkflow` and a
-    // filter that is right in one branch and absent in the other is the shape that
-    // eventually gets refactored into a leak.
-    .innerJoin(workflows, eq(workflows.id, runs.workflowId))
-    .where(
-      and(
-        eq(runs.workspaceId, scope.workspaceId),
-        options.workflowId ? eq(runs.workflowId, options.workflowId) : undefined,
-        visibleWorkflows(scope),
-      ),
-    )
-    .orderBy(desc(runs.startedAt))
-    .limit(Math.min(options.limit ?? 50, 200));
-
-  return rows.map((row) => row.run);
 }
 
 /**
@@ -890,6 +935,8 @@ export function describeRun(run: Run, steps?: RunStep[]) {
     wakeAt: run.wakeAt?.toISOString() ?? null,
     /** Phase 31: whether this run is a test, and of what. Null on a real run. */
     test: run.test ?? null,
+    /** Phase 33: the run this one was re-run or retried from. Null on an ordinary run. */
+    origin: run.origin ?? null,
     /**
      * The workflow version this run executed (Phase 18). Null for a run recorded
      * before versioning existed — it is not claimed to be v1, because it is unknown.

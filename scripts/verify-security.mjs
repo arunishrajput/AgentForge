@@ -289,7 +289,8 @@ for (const path of ["/", "/design"]) {
 
 /** A signed-in page must send an anonymous visitor to the landing page, not to an error. */
 console.log("\nSigned-in pages redirect rather than failing");
-for (const path of ["/workflows", "/templates", "/analytics", "/settings"]) {
+// `/runs` and a run's page are Phase 33's: the history is a signed-in page like the others.
+for (const path of ["/workflows", "/runs", `/runs/${SAMPLE}`, "/templates", "/analytics", "/settings"]) {
   const response = await fetch(`${BASE}${path}`, { redirect: "manual" });
   const location = response.headers.get("location") ?? "";
   check(

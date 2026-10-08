@@ -82,6 +82,13 @@ export function readCursor(value: unknown): RunCursor | null {
 }
 
 /**
+ * The statuses whose step handed a value on to what follows it: it ran and succeeded, passed its
+ * input through switched off (Phase 30), stood in with its pin (Phase 31), or was carried over by
+ * a retry (Phase 33).
+ */
+const HANDED_ON: ReadonlySet<string> = new Set(["succeeded", "disabled", "pinned", "reused"]);
+
+/**
  * What a resumed engine needs in memory, rebuilt from the cursor plus the step rows.
  *
  * `outputs` is reconstructed from the steps rather than stored: for each node, the
@@ -95,7 +102,8 @@ export function readCursor(value: unknown): RunCursor | null {
  * exactly like a succeeded one: it never ran either, but it handed its input on, and the
  * node after it — perhaps queued in the cursor with this step's `seq` — reads that value. A
  * **`pinned`** step (Phase 31) is read the same way, for the same reason: what it handed on
- * is its pinned output.
+ * is its pinned output. So is a **`reused`** one (Phase 33): a retry's copy of a step the run it
+ * retries finished, whose output is exactly what the steps after it read there.
  */
 export function rehydrate(
   cursor: RunCursor,
@@ -110,9 +118,7 @@ export function rehydrate(
   bySeq: Map<number, unknown>;
 } {
   const ordered = [...steps]
-    .filter(
-      (step) => step.status === "succeeded" || step.status === "disabled" || step.status === "pinned",
-    )
+    .filter((step) => HANDED_ON.has(step.status))
     .sort((a, b) => a.seq - b.seq);
 
   const outputs = new Map<string, unknown>();

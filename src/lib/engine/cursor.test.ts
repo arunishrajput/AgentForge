@@ -109,6 +109,20 @@ test("a failed or skipped step contributes no output", () => {
   assert.deepEqual(state.lastOutput, { ok: true });
 });
 
+test("a step a retry carried over hands its output on like the step it stands for", () => {
+  // Phase 33. A retry's `reused` copy of a finished step is what the steps after it read, and
+  // `{{steps.shape.output}}` resolves against it — without it, a retry would feed its first new
+  // step `null`.
+  const steps = [
+    step({ seq: 0, nodeId: "trigger", status: "reused", output: { name: "Ada" }, startedAt: null, finishedAt: null }),
+    step({ seq: 1, nodeId: "shape", status: "reused", output: { greeting: "hi" }, startedAt: null, finishedAt: null }),
+  ];
+  const state = rehydrate({ queue: [{ nodeId: "guard", fromSeq: 1 }], executions: { trigger: 1, shape: 1 }, seq: 2 }, steps);
+  assert.deepEqual(state.bySeq.get(1), { greeting: "hi" });
+  assert.deepEqual(state.outputs.get("shape"), { greeting: "hi" });
+  assert.deepEqual(state.lastOutput, { greeting: "hi" });
+});
+
 test("seq never goes backwards behind the rows that already exist", () => {
   // A cursor write lost while its step row landed would otherwise reuse a seq, and
   // `(runId, seq)` is unique — the insert would conflict and the resumed run would

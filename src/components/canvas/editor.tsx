@@ -51,18 +51,21 @@ import {
   api,
   type NodeSummary,
   type Run,
+  type RunSummary,
   type Workflow,
 } from "@/lib/canvas/client";
 import { tweenMs } from "@/lib/canvas/motion";
+import { runStatesOf } from "@/lib/canvas/run-states";
 import { edgeRunLook } from "@/lib/canvas/status";
 import { testOutcome } from "@/lib/canvas/test-run";
 import { honouredPin, planTest, type TestScope } from "@/lib/engine/partial";
 import { checkManualInput, manualTrigger } from "@/lib/nodes/core/manual-trigger";
-import { useRunStream } from "@/lib/canvas/run-stream";
+import { adoptStarted, useRunStream } from "@/lib/canvas/run-stream";
 import { isNewScheduledRun, withScheduleOf } from "@/lib/canvas/schedule-sync";
 import { DEFAULT_NOTE_TONE, noteName } from "@/lib/canvas/notes";
 import { defaultConfig } from "@/lib/canvas/schema";
 import { formatDuration } from "@/lib/format/duration";
+import { mergeRecent } from "@/lib/runs/recent";
 import { layout } from "@/lib/generate/layout";
 import { formatUtc } from "@/lib/triggers/cron";
 import { diffGraph, type GraphDiff, type NodeDiff, type NoteDiff } from "@/lib/workflow/diff";
@@ -78,7 +81,7 @@ import {
 import { mayChangeVisibility } from "@/lib/workflow/visibility";
 import { atLeast, type WorkspaceRole } from "@/lib/workspace/roles";
 
-import { CanvasContext, type NodeRunState, type NoteControls } from "./context";
+import { CanvasContext, type NoteControls } from "./context";
 import { buildCanvasCommands } from "./canvas-commands";
 import { DiffBar } from "./diff/diff-bar";
 import { History } from "./diff/history";
@@ -110,6 +113,7 @@ export function Editor({
   workflow,
   registry: palette,
   liveRun = null,
+  recentRuns = [],
   role,
   viewerUserId,
 }: {
@@ -117,6 +121,8 @@ export function Editor({
   registry: NodeSummary[];
   /** A run of this workflow still in flight when the page was rendered. */
   liveRun?: Run | null;
+  /** This workflow's newest runs, as summaries — Phase 33's *Recent runs*. */
+  recentRuns?: RunSummary[];
   /**
    * The viewer's role in this workflow's workspace — **Phase 20**.
    *
@@ -137,6 +143,7 @@ export function Editor({
         workflow={workflow}
         palette={palette}
         liveRun={liveRun}
+        recentRuns={recentRuns}
         role={role}
         viewerUserId={viewerUserId}
       />
@@ -197,12 +204,14 @@ function EditorInner({
   workflow,
   palette,
   liveRun,
+  recentRuns,
   role,
   viewerUserId,
 }: {
   workflow: Workflow;
   palette: NodeSummary[];
   liveRun: Run | null;
+  recentRuns: RunSummary[];
   role: WorkspaceRole;
   viewerUserId: string;
 }) {
@@ -256,7 +265,7 @@ function EditorInner({
     aimedOnly: boolean;
   } | null>(null);
   const [busy, setBusy] = useState<
-    null | "saving" | "running" | "queueing" | "stopping" | "switching"
+    null | "saving" | "running" | "queueing" | "stopping" | "switching" | "restarting"
   >(null);
 
   /**
@@ -300,21 +309,7 @@ function EditorInner({
   }, [initial.nodes]);
 
   /** Per-node outcome of the last run. A looped node contributes several steps. */
-  const runStates = useMemo(() => {
-    const states = new Map<string, NodeRunState>();
-    const waiting = run?.status === "waiting";
-    for (const step of run?.steps ?? []) {
-      const existing = states.get(step.nodeId);
-      states.set(step.nodeId, {
-        status: step.status,
-        executions: (existing?.executions ?? 0) + 1,
-        branch: step.branch,
-        error: step.error,
-        paused: waiting && step.status === "running",
-      });
-    }
-    return states;
-  }, [run]);
+  const runStates = useMemo(() => runStatesOf(run), [run]);
 
   /**
    * Node id → the name the canvas shows for it, so the run panel can say
@@ -1185,7 +1180,8 @@ function EditorInner({
 
     try {
       const queued = await api.runWorkflowDurably(workflow.id, prepared.input);
-      setRun(queued);
+      // The stream may have the run already, with steps a fast delivery recorded (`adoptStarted`).
+      setRun((current) => adoptStarted(current, queued));
 
       toast(
         queued.status === "queued"
@@ -1225,6 +1221,99 @@ function EditorInner({
     toast,
     workflow.id,
   ]);
+
+  /**
+   * **Run history on the canvas — Phase 33.** The page hands over this workflow's newest runs; the
+   * run on screen — streamed (D59), started here, or opened from the list — is merged into them as
+   * it changes (`mergeRecent`), so the list stays current with no request of its own. React's
+   * "adjust state when a value changes", done during render as `library-dialogs.tsx` does, so the
+   * row and the canvas never disagree for a frame.
+   */
+  const [recent, setRecent] = useState(recentRuns);
+  const [mergedRun, setMergedRun] = useState<Run | null>(run);
+  if (run !== mergedRun) {
+    setMergedRun(run);
+    setRecent((current) => mergeRecent(current, run, saved.name));
+  }
+
+  /**
+   * An earlier run, opened from the list: its id, and what the canvas showed before it so *Stop
+   * showing it* can put that back. A new run arriving on the stream replaces it as any run does,
+   * and the panel stops calling it earlier because the run on screen is no longer it.
+   */
+  const [pastRunId, setPastRunId] = useState<string | null>(null);
+  const beforePast = useRef<Run | null>(null);
+  const [openingRun, setOpeningRun] = useState<string | null>(null);
+  const showingPast = pastRunId !== null && run?.id === pastRunId;
+
+  const openRun = useCallback(
+    async (runId: string) => {
+      if (run?.id === runId || openingRun) return;
+      setOpeningRun(runId);
+      try {
+        const full = await api.getRun(runId);
+        if (!showingPast) beforePast.current = run;
+        setPastRunId(runId);
+        setRun(full);
+      } catch (error) {
+        toast({
+          tone: "bad",
+          title: "That run could not be opened",
+          detail: error instanceof ApiRequestError ? error.message : undefined,
+        });
+      } finally {
+        setOpeningRun(null);
+      }
+    },
+    [openingRun, run, setRun, showingPast, toast],
+  );
+
+  const closePast = useCallback(() => {
+    setPastRunId(null);
+    setRun(beforePast.current);
+    beforePast.current = null;
+  }, [setRun]);
+
+  /**
+   * **Retry from the failed step, or re-run — Phase 33.** Queued, like *Run in the background*:
+   * the new run is followed over the stream the canvas already holds open, re-armed here so it
+   * picks the new run up the moment it exists (D28). What runs is what is **stored**, so unsaved
+   * edits are saved first — the fix somebody just typed into the failed node is the point of a
+   * retry.
+   */
+  const restart = useCallback(
+    async (kind: "rerun" | "retry") => {
+      if (!run) return;
+      const current = dirty ? await save() : saved;
+      if (!current) return;
+
+      setBusy("restarting");
+      watch();
+      try {
+        const started = await api.restartRun(run.id, kind, "durable");
+        setPastRunId(null);
+        setRun((current) => adoptStarted(current, started));
+        toast({
+          tone: "ok",
+          title: kind === "retry" ? "Retrying from the failed step" : "Running it again",
+          detail:
+            kind === "retry"
+              ? "The steps that finished are reused, not run again. It streams here as it goes."
+              : "With the same input, on the workflow as it is saved now.",
+        });
+      } catch (error) {
+        toast({
+          tone: "bad",
+          title: kind === "retry" ? "The run could not be retried" : "The run could not be started",
+          detail: error instanceof ApiRequestError ? error.message : undefined,
+          duration: null,
+        });
+      } finally {
+        setBusy(null);
+      }
+    },
+    [dirty, run, save, saved, setRun, toast, watch],
+  );
 
   /**
    * **Test part of the workflow — Phase 31.** *Test this node* runs one node, fed from pins and
@@ -2025,6 +2114,19 @@ function EditorInner({
             onDuplicateSelection={() => clipboard.duplicate()}
             onMoveSelection={moveSelection}
             onDeleteSelection={() => removeNodes(selectedIds)}
+            history={{
+              workflowId: workflow.id,
+              runs: recent,
+              shownId: run?.id ?? null,
+              opening: openingRun,
+              onOpen: (runId) => void openRun(runId),
+              past: showingPast ? { onClose: closePast } : null,
+              // An editor, with nothing else starting or running — the same gate as Run (Phase 20).
+              restart:
+                canEdit && !comparing && !inFlight && (busy === null || busy === "restarting")
+                  ? { onRestart: (kind) => void restart(kind), busy: busy === "restarting" }
+                  : null,
+            }}
           />
         </div>
       </div>

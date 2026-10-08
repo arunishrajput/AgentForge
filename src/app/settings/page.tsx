@@ -9,6 +9,7 @@ import { WorkspacePanel } from "@/components/settings/workspace-panel";
 import { Tabs } from "@/components/ui/tabs";
 import { readSettings } from "@/lib/ai/settings";
 import { readVault } from "@/lib/credentials/vault";
+import { readRetention } from "@/lib/runs/retention";
 import {
   discordStatus,
   googleStatus,
@@ -66,7 +67,7 @@ export default async function SettingsPage({
   const { name, email, scope, membership, memberships } = await requirePageSession();
   const canAdminister = atLeast(scope.role, "admin");
   const workspace = describeWorkspace(membership, scope.userId);
-  const [settings, discord, google, tokens, members, invitations, vault, params] =
+  const [settings, discord, google, tokens, members, invitations, vault, retention, params] =
     await Promise.all([
       readSettings(scope),
       discordStatus(scope),
@@ -80,6 +81,8 @@ export default async function SettingsPage({
       // 19B and a viewer who cannot see whether a credential exists cannot understand a failed
       // run. What a viewer may not do is change one, which the panel and the routes both say.
       readVault(scope),
+      // Phase 33: how much run history the workspace holds — one count on `run_workspace_idx`.
+      readRetention(scope),
       searchParams,
     ]);
 
@@ -140,6 +143,7 @@ export default async function SettingsPage({
                   invitations={invitations}
                   canAdminister={canAdminister}
                   viewerUserId={scope.userId}
+                  retention={retention}
                 />
               ),
             },

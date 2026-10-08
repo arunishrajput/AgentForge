@@ -168,6 +168,25 @@ test("the lit path runs through every node that handed a value on — a pinned o
   assert.equal(edgeRunLook("pinned", "running", true), "live");
 });
 
+test("a retry's lit path starts at the trigger, through every step it carried over", () => {
+  // Phase 33. A retried run paints its reused steps on the canvas; the edges between them and out
+  // of the last one into the step the retry started at must be lit, or the path the run took
+  // would read as beginning in the middle of the graph.
+  assert.equal(edgeRunLook("reused", "reused", false), "traversed");
+  assert.equal(edgeRunLook("reused", "succeeded", false), "traversed");
+  assert.equal(edgeRunLook("reused", "running", true), "live");
+  assert.equal(edgeRunLook("reused", "skipped", false), null);
+});
+
+test("a reused step is raised and still: it handed a value on, and nothing happened to it here", () => {
+  const look = nodeStatusLook("reused");
+  assert.equal(look.label, "Reused");
+  assert.equal(look.surface, "bg-elevated");
+  assert.equal(look.motion, "");
+  assert.equal(look.dots, false);
+  assert.notEqual(look.glyph, nodeStatusLook("succeeded").glyph);
+});
+
 test("an edge stays plain where the run did not cross it", () => {
   assert.equal(edgeRunLook("succeeded", "skipped", false), null, "the untaken side of a branch");
   assert.equal(edgeRunLook("succeeded", undefined, false), null, "a target the run never reached");

@@ -6,6 +6,7 @@ import { pruneCredentialEvents } from "@/lib/credentials/audit";
 import { sweepAbandonedRuns } from "@/lib/engine/lease";
 import { enqueueRun } from "@/lib/engine/queue";
 import { required } from "@/lib/env";
+import { pruneRuns } from "@/lib/runs/retention";
 
 import { cronSecretMatches } from "./secret";
 import { armSchedule, fireDue } from "./timer";
@@ -27,7 +28,8 @@ import { armSchedule, fireDue } from "./timer";
  *            asking is cheaper and safer than asking Cloud Tasks what exists.
  *   wake     a `waiting` run whose wake time passed a while ago — its wake task was lost.
  *   sweep    abandoned runs, across every workspace (the sweeper's only scheduled caller).
- *   prune    credential audit events past retention (Phase 21) — and, from Phase 33, runs.
+ *   prune    credential audit events past retention (Phase 21), and runs past theirs (Phase 33:
+ *            finished, and over 30 days old or past their workflow's newest 200 — `runs/retention.ts`).
  *
  * The route is the transport; the rules are here so they can be reasoned about without a
  * cron job.
@@ -93,6 +95,11 @@ export interface TickOutcome {
    * policy can live (`lib/credentials/audit.ts`).
    */
   pruned: number;
+  /**
+   * Runs dropped past their retention — Phase 33, D153. Finished runs only, with their steps;
+   * a queued, running or waiting run is never touched (`lib/runs/retention.ts`).
+   */
+  prunedRuns: number;
 }
 
 export async function runDueSchedules(options: { now?: Date; signal?: AbortSignal } = {}): Promise<TickOutcome> {
@@ -119,7 +126,7 @@ export async function runDueSchedules(options: { now?: Date; signal?: AbortSigna
     cleared: [],
     armed: 0,
     woken: 0,
-    // Across every owner, which no other caller does: `listRuns` sweeps only the owner
+    // Across every owner, which no other caller does: the run list sweeps only the workspace
     // asking, so a run abandoned by a user who never comes back would otherwise stay
     // `running` for ever on nobody looking at it.
     swept: await sweepAbandonedRuns(),
@@ -129,6 +136,12 @@ export async function runDueSchedules(options: { now?: Date; signal?: AbortSigna
      * the sweep above, and a prune that runs rarely is a prune nobody notices has stopped.
      */
     pruned: await pruneCredentialEvents(now),
+    /**
+     * Phase 33. Here for the reason the line above is: the sweep has already woken the database,
+     * so this costs no wake of its own, and run history is pruned by nothing else — never by a
+     * schedule of its own (`BUILD_PLAN.md` → *The zero-cost problem*).
+     */
+    prunedRuns: (await pruneRuns({ now })).runs,
   };
 
   for (const workflow of due) {

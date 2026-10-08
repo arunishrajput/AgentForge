@@ -54,6 +54,8 @@ export async function POST(request: Request) {
         armed: outcome.armed,
         woken: outcome.woken,
         swept: outcome.swept,
+        pruned: outcome.pruned,
+        prunedRuns: outcome.prunedRuns,
       },
     );
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 
 import type { StreamRunPatch } from "@/lib/engine/stream";
 
@@ -55,14 +55,38 @@ function applyPatch(run: Run, patch: StreamRunPatch): Run {
   return runId === run.id ? { ...run, ...fields } : run;
 }
 
+/**
+ * What to watch. `runId` pins one run. **`once`** — Phase 33 — is a run's own page: it follows
+ * exactly that run and stops for good when the run is over or put down to wait, where the canvas
+ * goes on watching the workflow for whatever runs next (D59). A stream the server ends for its own
+ * reasons (`idle`, `timeout`) re-arms on the same run either way.
+ */
+export interface WatchOptions {
+  runId?: string;
+  once?: boolean;
+}
+
 export interface RunStream {
   run: Run | null;
   /** True while a stream is open, for the "live" affordance in the UI. */
   live: boolean;
-  watch: (options?: { runId?: string }) => void;
+  watch: (options?: WatchOptions) => void;
   stop: () => void;
   /** Set the run directly — the POST response is authoritative when it arrives. */
-  setRun: (run: Run | null) => void;
+  setRun: Dispatch<SetStateAction<Run | null>>;
+}
+
+/**
+ * **What a queued start's answer may replace — Phase 33.** A `202` carries the run as created: no
+ * steps. The stream, re-armed before the request, may already have sent that run's snapshot —
+ * and a retry's snapshot holds the steps it carried over, written before the run was queued. Put
+ * down over it, the step-less answer erased them, and only the steps that streamed in afterwards
+ * came back: Phase 33's browser walk saw a retried run's canvas start at the failed step, with
+ * everything it reused unpainted. So the answer replaces only a *different* run; the same run, as
+ * the stream already has it, is newer than the answer.
+ */
+export function adoptStarted(current: Run | null, started: Run): Run {
+  return current?.id === started.id ? current : started;
 }
 
 export function useRunStream(workflowId: string, initial: Run | null = null): RunStream {
@@ -78,7 +102,9 @@ export function useRunStream(workflowId: string, initial: Run | null = null): Ru
    */
   const wanted = useRef(false);
   const rearmAt = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const watchRef = useRef<((options?: { runId?: string }) => void) | null>(null);
+  const watchRef = useRef<((options?: WatchOptions) => void) | null>(null);
+  /** What a `once` watch is following, so a re-arm follows the same run. Null on the canvas. */
+  const pinned = useRef<WatchOptions | null>(null);
 
   /**
    * The explicit end. `stop` means "stop watching", not "this connection closed", so
@@ -104,14 +130,15 @@ export function useRunStream(workflowId: string, initial: Run | null = null): Ru
     }
     if (rearmAt.current) clearTimeout(rearmAt.current);
     // A beat, so a server that is closing streams immediately cannot be hammered.
-    rearmAt.current = setTimeout(() => watchRef.current?.(), 250);
+    rearmAt.current = setTimeout(() => watchRef.current?.(pinned.current ?? undefined), 250);
   }, []);
 
   const watch = useCallback(
-    (options?: { runId?: string }) => {
+    (options?: WatchOptions) => {
       stop();
 
       wanted.current = true;
+      pinned.current = options?.once ? options : null;
       const query = options?.runId ? `?runId=${encodeURIComponent(options.runId)}` : "";
       const opened = new EventSource(`/api/workflows/${workflowId}/stream${query}`);
       source.current = opened;
@@ -159,10 +186,18 @@ export function useRunStream(workflowId: string, initial: Run | null = null): Ru
        * seconds, and none while the tab is hidden. An explicit `stop` still wins,
        * because `rearm` re-checks the intent when its timer fires.
        */
-      opened.addEventListener("done", () => {
+      opened.addEventListener("done", (event) => {
         if (source.current !== opened) return opened.close();
         opened.close();
         source.current = null;
+        // A run's own page is done when its run is: nothing more will happen to it until a
+        // person or a timer does something, and that is a reload, not a stream.
+        const { reason } = JSON.parse((event as MessageEvent<string>).data || "{}") as { reason?: string };
+        if (pinned.current && (reason === "finished" || reason === "waiting")) {
+          wanted.current = false;
+          setLive(false);
+          return;
+        }
         rearm();
       });
 

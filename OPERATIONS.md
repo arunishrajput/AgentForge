@@ -195,6 +195,12 @@ gcloud logging read \
 That returns `run.started`, one `node.finished` per step, and `run.finished` — which node failed,
 with what message, and how long each took, **without opening the database.**
 
+**Or open it**: `/runs/<run id>` is the run on the graph it executed, every step with its logs, and —
+opened — what each step was given and produced (Phase 33). `/runs?status=failed&from=<day>` is a
+day's failures, and each analytics failure group links to its newest run. A failed run there can be
+**retried from the step that failed** once its cause is fixed: the steps before it are carried over,
+not executed again, so a retry does not send the email it already sent.
+
 ### Chasing one failure group
 
 The eight-character `errorGroup` shown on the analytics page is the same fingerprint the logs carry,
@@ -324,8 +330,8 @@ will disagree with itself.
 
 | Service | Free allowance | Where it stands |
 |---|---|---|
-| **Neon compute** | **100 CU-hours/month** | **~0 committed while the tick is paused** (M12, 2026-10-01). It was ~61 of the 100 — **the binding constraint** — and becomes that again the moment the job is resumed |
-| Neon storage | 0.5 GB | ~10 MB |
+| **Neon compute** | **100 CU-hours/month** | **~0.6 committed by the daily sweep** since Phase 26 (D114), plus real use. It was ~61 of the 100 under the `*/15` tick — **the binding constraint** — and M14 measures the new figure. *Corrected in Phase 33: this row still described the paused tick of M12* |
+| Neon storage | 0.5 GB | ~12 MB, of which run history ~1.2 MB (155 runs, 2026-10-08) — **bounded by retention since Phase 33** |
 | Cloud Run | Always Free | **`min-instances 0`** since 2026-10-01 (M12); was `min-instances 1`, also inside it |
 | Cloud Tasks | 1,000,000 ops/month | ~2 per durable run |
 | Cloud Logging | 50 GiB/project/month | 6.34 MB per 30 days measured before Phase 22 |
@@ -350,6 +356,31 @@ That is the whole reason the analytics page is built the way it is:
 **Measured on the deployed service, 2026-09-30: 21 ms of database time per page view**, over 46 runs
 and 200-odd steps. A 30-second auto-refresh on one open tab would have cost 120 wakes an hour
 instead; that is the trade, stated in numbers.
+
+### Run history and storage
+
+**Run history is the one table that grows by itself**, so it is pruned (Phase 33, D153): a finished
+run goes when it is **more than 30 days old, or when 200 newer runs of its workflow exist**. A run
+that is queued, running or waiting is never pruned. The daily sweep does it — `prunedRuns` in its
+`cron.tick` line — at most 5,000 a sweep, oldest first; nothing else runs on a clock for it.
+
+Measured 2026-10-08: **~7.7 KB a run on disk** with its steps and indexes. A workflow at its cap is
+~1.5 MB; at the worst a run can be (a 256 KB HTTP body), ~51 MB — a tenth of the plan. The
+arithmetic for a workspace is *runs × 7.7 KB*, and *Settings → Workspace* shows the run count.
+
+```bash
+# Did the sweep prune? Its line carries the count.
+gcloud logging read 'resource.type=cloud_run_revision AND jsonPayload.event="cron.tick"' \
+  --limit 5 --freshness 7d --format='value(timestamp,jsonPayload.prunedRuns,jsonPayload.swept)'
+
+# What the rule would delete now, across every workspace — a dry run, deleting nothing — and the
+# rule itself proved against a throwaway workspace.
+node --import ./scripts/test-register.mjs --env-file=.env scripts/verify-retention.mjs
+```
+
+If storage climbs faster than this predicts, the cause is large step bodies, not run count: one
+workflow posting 256 KB HTTP responses fills its 200 runs fifty times faster than a log. Neon's
+console → *Tables* shows `run_step` against the rest.
 
 ### Re-reading the meters
 

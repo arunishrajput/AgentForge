@@ -14,6 +14,7 @@ import type { AdapterAccountType } from "next-auth/adapters";
 
 import type { RunCursor } from "@/lib/engine/cursor";
 import type { RunTest } from "@/lib/engine/partial";
+import type { RunOrigin } from "@/lib/engine/retry";
 import type { RunMode, RunStatus, StepStatus, TriggerKind } from "@/lib/engine/types";
 import type { StepLog } from "@/lib/nodes/types";
 import type { WorkflowGraph } from "@/lib/workflow/graph";
@@ -531,6 +532,17 @@ export const runs = pgTable(
      * that is not a test. Analytics and onboarding read it to leave test runs out.
      */
     test: jsonb("test").$type<RunTest>(),
+    /**
+     * **Where this run came from — Phase 33.** Null on an ordinary run; `{ runId, kind }` on a
+     * run started from another one: `rerun` (the same input, from the trigger) or `retry` (from
+     * the step the original failed at, its finished steps carried over as `reused`).
+     *
+     * **An id inside a value, not a foreign key**, for D86's reason: a run is a record of what
+     * happened and must stay true when what it points at is gone — and retention (Phase 33)
+     * will delete the original long before the retry. A retry copies the steps it reuses, so
+     * nothing it needs to execute or resume lives in the run this names.
+     */
+    origin: jsonb("origin").$type<RunOrigin>(),
   },
   (table) => [
     index("run_owner_idx").on(table.ownerId, table.startedAt),

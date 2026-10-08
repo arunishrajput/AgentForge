@@ -38,3 +38,20 @@ export function formatUtc(value: Date | string): string {
 export function formatDayUtc(value: Date | string): string {
   return DAY.format(new Date(value));
 }
+
+const SHORT = new Intl.DateTimeFormat("en-GB", {
+  day: "numeric",
+  month: "short",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+  timeZone: "UTC",
+});
+
+/**
+ * A timestamp for a narrow list: `8 Oct, 09:00 UTC` — Phase 33's recent runs, in a 320 px panel.
+ * The year goes (a recent run is this year's), the zone stays.
+ */
+export function formatUtcShort(value: Date | string): string {
+  return `${SHORT.format(new Date(value))} UTC`;
+}

@@ -1,12 +1,17 @@
 "use client";
 
+import Link from "next/link";
+
+import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { Notice } from "@/components/ui/notice";
 import type { Run, RunStep } from "@/lib/canvas/client";
 import { nodeStatusLook, runStatusLook } from "@/lib/canvas/status";
 import { testLabel } from "@/lib/canvas/test-run";
 import { elapsedMs, formatDuration, formatOffset } from "@/lib/format/duration";
+import { rerunnable } from "@/lib/engine/retry";
 import { formatUtc } from "@/lib/triggers/cron";
+import { originWords, shortRunId } from "@/lib/runs/words";
 
 import { useCanvas } from "./context";
 import { NodeIcon } from "./node-icon";
@@ -43,6 +48,8 @@ export function RunPanel({
   live,
   names,
   onSelectNode,
+  past = null,
+  restart = null,
 }: {
   run: Run;
   /** A stream is open — the panel is watching, not showing history. */
@@ -50,15 +57,40 @@ export function RunPanel({
   /** Node id → the label the canvas shows for it. */
   names: Map<string, string>;
   onSelectNode: (id: string) => void;
+  /**
+   * **Phase 33.** This is an earlier run, opened from *Recent runs* — the panel says so and
+   * offers the way back to what the canvas was showing.
+   */
+  past?: { onClose: () => void } | null;
+  /**
+   * **Phase 33.** Start a run from this one — retry from the failed step, or re-run. Null for a
+   * viewer, and while another run is starting.
+   */
+  restart?: { onRestart: (kind: "rerun" | "retry") => void; busy: boolean } | null;
 }) {
   const look = runStatusLook(run.status);
   const test = testLabel(run.test ?? null, names);
   const steps = run.steps ?? [];
   const unfinished =
     run.status === "queued" || run.status === "running" || run.status === "waiting";
+  const origin = originWords(run.origin);
+  const partialTest = run.test !== null && run.test.scope !== "workflow";
 
   return (
     <section className="space-y-3">
+      {past && (
+        <Notice tone="info" title={`An earlier run — ${formatUtc(run.startedAt)}`}>
+          <span className="block">The canvas shows what this run did. Nothing is running.</span>
+          <button
+            type="button"
+            onClick={past.onClose}
+            className="mt-1 inline-flex min-h-6 items-center font-semibold underline underline-offset-2"
+          >
+            Stop showing it
+          </button>
+        </Notice>
+      )}
+
       <div className="card flex flex-wrap items-center gap-x-2 gap-y-1.5 p-2.5">
         <span key={run.status} className={cn("chip shrink-0", look.tone, look.motion)}>
           {look.dots ? <BobbingDots /> : <span aria-hidden="true">{look.glyph}</span>}
@@ -111,6 +143,14 @@ export function RunPanel({
           </span>
         )}
 
+        {/* Phase 33: a re-run or a retry names the run it came from, and opens it. */}
+        {run.origin && origin && (
+          <Link href={`/runs/${run.origin.runId}`} className="chip text-ink min-h-6 shrink-0 bg-transparent hover:underline">
+            <span aria-hidden="true">↺</span>
+            {origin}
+          </Link>
+        )}
+
         <span className="text-muted ml-auto shrink-0 font-mono text-2xs">
           {run.durationMs !== null
             ? formatDuration(run.durationMs)
@@ -139,6 +179,28 @@ export function RunPanel({
         ) : (
           <Notice tone="bad" title="The run failed">{run.error}</Notice>
         ))}
+
+      {/* Phase 33. Its own page — every step with what it was given and produced — and, for a
+          finished run, the two ways to start it again. Retry runs what is saved, from the step
+          that failed; the steps before it are not run again. */}
+      <div className="flex flex-wrap items-center gap-2">
+        {restart && rerunnable(run.status) && run.status === "failed" && !partialTest && (
+          <Button size="sm" tone="primary" loading={restart.busy} onClick={() => restart.onRestart("retry")}>
+            Retry from failed step
+          </Button>
+        )}
+        {restart && rerunnable(run.status) && (
+          <Button size="sm" loading={restart.busy} onClick={() => restart.onRestart("rerun")}>
+            {partialTest ? "Test again" : "Re-run"}
+          </Button>
+        )}
+        <Link
+          href={`/runs/${run.id}`}
+          className="text-muted hover:text-ink ml-auto inline-flex min-h-6 items-center text-2xs font-semibold underline underline-offset-2"
+        >
+          Run {shortRunId(run.id)} in full<span aria-hidden="true">&nbsp;→</span>
+        </Link>
+      </div>
 
       {steps.length === 0 ? (
         <p className="text-muted text-xs leading-relaxed">

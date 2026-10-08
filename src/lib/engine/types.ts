@@ -9,7 +9,7 @@ import type { RunCursor } from "./cursor";
  *                      ↕
  *                   waiting                                      (Phase 26, not terminal)
  *   step:  running → succeeded | failed                          (both terminal)
- *          skipped, disabled and pinned are entered directly and are terminal
+ *          skipped, disabled, pinned and reused are entered directly and are terminal
  *
  * **`waiting` is Phase 26's, and it sits outside the lease family entirely.** A run that
  * reaches a long `core.delay` is put down: its cursor is written, its lease is released,
@@ -66,8 +66,11 @@ export type RunMode = (typeof RUN_MODES)[number];
  * `pinned` — Phase 31 — is *the run got here and used the node's pinned output instead of
  * running it*. Only a test run does that (`CONTRACT.md` → *Pinned output*). It did not run
  * either, and "Succeeded" would claim a request was sent that never was.
+ *
+ * `reused` — Phase 33 — is *a retry carried this step over from the run it retries*. It ran
+ * there, not here (`CONTRACT.md` → *Re-runs and retries*), for the same reason again.
  */
-export const STEP_STATUSES = ["running", "succeeded", "failed", "skipped", "disabled", "pinned"] as const;
+export const STEP_STATUSES = ["running", "succeeded", "failed", "skipped", "disabled", "pinned", "reused"] as const;
 export type StepStatus = (typeof STEP_STATUSES)[number];
 
 export const TRIGGER_KINDS = ["manual", "webhook", "schedule", "agent"] as const;

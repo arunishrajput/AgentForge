@@ -354,7 +354,7 @@ function audit(page, html) {
  * ------------------------------------------------------------------ */
 
 /** Every page a user can reach. `/design` is included: it is a real, linked page. */
-const SIGNED_IN = ["/workflows", "/templates", "/analytics", "/settings"];
+const SIGNED_IN = ["/workflows", "/runs", "/templates", "/analytics", "/settings"];
 const PUBLIC = ["/", "/design"];
 
 async function fetchPage(path, withSession) {
@@ -424,6 +424,32 @@ if (workflow) {
   console.log("");
 } else {
   console.log("/workflows/[id] — skipped, no workflow in the database\n");
+}
+
+/**
+ * One run's page — Phase 33: a canvas, a step list and its disclosures. The newest run the
+ * signed-in account can open, chosen the way the canvas above is, and skipped when there is none.
+ */
+const [run] = await sql.query(
+  `select r.id from "run" r
+   join "workspace_member" m on m."workspaceId" = r."workspaceId"
+   where m."userId" = $1
+   order by r."startedAt" desc limit 1`,
+  [actingUserId],
+);
+if (run) {
+  const path = `/runs/${run.id}`;
+  console.log(`${path} (signed in — a run)`);
+  const { status, html } = await fetchPage(path, true);
+  if (status === 200) {
+    const { title } = audit("/runs/[id]", html);
+    titles.set("/runs/[id]", title);
+  } else {
+    fail(`${path}: expected 200, got ${status}`);
+  }
+  console.log("");
+} else {
+  console.log("/runs/[id] — skipped, no run in the database\n");
 }
 
 /* 2.4.2 — a title that is the same on every page does not identify anything */

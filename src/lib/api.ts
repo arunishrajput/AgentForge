@@ -22,6 +22,15 @@ export function ok<T>(data: T, status = 200): Response {
   return Response.json({ data }, { status });
 }
 
+/**
+ * **A page of a list that is paginated on the server — Phase 33, D150.** `data` stays the array
+ * it always was, so a client that reads `data` as a list is unchanged; the cursors ride beside it
+ * in `page`, the one place the envelope grew. Null where there is no neighbouring page.
+ */
+export function okPage<T>(data: T[], page: { next: string | null; prev: string | null }): Response {
+  return Response.json({ data, page });
+}
+
 export function fail(
   code: ApiErrorCode,
   message: string,

@@ -12,6 +12,8 @@ import {
   type RunRow,
 } from "./shape";
 import { DEFAULT_RANGE, parseRange, RANGES } from "./types";
+import { modelCallSteps } from "./predicates";
+import { PgDialect } from "drizzle-orm/pg-core";
 
 const DAY = 86_400_000;
 const T0 = Date.parse("2026-09-20T00:00:00.000Z");
@@ -289,4 +291,14 @@ test("an unknown, absent or hostile range falls back to the default", () => {
 
 test("each offered range parses to itself", () => {
   for (const range of RANGES) assert.equal(parseRange(String(range)), range);
+});
+
+test("model usage counts a step only when it ran — not a switched-off or reused copy of one", () => {
+  // Phase 33. A node switched off after an agent passes the agent's output on as its own, and a
+  // retry carries the agent's step over as `reused`; both outputs name the model. Counting by
+  // `output.model` alone counted each such call, and its tokens, twice.
+  const query = new PgDialect().sqlToQuery(modelCallSteps());
+  assert.match(query.sql, /"run_step"\."status" = \$1/);
+  assert.equal(query.params[0], "succeeded");
+  assert.match(query.sql, /"run_step"\."output" \? 'model'/);
 });
