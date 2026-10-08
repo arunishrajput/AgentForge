@@ -253,6 +253,15 @@ cannot widen it by existing.
 per-node configuration. Save and load must round-trip losslessly — a saved workflow reloads
 identically. Canvas supports add, connect, move, delete, and per-node config editing.
 
+**The library** (Phase 32). A workspace files its workflows under **tags** — shared words, one
+level, many to a workflow, renamed in one place — and each person **stars** their own. The list
+filters by tag and by star, and its whole view (search, filters, sort, tag) lives in the URL, so a
+filtered list is a link. A workflow can be **duplicated** on the server (its own webhook URL, the
+original's visibility, switched off if it would run by itself), **exported** as a versioned JSON
+file that carries the workflow and nothing about where it lived — never a credential, and pinned
+test data only when asked — and **imported** into any workspace, which refuses a newer format and
+names any node type it does not have rather than dropping it. Folders are deliberately not built.
+
 **Versioning.** Every save that changes the graph or the name is a version, kept with a compact
 snapshot. Any version can be read, named and restored; two can be compared on the canvas, showing
 nodes added, removed, changed and moved. **Restoring moves the history forward rather than

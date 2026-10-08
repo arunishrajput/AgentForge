@@ -7,8 +7,8 @@ import { cn } from "@/components/ui/cn";
 import { Keys, usePlatform } from "@/components/ui/kbd";
 import { useTheme } from "@/components/ui/theme";
 import { useToast } from "@/components/ui/toast";
-import { api, type Workflow } from "@/lib/canvas/client";
-import { keepGroupsTogether, rankCommands, type Command } from "@/lib/ui/command";
+import { api, type ListedWorkflow } from "@/lib/canvas/client";
+import { keepGroupsTogether, rankCommands, starredFirst, type Command } from "@/lib/ui/command";
 import { THEME_CHOICES, type ThemePreference } from "@/lib/ui/theme";
 
 /**
@@ -82,7 +82,7 @@ export function CommandPalette({
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   // `null` means "not asked yet", which is different from "asked, and you have none".
-  const [workflows, setWorkflows] = useState<Workflow[] | null>(null);
+  const [workflows, setWorkflows] = useState<ListedWorkflow[] | null>(null);
 
   const close = useCallback(() => dialog.current?.close(), []);
 
@@ -234,17 +234,25 @@ export function CommandPalette({
       run: () => setPreference(choice.value),
     }));
 
-    const saved: PaletteCommand[] = (workflows ?? []).map((workflow) => ({
+    /**
+     * **Starred workflows first** (Phase 32): a group of their own, listed ahead of
+     * everything but the page's own commands. With nothing typed they are the first thing in
+     * the palette; with a query, a starred match wins a tie against an unstarred one — and
+     * loses to a better one, because a star is a preference, not a search result.
+     */
+    const saved: PaletteCommand[] = starredFirst(workflows ?? []).map((workflow) => ({
       id: `workflow:${workflow.id}`,
-      group: "Workflows",
+      group: workflow.starred ? "Starred" : "Workflows",
       title: workflow.name,
       subtitle: workflow.description ?? undefined,
-      keywords: workflow.graph.nodes.map((node) => node.type),
-      hint: `${workflow.graph.nodes.length} node${workflow.graph.nodes.length === 1 ? "" : "s"}`,
+      keywords: [...workflow.graph.nodes.map((node) => node.type), ...workflow.tags.map((tag) => tag.name)],
+      hint: `${workflow.starred ? "★ · " : ""}${workflow.graph.nodes.length} node${workflow.graph.nodes.length === 1 ? "" : "s"}`,
       run: () => router.push(`/workflows/${workflow.id}`),
     }));
+    const starred = saved.filter((command) => command.group === "Starred");
+    const rest = saved.filter((command) => command.group !== "Starred");
 
-    return [...pageCommands, ...navigation, ...themes, ...saved];
+    return [...pageCommands, ...starred, ...navigation, ...themes, ...rest];
   }, [createWorkflow, pageCommands, preference, router, setPreference, workflows]);
 
   const results = useMemo(

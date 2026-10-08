@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, getTableColumns, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { db } from "@/db";
@@ -12,12 +12,15 @@ import { mintWebhookToken, webhookTriggerNode, webhookUrl } from "@/lib/triggers
 import type { WorkspaceScope } from "@/lib/workspace/scope";
 
 import { emptyGraph, graphsEqual, workflowGraphSchema } from "./graph";
+import { starredBy, workflowTagsJson } from "./library-sql";
+import { sortTags, type TagSummary } from "./tags";
 import {
   mayChangeVisibility,
   mintShareToken,
   shareUrl,
   visibleWorkflows,
   workflowVisibilitySchema,
+  type WorkflowVisibility,
 } from "./visibility";
 import { getVersion, recordVersion } from "./versions";
 
@@ -62,9 +65,27 @@ export const updateWorkflowSchema = z
     message: "Provide at least one field to update.",
   });
 
-export async function listWorkflows(scope: WorkspaceScope): Promise<Workflow[]> {
+/**
+ * A workflow as the library lists it — the row, plus **the tags it wears and whether the
+ * person asking has starred it** (Phase 32).
+ */
+export type ListedWorkflow = Workflow & { tags: TagSummary[]; starred: boolean };
+
+export async function listWorkflows(scope: WorkspaceScope): Promise<ListedWorkflow[]> {
   return db()
-    .select()
+    .select({
+      ...getTableColumns(workflows),
+      /**
+       * **Phase 32, and D69's condition for it: tags and stars ride along on the list query.**
+       * The list is filtered in the browser over every card, so each card must arrive knowing
+       * its tags and its star — and asking per card would be one statement per workflow on a
+       * database metered by time awake. Two correlated subqueries, each an index lookup
+       * (`workflow_tag`'s and `workflow_star`'s primary keys), keep it one statement. Written
+       * out in `./library-sql.ts`, because drizzle renders a column unqualified here.
+       */
+      tags: workflowTagsJson(),
+      starred: starredBy(scope.userId),
+    })
     .from(workflows)
     // Two filters doing two things: the workspace boundary, and — since Phase 20 — which
     // of that workspace's workflows this member may see. `visibleWorkflows` is
@@ -99,10 +120,22 @@ export async function getWorkflow(scope: WorkspaceScope, id: string): Promise<Wo
 export async function createWorkflow(
   scope: WorkspaceScope,
   body: z.infer<typeof createWorkflowSchema>,
-  /** Names version 1. The generator passes one; an empty new workflow does not. */
-  versionLabel?: string,
+  options: {
+    /** Names version 1. The generator, a template and a duplicate pass one; an empty new workflow does not. */
+    versionLabel?: string;
+    /**
+     * Phase 32. **A duplicate and an import start switched off when their trigger would run them
+     * by itself** (D147): a copy of a scheduled workflow that started firing the moment it was
+     * made would run the same job twice, with nobody having asked for a second one. Absent means
+     * on, as every other creation is.
+     */
+    active?: boolean;
+    /** Phase 32. A duplicate keeps its original's visibility (D147); absent means the column's default. */
+    visibility?: WorkflowVisibility;
+  } = {},
 ): Promise<Workflow> {
   const graph = body.graph ?? emptyGraph();
+  const active = options.active ?? true;
 
   const [workflow] = await db()
     .insert(workflows)
@@ -118,7 +151,9 @@ export async function createWorkflow(
       // token is the workflow's identity on that endpoint, and minting it lazily
       // would mean the URL changes depending on when the node was added.
       webhookToken: mintWebhookToken(),
-      ...nextScheduleState({ graph, previousCron: null, previousNextAt: null }),
+      active,
+      ...(options.visibility === undefined ? {} : { visibility: options.visibility }),
+      ...nextScheduleState({ graph, previousCron: null, previousNextAt: null, active }),
     })
     .returning();
 
@@ -135,7 +170,7 @@ export async function createWorkflow(
     number: workflow.version,
     name: workflow.name,
     graph: workflow.graph,
-    label: versionLabel ?? null,
+    label: options.versionLabel ?? null,
   });
 
   return workflow;
@@ -561,5 +596,20 @@ export function describeWorkflow(workflow: Workflow) {
     active: workflow.active,
     createdAt: workflow.createdAt.toISOString(),
     updatedAt: workflow.updatedAt.toISOString(),
+  };
+}
+
+/**
+ * A listed workflow — `describeWorkflow` plus the library's two fields (Phase 32). Only the
+ * list carries them: they are about how a workspace files a workflow, which the canvas does not
+ * need to load a workflow and a single read should not pay two subqueries for.
+ */
+export function describeListedWorkflow(workflow: ListedWorkflow) {
+  return {
+    ...describeWorkflow(workflow),
+    /** The tags it wears, `{ id, name }`, by name. */
+    tags: sortTags(workflow.tags),
+    /** Whether the person asking has starred it. Never anybody else's star. */
+    starred: workflow.starred,
   };
 }

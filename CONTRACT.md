@@ -778,7 +778,7 @@ through `assertRole`. Both are server-side and neither depends on the UI hiding 
 | Route | Body | Returns |
 |---|---|---|
 | `GET /api/nodes` | — | The registry, palette projection |
-| `GET /api/workflows` | — | Workflow list, newest-updated first |
+| `GET /api/workflows` | — | Workflow list, newest-updated first. Each carries `tags` and `starred` besides the workflow shape — see *The library* (Phase 32) |
 | `POST /api/workflows` | `{ name, description?, graph? }` | 201, the workflow |
 | `POST /api/workflows/generate` | `{ prompt, name? }` | 201, `{ workflow, generation }` — see *Generation* |
 | `GET /api/workflows/:id` | — | The workflow |
@@ -787,6 +787,13 @@ through `assertRole`. Both are server-side and neither depends on the UI hiding 
 | `DELETE /api/workflows/:id/share` | — | The workflow with `shareUrl: null`. **`admin`** |
 | `GET /api/share/:token` | — | The redacted graph. **No session** — see *Per-workflow sharing* |
 | `DELETE /api/workflows/:id` | — | `{ deleted: id }` |
+| `GET /api/tags` · `POST /api/tags` | — · `{ name }` | The workspace's tags · 201, a tag. **Phase 32** — see *The library* |
+| `PATCH /api/tags/:id` · `DELETE /api/tags/:id` | `{ name }` · — | The tag · `{ deleted: id }`. `editor` |
+| `PUT /api/workflows/:id/tags` | `{ tagIds }` | The tags it now wears. `editor`. Not a version |
+| `PUT` · `DELETE /api/workflows/:id/star` | — | `{ starred }`. **`viewer`** — a star is the asker's own |
+| `POST /api/workflows/:id/duplicate` | — | 201, the copy. `editor` |
+| `GET /api/workflows/:id/export` | `?pinned=include` | The export envelope. `viewer` — see *The workflow export* |
+| `POST /api/workflows/import` | an export envelope | 201, the workflow, in the active workspace. `editor` |
 | `GET /api/workflows/:id/versions` and the four routes beside it | — | Version history, restore and diff — see *Workflow versions* (Phase 18) |
 | `POST /api/workflows/:id/runs` | `{ input?, mode?, target? }` — `target` is `{ scope: "node" \| "path", nodeId }`, Phase 31, sync only | `mode` defaults to `sync` → **201, the finished run with every step**. `mode: "durable"` → **202**, a `queued` run with no steps; it is executed by a Cloud Tasks delivery and watched over the stream. A durable request that could not reach the queue falls back to executing in-process and answers **201**, so the status code says which happened without a flag to interpret |
 | `GET /api/workflows/:id/runs` | — | Run list for that workflow |
@@ -1178,7 +1185,9 @@ not write access, and a new mutating route that forgets the argument fails close
 | Action | Needs |
 |---|---|
 | Read workflows, runs, versions, the members list, credential *status* | `viewer` |
+| **Star or unstar a workflow, read the workspace's tags, export a workflow** (Phase 32) | `viewer` |
 | Create, edit, delete, run, cancel, generate, label and restore a version | `editor` |
+| **Create, rename, delete and assign tags; duplicate and import a workflow** (Phase 32) | `editor` |
 | Store or delete a provider key, connect or disconnect an integration, **list provider models** | `admin` |
 | Rename the workspace, invite, revoke, remove another member, **change a member's role** | `admin` |
 | **Publish or revoke a workflow's public share link** (Phase 20) | `admin` |
@@ -1376,6 +1385,101 @@ row. Nothing about a run, a credential or a member of the workspace is reachable
 at all: it is handed one workflow and has nothing else to leak.
 
 ---
+
+## The library — **DEFINED** (Phase 32)
+
+`src/lib/workflow/{tags,library,library-sql,transfer,list}.ts`, migration `0014`, D144–D149. How a
+workspace files its workflows, and how one leaves and enters the product as a file.
+
+### `tag`, `workflow_tag`, `workflow_star`
+
+| Table | Columns | Rules |
+|---|---|---|
+| `tag` | `id`, `workspaceId` → workspace (cascade), `name`, `createdAt` | **Unique per workspace ignoring case** — `tag_workspace_name_idx` on `(workspaceId, lower(name))`. A name is trimmed, inner whitespace collapsed, 1–32 characters, no control characters (`tagNameSchema`). At most 100 a workspace |
+| `workflow_tag` | `workflowId` → workflow (cascade), `tagId` → tag (cascade), `createdAt`; key `(workflowId, tagId)` | At most 10 a workflow. Rows are only ever inserted with tags selected through the workflow's workspace |
+| `workflow_star` | `userId` → user (cascade), `workflowId` → workflow (cascade), `createdAt`; key `(userId, workflowId)` | One person's. Never read for anybody but the asker |
+
+**Tagging and starring are not edits**: neither writes a version nor moves `workflow.updatedAt`.
+Renaming a tag is one row, whatever wears it; deleting one takes it off every workflow by the
+cascade.
+
+### What the list adds
+
+`GET /api/workflows` answers each workflow as the shape under *API request/response shapes* plus:
+
+```jsonc
+{ "tags": [{ "id": "…", "name": "billing" }],   // the tags it wears, by name
+  "starred": true }                               // whether YOU starred it
+```
+
+Both arrive on the list's one query, as correlated subqueries (D69, D148). A single read
+(`GET /api/workflows/:id`) does not carry them.
+
+### The list's view in the URL
+
+`/workflows?q=&status=&trigger=&tag=&starred=1&sort=` — every part optional, a part at its default
+left out (D149). `status` is `runnable` | `problems`, `trigger` `manual` | `webhook` | `schedule`,
+`sort` `created` | `name`; `tag` is a tag's **name**, matched ignoring case. An unknown value falls
+back to that part's default; a tag the workspace does not have is named on the page.
+
+### Duplicate
+
+`POST /api/workflows/:id/duplicate` — a new workflow made by `createWorkflow` (D147):
+
+| | The copy |
+|---|---|
+| Name | `<name> (copy)`, trimmed to 200 |
+| Graph | the original's, as stored now — pins, notes and switched-off nodes included |
+| Webhook token | **its own**, minted (D41) |
+| Visibility | **the original's** — a private workflow's copy is private |
+| Tags | the original's |
+| Stars | none |
+| `active` | **`false` when its trigger would run it by itself** (webhook or schedule); otherwise the default |
+| Version 1 | labelled `Duplicated from v<n> of “<name>”` |
+
+A workflow the caller cannot see is 404, so it cannot be copied into one they can (D101).
+
+### The workflow export
+
+`GET /api/workflows/:id/export` answers, in `data`:
+
+```jsonc
+{
+  "format": "agentforge/workflow",       // EXPORT_FORMAT — what it is
+  "version": 1,                          // EXPORT_VERSION — a reader must refuse what it does not know
+  "exportedAt": "2026-10-08T12:00:00.000Z",   // informational; an import ignores it
+  "workflow": {
+    "name": "Weekly report",
+    "description": "Posts the numbers on Monday.",   // or null
+    "graph": { /* the stored graph — *Workflow / node / edge JSON* — without pins unless asked */ }
+  }
+}
+```
+
+- **Nothing about where it lived**: no id, owner, workspace, webhook or share token, history,
+  visibility, active switch, tags or stars. Built field by field, so a column added later cannot
+  widen it
+- **No credential**: none lives in the graph. A node finds its credential by kind in the workspace
+  that runs it, so an imported node uses the *importing* workspace's connection. A value typed into
+  a node's config is part of the workflow and is exported
+- **Pinned outputs only with `?pinned=include`** (D146). Notes and `disabled` always travel. Absent
+  stays absent, so an export imported again is `graphsEqual` to its graph
+
+`POST /api/workflows/import` takes that envelope as its body (at most 2 MB) and creates a workflow
+in the active workspace — `active: false` when its trigger runs by itself, version 1 labelled
+`Imported from a file`. It refuses, creating nothing:
+
+| Refusal | HTTP | `details` |
+|---|---|---|
+| The body is not JSON | 400 | — |
+| Not an export — another `format`, or none | 400 | `{ reason: "not_an_export" }` |
+| A canvas clipboard (`agentforge/nodes`) | 400 | `{ reason: "nodes_clipboard" }` — "paste it onto the canvas" |
+| A newer export version, or a newer graph version — read **before** the shape | 400 | `{ reason: "newer_version", version }` |
+| The workflow does not fit the graph's shape or limits | 400 | `{ reason: "invalid", issues: [{ path, message }] }`, paths under `workflow.` |
+| A node type this deployment does not have | **422 `invalid_graph`** | the `unknown_node_type` problems; the message names every type |
+
+Any other `validateGraph` problem is not a refusal: the workflow is created `runnable: false` with
+its problems, because a half-built workflow exported should come back half-built.
 
 ## Credential storage shape — **DEFINED**
 

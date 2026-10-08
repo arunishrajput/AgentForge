@@ -25,7 +25,9 @@ import type { InvitableRole, InvitationSummary } from "@/lib/workspace/invitatio
 import type { WorkspaceRole } from "@/lib/workspace/roles";
 import type { describeMember, describeWorkspace } from "@/lib/workspace/store";
 import type { WorkflowGraph } from "@/lib/workflow/graph";
-import type { describeWorkflow } from "@/lib/workflow/store";
+import type { describeListedWorkflow, describeWorkflow } from "@/lib/workflow/store";
+import type { TagSummary } from "@/lib/workflow/tags";
+import type { WorkflowExport } from "@/lib/workflow/transfer";
 import type { describeVersion } from "@/lib/workflow/versions";
 
 /**
@@ -39,6 +41,10 @@ import type { describeVersion } from "@/lib/workflow/versions";
  */
 
 export type Workflow = ReturnType<typeof describeWorkflow>;
+
+/** A workflow as the list answers it — Phase 32: with its tags and the asker's star. */
+export type ListedWorkflow = ReturnType<typeof describeListedWorkflow>;
+export type { TagSummary, WorkflowExport };
 
 /**
  * CONTRACT.md → "Workflow versions". `graph` is present only where the endpoint was
@@ -166,7 +172,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  listWorkflows: () => request<Workflow[]>("/api/workflows"),
+  listWorkflows: () => request<ListedWorkflow[]>("/api/workflows"),
 
   createWorkflow: (body: { name: string; description?: string | null; graph?: WorkflowGraph }) =>
     request<Workflow>("/api/workflows", { method: "POST", body: JSON.stringify(body) }),
@@ -231,6 +237,51 @@ export const api = {
 
   deleteWorkflow: (id: string) =>
     request<{ deleted: string }>(`/api/workflows/${id}`, { method: "DELETE" }),
+
+  /* ---------------- the library — Phase 32 ---------------- */
+
+  /** The workspace's tags, by name. Every member may read them. */
+  listTags: () => request<TagSummary[]>("/api/tags"),
+
+  /** A 409 when the workspace already has a tag of that name, ignoring case. */
+  createTag: (name: string) =>
+    request<TagSummary>("/api/tags", { method: "POST", body: JSON.stringify({ name }) }),
+
+  renameTag: (id: string, name: string) =>
+    request<TagSummary>(`/api/tags/${id}`, { method: "PATCH", body: JSON.stringify({ name }) }),
+
+  /** It comes off every workflow wearing it. */
+  deleteTag: (id: string) => request<{ deleted: string }>(`/api/tags/${id}`, { method: "DELETE" }),
+
+  /** Replace the set of tags a workflow wears. Not a version, not an update. */
+  setWorkflowTags: (id: string, tagIds: string[]) =>
+    request<TagSummary[]>(`/api/workflows/${id}/tags`, {
+      method: "PUT",
+      body: JSON.stringify({ tagIds }),
+    }),
+
+  /** Your star, nobody else's. A viewer may star. */
+  starWorkflow: (id: string, starred: boolean) =>
+    request<{ starred: boolean }>(`/api/workflows/${id}/star`, {
+      method: starred ? "PUT" : "DELETE",
+    }),
+
+  /** A server-side copy with its own webhook token, switched off if it would run by itself. */
+  duplicateWorkflow: (id: string) =>
+    request<Workflow>(`/api/workflows/${id}/duplicate`, { method: "POST" }),
+
+  /** The export envelope. Pinned outputs are left out unless asked for (D146). */
+  exportWorkflow: (id: string, options: { includePinned?: boolean } = {}) =>
+    request<WorkflowExport>(
+      `/api/workflows/${id}/export${options.includePinned ? "?pinned=include" : ""}`,
+    ),
+
+  /**
+   * Create a workflow from an export. The body is the envelope as parsed — the server reads its
+   * format and version first, and names any node type it does not have.
+   */
+  importWorkflow: (envelope: unknown) =>
+    request<Workflow>("/api/workflows/import", { method: "POST", body: JSON.stringify(envelope) }),
 
   /**
    * Version history, newest first, **without the graphs**. Each entry carries what it

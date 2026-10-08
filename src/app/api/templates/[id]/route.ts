@@ -41,7 +41,7 @@ export async function POST(_request: Request, { params }: Context) {
         description: template.description,
         graph: structuredClone(template.graph),
       },
-      `Created from the "${template.name}" template`,
+      { versionLabel: `Created from the "${template.name}" template` },
     );
 
     return ok(describeWorkflow(workflow), 201);

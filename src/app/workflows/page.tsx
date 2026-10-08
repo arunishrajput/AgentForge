@@ -1,14 +1,15 @@
 import type { Metadata } from "next";
 
 import { AppHeader } from "@/components/shell/app-header";
-import { NewWorkflowButton } from "@/components/workflows/actions";
+import { ImportWorkflowButton, NewWorkflowButton } from "@/components/workflows/actions";
 import { GenerateWorkflowForm } from "@/components/workflows/generate-form";
 import { OnboardingGuide } from "@/components/workflows/onboarding-guide";
 import { WorkflowList } from "@/components/workflows/workflow-list";
 import { getNode } from "@/lib/nodes";
 import { readOnboarding } from "@/lib/onboarding/onboarding";
-import { toWorkflowCard } from "@/lib/workflow/list";
-import { describeWorkflow, listWorkflows } from "@/lib/workflow/store";
+import { listTags } from "@/lib/workflow/library";
+import { parseView, toWorkflowCard } from "@/lib/workflow/list";
+import { describeListedWorkflow, listWorkflows } from "@/lib/workflow/store";
 import { requirePageSession } from "@/lib/workspace/page";
 import { atLeast } from "@/lib/workspace/roles";
 import { describeWorkspace } from "@/lib/workspace/store";
@@ -33,7 +34,11 @@ export const metadata: Metadata = { title: "Workflows" };
  * the machine's defaults renders differently on the server and in the browser, which
  * is hydration error #418.
  */
-export default async function WorkflowsPage() {
+export default async function WorkflowsPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const { email, scope, membership, memberships } = await requirePageSession();
   const workspace = describeWorkspace(membership, scope.userId);
   /**
@@ -42,7 +47,15 @@ export default async function WorkflowsPage() {
    * by the API, which is where authorisation happens.
    */
   const canEdit = atLeast(scope.role, "editor");
-  const workflows = (await listWorkflows(scope)).map(describeWorkflow);
+  /**
+   * **Phase 32.** The workflows arrive with their tags and the reader's stars on the same
+   * statement (D69), and the workspace's tags — the filter's vocabulary, including a tag nothing
+   * wears yet — beside it, in parallel rather than one after the other. The view comes from the
+   * URL, so a pasted link opens the list it was copied from.
+   */
+  const [listed, tags] = await Promise.all([listWorkflows(scope), listTags(scope)]);
+  const workflows = listed.map(describeListedWorkflow);
+  const view = parseView(await searchParams);
   const cards = workflows.map((workflow) =>
     toWorkflowCard(workflow, (type) => {
       const node = getNode(type);
@@ -82,7 +95,12 @@ export default async function WorkflowsPage() {
                 : `${cards.length} workflow${cards.length === 1 ? "" : "s"} in ${workspace.own ? "your workspace" : workspace.name}.`}
             </p>
           </div>
-          {canEdit && <NewWorkflowButton />}
+          {canEdit && (
+            <div className="flex flex-wrap items-center gap-2">
+              <ImportWorkflowButton />
+              <NewWorkflowButton />
+            </div>
+          )}
         </div>
 
         {onboarding && <OnboardingGuide progress={onboarding} />}
@@ -101,7 +119,7 @@ export default async function WorkflowsPage() {
           </p>
         )}
 
-        <WorkflowList cards={cards} canEdit={canEdit} />
+        <WorkflowList cards={cards} tags={tags} initialView={view} canEdit={canEdit} />
       </main>
     </>
   );

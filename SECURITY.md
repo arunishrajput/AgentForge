@@ -90,6 +90,22 @@ A version label such as `sm:1` is not key material: it names immutable bytes in 
 reveals nothing about them. It crosses to the client because it is the only way an operator can
 tell that a re-key actually moved anything.
 
+### A workflow export carries no secret — Phase 32
+
+An export is a file, and a file goes where its holder sends it. So `exportWorkflow` in
+`src/lib/workflow/transfer.ts` builds it **field by field** from a list that names the workflow's
+name, description and graph and nothing else: no id, owner, workspace, webhook token or share
+token. No credential can be in it, because none lives in the graph — a node finds its credential
+by kind in the workspace running it. Pinned outputs, which are captured from real runs, are left out
+unless the person exporting asks for them. A test fills every secret-shaped column of a workflow
+row with a sentinel, exports it, and searches the output for each.
+
+**Import** is an authenticated write (`editor`), not a new surface: the body is capped at 2 MB, read
+with the graph's own schemas, and validated against the registry — so an imported workflow can only
+be made of registered nodes, exactly like one built on the canvas. It arrives switched off when its
+trigger would run it by itself, so it cannot start acting with the importing workspace's
+connections before somebody has looked at it.
+
 ---
 
 ## Rotation
@@ -463,6 +479,10 @@ The honest limits. Each one is a real gap, not a hedge.
 10. **The OAuth consent screen is in Testing.** Only listed test users can sign in to the
    deployed app, which is a limit on availability rather than on security, but it is the reason
    you may not be able to reproduce a finding.
+11. **A secret typed into a node's config is exported with it.** An HTTP node's `Authorization`
+   header written into its config is part of the workflow, and an export carries the workflow.
+   Secrets belong in Settings → Integrations, where they are encrypted and never leave; the API
+   docs say so beside the export.
 
 ---
 

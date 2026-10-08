@@ -638,6 +638,93 @@ export const workflowVersions = pgTable(
   ],
 );
 
+/* ------------------------------------------------------------------ *
+ * Phase 32 — the library: tags and stars
+ * ------------------------------------------------------------------ */
+
+/**
+ * A tag — **a word a workspace files its workflows under** (Phase 32, D144).
+ *
+ * Its own table rather than a `text[]` on the workflow, because a tag is a thing the
+ * workspace *has*: renaming one is one row, not an UPDATE across every workflow carrying
+ * it — including the private ones the person renaming it cannot see — and a tag survives
+ * being taken off its last workflow, so the vocabulary does not shift under people as they
+ * edit. The list reads a card's tags in the same statement as the card (D69).
+ *
+ * **Unique by name within a workspace, ignoring case**, so "Billing" and "billing" are one
+ * tag: the index is on `lower(name)`, and it is the interlock as well as the rule — two
+ * people creating the same tag at once get one tag and one conflict (D6: no transactions).
+ */
+export const tags = pgTable(
+  "tag",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    workspaceId: text("workspaceId")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    createdAt: timestamp("createdAt", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("tag_workspace_name_idx").on(table.workspaceId, sql`lower(${table.name})`),
+  ],
+);
+
+/**
+ * Which workflows wear which tag. Both ends cascade, so deleting a tag takes it off every
+ * workflow and deleting a workflow takes its tags off it — nothing to sweep.
+ *
+ * **Nothing here stops a tag from one workspace landing on a workflow in another**; the
+ * one write that adds rows (`setWorkflowTags`) selects the tags *through* the workflow's
+ * workspace, so a foreign tag id matches no row and is never inserted.
+ */
+export const workflowTags = pgTable(
+  "workflow_tag",
+  {
+    workflowId: text("workflowId")
+      .notNull()
+      .references(() => workflows.id, { onDelete: "cascade" }),
+    tagId: text("tagId")
+      .notNull()
+      .references(() => tags.id, { onDelete: "cascade" }),
+    createdAt: timestamp("createdAt", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // The primary key serves the list's per-card subquery (`workflowId` first); this one
+    // serves deleting a tag, which cascades by `tagId`.
+    primaryKey({ columns: [table.workflowId, table.tagId] }),
+    index("workflow_tag_tag_idx").on(table.tagId),
+  ],
+);
+
+/**
+ * A star — **one person's favourite**, never the workspace's (Phase 32). Keyed by the person
+ * and the workflow; the workspace is the workflow's, so a star cannot outlive or escape it.
+ *
+ * Starring is a preference and changes nothing anybody else sees, so a `viewer` may do it.
+ * A star on a workflow its owner has since made private stays in the table and is never
+ * read: the list asks only about workflows the reader can see (D101).
+ */
+export const workflowStars = pgTable(
+  "workflow_star",
+  {
+    userId: text("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    workflowId: text("workflowId")
+      .notNull()
+      .references(() => workflows.id, { onDelete: "cascade" }),
+    createdAt: timestamp("createdAt", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.userId, table.workflowId] }),
+    // Deleting a workflow cascades here by `workflowId`, which the key does not lead with.
+    index("workflow_star_workflow_idx").on(table.workflowId),
+  ],
+);
+
 /**
  * Third-party credentials, AES-256-GCM encrypted at rest with `ENCRYPTION_KEY`.
  * The table lands here because Phase 3 owns the schema; the encryption helpers and

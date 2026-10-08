@@ -67,7 +67,7 @@ export async function POST(request: Request) {
       // Names version 1 in the history, and thereby exempts it from the retention
       // cap. The model's first draft is the one thing a user edits away from and
       // then wants back, so it is the version worth keeping for ever.
-      "Generated",
+      { versionLabel: "Generated" },
     );
 
     return ok(

@@ -100,6 +100,62 @@ at does not need a link to the field you are looking at. `href` is always a path
 The graph shape, and the rules a graph must satisfy to be runnable, are in
 [`../CONTRACT.md`](../CONTRACT.md) → *Workflow graph*.
 
+`GET /api/workflows` adds two fields to each workflow that a single read does not carry:
+`tags` — `[{ id, name }]`, the tags it wears — and `starred`, whether **you** have starred it.
+Both arrive on the same query as the list (Phase 32).
+
+## The library — tags, stars, duplicate, export and import
+
+Phase 32. How a workspace files its workflows, and how a workflow leaves and enters the product as
+a file. **Tagging and starring are not edits**: neither writes a version or moves `updatedAt`.
+
+| Method | Route | Role | What it does |
+|---|---|---|---|
+| `GET` | `/api/tags` | viewer | The workspace's tags, `[{ id, name }]`, by name |
+| `POST` | `/api/tags` | editor | `{ name }` → 201, a tag. Names are 1–32 characters, trimmed, and unique in the workspace **ignoring case** — a clash is `409`. At most 100 tags a workspace |
+| `PATCH` | `/api/tags/[id]` | editor | `{ name }` — renames it on every workflow wearing it, because it is one row |
+| `DELETE` | `/api/tags/[id]` | editor | Deletes it and takes it off every workflow |
+| `PUT` | `/api/workflows/[id]/tags` | editor | `{ tagIds }` — replaces the set the workflow wears, in one statement. At most 10. A tag id from another workspace is `404` |
+| `PUT` | `/api/workflows/[id]/star` | **viewer** | Stars it for you. Idempotent |
+| `DELETE` | `/api/workflows/[id]/star` | **viewer** | Unstars it. Idempotent |
+| `POST` | `/api/workflows/[id]/duplicate` | editor | 201, a copy: its own webhook token, the same graph, visibility and tags, **switched off** if its trigger would run it by itself |
+| `GET` | `/api/workflows/[id]/export` | viewer | The export envelope. **Pinned outputs are left out unless `?pinned=include`** |
+| `POST` | `/api/workflows/import` | editor | The body is an export envelope → 201, a new workflow in **your active workspace**, switched off if its trigger would run it by itself |
+
+A star is a personal preference that changes nothing anybody else sees, which is why a viewer may
+star — the second write a viewer may make, beside finishing the first-run guide.
+
+**The export envelope** is specified in [`../CONTRACT.md`](../CONTRACT.md) → *The workflow export*:
+
+```jsonc
+{
+  "format": "agentforge/workflow",   // what it is — anything else is refused as "not an export"
+  "version": 1,                      // a newer version is refused as newer, before its shape is read
+  "exportedAt": "2026-10-08T12:00:00.000Z",
+  "workflow": { "name": "…", "description": "…", "graph": { "version": 1, "nodes": [], "edges": [] } }
+}
+```
+
+It carries the workflow and **nothing about where it lived** — no id, owner, workspace, token,
+history, visibility, tags or stars. **No connection is ever in it**: a node finds its credential
+by kind in the workspace that runs it, so an imported Discord node posts with *your* Discord
+connection. A value typed into a node's config — a header, a URL — is part of the workflow and is
+exported with it; keep secrets in Settings → Integrations, where they are encrypted.
+
+An import is refused, and nothing is created, when the body is not JSON or not an export (`400`),
+when it is a newer format (`400`, naming the version), when the workflow does not fit the graph's
+shape or limits (`400`, with the failing paths), or when it uses a node type this deployment does
+not have (`422`, **naming every one**). Any other problem — no trigger, a half-filled config — is
+not a refusal: the workflow is created with `runnable: false` and its problems, because an export
+of a half-built workflow should come back half-built.
+
+```bash
+# Export with a session cookie, keep the envelope, and import it into the active workspace.
+curl -fsS "$APP_BASE_URL/api/workflows/$ID/export" -b "$COOKIE" | jq .data > weekly.agentforge.json
+curl -fsS -X POST "$APP_BASE_URL/api/workflows/import" -b "$COOKIE" \
+  -H 'content-type: application/json' --data-binary @weekly.agentforge.json
+```
+
 ## Versions
 
 Every save is a version. Nothing has to be "committed".
@@ -230,8 +286,9 @@ and deliberately **not** the GCP project, which comes from the metadata server a
 therefore cannot be. See [`../SECURITY.md`](../SECURITY.md) for the full list of surfaces
 that answer without a session.
 
-`POST /api/onboarding` is the only write in the product that a `viewer` may make. What it
-changes is whether a checklist is drawn; it grants nothing and reveals nothing.
+`POST /api/onboarding` is one of the two writes in the product that a `viewer` may make — the other
+is starring a workflow. What each changes is the asker's own view; neither grants anything or
+reveals anything.
 
 ## Auth
 

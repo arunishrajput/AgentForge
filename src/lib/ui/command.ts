@@ -143,3 +143,12 @@ export function keepGroupsTogether<T extends { group: string }>(ranked: T[]): T[
   }
   return [...groups.values()].flat();
 }
+
+/**
+ * Starred items before the rest, each side in its original order — Phase 32. A stable
+ * partition rather than a sort, so the server's order (newest-updated first) survives inside
+ * each half.
+ */
+export function starredFirst<T extends { starred: boolean }>(items: readonly T[]): T[] {
+  return [...items.filter((item) => item.starred), ...items.filter((item) => !item.starred)];
+}

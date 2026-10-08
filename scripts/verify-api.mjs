@@ -734,6 +734,288 @@ try {
     await api("DELETE", `/api/workflows/${formId}`, undefined, token);
   }
 
+  // --- Phase 32: the library — tags, stars, duplicate, export and import -----
+  // `CONTRACT.md` → *The library* and *The workflow export*, on the deployed service. Probe
+  // rows are `zzzz-phase32` / `zzzz p32`; the second workspace an import lands in is created
+  // here and deleted at the end, with everything in it.
+  {
+    const P32 = "zzzz-phase32";
+    const PIN_WORDS = "PHASE32-PIN from somebody's inbox";
+    const libGraph = {
+      version: 1,
+      nodes: [
+        { id: "trigger", type: "core.manual_trigger", position: { x: 0, y: 0 }, config: {} },
+        {
+          id: "shape",
+          type: "core.set",
+          label: "Shape it",
+          position: { x: 240, y: 0 },
+          config: { fields: { greeting: "hello" } },
+          pinned: { output: { greeting: PIN_WORDS } },
+        },
+        { id: "quiet", type: "core.log", position: { x: 480, y: 0 }, config: { message: "off" }, disabled: true },
+        { id: "say", type: "core.log", position: { x: 720, y: 0 }, config: { message: "said {{input.greeting}}" } },
+      ],
+      edges: [
+        { id: "e1", source: "trigger", target: "shape", sourceHandle: null },
+        { id: "e2", source: "shape", target: "quiet", sourceHandle: null },
+        { id: "e3", source: "quiet", target: "say", sourceHandle: null },
+      ],
+      notes: [{ id: "note_1", position: { x: 0, y: -160 }, size: { width: 240, height: 120 }, text: "Phase 32 note", tone: "blue" }],
+    };
+    const hookGraph = {
+      version: 1,
+      nodes: [
+        { id: "trigger", type: "core.webhook_trigger", position: { x: 0, y: 0 }, config: {} },
+        { id: "say", type: "core.log", position: { x: 240, y: 0 }, config: { message: "hooked" } },
+      ],
+      edges: [{ id: "e1", source: "trigger", target: "say", sourceHandle: null }],
+    };
+
+    const made = [];
+    let libArena = null;
+    const wfRow = async (id) =>
+      (await sql.query('select * from "workflow" where "id" = $1', [id]))[0];
+    const listed = async (id, workspace) =>
+      ((await api("GET", "/api/workflows", undefined, token, workspace)).json?.data ?? []).find((w) => w.id === id);
+
+    try {
+      const subject = await api("POST", "/api/workflows", { name: `${P32} library subject`, graph: libGraph }, token);
+      const subjectId = subject.json?.data?.id;
+      made.push(subjectId);
+      const hook = await api("POST", "/api/workflows", { name: `${P32} webhook subject`, graph: hookGraph }, token);
+      const hookId = hook.json?.data?.id;
+      made.push(hookId);
+      check("the library has two workflows to work on", subject.status === 201 && hook.status === 201);
+
+      // --- tags ---
+      const billing = await api("POST", "/api/tags", { name: "  zzzz p32   Billing " }, token);
+      check(
+        "a tag is created, its name trimmed and its inner space collapsed",
+        billing.status === 201 && billing.json?.data?.name === "zzzz p32 Billing",
+        JSON.stringify(billing.json).slice(0, 200),
+      );
+      const billingId = billing.json?.data?.id;
+      const clash = await api("POST", "/api/tags", { name: "ZZZZ P32 billing" }, token);
+      check(
+        "a second tag of the same name, ignoring case, is a 409 naming it",
+        clash.status === 409 && clash.json?.error?.code === "conflict" && /zzzz p32 Billing/.test(clash.json?.error?.message ?? ""),
+        `got ${clash.status}: ${clash.json?.error?.message}`,
+      );
+      const blank = await api("POST", "/api/tags", { name: "    " }, token);
+      check("a blank tag name is refused", blank.status === 400, `got ${blank.status}`);
+      const ops = await api("POST", "/api/tags", { name: "zzzz p32 ops" }, token);
+      const opsId = ops.json?.data?.id;
+      const tagList = await api("GET", "/api/tags", undefined, token);
+      check(
+        "the workspace's tags list both",
+        tagList.status === 200 && [billingId, opsId].every((id) => tagList.json?.data?.some((tag) => tag.id === id)),
+      );
+      const renamed = await api("PATCH", `/api/tags/${opsId}`, { name: "zzzz p32 oncall" }, token);
+      check("a tag is renamed", renamed.status === 200 && renamed.json?.data?.name === "zzzz p32 oncall");
+      const renameClash = await api("PATCH", `/api/tags/${opsId}`, { name: "zzzz P32 BILLING" }, token);
+      check("renaming onto another tag's name is a 409", renameClash.status === 409, `got ${renameClash.status}`);
+
+      // --- tagging a workflow is not an edit ---
+      const before = await wfRow(subjectId);
+      const tagged = await api("PUT", `/api/workflows/${subjectId}/tags`, { tagIds: [opsId, billingId] }, token);
+      check(
+        "a workflow is given two tags, answered by name",
+        tagged.status === 200 && isDeepStrictEqual(tagged.json?.data?.map((tag) => tag.name), ["zzzz p32 Billing", "zzzz p32 oncall"]),
+        JSON.stringify(tagged.json).slice(0, 200),
+      );
+      const after = await wfRow(subjectId);
+      check(
+        "tagging writes no version and does not move updatedAt",
+        after.version === before.version && after.updatedAt.getTime() === before.updatedAt.getTime(),
+        `version ${before.version}→${after.version}, updatedAt ${before.updatedAt.toISOString()}→${after.updatedAt.toISOString()}`,
+      );
+      const listedSubject = await listed(subjectId);
+      check(
+        "the list carries each workflow's tags and the asker's star, on the same read",
+        listedSubject?.tags?.length === 2 && listedSubject?.starred === false && (await listed(hookId))?.tags?.length === 0,
+        JSON.stringify({ tags: listedSubject?.tags, starred: listedSubject?.starred }),
+      );
+      const single = await api("GET", `/api/workflows/${subjectId}`, undefined, token);
+      check("a single read does not carry them — only the list does", !("tags" in (single.json?.data ?? {})) && !("starred" in (single.json?.data ?? {})));
+
+      // A tag from another workspace can never land here.
+      const arenaMade = await api("POST", "/api/workspaces", { name: "zzzz library arena" }, token);
+      libArena = arenaMade.json?.data?.id ?? null;
+      check("a second workspace exists to import into", libArena !== null, JSON.stringify(arenaMade.json).slice(0, 200));
+      const foreign = await api("POST", "/api/tags", { name: "zzzz p32 foreign" }, token, libArena);
+      const foreignTag = await api("PUT", `/api/workflows/${subjectId}/tags`, { tagIds: [billingId, foreign.json?.data?.id] }, token);
+      const [{ n: subjectTags }] = await sql.query('select count(*)::int as n from "workflow_tag" where "workflowId" = $1', [subjectId]);
+      check(
+        "a tag id from another workspace is a 404, and the workflow's tags are untouched",
+        foreign.status === 201 && foreignTag.status === 404 && subjectTags === 2,
+        `tag ${foreign.status}, put ${foreignTag.status}, ${subjectTags} rows`,
+      );
+      const tooMany = await api("PUT", `/api/workflows/${subjectId}/tags`, { tagIds: Array.from({ length: 11 }, (_, i) => `t${i}`) }, token);
+      check("more than ten tags on a workflow is refused", tooMany.status === 400, `got ${tooMany.status}`);
+
+      // --- stars ---
+      const star = await api("PUT", `/api/workflows/${subjectId}/star`, undefined, token);
+      const starAgain = await api("PUT", `/api/workflows/${subjectId}/star`, undefined, token);
+      const [{ n: starRows }] = await sql.query('select count(*)::int as n from "workflow_star" where "workflowId" = $1', [subjectId]);
+      check(
+        "starring is idempotent — twice is one star — and the list says so",
+        star.status === 200 && starAgain.status === 200 && starRows === 1 && (await listed(subjectId))?.starred === true,
+        `${star.status} ${starAgain.status}, ${starRows} rows`,
+      );
+      const unstar = await api("DELETE", `/api/workflows/${subjectId}/star`, undefined, token);
+      const unstarAgain = await api("DELETE", `/api/workflows/${subjectId}/star`, undefined, token);
+      check(
+        "unstarring is idempotent too",
+        unstar.status === 200 && unstarAgain.status === 200 && (await listed(subjectId))?.starred === false,
+      );
+      await api("PUT", `/api/workflows/${subjectId}/star`, undefined, token);
+
+      // --- duplicate ---
+      const copy = await api("POST", `/api/workflows/${subjectId}/duplicate`, undefined, token);
+      const copyId = copy.json?.data?.id;
+      made.push(copyId);
+      const [original, copied] = [await wfRow(subjectId), await wfRow(copyId)];
+      check(
+        "a duplicate is a new workflow with the same graph — pin, note and switched-off step included",
+        copy.status === 201 && copyId !== subjectId && copy.json?.data?.name === `${P32} library subject (copy)` &&
+          isDeepStrictEqual(copied?.graph, original.graph) && copy.json?.data?.version === 1,
+        JSON.stringify(copy.json).slice(0, 300),
+      );
+      check("the duplicate mints its own webhook token (D41)", copied && copied.webhookToken !== original.webhookToken);
+      const listedCopy = await listed(copyId);
+      check(
+        "it wears the original's tags, and none of anybody's stars",
+        listedCopy?.tags?.length === 2 && listedCopy?.starred === false,
+        JSON.stringify(listedCopy?.tags),
+      );
+      const [firstVersion] = await sql.query('select "label" from "workflow_version" where "workflowId" = $1 and "number" = 1', [copyId]);
+      check(
+        "its first version says where it came from",
+        new RegExp(`^Duplicated from v${original.version} of “${P32} library subject”$`).test(firstVersion?.label ?? ""),
+        firstVersion?.label,
+      );
+      const copyRun = await api("POST", `/api/workflows/${copyId}/runs`, { input: {} }, token);
+      check(
+        "the duplicate runs",
+        copyRun.status === 201 && copyRun.json?.data?.status === "succeeded",
+        JSON.stringify(copyRun.json?.data?.steps?.map((s) => [s.nodeId, s.status])),
+      );
+
+      await api("PATCH", `/api/workflows/${hookId}`, { visibility: "private" }, token);
+      const hookCopy = await api("POST", `/api/workflows/${hookId}/duplicate`, undefined, token);
+      const hookCopyId = hookCopy.json?.data?.id;
+      made.push(hookCopyId);
+      const hookCopyRow = await wfRow(hookCopyId);
+      const refused = await api("POST", `/api/webhook/${hookCopyRow?.webhookToken}`, { any: "thing" });
+      check(
+        "a duplicate whose trigger runs by itself starts switched off — its webhook refuses — and the original stays on",
+        hookCopy.json?.data?.active === false && refused.status === 409 && (await wfRow(hookId)).active === true,
+        `active ${hookCopy.json?.data?.active}, webhook ${refused.status}`,
+      );
+      check("a duplicate keeps its original's visibility", hookCopy.json?.data?.visibility === "private", hookCopy.json?.data?.visibility);
+      check("a manual workflow's duplicate has nothing to switch off, and stays on", copy.json?.data?.active === true);
+
+      // --- export ---
+      const exported = await api("GET", `/api/workflows/${subjectId}/export`, undefined, token);
+      const envelope = exported.json?.data;
+      const text = JSON.stringify(exported.json);
+      check(
+        "an export is the versioned envelope",
+        exported.status === 200 && envelope?.format === "agentforge/workflow" && envelope?.version === 1 &&
+          envelope?.workflow?.name === `${P32} library subject`,
+        text.slice(0, 200),
+      );
+      check(
+        "no token, id, owner or workspace is in it",
+        ![original.webhookToken, original.id, original.ownerId, original.workspaceId].some((secret) => text.includes(secret)),
+      );
+      check(
+        "its pinned output is left out by default; its note and its off switch travel",
+        !text.includes(PIN_WORDS) && envelope?.workflow?.graph?.nodes?.every((node) => !("pinned" in node)) &&
+          envelope?.workflow?.graph?.notes?.[0]?.text === "Phase 32 note" && envelope?.workflow?.graph?.nodes?.[2]?.disabled === true,
+      );
+      const withPins = (await api("GET", `/api/workflows/${subjectId}/export?pinned=include`, undefined, token)).json?.data;
+      check(
+        "and included on request",
+        isDeepStrictEqual(withPins?.workflow?.graph?.nodes?.[1]?.pinned, { output: { greeting: PIN_WORDS } }),
+      );
+
+      // --- import into another workspace, and run ---
+      const imported = await api("POST", "/api/workflows/import", withPins, token, libArena);
+      const importedRow = imported.json?.data?.id ? await wfRow(imported.json.data.id) : null;
+      check(
+        "an export imports into another workspace as the same graph",
+        imported.status === 201 && importedRow?.workspaceId === libArena && isDeepStrictEqual(importedRow?.graph, original.graph),
+        JSON.stringify(imported.json).slice(0, 300),
+      );
+      const [importLabel] = await sql.query('select "label" from "workflow_version" where "workflowId" = $1', [importedRow?.id]);
+      check("its first version is labelled as an import", importLabel?.label === "Imported from a file", importLabel?.label);
+      const importedRun = await api("POST", `/api/workflows/${importedRow?.id}/runs`, { input: {} }, token, libArena);
+      check(
+        "the imported workflow runs in its new workspace",
+        importedRun.status === 201 && importedRun.json?.data?.status === "succeeded" && importedRun.json?.data?.steps?.length === 4,
+        JSON.stringify(importedRun.json?.data?.steps?.map((s) => [s.nodeId, s.status])),
+      );
+      const hookExport = (await api("GET", `/api/workflows/${hookId}/export`, undefined, token)).json?.data;
+      const hookImport = await api("POST", "/api/workflows/import", hookExport, token, libArena);
+      check("an imported webhook workflow starts switched off", hookImport.status === 201 && hookImport.json?.data?.active === false);
+
+      // --- import refusals: nothing is created ---
+      const [{ n: arenaBefore }] = await sql.query('select count(*)::int as n from "workflow" where "workspaceId" = $1', [libArena]);
+      const newer = await api("POST", "/api/workflows/import", { ...envelope, version: 2 }, token, libArena);
+      check(
+        "a newer export format is refused, naming the version",
+        newer.status === 400 && newer.json?.error?.details?.reason === "newer_version" && /version 2/.test(newer.json?.error?.message ?? ""),
+        `got ${newer.status}: ${newer.json?.error?.message}`,
+      );
+      const alien = structuredClone(envelope);
+      alien.workflow.graph.nodes.push({ id: "trello", type: "integration.zzzz_trello", position: { x: 960, y: 0 }, config: {} });
+      const unknownType = await api("POST", "/api/workflows/import", alien, token, libArena);
+      check(
+        "an unknown node type refuses the whole file, by name (D39)",
+        unknownType.status === 422 && unknownType.json?.error?.code === "invalid_graph" &&
+          /“integration\.zzzz_trello”/.test(unknownType.json?.error?.message ?? ""),
+        `got ${unknownType.status}: ${unknownType.json?.error?.message}`,
+      );
+      const notJson = await fetch(`${base}/api/workflows/import`, {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie: `${cookieName}=${token}; af_workspace=${libArena}` },
+        body: "{ this is not json",
+      });
+      check("a body that is not JSON is refused", notJson.status === 400 && /not valid JSON/.test(await notJson.text()));
+      const clipboard = await api("POST", "/api/workflows/import", { format: "agentforge/nodes", version: 1, nodes: [], edges: [] }, token, libArena);
+      check("a copy of canvas nodes is recognised and pointed at the canvas", clipboard.json?.error?.details?.reason === "nodes_clipboard");
+      const malformed = structuredClone(envelope);
+      malformed.workflow.graph.nodes[0].position = "top left";
+      const badShape = await api("POST", "/api/workflows/import", malformed, token, libArena);
+      check(
+        "a malformed export is refused with the path that failed",
+        badShape.status === 400 && badShape.json?.error?.details?.issues?.some((issue) => issue.path === "workflow.graph.nodes.0.position"),
+        JSON.stringify(badShape.json?.error).slice(0, 300),
+      );
+      const huge = await api("POST", "/api/workflows/import", { ...envelope, padding: "x".repeat(2_100_000) }, token, libArena);
+      check("a body larger than any export is refused before it is parsed", huge.status === 400 && /larger than/.test(huge.json?.error?.message ?? ""), `got ${huge.status}`);
+      const [{ n: arenaAfter }] = await sql.query('select count(*)::int as n from "workflow" where "workspaceId" = $1', [libArena]);
+      check("not one refused import created a workflow", arenaAfter === arenaBefore, `${arenaBefore} → ${arenaAfter}`);
+
+      // --- deleting a tag takes it off everything ---
+      const deletedTag = await api("DELETE", `/api/tags/${opsId}`, undefined, token);
+      check(
+        "deleting a tag takes it off every workflow wearing it",
+        deletedTag.status === 200 &&
+          isDeepStrictEqual((await listed(subjectId))?.tags?.map((tag) => tag.name), ["zzzz p32 Billing"]) &&
+          isDeepStrictEqual((await listed(copyId))?.tags?.map((tag) => tag.name), ["zzzz p32 Billing"]),
+      );
+      check("and deleting it again is a 404", (await api("DELETE", `/api/tags/${opsId}`, undefined, token)).status === 404);
+      await api("DELETE", `/api/tags/${billingId}`, undefined, token);
+    } finally {
+      for (const id of made.filter(Boolean)) await api("DELETE", `/api/workflows/${id}`, undefined, token);
+      await sql.query(`delete from "tag" where "name" like 'zzzz p32%'`).catch(() => {});
+      if (libArena) await sql.query('delete from "workspace" where "id" = $1', [libArena]).catch(() => {});
+    }
+  }
+
   // --- run history ----------------------------------------------------------
   const history = await api("GET", `/api/workflows/${workflowId}/runs`, undefined, token);
   check("run history lists both runs of this workflow",
@@ -3569,6 +3851,13 @@ try {
 
     arenaWorkflowId = await makeArenaWorkflow("zzzz matrix subject");
     check("the matrix has a workflow to aim at", arenaWorkflowId !== null);
+    // Phase 32: a tag to rename, assign and delete, and an export to import.
+    const arenaTagId = (await api("POST", "/api/tags", { name: "zzzz matrix tag" }, token, arena)).json?.data?.id ?? "missing";
+    const matrixEnvelope = {
+      format: "agentforge/workflow",
+      version: 1,
+      workflow: { name: "zzzz matrix imported", description: null, graph: cheapGraph },
+    };
 
     /**
      * **The matrix itself.** Each row is an action and the minimum role `CONTRACT.md` →
@@ -3591,6 +3880,11 @@ try {
       ["read the Google status", "GET", "/api/integrations/google", undefined, "viewer"],
       ["read the members list", "GET", `/api/workspaces/${arena}/members`, undefined, "viewer"],
       ["list this account's workspaces", "GET", "/api/workspaces", undefined, "viewer"],
+      // Phase 32 — a star is the asker's own, and an export is a read of what they can open.
+      ["list the workspace's tags", "GET", "/api/tags", undefined, "viewer"],
+      ["star a workflow", "PUT", `/api/workflows/${wfId}/star`, undefined, "viewer"],
+      ["unstar a workflow", "DELETE", `/api/workflows/${wfId}/star`, undefined, "viewer"],
+      ["export a workflow", "GET", `/api/workflows/${wfId}/export`, undefined, "viewer"],
 
       // editor — writes inside the workspace
       ["create a workflow", "POST", "/api/workflows", { name: "zzzz matrix created" }, "editor"],
@@ -3599,6 +3893,13 @@ try {
       ["label a version", "PATCH", `/api/workflows/${wfId}/versions/1`, { label: "matrix" }, "editor"],
       ["restore a version", "POST", `/api/workflows/${wfId}/versions/1/restore`, {}, "editor"],
       ["delete a workflow", "DELETE", `/api/workflows/${wfId}`, undefined, "editor", "destructive"],
+      // Phase 32 — the library's writes. "delete a tag" is last: it consumes the arena's tag.
+      ["create a tag", "POST", "/api/tags", { name: "zzzz matrix created tag" }, "editor"],
+      ["rename a tag", "PATCH", `/api/tags/${arenaTagId}`, { name: "zzzz matrix renamed tag" }, "editor"],
+      ["tag a workflow", "PUT", `/api/workflows/${wfId}/tags`, { tagIds: [arenaTagId] }, "editor"],
+      ["duplicate a workflow", "POST", `/api/workflows/${wfId}/duplicate`, undefined, "editor"],
+      ["import a workflow", "POST", "/api/workflows/import", matrixEnvelope, "editor"],
+      ["delete a tag", "DELETE", `/api/tags/${arenaTagId}`, undefined, "editor"],
 
       // admin — credentials, the workspace itself, and publishing
       ["store a provider key", "PUT", "/api/settings/provider", { apiKey: "AIzaNotARealKeyAtAll123" }, "admin"],
@@ -3633,6 +3934,12 @@ try {
       'select count(*)::int as n from "credential" where "workspaceId" = $1',
       [arena],
     );
+    const tagsIn = async () =>
+      (await sql.query(
+        'select (select count(*)::int from "tag" where "workspaceId" = $1) + (select count(*)::int from "workflow_tag" wt join "workflow" w on w."id" = wt."workflowId" where w."workspaceId" = $1) as n',
+        [arena],
+      ))[0].n;
+    const tagsBefore = await tagsIn();
 
     let refusals = 0;
     let wrongRefusals = [];
@@ -3669,10 +3976,23 @@ try {
       'select count(*)::int as n from "credential" where "workspaceId" = $1',
       [arena],
     );
+    const tagsAfter = await tagsIn();
     check(
       "not one refused request changed a row",
-      wfAfter === wfBefore && runsAfter === runsBefore && credsAfter === credsBefore,
-      `workflows ${wfBefore}→${wfAfter}, runs ${runsBefore}→${runsAfter}, credentials ${credsBefore}→${credsAfter}`,
+      wfAfter === wfBefore && runsAfter === runsBefore && credsAfter === credsBefore && tagsAfter === tagsBefore,
+      `workflows ${wfBefore}→${wfAfter}, runs ${runsBefore}→${runsAfter}, credentials ${credsBefore}→${credsAfter}, tags ${tagsBefore}→${tagsAfter}`,
+    );
+    // **"A viewer refused (403 naming the role)"** — Phase 32's own validation step: the refusal
+    // says which role the act needs, so a viewer is told why rather than only that.
+    await sql.query(
+      'update "workspace_member" set "role" = $1 where "workspaceId" = $2 and "userId" = $3',
+      ["viewer", arena, MATRIX_USER_ID],
+    );
+    const viewerDuplicate = await api("POST", `/api/workflows/${arenaWorkflowId}/duplicate`, undefined, matrixToken, arena);
+    check(
+      "a viewer refused a library write is told which role it needs",
+      viewerDuplicate.status === 403 && /needs the editor role/.test(viewerDuplicate.json?.error?.message ?? ""),
+      `got ${viewerDuplicate.status}: ${viewerDuplicate.json?.error?.message}`,
     );
 
     /**

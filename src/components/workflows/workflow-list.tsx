@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,12 +12,19 @@ import { Labelled, Input, Select } from "@/components/ui/field";
 import { EmptyState, QuietArt, WorkbenchArt } from "@/components/ui/illustration";
 import { Menu } from "@/components/ui/menu";
 import { useToast } from "@/components/ui/toast";
-import { api } from "@/lib/canvas/client";
+import { ApiRequestError, api, type TagSummary } from "@/lib/canvas/client";
 import { formatDayUtc } from "@/lib/format/date";
+import { replaceAddress } from "@/lib/ui/url";
 import {
   DEFAULT_VIEW,
+  MISSING_TAG,
+  countTags,
   countWorkflows,
   isDefaultView,
+  resolveViewTag,
+  tagSelectValue,
+  viewAfterTagChange,
+  viewHref,
   viewWorkflows,
   type ListView,
   type SortKey,
@@ -25,6 +32,23 @@ import {
   type TriggerKey,
   type WorkflowCard,
 } from "@/lib/workflow/list";
+import { sameTagName, sortTags } from "@/lib/workflow/tags";
+
+import {
+  ExportDialog,
+  ManageTagsDialog,
+  WorkflowTagsDialog,
+  downloadExport,
+  type TagChange,
+} from "./library-dialogs";
+
+/**
+ * Put the view in the address bar, unless it is already there. Replace, never push — and through
+ * `replaceAddress`, which passes the null state Next's router needs to follow the change.
+ */
+function writeViewToUrl(view: ListView) {
+  replaceAddress(viewHref(window.location.pathname, window.location.hash, view));
+}
 
 /**
  * The workflow list.
@@ -38,12 +62,25 @@ import {
  *
  * The matching itself is in `src/lib/workflow/list.ts`, with tests. This file is the
  * controls and the rows.
+ *
+ * **Phase 32 made it a library**: a star on every card, the tags each wears, a *Starred* and a
+ * tag filter, and *Tags…*, *Duplicate* and *Export* on each row. **The view lives in the URL** —
+ * the page parses it on the server (`parseView`) and this component writes it back with
+ * `history.replaceState` as it changes, which Next's router follows — so a filtered list is a
+ * link, and survives a reload. Replace, not push: a keystroke in the search box is not a page
+ * somebody wants Back to step through.
  */
 export function WorkflowList({
   cards,
+  tags,
+  initialView,
   canEdit,
 }: {
   cards: WorkflowCard[];
+  /** The workspace's tags — the filter's vocabulary, including a tag nothing wears yet. */
+  tags: TagSummary[];
+  /** The view the URL asked for, parsed on the server. */
+  initialView: ListView;
   /**
    * The viewer's role carries editing — **Phase 20**. Deleting is a write the API refuses
    * below `editor`, and the empty state's call to action is an invitation to generate a
@@ -55,15 +92,107 @@ export function WorkflowList({
   const router = useRouter();
   const toast = useToast();
 
-  const [view, setView] = useState<ListView>(DEFAULT_VIEW);
+  const [view, setView] = useState<ListView>(initialView);
   const [pendingDelete, setPendingDelete] = useState<WorkflowCard | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [tagging, setTagging] = useState<WorkflowCard | null>(null);
+  const [exporting, setExporting] = useState<WorkflowCard | null>(null);
+  const [managingTags, setManagingTags] = useState(false);
+  /**
+   * A star shows the moment it is pressed. The server's answer is the truth and arrives with
+   * the next read of the list; until then this holds what was pressed, by workflow id.
+   */
+  const [stars, setStars] = useState<Map<string, boolean>>(new Map());
 
-  const counts = useMemo(() => countWorkflows(cards), [cards]);
-  const visible = useMemo(() => viewWorkflows(cards, view), [cards, view]);
+  const starredCards = useMemo(
+    () =>
+      stars.size === 0
+        ? cards
+        : cards.map((card) => (stars.has(card.id) ? { ...card, starred: stars.get(card.id) === true } : card)),
+    [cards, stars],
+  );
+  const counts = useMemo(() => countWorkflows(starredCards), [starredCards]);
+  const tagCounts = useMemo(() => countTags(starredCards), [starredCards]);
+  const visible = useMemo(() => viewWorkflows(starredCards, view), [starredCards, view]);
   const narrowed = !isDefaultView(view);
+  const { missing: missingTag } = resolveViewTag(view, tags);
+  const sortedTags = useMemo(() => sortTags(tags), [tags]);
 
   const update = (patch: Partial<ListView>) => setView((current) => ({ ...current, ...patch }));
+
+  // The view, written to the address bar as it changes.
+  useEffect(() => writeViewToUrl(view), [view]);
+
+  const toggleStar = async (card: WorkflowCard) => {
+    const starred = !card.starred;
+    setStars((current) => new Map(current).set(card.id, starred));
+    try {
+      await api.starWorkflow(card.id, starred);
+    } catch {
+      setStars((current) => new Map(current).set(card.id, !starred));
+      toast({
+        tone: "bad",
+        title: starred ? `Could not star “${card.name}”` : `Could not unstar “${card.name}”`,
+        detail: "Nothing changed. Try again.",
+        duration: null,
+      });
+    }
+  };
+
+  const duplicate = async (card: WorkflowCard) => {
+    try {
+      const copy = await api.duplicateWorkflow(card.id);
+      const off = !copy.active && (copy.scheduleCron !== null || copy.webhookUrl !== null);
+      toast({
+        tone: "ok",
+        title: `Duplicated as “${copy.name}”`,
+        detail: off
+          ? "This is the copy. It is switched off, so its trigger will not run it until you switch it on."
+          : "This is the copy. The original is unchanged.",
+      });
+      router.push(`/workflows/${copy.id}`);
+    } catch (caught) {
+      toast({
+        tone: "bad",
+        title: `Could not duplicate “${card.name}”`,
+        detail: caught instanceof ApiRequestError ? caught.message : "Nothing was created. Try again.",
+        duration: null,
+      });
+    }
+  };
+
+  // Asked only when the workflow holds a pin; otherwise there is nothing to decide (D146).
+  const exportCard = async (card: WorkflowCard) => {
+    if (card.pinnedCount > 0) {
+      setExporting(card);
+      return;
+    }
+    try {
+      await downloadExport(card, false);
+      toast({ tone: "ok", title: `Exported “${card.name}”` });
+    } catch (caught) {
+      toast({
+        tone: "bad",
+        title: "Could not export that workflow",
+        detail: caught instanceof ApiRequestError ? caught.message : "Nothing was downloaded. Try again.",
+        duration: null,
+      });
+    }
+  };
+
+  // A rename or a delete of the tag the list is filtered by moves the filter with it — and the
+  // address with it, written before the refresh is asked for so the router's queue sees the new
+  // address first (`lib/ui/url.ts` has the bug this guards against).
+  const onTagChanged = (change: TagChange) => {
+    const next = viewAfterTagChange(view, change);
+    if (next !== view) {
+      setView(next);
+      writeViewToUrl(next);
+    }
+    router.refresh();
+  };
+
+  const filterByTag = (tag: TagSummary) => update({ tag: tag.name });
 
   const confirmDelete = async () => {
     if (!pendingDelete) return;
@@ -172,6 +301,50 @@ export function WorkflowList({
             ]}
           />
         </div>
+
+        {/* Phase 32 — the library's two filters. Starred is a toggle like the chips above;
+            tags are a `<select>`, because a workspace may hold up to a hundred of them and a
+            row of a hundred chips is not a filter anybody can read. */}
+        <div className="mt-3.5 flex flex-wrap items-center gap-x-5 gap-y-2.5">
+          <div role="group" aria-label="Filter by star" className="flex items-center gap-1.5">
+            <span className="eyebrow">Mine</span>
+            <FilterButton
+              active={view.starred}
+              onClick={() => update({ starred: !view.starred })}
+              count={counts.starred}
+            >
+              <span aria-hidden="true">{view.starred ? "★" : "☆"}</span> Starred
+            </FilterButton>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="flex items-center gap-1.5">
+              <span className="eyebrow">Tag</span>
+              <Select
+                value={tagSelectValue(view, tags)}
+                onChange={(event) => update({ tag: event.target.value === "" ? null : event.target.value })}
+                className="w-auto min-w-40 py-1"
+              >
+                <option value="">Any tag</option>
+                {missingTag !== null && (
+                  <option value={MISSING_TAG} disabled>
+                    “{missingTag}” — no such tag
+                  </option>
+                )}
+                {sortedTags.map((tag) => (
+                  <option key={tag.id} value={tag.name}>
+                    {tag.name} ({tagCounts.get(tag.id) ?? 0})
+                  </option>
+                ))}
+              </Select>
+            </label>
+            {canEdit && (
+              <Button tone="ghost" size="sm" onClick={() => setManagingTags(true)}>
+                Manage tags
+              </Button>
+            )}
+          </div>
+        </div>
       </div>
 
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
@@ -190,7 +363,13 @@ export function WorkflowList({
           level={2}
           art={<QuietArt />}
           title="Nothing matches that"
-          description="No workflow in your list matches the search and filters you have set."
+          description={
+            missingTag !== null
+              ? `There is no tag called “${missingTag}” in this workspace — it may have been renamed or deleted.`
+              : view.starred && counts.starred === 0
+                ? "You have not starred a workflow yet. The ☆ beside a workflow's name stars it, for you alone."
+                : "No workflow in your list matches the search and filters you have set."
+          }
           action={
             <Button tone="primary" onClick={() => setView({ ...DEFAULT_VIEW, sort: view.sort })}>
               Clear filters
@@ -205,7 +384,13 @@ export function WorkflowList({
               card={card}
               delay={Math.min(index * 40, 280)}
               canEdit={canEdit}
+              activeTag={view.tag}
               onDelete={() => setPendingDelete(card)}
+              onStar={() => toggleStar(card)}
+              onTags={() => setTagging(card)}
+              onDuplicate={() => duplicate(card)}
+              onExport={() => exportCard(card)}
+              onTag={filterByTag}
             />
           ))}
         </ul>
@@ -229,6 +414,23 @@ export function WorkflowList({
           </>
         }
       />
+
+      <WorkflowTagsDialog
+        card={tagging}
+        tags={tags}
+        onClose={() => setTagging(null)}
+        onSaved={() => router.refresh()}
+      />
+      <ExportDialog card={exporting} onClose={() => setExporting(null)} />
+      {canEdit && (
+        <ManageTagsDialog
+          open={managingTags}
+          tags={tags}
+          counts={tagCounts}
+          onClose={() => setManagingTags(false)}
+          onChanged={onTagChanged}
+        />
+      )}
     </>
   );
 }
@@ -237,12 +439,25 @@ function Row({
   card,
   delay,
   canEdit,
+  activeTag,
   onDelete,
+  onStar,
+  onTags,
+  onDuplicate,
+  onExport,
+  onTag,
 }: {
   card: WorkflowCard;
   delay: number;
   canEdit: boolean;
+  /** The tag the list is filtered by, so its chip on this card shows as pressed. */
+  activeTag: string | null;
   onDelete: () => void;
+  onStar: () => void;
+  onTags: () => void;
+  onDuplicate: () => void;
+  onExport: () => void;
+  onTag: (tag: TagSummary) => void;
 }) {
   const router = useRouter();
 
@@ -251,6 +466,23 @@ function Row({
       style={{ animationDelay: `${delay}ms` }}
       className="card animate-rise flex items-start gap-3 p-4"
     >
+      {/* Phase 32. A star is the reader's own — a viewer may star — and it is a toggle
+          button: `aria-pressed` says the state, and the glyph's shape says it again, filled
+          or hollow, so it is never carried by colour alone. */}
+      <button
+        type="button"
+        aria-pressed={card.starred}
+        onClick={onStar}
+        className={cn(
+          "-mt-0.5 -ml-1 grid size-8 shrink-0 place-items-center rounded-lg text-lg leading-none",
+          "hover:bg-ink/7 transition-colors",
+          card.starred ? "text-warn" : "text-muted hover:text-ink",
+        )}
+      >
+        <span aria-hidden="true">{card.starred ? "★" : "☆"}</span>
+        <span className="sr-only">Star “{card.name}”</span>
+      </button>
+
       <div className="min-w-0 flex-1">
         <Link
           href={`/workflows/${card.id}`}
@@ -301,6 +533,27 @@ function Row({
               switched off
             </Badge>
           )}
+          {/* Phase 32. A tag is a button that filters the list by it — the quickest way from
+              "this one is billing" to "show me billing". Pressed when it is the filter. */}
+          {card.tags.map((tag) => {
+            const pressed = activeTag !== null && sameTagName(activeTag, tag.name);
+            return (
+              <button
+                key={tag.id}
+                type="button"
+                aria-pressed={pressed}
+                onClick={() => onTag(tag)}
+                className={cn(
+                  "chip min-h-6 cursor-pointer",
+                  pressed ? "bg-accent-pop text-accent-ink" : "bg-surface text-ink hover:bg-canvas",
+                )}
+              >
+                <span aria-hidden="true">#</span>
+                {tag.name}
+                <span className="sr-only">, filter by this tag</span>
+              </button>
+            );
+          })}
         </div>
 
         <p className="text-faint mt-2 text-2xs">
@@ -328,6 +581,14 @@ function Row({
             onSelect: () => router.push(`/workflows/${card.id}`),
           },
           ...(canEdit
+            ? [
+                { id: "tags", label: "Tags…", onSelect: onTags },
+                { id: "duplicate", label: "Duplicate", onSelect: onDuplicate },
+              ]
+            : []),
+          // A viewer may export: it is a read of what they can already open, minus every token.
+          { id: "export", label: card.pinnedCount > 0 ? "Export as JSON…" : "Export as JSON", onSelect: onExport },
+          ...(canEdit
             ? [{ id: "delete", label: "Delete", tone: "danger" as const, onSelect: onDelete }]
             : []),
         ]}
@@ -342,6 +603,37 @@ function Row({
  * toggle button announce as one, and the pressed button also sits pressed IN, so the
  * state is never carried by colour alone.
  */
+/** One toggle button of the filter rows — pressed IN when active, never colour alone. */
+function FilterButton({
+  active,
+  onClick,
+  count,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  count: number;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={onClick}
+      className={cn(
+        "btn px-2.5 py-1 text-2xs",
+        active ? "btn-primary translate-x-[2px] translate-y-[2px] shadow-(--shadow-press)" : "btn-quiet",
+      )}
+    >
+      {children}
+      {/* The full label colour on the fill, never a dimmed one: `accent-ink` at 70%
+          measured 3.77:1 on the grape fill in Light (Phase 28's contrast audit). The
+          count is set apart by its size instead. */}
+      <span className={cn("text-3xs", active ? "text-accent-ink" : "text-faint")}>{count}</span>
+    </button>
+  );
+}
+
 function Filters<T extends StatusKey | TriggerKey>({
   label,
   value,
@@ -356,31 +648,16 @@ function Filters<T extends StatusKey | TriggerKey>({
   return (
     <div role="group" aria-label={`Filter by ${label.toLowerCase()}`} className="flex flex-wrap items-center gap-1.5">
       <span className="eyebrow">{label}</span>
-      {options.map((option) => {
-        const active = option.value === value;
-        return (
-          <button
-            key={option.value}
-            type="button"
-            aria-pressed={active}
-            onClick={() => onChange(option.value)}
-            className={cn(
-              "btn px-2.5 py-1 text-2xs",
-              active
-                ? "btn-primary translate-x-[2px] translate-y-[2px] shadow-(--shadow-press)"
-                : "btn-quiet",
-            )}
-          >
-            {option.label}
-            {/* The full label colour on the fill, never a dimmed one: `accent-ink` at 70%
-                measured 3.77:1 on the grape fill in Light (Phase 28's contrast audit). The
-                count is set apart by its size instead. */}
-            <span className={cn("text-3xs", active ? "text-accent-ink" : "text-faint")}>
-              {option.count}
-            </span>
-          </button>
-        );
-      })}
+      {options.map((option) => (
+        <FilterButton
+          key={option.value}
+          active={option.value === value}
+          onClick={() => onChange(option.value)}
+          count={option.count}
+        >
+          {option.label}
+        </FilterButton>
+      ))}
     </div>
   );
 }

@@ -2,6 +2,7 @@ import { handle, ok, readJson, requireScope } from "@/lib/api";
 import {
   createWorkflow,
   createWorkflowSchema,
+  describeListedWorkflow,
   describeWorkflow,
   listWorkflows,
 } from "@/lib/workflow/store";
@@ -12,7 +13,8 @@ export async function GET() {
   return handle(async () => {
     const scope = await requireScope();
     const workflows = await listWorkflows(scope);
-    return ok(workflows.map(describeWorkflow));
+    // Phase 32: each listed workflow carries its tags and the asker's star.
+    return ok(workflows.map(describeListedWorkflow));
   });
 }
 

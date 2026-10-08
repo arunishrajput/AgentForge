@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { keepGroupsTogether, rankCommands, scoreCommand, type Command } from "./command";
+import { keepGroupsTogether, rankCommands, scoreCommand, starredFirst, type Command } from "./command";
 
 const COMMANDS: Command[] = [
   { id: "new", title: "New workflow", keywords: ["create", "blank", "canvas"] },
@@ -166,4 +166,47 @@ test("regrouping keeps the best match first and leaves an already-grouped list a
   ];
   assert.deepEqual(keepGroupsTogether(grouped), grouped);
   assert.deepEqual(keepGroupsTogether([]), []);
+});
+
+test("starredFirst puts starred items first and keeps each side's order — Phase 32", () => {
+  const items = [
+    { id: "a", starred: false },
+    { id: "b", starred: true },
+    { id: "c", starred: false },
+    { id: "d", starred: true },
+  ];
+  assert.deepEqual(starredFirst(items).map((item) => item.id), ["b", "d", "a", "c"]);
+  assert.deepEqual(items.map((item) => item.id), ["a", "b", "c", "d"]);
+});
+
+/**
+ * How the palette uses it: starred workflows in a "Starred" group placed ahead of the
+ * "Workflows" group. A tie goes to the starred one; a better match does not lose to a star.
+ */
+test("a starred workflow wins a tie in ⌘K, and loses to a better match", () => {
+  const palette = [
+    { id: "s1", group: "Starred", title: "Weekly report" },
+    { id: "w1", group: "Workflows", title: "Weekly digest" },
+    { id: "w2", group: "Workflows", title: "Invoices" },
+  ];
+
+  // "weekly" is a prefix of both — a tie — so the starred one leads, and its group first.
+  const tie = keepGroupsTogether(rankCommands(palette, "weekly"));
+  assert.deepEqual(tie.map((command) => command.id), ["s1", "w1"]);
+
+  // "weekly digest" matches only the unstarred one: a star does not rescue a non-match.
+  const better = keepGroupsTogether(rankCommands(palette, "weekly digest"));
+  assert.deepEqual(better.map((command) => command.id), ["w1"]);
+
+  // An exact title beats a starred prefix match.
+  const exact = keepGroupsTogether(
+    rankCommands(
+      [
+        { id: "s1", group: "Starred", title: "Invoices weekly" },
+        { id: "w2", group: "Workflows", title: "Invoices" },
+      ],
+      "invoices",
+    ),
+  );
+  assert.deepEqual(exact.map((command) => command.id), ["w2", "s1"]);
 });

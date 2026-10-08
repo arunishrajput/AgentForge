@@ -3,10 +3,18 @@ import { test } from "node:test";
 
 import {
   DEFAULT_VIEW,
+  MISSING_TAG,
+  countTags,
   countWorkflows,
   isDefaultView,
   matchesQuery,
+  parseView,
+  resolveViewTag,
+  tagSelectValue,
   toWorkflowCard,
+  viewAfterTagChange,
+  viewHref,
+  viewSearch,
   viewWorkflows,
   type ListView,
   type WorkflowCard,
@@ -33,6 +41,8 @@ function described(over: Partial<Parameters<typeof toWorkflowCard>[0]> = {}) {
     visibility: "workspace",
     shareUrl: null,
     active: true,
+    tags: [] as { id: string; name: string }[],
+    starred: false,
     createdAt: "2026-09-01T00:00:00.000Z",
     updatedAt: "2026-09-20T00:00:00.000Z",
     ...over,
@@ -237,6 +247,7 @@ test("countWorkflows counts each axis independently", () => {
     manual: 1,
     webhook: 1,
     schedule: 1,
+    starred: 0,
   });
 });
 
@@ -271,4 +282,136 @@ test("a card never carries the share URL itself", () => {
   // has no use there and the canvas dialog is where it belongs.
   const result = toWorkflowCard(described({ shareUrl: "https://app.example/s/SECRET" }), LOOKUP);
   assert.doesNotMatch(JSON.stringify(result), /SECRET/);
+});
+
+/* ------------------------- Phase 32: the library ------------------------- */
+
+const BILLING = { id: "t-billing", name: "Billing" };
+const OPS = { id: "t-ops", name: "ops" };
+
+const TAGGED = [
+  card({ id: "a", name: "Alpha", tags: [BILLING], starred: true, updatedAt: "2026-09-03T00:00:00.000Z" }),
+  card({ id: "b", name: "Beta", tags: [BILLING, OPS], updatedAt: "2026-09-02T00:00:00.000Z" }),
+  card({ id: "c", name: "Gamma", tags: [], starred: true, updatedAt: "2026-09-01T00:00:00.000Z" }),
+];
+
+test("a card carries its tags, sorted by name, its star and how many pins it holds", () => {
+  const result = toWorkflowCard(
+    described({
+      tags: [OPS, BILLING],
+      starred: true,
+      graph: { nodes: [{ type: "core.manual_trigger" }, { type: "core.log", pinned: { output: 1 } }] },
+    }),
+    LOOKUP,
+  );
+  assert.deepEqual(result.tags.map((tag) => tag.name), ["Billing", "ops"]);
+  assert.equal(result.starred, true);
+  assert.equal(result.pinnedCount, 1);
+  // A pin of `null` is a pin: `pinned` is `{ output: null }`, present.
+  const nullPin = toWorkflowCard(described({ graph: { nodes: [{ type: "core.log", pinned: { output: null } }] } }), LOOKUP);
+  assert.equal(nullPin.pinnedCount, 1);
+});
+
+test("the tag filter keeps the workflows wearing it, ignoring case — `?tag=billing` finds Billing", () => {
+  assert.deepEqual(viewWorkflows(TAGGED, view({ tag: "billing" })).map((c) => c.id), ["a", "b"]);
+  assert.deepEqual(viewWorkflows(TAGGED, view({ tag: "OPS" })).map((c) => c.id), ["b"]);
+  assert.deepEqual(viewWorkflows(TAGGED, view({ tag: "weekly" })).map((c) => c.id), []);
+});
+
+test("the starred filter keeps only the reader's starred workflows, and combines with a tag", () => {
+  assert.deepEqual(viewWorkflows(TAGGED, view({ starred: true })).map((c) => c.id), ["a", "c"]);
+  assert.deepEqual(viewWorkflows(TAGGED, view({ starred: true, tag: "billing" })).map((c) => c.id), ["a"]);
+});
+
+test("search matches a tag's name too", () => {
+  assert.equal(matchesQuery(TAGGED[1], "ops"), true);
+  assert.equal(matchesQuery(TAGGED[2], "billing"), false);
+});
+
+test("countWorkflows counts the starred, and countTags counts each tag's wearers by id", () => {
+  assert.equal(countWorkflows(TAGGED).starred, 2);
+  const counts = countTags(TAGGED);
+  assert.equal(counts.get(BILLING.id), 2);
+  assert.equal(counts.get(OPS.id), 1);
+  assert.equal(counts.get("t-unworn"), undefined);
+});
+
+test("a tag or the starred filter is a narrowing, so the list offers to clear it", () => {
+  assert.equal(isDefaultView(view({ tag: "billing" })), false);
+  assert.equal(isDefaultView(view({ starred: true })), false);
+});
+
+test("the default view is the bare URL, and every part round-trips through it", () => {
+  assert.equal(viewSearch(DEFAULT_VIEW), "");
+  const full: ListView = {
+    query: "weekly digest",
+    status: "problems",
+    trigger: "schedule",
+    tag: "needs review",
+    starred: true,
+    sort: "name",
+  };
+  const search = viewSearch(full);
+  assert.equal(search, "q=weekly+digest&status=problems&trigger=schedule&tag=needs+review&starred=1&sort=name");
+  assert.deepEqual(parseView(Object.fromEntries(new URLSearchParams(search))), full);
+});
+
+test("a part at its default is left out of the URL", () => {
+  assert.equal(viewSearch(view({ sort: "recent", status: "all", trigger: "all" })), "");
+  assert.equal(viewSearch(view({ tag: "billing" })), "tag=billing");
+});
+
+test("parseView is forgiving: an unknown value falls back to that part's default", () => {
+  assert.deepEqual(parseView({}), DEFAULT_VIEW);
+  assert.deepEqual(
+    parseView({ status: "broken", trigger: "email", sort: "oldest", starred: "yes", tag: "   " }),
+    DEFAULT_VIEW,
+  );
+});
+
+test("parseView takes the first of a repeated parameter, and caps a pasted one", () => {
+  assert.equal(parseView({ tag: ["billing", "ops"] }).tag, "billing");
+  assert.equal(parseView({ q: "x".repeat(5000) }).query.length, 200);
+});
+
+test("resolveViewTag names a tag the URL asks for that the workspace does not have", () => {
+  const tags = [BILLING, OPS];
+  assert.deepEqual(resolveViewTag(view(), tags), { tag: null, missing: null });
+  assert.deepEqual(resolveViewTag(view({ tag: "billing" }), tags), { tag: BILLING, missing: null });
+  assert.deepEqual(resolveViewTag(view({ tag: "renamed-away" }), tags), { tag: null, missing: "renamed-away" });
+});
+
+test("the tag select shows the matched tag's own name, whatever case the URL used", () => {
+  const tags = [BILLING, OPS];
+  // The bug: `?tag=BILLING` filtered the list, and the select — given "BILLING", which no
+  // option has — showed "Any tag".
+  assert.equal(tagSelectValue(view({ tag: "BILLING" }), tags), "Billing");
+  assert.equal(tagSelectValue(view({ tag: "billing" }), tags), "Billing");
+  assert.equal(tagSelectValue(view(), tags), "");
+  assert.equal(tagSelectValue(view({ tag: "renamed-away" }), tags), MISSING_TAG);
+});
+
+test("the view's address keeps the path and the hash, and is bare for the default view", () => {
+  assert.equal(viewHref("/workflows", "", DEFAULT_VIEW), "/workflows");
+  assert.equal(viewHref("/workflows", "#generate-prompt", view({ tag: "ops" })), "/workflows?tag=ops#generate-prompt");
+});
+
+test("renaming the filtered tag moves the filter — and the address — to the new name", () => {
+  const before = view({ tag: "zzzz-walk billing", starred: true });
+  const after = viewAfterTagChange(before, { renamed: { from: "ZZZZ-walk Billing", to: "zzzz-walk invoices" } });
+  assert.equal(after.tag, "zzzz-walk invoices");
+  assert.equal(after.starred, true);
+  // What the list writes to the address bar before it refreshes — the walk's bug kept the old one.
+  assert.equal(viewHref("/workflows", "", after), "/workflows?tag=zzzz-walk+invoices&starred=1");
+});
+
+test("deleting the filtered tag lets go of it; any other change leaves the view as it was", () => {
+  const filtered = view({ tag: "billing" });
+  assert.equal(viewAfterTagChange(filtered, { deleted: "Billing" }).tag, null);
+  // Unrelated changes return the very same object, so there is no new address to write.
+  assert.equal(viewAfterTagChange(filtered, { renamed: { from: "ops", to: "oncall" } }), filtered);
+  assert.equal(viewAfterTagChange(filtered, { deleted: "ops" }), filtered);
+  assert.equal(viewAfterTagChange(filtered, { created: "billing" }), filtered);
+  const unfiltered = view();
+  assert.equal(viewAfterTagChange(unfiltered, { deleted: "billing" }), unfiltered);
 });

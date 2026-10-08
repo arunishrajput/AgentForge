@@ -47,8 +47,8 @@ is the file it means.
 29  Canvas I — editing ergonomics                          ✅
 30  Canvas II — sticky notes and disabled nodes            ✅
 31  Canvas III — the test loop: pinned data and partial runs  ✅
-32  Library — organising workflows                         ← START HERE
-33  Runs — history and recovery
+32  Library — organising workflows                         ✅
+33  Runs — history and recovery                            ← START HERE
 34  Generator at scale — catalogue selection and evals
 35  Copilot I — edit a workflow by conversation
 36  Copilot II — explain and repair
@@ -920,6 +920,88 @@ role). `verify-api.mjs` extended.
 `PROGRESS.md`.
 
 **Commit.** `feat: complete phase 32 workflow library`
+
+**Status: COMPLETE, 2026-10-08 — deployed as `agentforge-00080-xwm` and verified there, on the API and
+in a real browser in Light and Toybox Night.** Three deploys: `00078-ktw` shipped the phase, `00079-p99`
+and `00080-xwm` what the browser walk found. Migration `0014` — three new tables, nothing altered. What
+was built:
+
+- **Tags** (D144) — `tag` and `workflow_tag`, unique per workspace ignoring case by an index on
+  `lower(name)`; create, rename, delete and assign at `editor`; assigning replaces the set in one
+  statement whose tags are selected through the workspace. Tagging writes no version and does not
+  move `updatedAt`. Managed from *Manage tags* on the list and *Tags…* on each row; a tag on a card is
+  a button that filters by it
+- **Stars** (D148) — `workflow_star`, per person, and a `viewer` may star. A *Starred* filter, and ⌘K
+  lists starred workflows first in a group of their own — winning a tie, losing to a better match
+- **Tags and stars ride along on the list query** (D69, D148) — two correlated subqueries, written as
+  literal qualified SQL (`library-sql.ts`) because drizzle renders a column unqualified in a select
+  list; only the list carries them
+- **Duplicate** (D147) — server-side, through `createWorkflow`: its own webhook token, the graph with
+  pins, the original's visibility and tags, no stars, **switched off when its trigger runs by itself**,
+  version 1 labelled with its source
+- **Export** (D146) — `agentforge/workflow` version 1: name, description, graph, built field by field;
+  no id, token, owner or workspace, and no credential can be in it (a test searches for sentinels in
+  every secret-shaped column). **Pins only on request** — the list asks, in a dialog, when a workflow
+  holds one
+- **Import** (D146) — the envelope as the body, 2 MB at most; format and version read before the
+  shape; a newer version refused as newer; a clipboard of nodes pointed at the canvas; a malformed
+  workflow refused with the failing paths; **an unknown node type refuses the whole file, naming every
+  type** (422); any other problem imports `runnable: false`. Switched off when it runs by itself. From
+  a file or a paste, in the list's *Import* dialog
+- **The view in the URL** (D149) — `q`, `status`, `trigger`, `tag` (a name, ignoring case), `starred`,
+  `sort`, parsed forgivingly on the server and written back with `replaceState(null, …)`; a URL naming
+  a tag that does not exist says so
+- **Folders not built** (D145)
+
+**Verified on the deployed service**: `verify-api` **480 passed / 3 skipped** on `00078-ktw` — a Phase 32
+section of 41 checks (tags, the case-insensitive clash, a foreign tag refused with nothing written,
+tagging not a version, stars idempotent, a duplicate's token, graph, tags, label and run, a webhook
+duplicate switched off and its webhook refusing 409, visibility inherited, an export free of every
+token and id, pins out by default and in on request, an import into a second workspace equal to the
+graph and run there, and six refusals that created nothing) plus ten matrix rows, every role below
+the bar refused and a viewer told which role a duplicate needs. The third skip is Discord's
+end-to-end post, left to the smoke walk. `verify-security` 78 (the seven new routes, ten methods,
+all 401 without a session; the exception table unchanged at 11), `verify-templates` 47,
+`verify-integrations` 60 / 2 skipped, `verify-timers` 34, `verify-postgres` 65, `verify-providers` 55,
+`verify-vault` 62, `verify-observability` 69 / 1 structural skip, `verify-durable all` — **0 failed**.
+**`smoke.mjs` clean, all eight beats** — which closes Phase 31's re-run note. On `00080-xwm`: the Phase 32
+checks 41 / 41, `verify-a11y` 92, `verify-security` 78, `verify-templates` 47.
+
+**Walked in a real browser on the deployed list**, Light and Night, with two probe workflows (a trigger
+and a log — nothing that writes anywhere): a pasted `?q=` opened searched; starred (the count moved);
+two tags created and saved from *Tags…*; a tag chip filtered the list and wrote `?tag=`; a pasted
+`?tag=…&starred=1&sort=name` opened exactly that view; the webhook probe duplicated, opened switched
+off with its note, and ran; *Export as JSON…* asked about the pin, unticked, and the file — captured in
+the page rather than saved to disk — held no pin and no id, and with the box ticked held the pin; a
+second workspace was made, the export imported there (refused first as not JSON, then naming
+`integration.trello` and `core.merge`), opened with its pin and note, and ran as a test; ⌘K led with
+*Starred*, and a starred match won the tie; *Manage tags* renamed and deleted. **The contrast audit
+was clean on every state in both themes**, with and without the `aria-hidden` glyphs; at 375 px in a
+same-origin iframe nothing scrolled sideways and every target was at least 24 px.
+
+**Found in verification, fixed, re-checked:**
+
+- **Every card's tags read back empty** — drizzle renders an interpolated column unqualified in a select
+  list, so the correlation was `"workflowId" = "id"`, bound to the tag. Found by the Phase 32 checks
+  against a local build before the first deploy; literal SQL now, and a test that renders the query
+- **A tag clash quoted what was typed**, not the tag that holds the name — now the stored spelling, on
+  the server and in the dialog
+- **The file input had no accessible name** (`verify-a11y` 91 / 1 on `00078-ktw`) — the hidden-input-
+  behind-a-button pattern is now the input inside a label that wears its focus ring
+- **`?tag=BILLING` filtered the list and the select read *Any tag*** — a `<select>` given a value no
+  option has shows its first; it is given the matched tag's name (`tagSelectValue`)
+- **The export dialog reopened still ticked** — dialogs reset on every opening, not only for a new
+  workflow; the tags dialog's Cancel had the same flaw (`lib/ui/subject.ts`)
+- **An error under a tag field pushed *Add* below the field** — the error sits under the row now
+- **The address bar fell back to the loaded URL after any refresh** — a renamed tag kept a link to its
+  old name. Next 16's patched `replaceState` ignores a call carrying its own `__NA` state, which
+  `window.history.state` is; the list passed it. `null` now, in `lib/ui/url.ts`, with a test. Found on
+  `00079-p99`, fixed in `00080-xwm`, and re-checked: rename, then Starred and a refresh, kept every
+  part of the URL
+
+1333 tests; coverage 89.98 / 92.18 / 83.52. **Not driven, said plainly:** a real file *saved* by the
+browser (the download was intercepted in the page — saving one needs the user's permission), a
+*viewer's* list (the standing Known Issue; the API matrix covers their refusals), and Safari.
 
 ---
 
