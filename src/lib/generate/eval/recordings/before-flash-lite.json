@@ -1,0 +1,671 @@
+{
+  "label": "before-flash-lite",
+  "description": "Before Phase 34: the whole catalogue on every call, no reference retry. 19 cases ran on the Phase 33 prompt; the 5 that got no answer (503 'high demand', timeouts) were re-run the same day, after the agent's tool sentence had been reworded (23 characters). refund-decision was re-judged after its trigger expectation was removed as unfair",
+  "provider": "google",
+  "model": "gemini-3.5-flash-lite",
+  "selector": "full",
+  "recordedAt": "2026-10-08T16:51:53.443Z",
+  "cases": {
+    "demo-triage": {
+      "calls": [
+        "{\n  \"name\": \"Process Form Submissions\",\n  \"description\": \"Summarise form webhook submissions, route urgent ones to Discord, and log all submissions to a Google Sheet.\",\n  \"nodes\": [\n    {\n      \"id\": \"webhook\",\n      \"type\": \"core.webhook_trigger\",\n      \"label\": \"Form Webhook\",\n      \"config\": {\n        \"requiredFields\": []\n      }\n    },\n    {\n      \"id\": \"summarise\",\n      \"type\": \"ai.llm\",\n      \"label\": \"Summarise Submission\",\n      \"config\": {\n        \"prompt\": \"Summarise this form submission in one concise sentence: {{trigger.message}}\"\n      }\n    },\n    {\n      \"id\": \"decide\",\n      \"type\": \"ai.agent\",\n      \"label\": \"Classify Urgency\",\n      \"config\": {\n        \"objective\": \"Determine if this form submission is urgent or normal.\",\n        \"choices\": [\n          \"urgent\",\n          \"normal\"\n        ]\n      }\n    },\n    {\n      \"id\": \"branch_urgent\",\n      \"type\": \"core.branch\",\n      \"label\": \"Is Urgent?\",\n      \"config\": {\n        \"left\": \"{{input.decision}}\",\n        \"operator\": \"equals\",\n        \"right\": \"urgent\"\n      }\n    },\n    {\n      \"id\": \"discord\",\n      \"type\": \"integration.discord\",\n      \"label\": \"Post Urgent to Discord\",\n      \"config\": {\n        \"content\": \"Urgent submission: {{steps.summarise.output.text}}\"\n      }\n    },\n    {\n      \"id\": \"sheets\",\n      \"type\": \"integration.sheets\",\n      \"label\": \"Log to Google Sheet\",\n      \"config\": {\n        \"spreadsheetId\": \"\",\n        \"sheet\": \"Sheet1\",\n        \"values\": [\n          \"{{trigger.message}}\",\n          \"{{steps.summarise.output.text}}\"\n        ],\n        \"valueInputOption\": \"RAW\"\n      }\n    }\n  ],\n  \"edges\": [\n    {\n      \"source\": \"webhook\",\n      \"target\": \"summarise\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"summarise\",\n      \"target\": \"decide\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"decide\",\n      \"target\": \"branch_urgent\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"branch_urgent\",\n      \"target\": \"discord\",\n      \"sourceHandle\": \"true\"\n    },\n    {\n      \"source\": \"branch_urgent\",\n      \"target\": \"sheets\",\n      \"sourceHandle\": \"false\"\n    },\n    {\n      \"source\": \"discord\",\n      \"target\": \"sheets\",\n      \"sourceHandle\": null\n    }\n  ],\n  \"unsupported\": []\n}"
+      ],
+      "models": [
+        "gemini-3.5-flash-lite"
+      ],
+      "ms": [
+        4760
+      ],
+      "tokens": [
+        {
+          "input": 6549,
+          "output": 688
+        }
+      ],
+      "selected": null,
+      "promptChars": 25081,
+      "verdict": "pass",
+      "failures": []
+    },
+    "news-digest": {
+      "calls": [
+        "{\n  \"name\": \"Hacker News Weekday Summary\",\n  \"description\": \"Fetches top Hacker News stories every weekday at 8am, summarises them using an LLM, and posts the summary to Slack.\",\n  \"nodes\": [\n    {\n      \"id\": \"schedule\",\n      \"type\": \"core.schedule_trigger\",\n      \"label\": \"Weekday 8am\",\n      \"config\": {\n        \"cron\": \"0 8 * * 1-5\"\n      }\n    },\n    {\n      \"id\": \"fetch_stories\",\n      \"type\": \"integration.http\",\n      \"label\": \"Fetch Top Stories\",\n      \"config\": {\n        \"method\": \"GET\",\n        \"url\": \"https://hacker-news.firebaseio.com/v0/topstories.json\"\n      }\n    },\n    {\n      \"id\": \"summarise\",\n      \"type\": \"ai.llm\",\n      \"label\": \"Summarise Stories\",\n      \"config\": {\n        \"prompt\": \"Here is the raw JSON list of top story IDs from Hacker News: {{steps.fetch_stories.output.text}}. Please provide a concise summary of these top stories.\",\n        \"system\": \"You are a helpful assistant that summarises technology news.\"\n      }\n    },\n    {\n      \"id\": \"post_slack\",\n      \"type\": \"integration.slack\",\n      \"label\": \"Post to Slack\",\n      \"config\": {\n        \"text\": \"{{steps.summarise.output.text}}\"\n      }\n    }\n  ],\n  \"edges\": [\n    {\n      \"source\": \"schedule\",\n      \"target\": \"fetch_stories\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"fetch_stories\",\n      \"target\": \"summarise\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"summarise\",\n      \"target\": \"post_slack\",\n      \"sourceHandle\": null\n    }\n  ],\n  \"unsupported\": []\n}"
+      ],
+      "models": [
+        "gemini-3.5-flash-lite"
+      ],
+      "ms": [
+        12031
+      ],
+      "tokens": [
+        {
+          "input": 6556,
+          "output": 474
+        }
+      ],
+      "selected": [
+        "core.manual_trigger",
+        "core.webhook_trigger",
+        "core.schedule_trigger",
+        "core.set",
+        "core.log",
+        "core.branch",
+        "core.switch",
+        "core.loop",
+        "core.delay",
+        "core.assert",
+        "transform.filter",
+        "transform.map",
+        "transform.sort",
+        "transform.unique",
+        "transform.aggregate",
+        "transform.json",
+        "transform.text",
+        "transform.number",
+        "transform.date",
+        "ai.llm",
+        "ai.agent",
+        "integration.http",
+        "integration.discord",
+        "integration.slack",
+        "integration.sheets",
+        "integration.gmail",
+        "integration.notion",
+        "integration.github",
+        "integration.airtable",
+        "integration.postgres"
+      ],
+      "promptChars": 25058,
+      "verdict": "pass",
+      "failures": []
+    },
+    "bug-report-issue": {
+      "calls": [
+        "{\n  \"name\": \"Bug Report to GitHub and Discord\",\n  \"description\": \"Opens a GitHub issue from a submitted bug report and posts the issue link to Discord.\",\n  \"nodes\": [\n    {\n      \"id\": \"receive_bug\",\n      \"type\": \"core.webhook_trigger\",\n      \"label\": \"Webhook Trigger\",\n      \"config\": {\n        \"requiredFields\": [\n          \"title\",\n          \"description\"\n        ]\n      }\n    },\n    {\n      \"id\": \"create_github_issue\",\n      \"type\": \"integration.github\",\n      \"label\": \"GitHub Issue\",\n      \"config\": {\n        \"operation\": \"createIssue\",\n        \"repo\": \"\",\n        \"title\": \"{{trigger.title}}\",\n        \"body\": \"{{trigger.description}}\"\n      }\n    },\n    {\n      \"id\": \"post_discord\",\n      \"type\": \"integration.discord\",\n      \"label\": \"Post to Discord\",\n      \"config\": {\n        \"content\": \"New bug report issue created: {{steps.create_github_issue.output.url}}\"\n      }\n    }\n  ],\n  \"edges\": [\n    {\n      \"source\": \"receive_bug\",\n      \"target\": \"create_github_issue\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"create_github_issue\",\n      \"target\": \"post_discord\",\n      \"sourceHandle\": null\n    }\n  ],\n  \"unsupported\": []\n}"
+      ],
+      "models": [
+        "gemini-3.5-flash-lite"
+      ],
+      "ms": [
+        8817
+      ],
+      "tokens": [
+        {
+          "input": 6545,
+          "output": 352
+        }
+      ],
+      "selected": null,
+      "promptChars": 25081,
+      "verdict": "pass",
+      "failures": []
+    },
+    "classify-billing": {
+      "calls": [
+        "{\n  \"name\": \"Classify support messages and email billing\",\n  \"description\": \"Receives support messages via webhook, classifies them, and emails billing issues to finance.\",\n  \"nodes\": [\n    {\n      \"id\": \"receive_message\",\n      \"type\": \"core.webhook_trigger\",\n      \"label\": \"Support message webhook\",\n      \"config\": {\n        \"requiredFields\": [\n          \"message\"\n        ]\n      }\n    },\n    {\n      \"id\": \"classify_message\",\n      \"type\": \"ai.agent\",\n      \"label\": \"Classify message\",\n      \"config\": {\n        \"objective\": \"Classify the support message into one of these categories: billing, technical, or other.\",\n        \"choices\": [\n          \"billing\",\n          \"technical\",\n          \"other\"\n        ]\n      }\n    },\n    {\n      \"id\": \"check_billing\",\n      \"type\": \"core.branch\",\n      \"label\": \"Is billing?\",\n      \"config\": {\n        \"left\": \"{{input.decision}}\",\n        \"operator\": \"equals\",\n        \"right\": \"billing\"\n      }\n    },\n    {\n      \"id\": \"email_finance\",\n      \"type\": \"integration.gmail\",\n      \"label\": \"Email finance\",\n      \"config\": {\n        \"to\": \"finance@example.com\",\n        \"subject\": \"New Billing Support Message\",\n        \"body\": \"A new billing message was received: {{trigger.message}}\"\n      }\n    }\n  ],\n  \"edges\": [\n    {\n      \"source\": \"receive_message\",\n      \"target\": \"classify_message\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"classify_message\",\n      \"target\": \"check_billing\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"check_billing\",\n      \"target\": \"email_finance\",\n      \"sourceHandle\": \"true\"\n    }\n  ],\n  \"unsupported\": []\n}"
+      ],
+      "models": [
+        "gemini-3.5-flash-lite"
+      ],
+      "ms": [
+        26093
+      ],
+      "tokens": [
+        {
+          "input": 6545,
+          "output": 477
+        }
+      ],
+      "selected": null,
+      "promptChars": 25081,
+      "verdict": "pass",
+      "failures": []
+    },
+    "weekly-orders": {
+      "calls": [
+        "{\n  \"name\": \"Weekly Orders Count to Slack\",\n  \"description\": \"Counts rows in the orders table every Monday at 9:00 UTC and sends the result to Slack.\",\n  \"nodes\": [\n    {\n      \"id\": \"schedule_trigger\",\n      \"type\": \"core.schedule_trigger\",\n      \"label\": \"Every Monday at 9:00\",\n      \"config\": {\n        \"cron\": \"0 9 * * 1\"\n      }\n    },\n    {\n      \"id\": \"count_orders\",\n      \"type\": \"integration.postgres\",\n      \"label\": \"Count Orders Table\",\n      \"config\": {\n        \"operation\": \"count\",\n        \"schema\": \"public\",\n        \"table\": \"orders\"\n      }\n    },\n    {\n      \"id\": \"send_slack\",\n      \"type\": \"integration.slack\",\n      \"label\": \"Send to Slack\",\n      \"config\": {\n        \"text\": \"The current order count is {{steps.count_orders.output.count}}.\"\n      }\n    }\n  ],\n  \"edges\": [\n    {\n      \"source\": \"schedule_trigger\",\n      \"target\": \"count_orders\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"count_orders\",\n      \"target\": \"send_slack\",\n      \"sourceHandle\": null\n    }\n  ],\n  \"unsupported\": []\n}"
+      ],
+      "models": [
+        "gemini-3.5-flash-lite"
+      ],
+      "ms": [
+        21643
+      ],
+      "tokens": [
+        {
+          "input": 6543,
+          "output": 337
+        }
+      ],
+      "selected": null,
+      "promptChars": 25081,
+      "verdict": "pass",
+      "failures": []
+    },
+    "cheap-products": {
+      "calls": [
+        "{\n  \"name\": \"Filter and sort products by price\",\n  \"description\": \"Filters a pasted list of products to keep those under 50, sorts them from cheapest to most expensive, and logs the result.\",\n  \"nodes\": [\n    {\n      \"id\": \"trigger\",\n      \"type\": \"core.manual_trigger\",\n      \"label\": \"Input products\",\n      \"config\": {}\n    },\n    {\n      \"id\": \"filter_products\",\n      \"type\": \"transform.filter\",\n      \"label\": \"Keep under 50\",\n      \"config\": {\n        \"items\": \"{{trigger.products}}\",\n        \"field\": \"price\",\n        \"operator\": \"less_than\",\n        \"value\": 50\n      }\n    },\n    {\n      \"id\": \"sort_products\",\n      \"type\": \"transform.sort\",\n      \"label\": \"Sort by price\",\n      \"config\": {\n        \"items\": \"{{steps.filter_products.output.items}}\",\n        \"field\": \"price\",\n        \"direction\": \"asc\"\n      }\n    },\n    {\n      \"id\": \"log_result\",\n      \"type\": \"core.log\",\n      \"label\": \"Log sorted products\",\n      \"config\": {\n        \"message\": \"Filtered and sorted products ready.\",\n        \"level\": \"info\"\n      }\n    }\n  ],\n  \"edges\": [\n    {\n      \"source\": \"trigger\",\n      \"target\": \"filter_products\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"filter_products\",\n      \"target\": \"sort_products\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"sort_products\",\n      \"target\": \"log_result\",\n      \"sourceHandle\": null\n    }\n  ],\n  \"unsupported\": []\n}"
+      ],
+      "models": [
+        "gemini-3.5-flash-lite"
+      ],
+      "ms": [
+        24543
+      ],
+      "tokens": [
+        {
+          "input": 6550,
+          "output": 439
+        }
+      ],
+      "selected": null,
+      "promptChars": 25081,
+      "verdict": "pass",
+      "failures": []
+    },
+    "dedupe-addresses": {
+      "calls": [
+        "{\n  \"name\": \"Remove Duplicate Emails\",\n  \"description\": \"Removes duplicate email addresses from a provided list and counts the remaining ones.\",\n  \"nodes\": [\n    {\n      \"id\": \"trigger\",\n      \"type\": \"core.manual_trigger\",\n      \"label\": \"Input Emails\",\n      \"config\": {\n        \"fields\": []\n      }\n    },\n    {\n      \"id\": \"remove_duplicates\",\n      \"type\": \"transform.unique\",\n      \"label\": \"Remove Duplicate Emails\",\n      \"config\": {\n        \"items\": \"{{trigger.emails}}\"\n      }\n    },\n    {\n      \"id\": \"log_result\",\n      \"type\": \"core.log\",\n      \"label\": \"Log Count\",\n      \"config\": {\n        \"message\": \"Remaining emails count: {{steps.remove_duplicates.output.count}}\",\n        \"level\": \"info\"\n      }\n    }\n  ],\n  \"edges\": [\n    {\n      \"source\": \"trigger\",\n      \"target\": \"remove_duplicates\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"remove_duplicates\",\n      \"target\": \"log_result\",\n      \"sourceHandle\": null\n    }\n  ],\n  \"unsupported\": []\n}"
+      ],
+      "models": [
+        "gemini-3.5-flash-lite"
+      ],
+      "ms": [
+        24436
+      ],
+      "tokens": [
+        {
+          "input": 6536,
+          "output": 302
+        }
+      ],
+      "selected": null,
+      "promptChars": 25081,
+      "verdict": "pass",
+      "failures": []
+    },
+    "thank-each-customer": {
+      "calls": [
+        "{\n  \"name\": \"Personalised customer thank-you notes\",\n  \"description\": \"Loops through a list of customers, uses AI to write a personalised thank-you note for each, and posts them to Discord.\",\n  \"nodes\": [\n    {\n      \"id\": \"trigger\",\n      \"type\": \"core.manual_trigger\",\n      \"label\": \"Customer list\",\n      \"config\": {\n        \"fields\": []\n      }\n    },\n    {\n      \"id\": \"loop_customers\",\n      \"type\": \"core.loop\",\n      \"label\": \"For each customer\",\n      \"config\": {\n        \"items\": \"{{trigger.customers}}\",\n        \"maxIterations\": 5\n      }\n    },\n    {\n      \"id\": \"write_note\",\n      \"type\": \"ai.llm\",\n      \"label\": \"Write thank-you note\",\n      \"config\": {\n        \"prompt\": \"Write a short personalised thank-you note for customer: {{steps.loop_customers.output.item}}\",\n        \"system\": \"You are a polite assistant writing concise thank-you notes.\"\n      }\n    },\n    {\n      \"id\": \"post_discord\",\n      \"type\": \"integration.discord\",\n      \"label\": \"Post to Discord\",\n      \"config\": {\n        \"content\": \"{{steps.write_note.output.text}}\"\n      }\n    }\n  ],\n  \"edges\": [\n    {\n      \"source\": \"trigger\",\n      \"target\": \"loop_customers\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"loop_customers\",\n      \"target\": \"write_note\",\n      \"sourceHandle\": \"loop\"\n    },\n    {\n      \"source\": \"write_note\",\n      \"target\": \"post_discord\",\n      \"sourceHandle\": null\n    }\n  ],\n  \"unsupported\": []\n}"
+      ],
+      "models": [
+        "gemini-3.5-flash-lite"
+      ],
+      "ms": [
+        17760
+      ],
+      "tokens": [
+        {
+          "input": 6543,
+          "output": 443
+        }
+      ],
+      "selected": null,
+      "promptChars": 25081,
+      "verdict": "pass",
+      "failures": []
+    },
+    "meeting-notes": {
+      "calls": [
+        "{\n  \"name\": \"Extract Action Items and Save to Notion\",\n  \"description\": \"Turns meeting notes into a list of action items using an LLM and saves them to a Notion page.\",\n  \"nodes\": [\n    {\n      \"id\": \"trigger\",\n      \"type\": \"core.manual_trigger\",\n      \"label\": \"Meeting Notes Trigger\",\n      \"config\": {}\n    },\n    {\n      \"id\": \"extract_actions\",\n      \"type\": \"ai.llm\",\n      \"label\": \"Extract Action Items\",\n      \"config\": {\n        \"prompt\": \"Extract a clear list of action items from these meeting notes:\\n\\n{{trigger.notes}}\",\n        \"system\": \"You are a helpful assistant that extracts actionable tasks from meeting notes.\"\n      }\n    },\n    {\n      \"id\": \"save_to_notion\",\n      \"type\": \"integration.notion\",\n      \"label\": \"Save to Notion\",\n      \"config\": {\n        \"operation\": \"appendToPage\",\n        \"target\": \"\",\n        \"body\": \"{{steps.extract_actions.output.text}}\"\n      }\n    }\n  ],\n  \"edges\": [\n    {\n      \"source\": \"trigger\",\n      \"target\": \"extract_actions\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"extract_actions\",\n      \"target\": \"save_to_notion\",\n      \"sourceHandle\": null\n    }\n  ],\n  \"unsupported\": []\n}"
+      ],
+      "models": [
+        "gemini-3.5-flash-lite"
+      ],
+      "ms": [
+        23145
+      ],
+      "tokens": [
+        {
+          "input": 6541,
+          "output": 350
+        }
+      ],
+      "selected": null,
+      "promptChars": 25081,
+      "verdict": "pass",
+      "failures": []
+    },
+    "lead-to-airtable": {
+      "calls": [
+        "{\n  \"name\": \"New Lead to Airtable and Slack\",\n  \"description\": \"Adds form submissions to an Airtable base and posts a notification in Slack.\",\n  \"nodes\": [\n    {\n      \"id\": \"form_trigger\",\n      \"type\": \"core.webhook_trigger\",\n      \"label\": \"Form submission webhook\",\n      \"config\": {\n        \"requiredFields\": [\"name\", \"email\"]\n      }\n    },\n    {\n      \"id\": \"add_airtable\",\n      \"type\": \"integration.airtable\",\n      \"label\": \"Add to Airtable\",\n      \"config\": {\n        \"operation\": \"createRecord\",\n        \"baseId\": \"\",\n        \"table\": \"Leads\",\n        \"fields\": {\n          \"Name\": \"{{trigger.name}}\",\n          \"Email\": \"{{trigger.email}}\"\n        }\n      }\n    },\n    {\n      \"id\": \"notify_slack\",\n      \"type\": \"integration.slack\",\n      \"label\": \"Notify Slack\",\n      \"config\": {\n        \"text\": \"New lead received from {{trigger.name}} ({{trigger.email}}).\"\n      }\n    }\n  ],\n  \"edges\": [\n    {\n      \"source\": \"form_trigger\",\n      \"target\": \"add_airtable\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"add_airtable\",\n      \"target\": \"notify_slack\",\n      \"sourceHandle\": null\n    }\n  ],\n  \"unsupported\": []\n}"
+      ],
+      "models": [
+        "gemini-3.5-flash-lite"
+      ],
+      "ms": [
+        23997
+      ],
+      "tokens": [
+        {
+          "input": 6544,
+          "output": 359
+        }
+      ],
+      "selected": null,
+      "promptChars": 25081,
+      "verdict": "pass",
+      "failures": []
+    },
+    "welcome-later": {
+      "calls": [
+        "{\n  \"name\": \"Webhook Welcome Email\",\n  \"description\": \"Waits two days after a user signs up via webhook and then sends a welcome email.\",\n  \"nodes\": [\n    {\n      \"id\": \"signup_trigger\",\n      \"type\": \"core.webhook_trigger\",\n      \"label\": \"Webhook Trigger\",\n      \"config\": {\n        \"requiredFields\": [\n          \"email\"\n        ]\n      }\n    },\n    {\n      \"id\": \"wait_two_days\",\n      \"type\": \"core.delay\",\n      \"label\": \"Wait 2 Days\",\n      \"config\": {\n        \"amount\": 2,\n        \"unit\": \"days\"\n      }\n    },\n    {\n      \"id\": \"send_welcome_email\",\n      \"type\": \"integration.gmail\",\n      \"label\": \"Send Welcome Email\",\n      \"config\": {\n        \"to\": \"{{trigger.email}}\",\n        \"subject\": \"Welcome!\",\n        \"body\": \"Thank you for signing up. We are thrilled to have you!\"\n      }\n    }\n  ],\n  \"edges\": [\n    {\n      \"source\": \"signup_trigger\",\n      \"target\": \"wait_two_days\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"wait_two_days\",\n      \"target\": \"send_welcome_email\",\n      \"sourceHandle\": null\n    }\n  ],\n  \"unsupported\": []\n}"
+      ],
+      "models": [
+        "gemini-3.5-flash-lite"
+      ],
+      "ms": [
+        63983
+      ],
+      "tokens": [
+        {
+          "input": 6532,
+          "output": 344
+        }
+      ],
+      "selected": [
+        "core.manual_trigger",
+        "core.webhook_trigger",
+        "core.schedule_trigger",
+        "core.set",
+        "core.log",
+        "core.branch",
+        "core.switch",
+        "core.loop",
+        "core.delay",
+        "core.assert",
+        "transform.filter",
+        "transform.map",
+        "transform.sort",
+        "transform.unique",
+        "transform.aggregate",
+        "transform.json",
+        "transform.text",
+        "transform.number",
+        "transform.date",
+        "ai.llm",
+        "ai.agent",
+        "integration.http",
+        "integration.discord",
+        "integration.slack",
+        "integration.sheets",
+        "integration.gmail",
+        "integration.notion",
+        "integration.github",
+        "integration.airtable",
+        "integration.postgres"
+      ],
+      "promptChars": 25058,
+      "verdict": "pass",
+      "failures": []
+    },
+    "ssh-restart": {
+      "calls": [
+        "{\n  \"name\": \"Restart Nginx on Production Server\",\n  \"description\": \"Restarts nginx on the production server via SSH.\",\n  \"nodes\": [\n    {\n      \"id\": \"manual_trigger\",\n      \"type\": \"core.manual_trigger\",\n      \"label\": \"Start\",\n      \"config\": {}\n    }\n  ],\n  \"edges\": [],\n  \"unsupported\": [\n    \"SSH into the production server\"\n  ]\n}"
+      ],
+      "models": [
+        "gemini-3.5-flash-lite"
+      ],
+      "ms": [
+        20559
+      ],
+      "tokens": [
+        {
+          "input": 6525,
+          "output": 108
+        }
+      ],
+      "selected": null,
+      "promptChars": 25081,
+      "verdict": "pass",
+      "failures": []
+    },
+    "uptime-sms": {
+      "calls": [
+        "{\n  \"name\": \"Check website status\",\n  \"description\": \"Polls https://example.com every five minutes and sends a notification if it goes down.\",\n  \"nodes\": [\n    {\n      \"id\": \"schedule\",\n      \"type\": \"core.schedule_trigger\",\n      \"label\": \"Every 5 minutes\",\n      \"config\": {\n        \"cron\": \"*/5 * * * *\"\n      }\n    },\n    {\n      \"id\": \"check_site\",\n      \"type\": \"integration.http\",\n      \"label\": \"Check website\",\n      \"config\": {\n        \"method\": \"GET\",\n        \"url\": \"https://example.com\",\n        \"failOnError\": false\n      }\n    },\n    {\n      \"id\": \"check_down\",\n      \"type\": \"core.branch\",\n      \"label\": \"Is site down?\",\n      \"config\": {\n        \"left\": \"{{input.ok}}\",\n        \"operator\": \"equals\",\n        \"right\": false\n      }\n    },\n    {\n      \"id\": \"notify\",\n      \"type\": \"integration.discord\",\n      \"label\": \"Alert down\",\n      \"config\": {\n        \"content\": \"Alert: https://example.com is down!\"\n      }\n    }\n  ],\n  \"edges\": [\n    {\n      \"source\": \"schedule\",\n      \"target\": \"check_site\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"check_site\",\n      \"target\": \"check_down\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"check_down\",\n      \"target\": \"notify\",\n      \"sourceHandle\": \"true\"\n    }\n  ],\n  \"unsupported\": [\n    \"send me a text message on my phone\"\n  ]\n}"
+      ],
+      "models": [
+        "gemini-3.5-flash-lite"
+      ],
+      "ms": [
+        23694
+      ],
+      "tokens": [
+        {
+          "input": 6541,
+          "output": 432
+        }
+      ],
+      "selected": [
+        "core.manual_trigger",
+        "core.webhook_trigger",
+        "core.schedule_trigger",
+        "core.set",
+        "core.log",
+        "core.branch",
+        "core.switch",
+        "core.loop",
+        "core.delay",
+        "core.assert",
+        "transform.filter",
+        "transform.map",
+        "transform.sort",
+        "transform.unique",
+        "transform.aggregate",
+        "transform.json",
+        "transform.text",
+        "transform.number",
+        "transform.date",
+        "ai.llm",
+        "ai.agent",
+        "integration.http",
+        "integration.discord",
+        "integration.slack",
+        "integration.sheets",
+        "integration.gmail",
+        "integration.notion",
+        "integration.github",
+        "integration.airtable",
+        "integration.postgres"
+      ],
+      "promptChars": 25058,
+      "verdict": "pass",
+      "failures": []
+    },
+    "greeting": {
+      "calls": [
+        "{\n  \"name\": \"Greet by Name\",\n  \"description\": \"Takes a name, converts it to uppercase, prepends 'Hello, ' and logs the resulting greeting.\",\n  \"nodes\": [\n    {\n      \"id\": \"trigger\",\n      \"type\": \"core.manual_trigger\",\n      \"label\": \"Start\",\n      \"config\": {\n        \"fields\": []\n      }\n    },\n    {\n      \"id\": \"uppercase\",\n      \"type\": \"transform.text\",\n      \"label\": \"Make Uppercase\",\n      \"config\": {\n        \"text\": \"{{trigger.name}}\",\n        \"operation\": \"uppercase\",\n        \"search\": \"\",\n        \"value\": \"\",\n        \"start\": 0\n      }\n    },\n    {\n      \"id\": \"prepend\",\n      \"type\": \"transform.text\",\n      \"label\": \"Add Hello\",\n      \"config\": {\n        \"text\": \"{{steps.uppercase.output.text}}\",\n        \"operation\": \"prepend\",\n        \"search\": \"\",\n        \"value\": \"Hello, \",\n        \"start\": 0\n      }\n    },\n    {\n      \"id\": \"log\",\n      \"type\": \"core.log\",\n      \"label\": \"Log Greeting\",\n      \"config\": {\n        \"message\": \"{{steps.prepend.output.text}}\",\n        \"level\": \"info\"\n      }\n    }\n  ],\n  \"edges\": [\n    {\n      \"source\": \"trigger\",\n      \"target\": \"uppercase\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"uppercase\",\n      \"target\": \"prepend\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"prepend\",\n      \"target\": \"log\",\n      \"sourceHandle\": null\n    }\n  ],\n  \"unsupported\": []\n}"
+      ],
+      "models": [
+        "gemini-3.5-flash-lite"
+      ],
+      "ms": [
+        20114
+      ],
+      "tokens": [
+        {
+          "input": 6541,
+          "output": 434
+        }
+      ],
+      "selected": null,
+      "promptChars": 25081,
+      "verdict": "pass",
+      "failures": []
+    },
+    "order-tax": {
+      "calls": [
+        "{\n  \"name\": \"Calculate order tax and round\",\n  \"description\": \"Adds 18% tax to an order total and rounds the result to two decimal places.\",\n  \"nodes\": [\n    {\n      \"id\": \"trigger\",\n      \"type\": \"core.manual_trigger\",\n      \"label\": \"Order Total Trigger\",\n      \"config\": {\n        \"fields\": []\n      }\n    },\n    {\n      \"id\": \"multiply_tax\",\n      \"type\": \"transform.number\",\n      \"label\": \"Add 18% Tax\",\n      \"config\": {\n        \"value\": \"{{trigger.total}}\",\n        \"operation\": \"multiply\",\n        \"operand\": 1.18\n      }\n    },\n    {\n      \"id\": \"round_total\",\n      \"type\": \"transform.number\",\n      \"label\": \"Round to 2 Decimals\",\n      \"config\": {\n        \"value\": \"{{steps.multiply_tax.output.value}}\",\n        \"operation\": \"round\",\n        \"precision\": 2\n      }\n    }\n  ],\n  \"edges\": [\n    {\n      \"source\": \"trigger\",\n      \"target\": \"multiply_tax\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"multiply_tax\",\n      \"target\": \"round_total\",\n      \"sourceHandle\": null\n    }\n  ],\n  \"unsupported\": []\n}"
+      ],
+      "models": [
+        "gemini-3.5-flash-lite"
+      ],
+      "ms": [
+        21992
+      ],
+      "tokens": [
+        {
+          "input": 6536,
+          "output": 337
+        }
+      ],
+      "selected": null,
+      "promptChars": 25081,
+      "verdict": "pass",
+      "failures": []
+    },
+    "morning-date": {
+      "calls": [
+        "{\n  \"name\": \"Daily Date Logger\",\n  \"description\": \"Logs today's date and day of the week every morning at 7 UTC.\",\n  \"nodes\": [\n    {\n      \"id\": \"schedule\",\n      \"type\": \"core.schedule_trigger\",\n      \"label\": \"Daily at 7\",\n      \"config\": {\n        \"cron\": \"0 7 * * *\"\n      }\n    },\n    {\n      \"id\": \"get_date\",\n      \"type\": \"transform.date\",\n      \"label\": \"Get Today\",\n      \"config\": {\n        \"shiftMinutes\": 0,\n        \"timeZone\": \"UTC\"\n      }\n    },\n    {\n      \"id\": \"log_date\",\n      \"type\": \"core.log\",\n      \"label\": \"Log Date\",\n      \"config\": {\n        \"message\": \"Today is {{steps.get_date.output.weekday}}, {{steps.get_date.output.date}}\",\n        \"level\": \"info\"\n      }\n    }\n  ],\n  \"edges\": [\n    {\n      \"source\": \"schedule\",\n      \"target\": \"get_date\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"get_date\",\n      \"target\": \"log_date\",\n      \"sourceHandle\": null\n    }\n  ],\n  \"unsupported\": []\n}"
+      ],
+      "models": [
+        "gemini-3.5-flash-lite"
+      ],
+      "ms": [
+        29996
+      ],
+      "tokens": [
+        {
+          "input": 6536,
+          "output": 328
+        }
+      ],
+      "selected": null,
+      "promptChars": 25081,
+      "verdict": "pass",
+      "failures": []
+    },
+    "parse-payload": {
+      "calls": [
+        "{\n  \"name\": \"Parse Webhook JSON and Post Status to Slack\",\n  \"description\": \"Parses a JSON string from an incoming webhook payload and posts the status field to Slack.\",\n  \"nodes\": [\n    {\n      \"id\": \"webhook\",\n      \"type\": \"core.webhook_trigger\",\n      \"label\": \"Webhook Trigger\",\n      \"config\": {\n        \"requiredFields\": [\"payload\"]\n      }\n    },\n    {\n      \"id\": \"parse_json\",\n      \"type\": \"transform.json\",\n      \"label\": \"Parse JSON Payload\",\n      \"config\": {\n        \"mode\": \"parse\",\n        \"value\": \"{{trigger.payload}}\"\n      }\n    },\n    {\n      \"id\": \"post_slack\",\n      \"type\": \"integration.slack\",\n      \"label\": \"Post Status to Slack\",\n      \"config\": {\n        \"text\": \"{{steps.parse_json.output.value.status}}\"\n      }\n    }\n  ],\n  \"edges\": [\n    {\n      \"source\": \"webhook\",\n      \"target\": \"parse_json\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"parse_json\",\n      \"target\": \"post_slack\",\n      \"sourceHandle\": null\n    }\n  ],\n  \"unsupported\": []\n}"
+      ],
+      "models": [
+        "gemini-3.5-flash-lite"
+      ],
+      "ms": [
+        20820
+      ],
+      "tokens": [
+        {
+          "input": 6541,
+          "output": 312
+        }
+      ],
+      "selected": null,
+      "promptChars": 25081,
+      "verdict": "pass",
+      "failures": []
+    },
+    "invoice-total": {
+      "calls": [
+        "{\n  \"name\": \"Sum Invoices and Email Total\",\n  \"description\": \"Sums the amount of every invoice in the provided list and emails the total to accounts@example.com.\",\n  \"nodes\": [\n    {\n      \"id\": \"trigger\",\n      \"type\": \"core.manual_trigger\",\n      \"label\": \"Invoice List Trigger\",\n      \"config\": {}\n    },\n    {\n      \"id\": \"summarise_invoices\",\n      \"type\": \"transform.aggregate\",\n      \"label\": \"Sum Invoice Amounts\",\n      \"config\": {\n        \"items\": \"{{trigger.invoices}}\",\n        \"operation\": \"sum\",\n        \"field\": \"amount\"\n      }\n    },\n    {\n      \"id\": \"send_email\",\n      \"type\": \"integration.gmail\",\n      \"label\": \"Email Total to Accounts\",\n      \"config\": {\n        \"to\": \"accounts@example.com\",\n        \"subject\": \"Total Invoice Amount\",\n        \"body\": \"The total amount of all invoices is {{steps.summarise_invoices.output.value}}.\"\n      }\n    }\n  ],\n  \"edges\": [\n    {\n      \"source\": \"trigger\",\n      \"target\": \"summarise_invoices\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"summarise_invoices\",\n      \"target\": \"send_email\",\n      \"sourceHandle\": null\n    }\n  ],\n  \"unsupported\": []\n}"
+      ],
+      "models": [
+        "gemini-3.5-flash-lite"
+      ],
+      "ms": [
+        23119
+      ],
+      "tokens": [
+        {
+          "input": 6539,
+          "output": 348
+        }
+      ],
+      "selected": null,
+      "promptChars": 25081,
+      "verdict": "pass",
+      "failures": []
+    },
+    "refund-decision": {
+      "calls": [
+        "{\n  \"name\": \"Refund Request Triage Agent\",\n  \"description\": \"An AI agent evaluates customer refund requests and routes them to be approved, rejected, or escalated.\",\n  \"nodes\": [\n    {\n      \"id\": \"trigger\",\n      \"type\": \"core.webhook_trigger\",\n      \"label\": \"Incoming Request\",\n      \"config\": {\n        \"requiredFields\": [\"customerEmail\", \"refundReason\", \"amount\"]\n      }\n    },\n    {\n      \"id\": \"evaluate_refund\",\n      \"type\": \"ai.agent\",\n      \"label\": \"AI Triage Agent\",\n      \"config\": {\n        \"objective\": \"Review the customer's refund request and decide whether it should be approved, rejected, or escalated based on standard refund policies.\",\n        \"choices\": [\"approve\", \"reject\", \"escalate\"]\n      }\n    },\n    {\n      \"id\": \"log_decision\",\n      \"type\": \"core.log\",\n      \"label\": \"Log Decision\",\n      \"config\": {\n        \"message\": \"Refund decision: {{steps.evaluate_refund.output.decision}} - Reason: {{steps.evaluate_refund.output.reason}}\",\n        \"level\": \"info\"\n      }\n    }\n  ],\n  \"edges\": [\n    {\n      \"source\": \"trigger\",\n      \"target\": \"evaluate_refund\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"evaluate_refund\",\n      \"target\": \"log_decision\",\n      \"sourceHandle\": null\n    }\n  ],\n  \"unsupported\": []\n}"
+      ],
+      "models": [
+        "gemini-3.5-flash-lite"
+      ],
+      "ms": [
+        20616
+      ],
+      "tokens": [
+        {
+          "input": 6544,
+          "output": 369
+        }
+      ],
+      "selected": null,
+      "promptChars": 25081,
+      "verdict": "pass",
+      "failures": []
+    },
+    "route-tickets": {
+      "calls": [
+        "{\n  \"name\": \"Route incoming tickets\",\n  \"description\": \"Routes incoming webhook tickets based on their category to Slack, GitHub, or Discord.\",\n  \"nodes\": [\n    {\n      \"id\": \"receive_ticket\",\n      \"type\": \"core.webhook_trigger\",\n      \"label\": \"Webhook Trigger\",\n      \"config\": {\n        \"requiredFields\": [\n          \"category\",\n          \"title\",\n          \"description\"\n        ]\n      }\n    },\n    {\n      \"id\": \"route_category\",\n      \"type\": \"core.switch\",\n      \"label\": \"Route by Category\",\n      \"config\": {\n        \"value\": \"{{trigger.category}}\",\n        \"cases\": [\n          {\n            \"value\": \"billing\"\n          },\n          {\n            \"value\": \"bug\"\n          }\n        ]\n      }\n    },\n    {\n      \"id\": \"post_slack\",\n      \"type\": \"integration.slack\",\n      \"label\": \"Post to Slack\",\n      \"config\": {\n        \"text\": \"New billing ticket: {{trigger.title}} - {{trigger.description}}\"\n      }\n    },\n    {\n      \"id\": \"create_github_issue\",\n      \"type\": \"integration.github\",\n      \"label\": \"GitHub Issue\",\n      \"config\": {\n        \"operation\": \"createIssue\",\n        \"repo\": \"\",\n        \"title\": \"{{trigger.title}}\",\n        \"body\": \"{{trigger.description}}\"\n      }\n    },\n    {\n      \"id\": \"post_discord\",\n      \"type\": \"integration.discord\",\n      \"label\": \"Post to Discord\",\n      \"config\": {\n        \"content\": \"New ticket: {{trigger.title}} - {{trigger.description}}\"\n      }\n    }\n  ],\n  \"edges\": [\n    {\n      \"source\": \"receive_ticket\",\n      \"target\": \"route_category\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"route_category\",\n      \"target\": \"post_slack\",\n      \"sourceHandle\": \"1\"\n    },\n    {\n      \"source\": \"route_category\",\n      \"target\": \"create_github_issue\",\n      \"sourceHandle\": \"2\"\n    },\n    {\n      \"source\": \"route_category\",\n      \"target\": \"post_discord\",\n      \"sourceHandle\": \"else\"\n    }\n  ],\n  \"unsupported\": []\n}"
+      ],
+      "models": [
+        "gemini-3.5-flash-lite"
+      ],
+      "ms": [
+        22534
+      ],
+      "tokens": [
+        {
+          "input": 6551,
+          "output": 577
+        }
+      ],
+      "selected": null,
+      "promptChars": 25081,
+      "verdict": "pass",
+      "failures": []
+    },
+    "users-to-sheet": {
+      "calls": [
+        "{\n  \"name\": \"Reshape and add users to Google Sheet\",\n  \"description\": \"Takes a list of users, extracts their name and email, and appends each one as a row in a Google Sheet.\",\n  \"nodes\": [\n    {\n      \"id\": \"trigger\",\n      \"type\": \"core.manual_trigger\",\n      \"label\": \"Start workflow\",\n      \"config\": {}\n    },\n    {\n      \"id\": \"reshape_users\",\n      \"type\": \"transform.map\",\n      \"label\": \"Reshape user list\",\n      \"config\": {\n        \"items\": \"{{trigger.users}}\",\n        \"fields\": {\n          \"name\": \"name\",\n          \"email\": \"email\"\n        }\n      }\n    },\n    {\n      \"id\": \"loop_users\",\n      \"type\": \"core.loop\",\n      \"label\": \"Loop through users\",\n      \"config\": {\n        \"items\": \"{{steps.reshape_users.output.items}}\"\n      }\n    },\n    {\n      \"id\": \"append_sheet\",\n      \"type\": \"integration.sheets\",\n      \"label\": \"Add to Google Sheet\",\n      \"config\": {\n        \"spreadsheetId\": \"\",\n        \"sheet\": \"Sheet1\",\n        \"values\": [\n          \"{{input.item.name}}\",\n          \"{{input.item.email}}\"\n        ]\n      }\n    }\n  ],\n  \"edges\": [\n    {\n      \"source\": \"trigger\",\n      \"target\": \"reshape_users\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"reshape_users\",\n      \"target\": \"loop_users\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"loop_users\",\n      \"target\": \"append_sheet\",\n      \"sourceHandle\": \"loop\"\n    }\n  ],\n  \"unsupported\": []\n}"
+      ],
+      "models": [
+        "gemini-3.5-flash-lite"
+      ],
+      "ms": [
+        20880
+      ],
+      "tokens": [
+        {
+          "input": 6545,
+          "output": 449
+        }
+      ],
+      "selected": null,
+      "promptChars": 25081,
+      "verdict": "pass",
+      "failures": []
+    },
+    "post-to-httpbin": {
+      "calls": [
+        "{\n  \"name\": \"Post Input and Log Status\",\n  \"description\": \"POSTs the manual trigger input to an HTTP endpoint and logs the resulting status code.\",\n  \"nodes\": [\n    {\n      \"id\": \"trigger\",\n      \"type\": \"core.manual_trigger\",\n      \"label\": \"Manual Trigger\",\n      \"config\": {}\n    },\n    {\n      \"id\": \"http_post\",\n      \"type\": \"integration.http\",\n      \"label\": \"POST to httpbin\",\n      \"config\": {\n        \"method\": \"POST\",\n        \"url\": \"https://httpbin.org/post\",\n        \"body\": \"{{trigger.input}}\"\n      }\n    },\n    {\n      \"id\": \"log_status\",\n      \"type\": \"core.log\",\n      \"label\": \"Log Status Code\",\n      \"config\": {\n        \"message\": \"Response status: {{steps.http_post.output.status}}\",\n        \"level\": \"info\"\n      }\n    }\n  ],\n  \"edges\": [\n    {\n      \"source\": \"trigger\",\n      \"target\": \"http_post\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"http_post\",\n      \"target\": \"log_status\",\n      \"sourceHandle\": null\n    }\n  ],\n  \"unsupported\": []\n}"
+      ],
+      "models": [
+        "gemini-3.5-flash-lite"
+      ],
+      "ms": [
+        20200
+      ],
+      "tokens": [
+        {
+          "input": 6539,
+          "output": 321
+        }
+      ],
+      "selected": [
+        "core.manual_trigger",
+        "core.webhook_trigger",
+        "core.schedule_trigger",
+        "core.set",
+        "core.log",
+        "core.branch",
+        "core.switch",
+        "core.loop",
+        "core.delay",
+        "core.assert",
+        "transform.filter",
+        "transform.map",
+        "transform.sort",
+        "transform.unique",
+        "transform.aggregate",
+        "transform.json",
+        "transform.text",
+        "transform.number",
+        "transform.date",
+        "ai.llm",
+        "ai.agent",
+        "integration.http",
+        "integration.discord",
+        "integration.slack",
+        "integration.sheets",
+        "integration.gmail",
+        "integration.notion",
+        "integration.github",
+        "integration.airtable",
+        "integration.postgres"
+      ],
+      "promptChars": 25058,
+      "verdict": "pass",
+      "failures": []
+    },
+    "order-check": {
+      "calls": [
+        "{\n  \"name\": \"Process Order Webhook\",\n  \"description\": \"Receives an order via webhook, asserts it has an amount, and logs it.\",\n  \"nodes\": [\n    {\n      \"id\": \"webhook\",\n      \"type\": \"core.webhook_trigger\",\n      \"label\": \"Order Webhook\",\n      \"config\": {\n        \"requiredFields\": []\n      }\n    },\n    {\n      \"id\": \"assert_amount\",\n      \"type\": \"core.assert\",\n      \"label\": \"Check Amount\",\n      \"config\": {\n        \"left\": \"{{trigger.amount}}\",\n        \"operator\": \"is_not_empty\",\n        \"message\": \"Order has no amount.\"\n      }\n    },\n    {\n      \"id\": \"log_order\",\n      \"type\": \"core.log\",\n      \"label\": \"Log Order\",\n      \"config\": {\n        \"message\": \"Valid order received with amount.\",\n        \"level\": \"info\"\n      }\n    }\n  ],\n  \"edges\": [\n    {\n      \"source\": \"webhook\",\n      \"target\": \"assert_amount\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"assert_amount\",\n      \"target\": \"log_order\",\n      \"sourceHandle\": null\n    }\n  ],\n  \"unsupported\": []\n}"
+      ],
+      "models": [
+        "gemini-3.5-flash-lite"
+      ],
+      "ms": [
+        22205
+      ],
+      "tokens": [
+        {
+          "input": 6537,
+          "output": 320
+        }
+      ],
+      "selected": [
+        "core.manual_trigger",
+        "core.webhook_trigger",
+        "core.schedule_trigger",
+        "core.set",
+        "core.log",
+        "core.branch",
+        "core.switch",
+        "core.loop",
+        "core.delay",
+        "core.assert",
+        "transform.filter",
+        "transform.map",
+        "transform.sort",
+        "transform.unique",
+        "transform.aggregate",
+        "transform.json",
+        "transform.text",
+        "transform.number",
+        "transform.date",
+        "ai.llm",
+        "ai.agent",
+        "integration.http",
+        "integration.discord",
+        "integration.slack",
+        "integration.sheets",
+        "integration.gmail",
+        "integration.notion",
+        "integration.github",
+        "integration.airtable",
+        "integration.postgres"
+      ],
+      "promptChars": 25058,
+      "verdict": "pass",
+      "failures": []
+    },
+    "insert-into-postgres": {
+      "calls": [
+        "{\n  \"name\": \"Insert Webhook Event into Postgres\",\n  \"description\": \"Receives a webhook, adds a timestamp, and inserts the data as a new row into a Postgres table.\",\n  \"nodes\": [\n    {\n      \"id\": \"receive_webhook\",\n      \"type\": \"core.webhook_trigger\",\n      \"label\": \"Webhook Trigger\",\n      \"config\": {\n        \"requiredFields\": []\n      }\n    },\n    {\n      \"id\": \"add_timestamp\",\n      \"type\": \"core.set\",\n      \"label\": \"Add Timestamp\",\n      \"config\": {\n        \"fields\": {\n          \"received_at\": \"{{steps.receive_webhook.output.timestamp}}\"\n        },\n        \"merge\": true\n      }\n    },\n    {\n      \"id\": \"insert_postgres\",\n      \"type\": \"integration.postgres\",\n      \"label\": \"Insert into Postgres\",\n      \"config\": {\n        \"operation\": \"select\",\n        \"schema\": \"public\",\n        \"table\": \"events\"\n      }\n    }\n  ],\n  \"edges\": [\n    {\n      \"source\": \"receive_webhook\",\n      \"target\": \"add_timestamp\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"add_timestamp\",\n      \"target\": \"insert_postgres\",\n      \"sourceHandle\": null\n    }\n  ],\n  \"unsupported\": []\n}"
+      ],
+      "models": [
+        "gemini-3.5-flash-lite"
+      ],
+      "ms": [
+        19138
+      ],
+      "tokens": [
+        {
+          "input": 6543,
+          "output": 334
+        }
+      ],
+      "selected": null,
+      "promptChars": 25081,
+      "verdict": "fail",
+      "failures": [
+        "built everything without naming what cannot be done"
+      ]
+    }
+  }
+}

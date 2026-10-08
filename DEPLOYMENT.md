@@ -1168,8 +1168,8 @@ beyond 30 days is $0.01/GiB/month.
 **Measured over the 30 days to 2026-09-26: 6,339,545 bytes — 0.0059 GiB, or 0.0118% of the
 allowance.** Phase 22 could increase log volume by three orders of magnitude and still be free.
 
-**The four log-based metrics, created 2026-09-30** and all four confirmed collecting real points on
-the deployed service:
+**The log-based metrics — four created 2026-09-30**, all four confirmed collecting real points on
+the deployed service, **and a fifth, `agentforge_generations`, in Phase 34:**
 
 ```bash
 gcloud logging metrics list --format='table(name,filter)'
@@ -1181,6 +1181,7 @@ gcloud logging metrics list --format='table(name,filter)'
 | `agentforge_node_latency` | `jsonPayload.event="node.finished"` | A `durationMs` distribution, labelled `nodeType`/`status` |
 | `agentforge_model_fallbacks` | `event="model.call" AND jsonPayload.fallback=true` | **The one that matters** — see `OPERATIONS.md` |
 | `agentforge_errors` | `severity>=ERROR AND jsonPayload.errorGroup!=""` | Errors labelled by group, so repeats are one line |
+| `agentforge_generations` | `jsonPayload.event="generation.finished"` | **Phase 34.** Which attempt produced a generated graph, labelled `outcome`/`selector` |
 
 **They are free.** Log-based metrics bill against Cloud Monitoring's chargeable-metrics allowance
 (150 MiB per billing account per month); this project produces a handful of time series with a few

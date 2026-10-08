@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { renderCatalogue, systemPrompt } from "@/lib/generate/prompt";
+import { agentToolSet } from "@/lib/ai/tools";
+import { GUIDANCE, indexLine, renderCatalogue, renderIndex, systemPrompt } from "@/lib/generate/prompt";
+import { ALWAYS, MAX_SELECTED } from "@/lib/generate/select";
 
 import { describeNodes, getNode, listAgentTools, listNodes } from "./index";
 
@@ -18,8 +20,9 @@ import { describeNodes, getNode, listAgentTools, listNodes } from "./index";
  *      carries a credential kind
  *   3. an output field named `model` ONLY   → Phase 22's analytics read the JSONB, so
  *      if it really is a model call            a stray `model` field is miscounted
- *   4. a catalogue entry the generator can  → `generate/prompt.test.ts` (Phase 7)
- *      render
+ *   4. a catalogue entry the generator can  → `generate/prompt.test.ts` (Phase 7); since Phase 34
+ *      render                                  also an index line, and a label that selects it
+ *                                              (`generate/select.test.ts`)
  *   5. documentation a person can read      → here (Phase 23A)
  *
  * This file covers 5, re-states 3 as a test rather than a comment, and holds the
@@ -138,42 +141,70 @@ test("getNode answers for every registered type and for nothing else", () => {
   assert.equal(getNode("__proto__"), undefined);
 });
 
-test("the generation prompt stays within budget, per node as well as in total", () => {
-  // The catalogue is rendered from the registry, so every node added grows the prompt on
-  // every generation call. Not a style rule: generation latency tracks prompt size, and the
-  // model's attention is finite long before its input limit is.
-  //
-  // **Phase 23B re-based this, and the note it replaces was wrong in an interesting way.**
-  // Phase 23A budgeted 24,000 characters for 25 nodes and said "if this fails, the answer is
-  // a shorter catalogue rendering, not a bigger budget". Phase 23B's four nodes took it to
-  // 23,685 — 315 characters of headroom, tight enough that an unrelated docs edit would turn
-  // CI red. So the rendering was examined, and there is no fat in it that is free: the one
-  // obviously droppable line, `name:`, is what a model copies to label the nodes it
-  // generates, so removing it would trade prompt size for worse generated graphs.
-  //
-  // The honest reading is that 29 nodes genuinely cost what they cost — **~817 characters
-  // each, measured** — and that a ceiling sized for 25 was the thing that was out of date.
-  //
-  // **The per-node assertion is the one that now does the work.** A ceiling only says when
-  // the registry has grown too big; an average says when a *single* node is too expensive,
-  // which is the failure somebody can actually fix. Both have to hold.
-  //
-  // The structural answer, when this fails again: stop sending the whole catalogue on every
-  // call. Selecting the nodes a request could plausibly need is a design change and belongs
-  // in a phase of its own, not in whichever phase happens to trip the ceiling.
-  const prompt = systemPrompt();
-  const catalogue = renderCatalogue();
-  const perNode = catalogue.length / nodes.length;
+/**
+ * **The generation prompt's budget, per request — Phase 34, which lifted D112.**
+ *
+ * Until Phase 34 this asserted the whole catalogue against a 26,000-character ceiling: every node
+ * was sent on every call, ~820 characters each, and at 25,081 the registry had room for one more
+ * node (D112). The prompt now carries an **index** line for every node and **full definitions only
+ * for the nodes selected** for the request (`generate/select.ts`), so it is budgeted in the two
+ * parts that grow differently:
+ *
+ *   1. **The selected part** — prose, the always-sent nodes, and at most `MAX_SELECTED` others,
+ *      advice included. Bounded by the cap, not by the registry, so it is asserted at its worst
+ *      case: the largest definitions the selector could ever pick together.
+ *   2. **The index** — one line per node, the only part that grows as nodes are added. So it is
+ *      budgeted per node: that is what each new node costs every request.
+ *
+ * And per node, so a single expensive node is caught where it can be fixed: its definition and its
+ * index line. If (1) fails, the answer is a shorter definition or a smaller `MAX_SELECTED` measured
+ * against the eval set — not a bigger number here.
+ */
+test("the generation prompt is within budget per request, so the registry can grow — D156", () => {
+  const described = describeNodes();
+  const always = new Set([...described.filter((node) => node.kind === "trigger").map((node) => node.type), ...ALWAYS]);
+  const cost = (type: string) =>
+    renderCatalogue(described.filter((node) => node.type === type)).length +
+    GUIDANCE.filter((entry) => entry.type === type).reduce((sum, entry) => sum + entry.text.length, 0);
+
+  const largest = described
+    .map((node) => node.type)
+    .filter((type) => !always.has(type))
+    .sort((a, b) => cost(b) - cost(a))
+    .slice(0, MAX_SELECTED);
+  const worst = new Set([...always, ...largest, "core.branch"]);
+  const worstPrompt = systemPrompt(described, [...worst]);
+  const index = renderIndex(described);
 
   assert.ok(
-    perNode < 900,
-    `the catalogue spends ${Math.round(perNode)} characters per node, which is more than any node needs`,
+    worstPrompt.length - index.length < 17_500,
+    `the worst-case selection is ${worstPrompt.length - index.length} characters before the index`,
   );
-  assert.ok(
-    prompt.length < 26_000,
-    `the system prompt is ${prompt.length} characters, which is more than Phase 23B budgeted`,
-  );
+  assert.ok(index.length / described.length < 140, `the index spends ${Math.round(index.length / described.length)} characters a node`);
+  // The point of the phase: even the worst case is well under what the whole catalogue costs.
+  assert.ok(worstPrompt.length < systemPrompt(described).length * 0.85);
 
-  // And every node really is in there.
-  for (const node of nodes) assert.ok(catalogue.includes(`"${node.type}"`), node.type);
+  for (const node of described) {
+    assert.ok(indexLine(node).length <= 220, `${node.type}'s index line is ${indexLine(node).length} characters`);
+    assert.ok(renderCatalogue([node]).length <= 1_300, `${node.type}'s definition is ${renderCatalogue([node]).length} characters`);
+  }
+
+  // And every node really is in the index.
+  for (const node of nodes) assert.ok(index.includes(`"${node.type}"`), node.type);
+});
+
+/**
+ * **The agent's tool list is the registry's other per-request cost** — `BUILD_PLAN.md` Phase 34:
+ * "measure its size too, because a registry of 40 nodes will reach it next". An agent with no
+ * `tools` is offered every callable node, and each is a JSON Schema the provider bills as input on
+ * every turn of the loop. Measured on 2026-10-08: 19 tools, 13,297 characters, Postgres the largest
+ * at 1,856. The fix when it binds already exists — a generated agent lists its `tools`, and the
+ * runtime narrows to them (`ai/tools.ts`) — so this pins the per-tool cost and the total for now.
+ */
+test("the agent's tool list stays within budget, per tool and in total", () => {
+  const specs = agentToolSet().specs;
+  for (const spec of specs) {
+    assert.ok(JSON.stringify(spec).length <= 2_000, `${spec.name}'s tool definition is ${JSON.stringify(spec).length} characters`);
+  }
+  assert.ok(JSON.stringify(specs).length < 16_000, `the full tool list is ${JSON.stringify(specs).length} characters`);
 });

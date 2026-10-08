@@ -6,7 +6,11 @@ import { fromFlow, graphsEqual, toFlow } from "@/lib/canvas/bridge";
 import { validateGraph } from "@/lib/engine/validate";
 import { workflowGraphSchema } from "@/lib/workflow/graph";
 
-import { assembleGraph, generateWorkflow, interpret } from "./generate";
+import { describeNodes } from "@/lib/nodes";
+
+import { checkReferences } from "./references";
+import { assembleGraph, generateWorkflow, generationLogFields, interpret, undefinedTypesUsed } from "./generate";
+import { selectDeterministic } from "./select";
 import { generatedWorkflowSchema } from "./schema";
 
 /**
@@ -73,8 +77,11 @@ const DEMO_ANSWER = JSON.stringify({
       type: "core.branch",
       config: { left: "{{input.decision}}", operator: "equals", right: "urgent" },
     },
-    { id: "escalate", type: "core.log", config: { message: "Urgent: {{input.reason}}", level: "warn" } },
-    { id: "queue", type: "core.log", config: { message: "Queued: {{input.reason}}" } },
+    // The agent's reason, reached by its id: after a Branch, `input` is the branch's own
+    // `{ matched, input }`, so `{{input.reason}}` here would be empty. This fixture wrote exactly
+    // that until Phase 34's reference check read it.
+    { id: "escalate", type: "core.log", config: { message: "Urgent: {{steps.triage.output.reason}}", level: "warn" } },
+    { id: "queue", type: "core.log", config: { message: "Queued: {{steps.triage.output.reason}}" } },
   ],
   edges: [
     { source: "trigger", target: "triage" },
@@ -102,6 +109,8 @@ test("the demo prompt produces a valid, runnable workflow", async () => {
   assert.equal(result.graph.nodes.length, 5);
   assert.equal(result.graph.edges.length, 4);
   assert.ok(validateGraph(result.graph).valid, "the generated graph must be runnable");
+  // Runnable is not enough: every reference must reach something (Phase 34).
+  assert.deepEqual(checkReferences(result.graph), []);
   assert.equal(result.attempts.length, 1, "a valid answer must not be retried");
 });
 
@@ -445,4 +454,169 @@ test("a generated workflow never arrives with a note, a node switched off, or a 
   assert.ok(result.graph.nodes.every((node) => !("pinned" in node)), JSON.stringify(result.graph.nodes));
   // And nothing about it counts as a failure worth a retry.
   assert.equal(result.attempts.length, 1);
+});
+
+/* ------------------------------------------------------------------ *
+ * Phase 34 — catalogue selection, the retry's safety net, the log line
+ * ------------------------------------------------------------------ */
+
+const definedIn = (system: string) => [...system.matchAll(/^ {2}- type: "([^"]+)"/gm)].map((match) => match[1]);
+
+test("by default a request is sent full definitions only for the nodes selected for it", async () => {
+  const model = scriptedModel([DEMO_ANSWER]);
+  const prompt = "triage support messages, decide which are urgent and log them";
+  const result = await generateWorkflow({ model, modelId: "fake-1", prompt });
+
+  assert.equal(result.ok, true);
+  const expected = selectDeterministic(prompt, describeNodes());
+  assert.deepEqual(result.selection, expected);
+  assert.deepEqual(definedIn(model.requests[0]!.system!), expected.types);
+  assert.ok(expected.types.length < describeNodes().length, "a selection, not the whole catalogue");
+  assert.equal(result.promptChars, model.requests[0]!.system!.length);
+});
+
+test("the full strategy still sends every definition", async () => {
+  const model = scriptedModel([DEMO_ANSWER]);
+  const result = await generateWorkflow({ model, modelId: "fake-1", prompt: "x", catalogue: { strategy: "full" } });
+  assert.equal(result.selection.strategy, "full");
+  assert.deepEqual(definedIn(model.requests[0]!.system!), describeNodes().map((node) => node.type));
+});
+
+test("the model strategy spends one call choosing, then generates with what it chose", async () => {
+  const model = scriptedModel([JSON.stringify({ nodes: ["integration.slack", "core.log"] }), DEMO_ANSWER]);
+  const result = await generateWorkflow({ model, modelId: "fake-1", prompt: "post to slack", catalogue: { strategy: "model" } });
+
+  assert.equal(result.ok, true);
+  assert.equal(model.requests.length, 2);
+  assert.match(model.requests[0]!.system!, /You choose the building blocks/);
+  assert.equal(result.selection.strategy, "model");
+  const defined = definedIn(model.requests[1]!.system!);
+  assert.ok(defined.includes("integration.slack") && defined.includes("core.log"));
+  assert.ok(!defined.includes("integration.github"));
+});
+
+test("a node the model reached from the index alone is defined in full on the retry", async () => {
+  // The selector's safety net: Slack was asked for, Airtable was not, and the model used Airtable
+  // with a config its index line could not tell it. The retry must hand it Airtable's definition.
+  const reachedUndefined = JSON.stringify({
+    name: "x",
+    nodes: [
+      { id: "trigger", type: "core.manual_trigger", config: {} },
+      { id: "file", type: "integration.airtable", config: { operation: "deleteRecord" } },
+    ],
+    edges: [{ source: "trigger", target: "file" }],
+  });
+  const model = scriptedModel([reachedUndefined, DEMO_ANSWER]);
+  const result = await generateWorkflow({ model, modelId: "fake-1", prompt: "post a message to slack" });
+
+  assert.equal(result.ok, true);
+  assert.ok(!result.selection.types.includes("integration.airtable"), "the premise: Airtable was not selected");
+  const retry = (model.requests[1]!.turns[2] as { text: string }).text;
+  assert.match(retry, /Full definitions of the nodes you used that were only listed/);
+  assert.match(retry, /type: "integration\.airtable"/);
+  assert.match(retry, /operation: one of "createRecord" \| "listRecords"/);
+});
+
+test("a retry adds no definitions when every node the answer used was already defined", async () => {
+  const model = scriptedModel(["not json at all", DEMO_ANSWER]);
+  await generateWorkflow({ model, modelId: "fake-1", prompt: "triage messages" });
+  assert.ok(!(model.requests[1]!.turns[2] as { text: string }).text.includes("Full definitions"));
+});
+
+test("undefinedTypesUsed reads only real types the prompt did not define", () => {
+  const selection = { strategy: "deterministic" as const, types: ["core.manual_trigger", "core.log"] };
+  const nodes = describeNodes();
+  const answer = JSON.stringify({
+    nodes: [{ type: "core.log" }, { type: "integration.slack" }, { type: "integration.teams" }, { type: 7 }, "x"],
+  });
+  assert.deepEqual(undefinedTypesUsed(answer, selection, nodes), ["integration.slack"]);
+  assert.deepEqual(undefinedTypesUsed("not json", selection, nodes), []);
+  assert.deepEqual(undefinedTypesUsed("[]", selection, nodes), []);
+});
+
+test("the log line says which attempt produced the graph, and carries no prompt or answer", async () => {
+  const first = await generateWorkflow({ model: scriptedModel([DEMO_ANSWER]), modelId: "fake-1", prompt: "a secret request" });
+  const second = await generateWorkflow({ model: scriptedModel(["nope", DEMO_ANSWER]), modelId: "fake-1", prompt: "a secret request" });
+  const failed = await generateWorkflow({ model: scriptedModel(["nope", "nope"]), modelId: "fake-1", prompt: "a secret request" });
+
+  assert.equal(generationLogFields(first, 10).outcome, "first");
+  assert.equal(generationLogFields(second, 10).outcome, "second");
+  const failedFields = generationLogFields(failed, 10);
+  assert.equal(failedFields.outcome, "failed");
+  assert.equal(failedFields.attempts, 2);
+  assert.equal(failedFields.issues, 1);
+
+  const fields = generationLogFields(first, 1234);
+  assert.equal(fields.selector, "deterministic");
+  assert.equal(fields.durationMs, 1234);
+  assert.equal(fields.selected, first.selection.types.length);
+  // Facts only (`logger.ts`): every value a scalar, and nothing of what the person typed.
+  for (const value of Object.values(fields)) assert.ok(value === null || typeof value !== "object");
+  assert.ok(!JSON.stringify(fields).includes("secret"));
+});
+
+/* ------------------------------------------------------------------ *
+ * Phase 34 — a valid graph whose references reach nothing
+ * ------------------------------------------------------------------ */
+
+/** The eval set's catch: a Loop body reading `{{input.name}}` where its input is `{ index, item, total }`. */
+const loopAnswer = (field: string) =>
+  JSON.stringify({
+    name: "Users to sheet",
+    nodes: [
+      { id: "trigger", type: "core.manual_trigger", config: {} },
+      { id: "each", type: "core.loop", config: { items: "{{trigger.users}}" } },
+      { id: "row", type: "integration.sheets", config: { spreadsheetId: "", values: [`{{${field}}}`] } },
+    ],
+    edges: [
+      { source: "trigger", target: "each" },
+      { source: "each", target: "row", sourceHandle: "loop" },
+      { source: "row", target: "each" },
+    ],
+  });
+
+test("a valid graph whose reference reaches nothing earns the retry, with the exact problem", async () => {
+  const model = scriptedModel([loopAnswer("input.name"), loopAnswer("input.item.name")]);
+  const result = await generateWorkflow({ model, modelId: "fake-1", prompt: "users to a sheet" });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(model.requests.length, 2);
+  assert.equal(result.attempt, 2);
+  assert.deepEqual(result.attempts[0]!.issues.map((issue) => issue.code), ["unresolved_reference"]);
+  assert.deepEqual(result.attempts[1]!.issues, []);
+  const retry = (model.requests[1]!.turns[2] as { text: string }).text;
+  assert.match(retry, /references reach nothing/);
+  assert.match(retry, /\{\{input\.name\}\}: the input here has no "name" — it has index, item, total/);
+  assert.equal(generationLogFields(result, 1).outcome, "second");
+  assert.equal(generationLogFields(result, 1).referenceRetry, true);
+});
+
+test("a retry that breaks the graph never costs the valid first answer", async () => {
+  const model = scriptedModel([loopAnswer("input.name"), "not json"]);
+  const result = await generateWorkflow({ model, modelId: "fake-1", prompt: "users to a sheet" });
+
+  assert.equal(result.ok, true, "a valid graph is never failed over a reference");
+  if (!result.ok) return;
+  assert.equal(result.attempt, 1);
+  assert.equal(result.graph.nodes.find((node) => node.id === "row")?.config.values?.toString(), "{{input.name}}");
+  assert.equal(generationLogFields(result, 1).outcome, "first");
+});
+
+test("references still unresolved on the second attempt are listed, and the graph accepted", async () => {
+  const model = scriptedModel([loopAnswer("input.name"), loopAnswer("input.email")]);
+  const result = await generateWorkflow({ model, modelId: "fake-1", prompt: "users to a sheet" });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(model.requests.length, 2, "two attempts, never more");
+  assert.equal(result.attempt, 2);
+  assert.equal(result.attempts[1]!.issues[0]?.code, "unresolved_reference");
+});
+
+test("an answer whose references all resolve is accepted on one call", async () => {
+  const model = scriptedModel([loopAnswer("input.item.name")]);
+  const result = await generateWorkflow({ model, modelId: "fake-1", prompt: "users to a sheet" });
+  assert.equal(result.ok && result.attempt, 1);
+  assert.equal(model.requests.length, 1);
 });

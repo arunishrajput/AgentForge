@@ -104,10 +104,12 @@ enabling work before what depends on it.**
   for any UI claim — **in a real browser**. The API suites cannot see the page
 - **From Phase 28 onward every UI phase is verified in both Light and Dark.** A screen checked in
   one theme is a screen checked in half
-- **No new registry node before Phase 34 (D112).** The generation prompt is 24,876 characters
-  against the 26,000 ceiling asserted in `src/lib/nodes/registry.test.ts`, which is one node of
-  headroom. Phases 26–33 extend existing nodes or add things that are not nodes. **Raising the
-  ceiling is not the fix**; Phase 34 is
+- **~~No new registry node before Phase 34 (D112)~~ — lifted by Phase 34 (D156).** Phases 26–33
+  extended existing nodes or added things that are not nodes, because the whole catalogue went into
+  every generation prompt. Since Phase 34 a request gets full definitions only for the nodes
+  selected for it, and a new node costs every request one index line (~116 characters). **A new
+  node must be selectable**: `select.test.ts` asserts that naming any node's label selects it, and
+  the eval set (`src/lib/generate/eval/`) should gain a case that needs it
 - **Every new node owes the registry's five obligations** (`PROGRESS.md` → *Deployed State* →
   Registry): a `PUBLISHABLE` entry, a `ROTATION_RULES` entry if it carries a credential kind, the
   `model` output field only if it is a model call, the generator catalogue entry (automatic), and

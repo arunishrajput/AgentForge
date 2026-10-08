@@ -214,10 +214,11 @@ test("every event name is unique and dotted", () => {
 /**
  * **The point of the catalogue.** A log-based metric is a filter string living in a GCP
  * resource, and nothing connects it to this repository: rename an event and the metric
- * reports zero forever, which looks exactly like a healthy system. These four names are
- * the ones `OPERATIONS.md` builds metrics on, so renaming one has to fail here first.
+ * reports zero forever, which looks exactly like a healthy system. These names are the ones
+ * `OPERATIONS.md` builds metrics on, so renaming one has to fail here first. Phase 34 added the
+ * fifth, `generation.finished`, for `agentforge_generations`.
  */
-test("the four events the log-based metrics filter on still exist", () => {
-  const metered: EventName[] = ["run.finished", "node.finished", "model.call", "api.error"];
+test("the five events the log-based metrics filter on still exist", () => {
+  const metered: EventName[] = ["run.finished", "node.finished", "model.call", "api.error", "generation.finished"];
   for (const event of metered) assert.ok(EVENTS.includes(event), `${event} is no longer emitted`);
 });

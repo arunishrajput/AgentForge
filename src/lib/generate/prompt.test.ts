@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import { describeNodes } from "@/lib/nodes";
 
-import { describeConfigSchema, renderCatalogue, systemPrompt } from "./prompt";
+import { describeConfigSchema, GUIDANCE, indexLine, renderCatalogue, renderIndex, systemPrompt } from "./prompt";
 
 /**
  * The prompt's job is to put the registry in front of the model. These tests exist so
@@ -123,4 +123,60 @@ test("the prompt tells the model not to starve an agent of model calls", () => {
   // The reason, not just the instruction: a rule a model is given a reason for survives
   // a request that seems to argue for the opposite.
   assert.match(prompt, /one model call deciding to use a tool and another reading/);
+});
+
+/* ------------------------------------------------------------------ *
+ * Phase 34 — the index, and definitions for the selection only
+ * ------------------------------------------------------------------ */
+
+test("the index has one line per node: its type, its label and what it is", () => {
+  const index = renderIndex();
+  const nodes = describeNodes();
+  assert.equal(index.split("\n").length, nodes.length);
+  const slack = nodes.find((node) => node.type === "integration.slack")!;
+  assert.equal(
+    indexLine(slack),
+    '  - "integration.slack" (Post to Slack) — Posts a message to the Slack channel the user has connected in Settings.',
+  );
+  // The first sentence only, and never a cut-off one.
+  for (const node of nodes) assert.match(indexLine(node), /\.$/, node.type);
+});
+
+test("a selection defines its nodes in full and lists every other node by its index line", () => {
+  const nodes = describeNodes();
+  const selected = ["core.manual_trigger", "ai.llm", "integration.slack"];
+  const prompt = systemPrompt(nodes, selected);
+
+  for (const node of nodes) assert.ok(prompt.includes(indexLine(node)), `${node.type} is missing from the index`);
+  const defined = [...prompt.matchAll(/^ {2}- type: "([^"]+)"/gm)].map((match) => match[1]);
+  assert.deepEqual(defined, selected);
+  // The model is told it may still reach an unselected node, and what happens if it gets one wrong.
+  assert.match(prompt, /use it all the same/);
+});
+
+test("the whole catalogue needs no index — the definitions are the list", () => {
+  const prompt = systemPrompt();
+  assert.ok(!prompt.includes("Full definitions of the nodes this request"));
+  assert.match(prompt, /You may only use these node types/);
+});
+
+test("advice about a node is given only when that node is defined", () => {
+  const nodes = describeNodes();
+  const without = systemPrompt(nodes, ["core.manual_trigger", "core.log"]);
+  assert.ok(!without.includes("Designing with the AI nodes"));
+  assert.ok(!without.includes("Designing with the integration nodes"));
+  assert.ok(!without.includes('Do not set "maxIterations"'));
+
+  const withAgent = systemPrompt(nodes, ["core.manual_trigger", "ai.agent", "core.branch"]);
+  assert.match(withAgent, /Designing with the AI nodes/);
+  assert.match(withAgent, /Do not set "maxIterations"/);
+  assert.ok(!withAgent.includes('"ai.llm" is one model call'));
+});
+
+test("every piece of advice names a registered node — a prompt that names specifics dates like code", () => {
+  const types = new Set(describeNodes().map((node) => node.type));
+  for (const entry of GUIDANCE) {
+    assert.ok(types.has(entry.type), `GUIDANCE names ${entry.type}, which is not registered`);
+    assert.ok(entry.text.includes(`"${entry.type}"`) || entry.type === "ai.agent", entry.text);
+  }
 });

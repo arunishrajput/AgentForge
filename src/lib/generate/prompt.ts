@@ -106,8 +106,112 @@ const OUTPUT_SHAPE = `{
   "unsupported": ["any part of the request no node above can do"]
 }`;
 
-export function systemPrompt(nodes: NodeSummary[] = describeNodes()): string {
+/**
+ * **The index — Phase 34.** One line for every node, always sent: the model knows everything that
+ * exists even when only some of it is defined in full, so it can still reach an unselected node
+ * and can still say honestly what does *not* exist. The line is the type, the label and the first
+ * sentence of the model-facing description — the sentence that says what the node is.
+ */
+export function indexLine(node: NodeSummary): string {
+  const first = node.description.split(/(?<=\.)\s+(?=[A-Z])/)[0] ?? node.description;
+  return `  - "${node.type}" (${node.label}) — ${first}`;
+}
+
+export function renderIndex(nodes: NodeSummary[] = describeNodes()): string {
+  return nodes.map(indexLine).join("\n");
+}
+
+/**
+ * Advice the prompt gives about particular nodes, sent only when that node is defined in full.
+ * Keyed by type so it follows the selection, and so a test can hold every key to a registered
+ * node — **a prompt that names specifics dates like code** (`nodes/index.ts`), and a key for a node
+ * that no longer exists is exactly that rot.
+ */
+export const GUIDANCE: { section: "ai" | "integration"; type: string; text: string }[] = [
+  {
+    section: "ai",
+    type: "ai.llm",
+    text: '"ai.llm" is one model call. Use it to summarise, classify, rewrite or extract. Its answer is output.text.',
+  },
+  {
+    section: "ai",
+    type: "ai.agent",
+    text: '"ai.agent" decides at runtime and can call other nodes as tools. Give it an "objective", and list the node types it may call in "tools" — only types from the list of node types above.',
+  },
+  {
+    section: "ai",
+    type: "ai.agent",
+    text: 'When the workflow has to CHOOSE between named outcomes — urgent or not, approve or reject, which category — use "ai.agent" with "choices", not an "ai.llm" whose text you then compare. The agent\'s output.decision is constrained to your list, so the branch is exact instead of depending on how the model happened to word a sentence.',
+  },
+  {
+    section: "ai",
+    type: "ai.agent",
+    text: 'An agent does not have its own branches. To route on what it decided, configure its "choices" (for example ["urgent", "normal"]), then follow it with a "core.branch" whose left is "{{input.decision}}", operator "equals", and right one of those choices. The "true" output is that choice; the "false" output is everything else.',
+  },
+  {
+    section: "ai",
+    type: "ai.agent",
+    text: 'Do not set "maxIterations". An agent spends one model call deciding to use a tool and another reading what the tool returned, so a limit of 1 stops it before it can answer and fails the whole run. The default already allows for this; set it only when a request genuinely needs a longer loop, and never below 3.',
+  },
+  {
+    section: "integration",
+    type: "integration.discord",
+    text: '"integration.discord" posts to the one Discord channel the user connected in Settings. You choose the message; you cannot choose the channel, and there is no channel field.',
+  },
+  {
+    section: "integration",
+    type: "integration.sheets",
+    text: '"integration.sheets" appends one row to a Google Sheet. "values" is that row, cell by cell, in order — ["{{trigger.name}}", "{{steps.summarise.output.text}}"], not a single joined string. If the request does not say which spreadsheet, leave "spreadsheetId" as an empty string: the user fills it in on the canvas.',
+  },
+  {
+    section: "integration",
+    type: "integration.gmail",
+    text: '"integration.gmail" sends mail from the user\'s connected account. Use it only when the request actually asks for email. If the request does not say who to write to, leave "to" as an empty string rather than inventing an address — the user fills it in on the canvas.',
+  },
+  {
+    section: "integration",
+    type: "integration.http",
+    text: '"integration.http" calls any other HTTPS API. Use it only when the request names an endpoint or a service with no node of its own. It cannot reach a service that needs a credential you were not given.',
+  },
+];
+
+function renderGuidance(selected: Set<string>): string {
+  const sections: [string, string][] = [
+    ["ai", "Designing with the AI nodes:"],
+    ["integration", "Designing with the integration nodes:"],
+  ];
+  return sections
+    .map(([section, heading]) => {
+      const lines = GUIDANCE.filter((entry) => entry.section === section && selected.has(entry.type));
+      return lines.length === 0 ? "" : `${heading}\n\n${lines.map((entry) => `  - ${entry.text}`).join("\n")}\n\n`;
+    })
+    .join("");
+}
+
+/**
+ * The generation system prompt. `selected` names the nodes defined in full (`select.ts`); every
+ * other node appears only as its index line. Omitted, every node is defined — the whole catalogue,
+ * which is what generation sent before Phase 34 and what the `full` strategy still sends.
+ */
+export function systemPrompt(nodes: NodeSummary[] = describeNodes(), selected?: string[]): string {
+  const chosen = new Set(selected ?? nodes.map((node) => node.type));
+  const defined = nodes.filter((node) => chosen.has(node.type));
+  const everything = defined.length === nodes.length;
   const triggers = nodes.filter((node) => node.kind === "trigger").map((node) => `"${node.type}"`);
+
+  const catalogue = everything
+    ? `You may only use these node types. Nothing else exists; a type that is not on this list makes the workflow invalid.
+
+${renderCatalogue(defined)}`
+    : `The node types that exist — every one, and nothing else. A type that is not on this list makes the workflow invalid:
+
+${renderIndex(nodes)}
+
+Full definitions of the nodes this request most likely needs — their config fields and what they output:
+
+${renderCatalogue(defined)}
+
+If the request needs a node from the list whose definition is not here, use it all the same, setting only the config its line implies; if that config is wrong you will be shown its full definition.`;
 
   return `You design workflows for AgentForge, an automation platform. You are given a request in plain language and you answer with one workflow as JSON.
 
@@ -116,9 +220,7 @@ Answer with JSON only. No prose, no markdown fence.
 Shape:
 ${OUTPUT_SHAPE}
 
-You may only use these node types. Nothing else exists; a type that is not on this list makes the workflow invalid.
-
-${renderCatalogue(nodes)}
+${catalogue}
 
 Rules — a workflow that breaks any of these is rejected:
 
@@ -138,22 +240,7 @@ Config values may reference earlier data with {{ }} — a plain lookup, not an e
 
 Reference the exact field you want, never the whole output object. Each node's "output value" above says what it holds: "{{steps.summarise.output.text}}" is the LLM's answer, while "{{steps.summarise.output}}" is the whole object and compares as "[object Object]".
 
-Designing with the AI nodes:
-
-  - "ai.llm" is one model call. Use it to summarise, classify, rewrite or extract. Its answer is output.text.
-  - "ai.agent" decides at runtime and can call other nodes as tools. Give it an "objective", and list the node types it may call in "tools" — only types whose catalogue entry you were shown may be listed there.
-  - When the workflow has to CHOOSE between named outcomes — urgent or not, approve or reject, which category — use "ai.agent" with "choices", not an "ai.llm" whose text you then compare. The agent's output.decision is constrained to your list, so the branch is exact instead of depending on how the model happened to word a sentence.
-  - An agent does not have its own branches. To route on what it decided, configure its "choices" (for example ["urgent", "normal"]), then follow it with a "core.branch" whose left is "{{input.decision}}", operator "equals", and right one of those choices. The "true" output is that choice; the "false" output is everything else.
-  - Do not set "maxIterations". An agent spends one model call deciding to use a tool and another reading what the tool returned, so a limit of 1 stops it before it can answer and fails the whole run. The default already allows for this; set it only when a request genuinely needs a longer loop, and never below 3.
-
-Designing with the integration nodes:
-
-  - "integration.discord" posts to the one Discord channel the user connected in Settings. You choose the message; you cannot choose the channel, and there is no channel field.
-  - "integration.sheets" appends one row to a Google Sheet. "values" is that row, cell by cell, in order — ["{{trigger.name}}", "{{steps.summarise.output.text}}"], not a single joined string. If the request does not say which spreadsheet, leave "spreadsheetId" as an empty string: the user fills it in on the canvas.
-  - "integration.gmail" sends mail from the user's connected account. Use it only when the request actually asks for email. If the request does not say who to write to, leave "to" as an empty string rather than inventing an address — the user fills it in on the canvas.
-  - "integration.http" calls any other HTTPS API. Use it only when the request names an endpoint or a service with no node of its own. It cannot reach a service that needs a credential you were not given.
-
-When the request asks for something no node above can do — reaching a service with no node in the catalogue, or anything outside this system — do not invent a node and do not pretend another node does it. Build the part you can, and list the part you cannot in "unsupported", in the user's own terms ("post it to Slack"). If you can build almost none of it, still return the trigger and whatever is genuinely possible, and list the rest. An empty "unsupported" means you built everything that was asked.
+${renderGuidance(chosen)}When the request asks for something no node above can do — reaching a service with no node in the catalogue, or anything outside this system — do not invent a node and do not pretend another node does it. Build the part you can, and list the part you cannot in "unsupported", in the user's own terms ("post it to Slack"). If you can build almost none of it, still return the trigger and whatever is genuinely possible, and list the rest. An empty "unsupported" means you built everything that was asked.
 
 Keep the workflow as small as the request allows — every node must earn its place. Prefer a shape the user can read at a glance over a thorough one.`;
 }

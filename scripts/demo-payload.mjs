@@ -63,12 +63,33 @@ export const CALM_PAYLOAD = {
 };
 
 const TRIGGER_REFERENCE = /\{\{\s*trigger\.([A-Za-z0-9_]+)/g;
+const INPUT_REFERENCE = /\{\{\s*input\.([A-Za-z0-9_]+)/g;
+const STEP_REFERENCE = /\{\{\s*steps\.([A-Za-z0-9_-]+)\.output\.([A-Za-z0-9_]+)/g;
 
-/** Every `{{trigger.x}}` the graph reads, anywhere in any node's config. */
+/**
+ * Every body field the graph reads, by any of the three names it goes by: `{{trigger.x}}`
+ * anywhere; `{{input.x}}` in a node the trigger feeds directly, where `input` IS the body; and
+ * `{{steps.<trigger>.output.x}}` anywhere. Until Phase 34 only the first was read, so a generated
+ * graph that wrote either of the others met a payload without the field — an empty prompt, a
+ * `null` Sheets cell — and the smoke walk failed on the graph's honest reading of the body.
+ */
 export function triggerFieldsUsed(graph) {
+  const nodes = graph?.nodes ?? [];
+  const triggerIds = new Set(nodes.filter((n) => n.type?.endsWith("_trigger")).map((n) => n.id));
+  const fedByTrigger = new Set(
+    (graph?.edges ?? []).filter((e) => triggerIds.has(e.source)).map((e) => e.target),
+  );
+
   const found = new Set();
-  for (const match of JSON.stringify(graph?.nodes ?? []).matchAll(TRIGGER_REFERENCE)) {
-    found.add(match[1]);
+  for (const node of nodes) {
+    const config = JSON.stringify(node.config ?? {});
+    for (const match of config.matchAll(TRIGGER_REFERENCE)) found.add(match[1]);
+    if (fedByTrigger.has(node.id)) {
+      for (const match of config.matchAll(INPUT_REFERENCE)) found.add(match[1]);
+    }
+    for (const match of config.matchAll(STEP_REFERENCE)) {
+      if (triggerIds.has(match[1])) found.add(match[2]);
+    }
   }
   return [...found];
 }

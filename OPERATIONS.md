@@ -82,7 +82,7 @@ that is *right*.
 
 Every entry carries `severity`, `message`, `event`, and Cloud Run's own `trace` so it joins that
 request's entry in Cloud Run's request log. The catalogue lives in `src/lib/logging/events.ts` and
-**a test asserts that the four names the metrics below depend on still exist** — a renamed event
+**a test asserts that the five names the metrics below depend on still exist** — a renamed event
 would otherwise leave a metric reporting zero forever, which looks exactly like a healthy system.
 
 | `event` | Severity | When | Carries |
@@ -91,6 +91,7 @@ would otherwise leave a metric reporting zero forever, which looks exactly like 
 | `run.finished` | INFO / ERROR | A run reached a terminal status | `status`, `durationMs`, `attempt`, `resumed` |
 | `node.finished` | INFO / ERROR | One node finished | `nodeId`, `nodeType`, `status`, `durationMs` |
 | `model.call` | INFO / WARNING / ERROR | A `generate` resolved | `requested`, `answered`, `fallback`, `attempts` |
+| `generation.finished` | INFO / WARNING | A workflow generation ended (Phase 34) — WARNING when neither attempt produced a valid graph | `outcome` (`first` · `second` · `failed`), `attempts`, `model`, `selector`, `selected`, `selectorFellBack`, `promptChars`, `unsupported`, `issues`, `durationMs` |
 | `queue.degraded` | **ERROR** | A durable run could not be enqueued | `reason` |
 | `queue.delivered` | INFO | A Cloud Tasks delivery was handled | `handled`, `status`, `retryCount` |
 | `run.waiting` | INFO | A run paused at a long delay (Phase 26) | `wakeAt`, `trigger` |
@@ -104,8 +105,9 @@ working, not a fault; logging thousands of correct refusals at ERROR would bury 
 
 ### Log-based metrics
 
-Four, created in Phase 22. They are free: log-based metrics bill against Cloud Monitoring's
-chargeable-metrics allowance, and this project's handful of time series is nowhere near it.
+Four created in Phase 22, and a fifth in Phase 34. They are free: log-based metrics bill against
+Cloud Monitoring's chargeable-metrics allowance, and this project's handful of time series is nowhere
+near it.
 
 ```bash
 gcloud logging metrics list --format='table(name,filter)'
@@ -117,6 +119,7 @@ gcloud logging metrics list --format='table(name,filter)'
 | `agentforge_node_latency` | A distribution of `durationMs`, labelled `nodeType` and `status` |
 | `agentforge_model_fallbacks` | **The important one.** Calls the requested model did not answer |
 | `agentforge_errors` | Every ERROR, labelled by `errorGroup` — repeats are one line, not a rising count |
+| `agentforge_generations` | Workflow generations, labelled `outcome` (`first`, `second`, `failed`) and `selector` — **which attempt produced the graph** (Phase 34) |
 
 ---
 
@@ -150,8 +153,11 @@ the log-based metric kept collecting across the change rather than needing to be
    a rate across both is far more likely to be us — a network path, a budget, or a deploy. The
    circuit breakers are per provider (`health.ts`), so one provider's outage cannot reorder the
    other's chain and the two signals are genuinely independent.
-2. Check whether it is a quota wall rather than a dead model — Gemini's free tier is 20 requests a
-   minute per model, and Groq answers 429 on a free-tier burst; a burst of verification traffic hits
+2. Check whether it is a quota wall rather than a dead model. **Gemini's free tier for
+   `gemini-3-flash` is 20 requests a *day*** (the 429 said so on 2026-10-08:
+   `generate_content_free_tier_requests, limit: 20`) — so the default model is spent by a morning of
+   agent runs, and from then on `gemini-3.5-flash-lite` answers; Groq allows 1,000 requests and
+   200,000 tokens a day per model, 8,000 tokens a minute. A burst of verification traffic hits
    either. `jsonPayload.detail` says so in the provider's own words.
 3. If it persists, re-measure rather than guess: `npm run probe:models` makes real calls on both the
    text and tool-calling paths and prints a table. **Pass `--provider groq` for the other one** —
@@ -165,6 +171,31 @@ the log-based metric kept collecting across the change rather than needing to be
 > `gemini-3-flash-preview` — the configured default — was being answered by `gemini-3.5-flash-lite`
 > on nearly every call, having hit its free-tier quota. Every affected run *succeeded*. This is the
 > Chapter 1 regression, caught the first time the instrument existed to catch it.
+
+---
+
+## `agentforge_generations` — is generation getting worse?
+
+**Phase 34.** Every `POST /api/workflows/generate` that got an answer from the model ends in one
+`generation.finished` line: `outcome` is `first` when the first answer was a valid graph, `second`
+when it took the retry, and `failed` when neither was (a WARNING, and a 422 to the user). A provider
+failure — a bad key, a quota wall — is not an outcome; nothing was produced to judge, and
+`model.call` records it.
+
+```bash
+gcloud logging read \
+  'resource.type=cloud_run_revision AND jsonPayload.event="generation.finished"' \
+  --limit 20 --freshness 7d \
+  --format='value(timestamp,jsonPayload.outcome,jsonPayload.model,jsonPayload.selected,jsonPayload.promptChars,jsonPayload.durationMs)'
+```
+
+**A rising share of `second` or `failed` means generation is getting worse**, and the first
+question is whether the model changed — a fallback answering (`model` differs from the default), a
+preview model replaced — before the prompt. Then reproduce it offline-first: `npm run eval:generate`
+replays the recorded eval set with no key; `-- --live` runs it against a real model and says which
+cases fail and why. `selected` and `promptChars` are there to rule selection in or out: the eval set
+asserts the selector gives every case what it needs, and `selectorFellBack` is only ever true for
+the model selector, which is not shipped.
 
 ---
 

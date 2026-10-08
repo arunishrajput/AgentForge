@@ -30,6 +30,7 @@
     "docs:build": "node --import ./scripts/test-register.mjs --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/build-docs.mjs",
     "docs:check": "node --import ./scripts/test-register.mjs --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/build-docs.mjs --check",
     "probe:models": "node scripts/probe-models.mjs",
+    "eval:generate": "node --env-file-if-exists=.env --import ./scripts/test-register.mjs --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/eval-generate.mjs",
     "design:export": "node --import ./scripts/test-register.mjs --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/export-illustrations.mjs",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",

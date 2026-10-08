@@ -5,8 +5,16 @@ import { describeNodes, type NodeSummary } from "@/lib/nodes";
 import { GRAPH_VERSION, workflowGraphSchema, type WorkflowGraph } from "@/lib/workflow/graph";
 
 import { layout } from "./layout";
+import { checkReferences } from "./references";
 import { generatedWorkflowSchema, type GeneratedWorkflow } from "./schema";
-import { systemPrompt, userPrompt } from "./prompt";
+import { renderCatalogue, systemPrompt, userPrompt } from "./prompt";
+import {
+  selectAll,
+  selectDeterministic,
+  selectWithModel,
+  type CatalogueOption,
+  type CatalogueSelection,
+} from "./select";
 
 /**
  * Natural language → workflow — CONTRACT.md → "Generation request/response".
@@ -32,11 +40,19 @@ import { systemPrompt, userPrompt } from "./prompt";
 export type GenerationIssue =
   | { code: "not_json"; message: string }
   | { code: "bad_shape"; message: string; path?: string }
+  /**
+   * Phase 34: a valid graph whose `{{ }}` reference reaches nothing (`references.ts`). Never a
+   * failure by itself — it earns the one retry, and is listed on an attempt whose graph kept it.
+   */
+  | { code: "unresolved_reference"; message: string; nodeId: string; reference: string }
   | GraphProblem;
 
 export interface GenerationAttempt {
   model: string;
-  /** Empty on the attempt that succeeded. */
+  /**
+   * What was wrong with this attempt's answer. Empty on an attempt accepted as it stood; an
+   * accepted graph can still list `unresolved_reference`s the retry did not fix.
+   */
   issues: GenerationIssue[];
   ms: number;
 }
@@ -56,6 +72,15 @@ export interface GenerationSuccess {
   model: string;
   usage: Usage | null;
   attempts: GenerationAttempt[];
+  /**
+   * Which attempt produced this graph. Usually the last; the first when the retry over its
+   * references came back invalid, because a valid graph is never thrown away for a worse one.
+   */
+  attempt: 1 | 2;
+  /** Which nodes were defined in full, and how they were chosen — Phase 34. */
+  selection: CatalogueSelection;
+  /** The system prompt's length in characters — what selection exists to keep down. */
+  promptChars: number;
 }
 
 export interface GenerationFailure {
@@ -64,6 +89,8 @@ export interface GenerationFailure {
   message: string;
   issues: GenerationIssue[];
   attempts: GenerationAttempt[];
+  selection: CatalogueSelection;
+  promptChars: number;
 }
 
 export type GenerationResult = GenerationSuccess | GenerationFailure;
@@ -77,7 +104,63 @@ export interface GenerateWorkflowOptions {
   name?: string;
   /** Injectable so a test can generate against a fixed catalogue. */
   nodes?: NodeSummary[];
+  /**
+   * How the catalogue is chosen — Phase 34. Defaults to `DEFAULT_CATALOGUE`. `fixed` replays a
+   * recorded selection, for the eval set's offline mode.
+   */
+  catalogue?: CatalogueOption;
   signal?: AbortSignal;
+}
+
+/**
+ * **The strategy generation ships with — D156.** Measured against the whole catalogue and against
+ * a model-call selector on the eval set (`BUILD_PLAN.md` → *Phase 34*).
+ */
+export const DEFAULT_CATALOGUE: CatalogueOption = { strategy: "deterministic" };
+
+async function chooseCatalogue(options: GenerateWorkflowOptions, nodes: NodeSummary[]): Promise<CatalogueSelection> {
+  const catalogue = options.catalogue ?? DEFAULT_CATALOGUE;
+  switch (catalogue.strategy) {
+    case "full":
+      return selectAll(nodes);
+    case "fixed": {
+      const known = new Set(nodes.map((node) => node.type));
+      return { strategy: "fixed", types: catalogue.types.filter((type) => known.has(type)) };
+    }
+    case "model":
+      return selectWithModel({
+        model: options.model,
+        modelId: options.modelId,
+        request: options.prompt,
+        nodes,
+        signal: options.signal,
+      });
+    case "deterministic":
+      return selectDeterministic(options.prompt, nodes);
+  }
+}
+
+/**
+ * The node types a failed answer used that the prompt only indexed. Read from the raw JSON, not the
+ * parsed shape, because an answer can fail its shape and still say plainly which nodes it meant.
+ */
+export function undefinedTypesUsed(text: string, selection: CatalogueSelection, nodes: NodeSummary[]): string[] {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(stripCodeFence(text));
+  } catch {
+    return [];
+  }
+  const used = new Set<string>();
+  const list = raw && typeof raw === "object" ? (raw as { nodes?: unknown }).nodes : undefined;
+  if (Array.isArray(list)) {
+    for (const node of list) {
+      const type = node && typeof node === "object" ? (node as { type?: unknown }).type : undefined;
+      if (typeof type === "string") used.add(type);
+    }
+  }
+  const defined = new Set(selection.types);
+  return nodes.filter((node) => used.has(node.type) && !defined.has(node.type)).map((node) => node.type);
 }
 
 /**
@@ -199,6 +282,29 @@ export function interpret(
   return { ok: true, generated: parsed.data, graph: shaped.data };
 }
 
+/**
+ * **Which attempt produced the graph — Phase 34, task 4.** The fields of the `generation.finished`
+ * log line, which the `agentforge_generations` metric counts by `outcome` (`OPERATIONS.md`). Facts
+ * only: counts, names from the registry, the strategy — never the prompt or the model's answer.
+ */
+export function generationLogFields(result: GenerationResult, durationMs: number) {
+  const outcome = !result.ok ? "failed" : result.attempt === 1 ? "first" : "second";
+  return {
+    outcome,
+    attempts: result.attempts.length,
+    /** The retry was spent on references that reached nothing, not on an invalid graph. */
+    referenceRetry: result.attempts[0]?.issues.some((issue) => issue.code === "unresolved_reference") ?? false,
+    model: result.ok ? result.model : (result.attempts.at(-1)?.model ?? null),
+    selector: result.selection.strategy,
+    selected: result.selection.types.length,
+    selectorFellBack: result.selection.fellBack === true,
+    promptChars: result.promptChars,
+    unsupported: result.ok ? result.unsupported.length : null,
+    issues: result.ok ? 0 : result.issues.length,
+    durationMs,
+  };
+}
+
 /** One line per issue, for feeding a failure back to the model on the retry. */
 function issueLines(issues: GenerationIssue[]): string {
   return issues
@@ -231,9 +337,13 @@ export async function generateWorkflow(
   options: GenerateWorkflowOptions,
 ): Promise<GenerationResult> {
   const nodes = options.nodes ?? describeNodes();
-  const system = systemPrompt(nodes);
+  const selection = await chooseCatalogue(options, nodes);
+  const system = systemPrompt(nodes, selection.types);
+  const promptChars = system.length;
   const turns: ChatTurn[] = [{ role: "user", text: userPrompt(options.prompt) }];
   const attempts: GenerationAttempt[] = [];
+  /** A valid first answer held while its references are retried. */
+  let kept: { interpreted: Extract<ReturnType<typeof interpret>, { ok: true }>; result: GenerateResult } | null = null;
 
   // Two attempts, never more. The phase definition is explicit: "Retry once on
   // invalid output, then fail with a readable message. Do not attempt repair loops."
@@ -258,28 +368,60 @@ export async function generateWorkflow(
     const interpreted = interpret(result.text);
     const ms = Date.now() - started;
 
+    const accept = (
+      chosen: Extract<ReturnType<typeof interpret>, { ok: true }>,
+      answered: GenerateResult,
+      which: 1 | 2,
+    ): GenerationSuccess => ({
+      ok: true,
+      name: options.name ?? chosen.generated.name,
+      description: chosen.generated.description ?? null,
+      graph: chosen.graph,
+      unsupported: chosen.generated.unsupported,
+      model: answered.model,
+      usage: answered.usage,
+      attempts,
+      attempt: which,
+      selection,
+      promptChars,
+    });
+
     if (interpreted.ok) {
-      attempts.push({ model: result.model, issues: [], ms });
-      return {
-        ok: true,
-        name: options.name ?? interpreted.generated.name,
-        description: interpreted.generated.description ?? null,
-        graph: interpreted.graph,
-        unsupported: interpreted.generated.unsupported,
-        model: result.model,
-        usage: result.usage,
-        attempts,
-      };
+      // **Phase 34: valid is not the same as right.** A reference that reaches nothing resolves
+      // to an empty string at run time and nothing reports it — the eval set caught
+      // `{{input.name}}` inside a Loop, whose input is `{ index, item, total }`. So the first
+      // attempt's references earn the one retry, with the exact problem; the second attempt's
+      // are listed and accepted, because a valid graph is never failed over them.
+      const unresolved = checkReferences(interpreted.graph, nodes).map((problem) => ({
+        code: "unresolved_reference" as const,
+        message: `{{${problem.reference}}}: ${problem.message}`,
+        nodeId: problem.nodeId,
+        reference: problem.reference,
+      }));
+      attempts.push({ model: result.model, issues: unresolved, ms });
+      if (unresolved.length === 0 || attempt === 1) return accept(interpreted, result, attempt === 0 ? 1 : 2);
+
+      kept = { interpreted, result };
+      turns.push({ role: "model", text: result.text, toolCalls: [], raw: result.raw });
+      turns.push({
+        role: "user",
+        text: `That workflow is valid, but these {{ }} references reach nothing — at run time each would be empty:\n\n${issueLines(unresolved)}\n\nFix exactly those references and answer with the corrected workflow as JSON. Keep everything else as it is.`,
+      });
+      continue;
     }
 
     attempts.push({ model: result.model, issues: interpreted.issues, ms });
 
     if (attempt === 1) {
+      // The retry over references broke the graph: the first answer was valid, so it stands.
+      if (kept) return accept(kept.interpreted, kept.result, 1);
       return {
         ok: false,
         message: failureMessage(interpreted.issues),
         issues: interpreted.issues,
         attempts,
+        selection,
+        promptChars,
       };
     }
 
@@ -287,9 +429,16 @@ export async function generateWorkflow(
     // model told what was wrong with its own output fixes it far more often than one
     // simply asked again.
     turns.push({ role: "model", text: result.text, toolCalls: [], raw: result.raw });
+    // A node the model reached from the index alone gets its full definition now (Phase 34): the
+    // safety net under the selector. A miss costs this retry, never the node.
+    const reached = undefinedTypesUsed(result.text, selection, nodes);
+    const definitions =
+      reached.length === 0
+        ? ""
+        : `\n\nFull definitions of the nodes you used that were only listed:\n\n${renderCatalogue(nodes.filter((node) => reached.includes(node.type)))}`;
     turns.push({
       role: "user",
-      text: `That workflow was rejected:\n\n${issueLines(interpreted.issues)}\n\nFix exactly those problems and answer with the corrected workflow as JSON. Keep everything that was already correct.`,
+      text: `That workflow was rejected:\n\n${issueLines(interpreted.issues)}${definitions}\n\nFix exactly those problems and answer with the corrected workflow as JSON. Keep everything that was already correct.`,
     });
   }
 
@@ -300,5 +449,7 @@ export async function generateWorkflow(
     message: failureMessage([]),
     issues: [],
     attempts,
+    selection,
+    promptChars,
   };
 }

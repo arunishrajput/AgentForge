@@ -44,17 +44,18 @@ Three consequences follow, and they are the reason the architecture is shaped th
 ```
 your sentence
     │
-    ▼  the catalogue the model is given IS the registry (describeNodes)
+    ▼  select — which nodes this request is shown in full (the rest: one index line each)
   model
     │
     ▼  parse — a model may emit nodes and edges, or `unsupported` with a reason
  assemble — the system supplies version, ids and layout positions, never the model
     │
-    ▼  validate against the graph rules
+    ▼  validate against the graph rules, and check every {{ }} reaches something —
+    │  one retry with the problems, never a loop
   persist   ← only ever what validated
 ```
 
-Four properties worth knowing:
+Five properties worth knowing:
 
 **A broken workflow is never saved.** Nothing in `src/lib/generate/` touches the database; the
 route inserts only what the pipeline returns as valid. That is structural, not a promise.
@@ -67,12 +68,45 @@ overlapping one reads as broken.
 the model is required to say so with a reason, and you get that sentence rather than a plausible
 workflow that cannot work.
 
+**The model sees every node, but only some of them in full.** Since Phase 34 the prompt carries
+an *index* — one line for each of the registry's nodes — and full definitions (config fields,
+outputs, output shape) only for the nodes selected for your request. Selection is deterministic:
+words matched against each node's own description and docs, plus a small table of words that mean
+the same thing to a person ("spreadsheet" and "sheet", "every Monday" and "schedule"). Every
+trigger and the LLM node are always sent. Nothing about it spends a model call, and a node the
+selector missed is still reachable: the model may use any indexed node, and if it gets that
+node's config wrong, the retry is handed its full definition. The prompt fell from 25,081
+characters to ~16,800 on average, and adding a node now costs every request one index line
+(~116 characters) instead of a definition (~820).
+
 **A valid graph can still be the wrong graph.** This is the honest limitation, and it is stated
 here rather than buried: validation proves a workflow *can* run. It never proves it does what
 you asked. The canvas is editable for exactly this reason — generation is a first draft you
 correct, not an oracle.
 
----
+### Measured, not eyeballed — the eval set
+
+[`src/lib/generate/eval/`](../src/lib/generate/eval) holds 24 requests a stranger might type, each
+with what a correct answer must contain: the trigger the request implies, the nodes it needs, none
+it forbids, `unsupported` used honestly — and **every `{{ }}` reference resolving**
+([`references.ts`](../src/lib/generate/references.ts)), which is the check that sees a valid graph
+doing the wrong thing: `{{steps.summarise.output.summary}}` where the LLM node produces `text`, or
+`{{input.reason}}` after a Branch, whose output is its own `{ matched, input }`.
+
+```bash
+npm run eval:generate                    # replay the recordings — offline, no key, what CI runs
+npm run eval:generate -- --live          # a real model, scored; spends quota — sparingly
+npm run eval:generate -- --recall        # the selector alone: did it choose what each case needs?
+```
+
+CI asserts two things on every push: the selector gives every case every node it requires, and
+every recording of a live run replays through today's pipeline to the verdict it was recorded
+with. The results that chose the selector are in `BUILD_PLAN.md` → *Phase 34*.
+
+**The check runs in generation too.** A first answer that is a valid graph but whose references reach
+nothing is sent back once, each reference named in the words above. The retry is the same one an
+invalid answer gets — two attempts, never more — and if it comes back worse, the valid first graph is
+kept: a workflow is never refused over a reference.
 
 ## The agent node — reasoning inside a run
 
@@ -196,6 +230,8 @@ because a hard-won reliability fix is exactly the kind of thing that rots in dup
 | [`src/lib/ai/chain.ts`](../src/lib/ai/chain.ts) | Retry, fallback, time budget, breaker. No provider in it |
 | [`src/lib/ai/gemini.ts`](../src/lib/ai/gemini.ts) · [`groq.ts`](../src/lib/ai/groq.ts) | The two wire formats |
 | [`src/lib/generate/`](../src/lib/generate) | The generation pipeline. Touches no database |
+| [`src/lib/generate/select.ts`](../src/lib/generate/select.ts) | Which nodes a request is shown in full |
+| [`src/lib/generate/eval/`](../src/lib/generate/eval) | The eval set, its scorer, and the recordings CI replays |
 | [`src/lib/nodes/ai/agent.ts`](../src/lib/nodes/ai/agent.ts) | The agent node itself |
 
 Deeper reasoning — including why there is no LLM SDK — is in

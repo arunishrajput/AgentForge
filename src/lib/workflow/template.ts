@@ -64,6 +64,18 @@ export function resolveValue(value: unknown, scope: unknown): unknown {
   return value;
 }
 
+/**
+ * Every `{{ path }}` inside a value, in order, recursing as `resolveValue` does — the paths a
+ * config will look up. Phase 34's reference check reads a generated graph with it, so the
+ * check and the resolver can never disagree about what counts as a reference.
+ */
+export function referencesIn(value: unknown): string[] {
+  if (typeof value === "string") return [...value.matchAll(REFERENCE)].map((match) => match[1]!);
+  if (Array.isArray(value)) return value.flatMap(referencesIn);
+  if (value && typeof value === "object") return Object.values(value).flatMap(referencesIn);
+  return [];
+}
+
 /** Resolves a whole node config against the run scope. */
 export function resolveConfig(
   config: Record<string, unknown>,

@@ -2,7 +2,8 @@ import { NoProviderKeyError, PROVIDER_KEY_RECOVERY, resolveProvider } from "@/li
 import { ProviderError } from "@/lib/ai/types";
 import { ApiError, handle, ok, readJson, requireScope } from "@/lib/api";
 import type { WorkspaceScope } from "@/lib/workspace/scope";
-import { generateWorkflow } from "@/lib/generate/generate";
+import { generateWorkflow, generationLogFields } from "@/lib/generate/generate";
+import { logInfo, logWarn } from "@/lib/logging";
 import { generateRequestSchema } from "@/lib/generate/schema";
 import { createWorkflow, describeWorkflow } from "@/lib/workflow/store";
 
@@ -27,6 +28,7 @@ export async function POST(request: Request) {
     const provider = await resolveProviderOr422(scope);
 
     let result;
+    const started = Date.now();
     try {
       result = await generateWorkflow({
         model: provider.model,
@@ -46,6 +48,13 @@ export async function POST(request: Request) {
       }
       throw error;
     }
+
+    // Phase 34: which attempt produced the graph, counted by `agentforge_generations`. A provider
+    // failure above is not a generation outcome — nothing was produced to judge — and
+    // `model.call` already records it.
+    const fields = generationLogFields(result, Date.now() - started);
+    if (result.ok) logInfo("generation.finished", `Generated a workflow on attempt ${fields.attempts}.`, fields);
+    else logWarn("generation.finished", "Generation produced no valid workflow in two attempts.", fields);
 
     if (!result.ok) {
       // 422 `invalid_graph`: the request was well formed and the model answered, but

@@ -1822,6 +1822,15 @@ generator returns as `ok: true`.
 system supplies all three. Positions come from `layout()`, because a model cannot lay out a graph
 and an overlapping one reads as broken; edge ids are minted `e1…eN`; `version` is `GRAPH_VERSION`.
 
+**What the model is shown — Phase 34 (D156).** Every registered node as one index line (type, label,
+the first sentence of its description), and full definitions — config fields, outputs, output shape,
+and the prompt's advice about that node — only for the nodes `src/lib/generate/select.ts` chooses:
+every trigger and `ai.llm` always, then up to ten more by the request's words. The model may use any
+indexed node; if an answer uses one that was only indexed and fails validation, the retry carries
+that node's full definition. **The request and the response did not change**: selection is internal,
+and `attempts` already says which attempt produced the graph. It is logged as `generation.finished`
+(`OPERATIONS.md`).
+
 **Failure.** `422 invalid_graph`, with `details` of `{ issues, attempts }`. `issues[].code` is a
 `GraphProblem` code, or one of two that only generation can produce:
 
@@ -1829,12 +1838,15 @@ and an overlapping one reads as broken; edge ids are minted `e1…eN`; `version`
 |---|---|
 | `not_json` | The answer was not JSON at all |
 | `bad_shape` | JSON, but not the expected shape. Carries `path` |
+| `unresolved_reference` | **Phase 34.** A valid graph with a `{{ }}` reference that reaches nothing — a field its source does not produce, a step that cannot have run, a root that does not exist. Carries `nodeId` and `reference`. **Never a 422 on its own**: it spends the one retry, and if the retry comes back invalid the first, valid graph is kept. Appears in `attempts[].issues` of a 201 |
 
 A whitespace-only prompt is `400 invalid_request` and never reaches the provider. A provider failure
 (bad key, model busy) surfaces the provider's own words rather than being reported as bad output.
 
 **One retry, never a loop.** An invalid answer is sent back to the model with its own turn replayed
-verbatim (D33) and the issues listed. A second failure is reported. There is no repair loop.
+verbatim (D33) and the issues listed. A second failure is reported. There is no repair loop. **Since
+Phase 34 a valid answer whose references reach nothing also earns that retry** (D158), with each
+reference named; the response's `attempts` says which attempt produced the graph.
 
 **`unsupported` is how an impossible request fails cleanly.** Measured: asked to "SSH into my
 production server and delete the database", the model emitted a valid, inert `trigger → log` — safe,

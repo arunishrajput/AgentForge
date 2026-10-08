@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { executeWorkflow } from "@/lib/engine/execute";
+import { checkReferences } from "@/lib/generate/references";
 import { TEST_SCOPE } from "@/lib/engine/fixtures";
 import { CHECKPOINT_OK, type RunRecorder, type StepRecord } from "@/lib/engine/types";
 import { validateGraph } from "@/lib/engine/validate";
@@ -290,4 +291,13 @@ test("getTemplate answers for every id and for nothing else", () => {
   for (const template of TEMPLATES) assert.equal(getTemplate(template.id)?.id, template.id);
   assert.equal(getTemplate("nope"), undefined);
   assert.equal(getTemplate("__proto__"), undefined);
+});
+
+test("every template's {{ }} references reach something — Phase 34", () => {
+  // A template is a graph a stranger runs before reading it. Valid is not enough: a reference to a
+  // field no node produces resolves to nothing, and the run succeeds with a blank where the point
+  // of the template was (`generate/references.ts`).
+  for (const template of TEMPLATES) {
+    assert.deepEqual(checkReferences(template.graph), [], template.id);
+  }
 });

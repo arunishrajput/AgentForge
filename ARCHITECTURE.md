@@ -329,7 +329,9 @@ ceiling was re-based to 26,000 and the test now also asserts a **per-node averag
 scale-free property and the one a person can act on. **The structural answer, when that fails again,
 is to stop sending the whole catalogue on every call** — selecting the nodes a request could
 plausibly need. That is a design change and belongs in a phase of its own, not in whichever phase
-happens to trip the ceiling.
+happens to trip the ceiling. **Phase 34 was that phase** (D156): the prompt now carries an index line for every
+node and full definitions only for the ones selected for the request, and the budget is per request
+— see *Generation as built* below.
 
 **The registry accumulates obligations, and there are five.** A node type needs an entry in
 `PUBLISHABLE` (Phase 20: what a public share link may show of it), an entry in `ROTATION_RULES` if
@@ -571,10 +573,13 @@ Tool-call schema: `CONTRACT.md` → *Agent tool-call schema*, **DEFINED** in Pha
 
 ```
 src/lib/generate/
-  schema.ts    what a model may emit (pure) — no positions, no edge ids, no version
-  prompt.ts    registry -> the node catalogue the model is given (pure, tested)
-  layout.ts    nodes + edges -> positions, cycle-safe and non-overlapping (pure, tested)
-  generate.ts  the pipeline: ask -> parse -> assemble -> validate -> one retry (takes the model)
+  schema.ts      what a model may emit (pure) — no positions, no edge ids, no version
+  prompt.ts      registry -> the index and the definitions the model is given (pure, tested)
+  select.ts      which nodes a request is shown in full — Phase 34 (pure, tested)
+  layout.ts      nodes + edges -> positions, cycle-safe and non-overlapping (pure, tested)
+  generate.ts    the pipeline: select -> ask -> parse -> assemble -> validate -> one retry
+  references.ts  does every {{ }} in a graph reach something? — the retry's and the evals' check
+  eval/          the eval set, its scorer, and the recorded model answers CI replays
 ```
 
 **Generate → validate → persist, and nothing in this directory touches the database.** The route
@@ -585,6 +590,25 @@ never saved" a structural property rather than a promise.
 read. A hand-written node list in a prompt drifts the first time a node changes, and the drift shows
 up as a model emitting config the engine rejects — on demo day. This is also why Phases 8 and 9 need
 no generation change: registering a node makes it generatable.
+
+**Since Phase 34 the catalogue is selected per request** (D156). Sending every definition on every
+call cost ~820 characters a node and froze the registry at 30 (D112). Now every node has an index
+line — so the model knows all of it exists, and `unsupported` stays honest — and full definitions go
+only to the nodes `select.ts` chooses: every trigger and `ai.llm` always, then the ten best matches
+of the request's words against each node's own description and docs. It is deterministic and spends
+no quota; a model-call selector was built, measured on the eval set and not shipped (`BUILD_PLAN.md`
+→ *Phase 34*). Two things stand behind a miss: the eval set asserts in CI that every case's required
+nodes are selected, and the retry hands the model the full definition of any indexed node its first
+answer used. `registry.test.ts` budgets the prompt in the two parts that grow differently — the
+selection, bounded by its cap, and the index, ~116 characters a node.
+
+**Generation is measured** (`src/lib/generate/eval/`, `npm run eval:generate`): 24 requests with
+expectations, scored live against a real model and replayed offline from recordings in CI. The
+scorer reads the graph's `{{ }}` references against what each node declares it outputs, because a
+valid graph doing the wrong thing is the failure validation cannot see — and since the eval set caught
+one (`{{input.name}}` inside a Loop, whose input is `{ index, item, total }`), **generation runs the
+same check**: a valid first answer whose references reach nothing spends the one retry on them, and
+is kept if the retry comes back worse (D158).
 
 **The model is asked only for what it alone knows.** Nodes and edges, plus `unsupported`. The system
 supplies `version`, layout positions and edge ids (D40) — a model cannot lay out a graph, and an

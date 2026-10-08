@@ -32,6 +32,11 @@ export const EVENTS = [
   "node.finished",
   /** One `generate` call resolved. **The model-fallback metric** (`fallback: true`). */
   "model.call",
+  /**
+   * A workflow generation finished — Phase 34. `outcome` says which attempt produced the graph
+   * (`first`, `second`) or that neither did (`failed`). **The generation-quality metric.**
+   */
+  "generation.finished",
   /** A durable run could not be enqueued and fell back to in-process execution. */
   "queue.degraded",
   /** A Cloud Tasks delivery was handled — the worker side of a durable run. */
