@@ -389,7 +389,9 @@ no longer means *only the demo path*, and the MVP-Critical / Post-Hackathon clas
 
 **`BUILD_PLAN.md` Chapter 3 is the scope contract now.** A feature that is not in a phase is not
 in scope; if it should be, add it to a phase deliberately and say so. Two Chapter 3 rules carry
-most of the weight. **No new registry node before Phase 34** (D112). And **every new
+most of the weight. **A new registry node must be selectable and measured** — D112 held nodes back
+until Phase 34 lifted it (D156): naming a node's label must select it (`select.test.ts`), and the eval
+set (`src/lib/generate/eval/`) should gain a case that needs it. And **every new
 unauthenticated surface is enumerated by `scripts/verify-security.mjs`** in the phase that adds it.
 
 Priority ordering, applied to every decision:

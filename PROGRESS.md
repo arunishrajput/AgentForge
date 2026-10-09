@@ -16,26 +16,29 @@ Nothing was deleted:
 
 ## Project Status
 
-**CHAPTER 3 IS OPEN. PHASES 26–33 ARE COMPLETE (2026-10-08); PHASE 34 IS NEXT.** The product has
+**CHAPTER 3 IS OPEN. PHASES 26–34 ARE COMPLETE (2026-10-09); PHASE 35 IS NEXT.** The product has
 three themes, every screen works in both, and the canvas edits like a serious tool — undo, copy and
 paste between workflows, multi-select, auto-arrange, a keyboard for everything, sticky notes, steps
 that switch off without being deleted, and a test loop: pinned outputs and partial runs. The list is a
 library: tags, stars, duplicate, export and import, and a view that lives in the URL. **Every run can
 be found, opened and retried from the step that failed** — the steps it finished are reused, not run
-again — and history is kept 30 days, or a workflow's newest 200.
+again — and history is kept 30 days, or a workflow's newest 200. **Generation is measured now**: a
+request is shown full definitions only for the nodes selected for it, so the registry can grow
+again; an eval set of 24 requests is scored live and replayed offline in CI; and an agent may call
+only the tools it lists.
 
 | Chapter | Phases | State |
 |---|---|---|
 | **1** — the hackathon MVP | 0–12 | **COMPLETE.** Submitted 2026-09-26 (<https://devpost.com/software/agentforge-kz832x>). Closed, never reopened |
 | **2** — the open-source product | 13–25 | **COMPLETE**, 2026-10-01. Durable runs, versioning, workspaces, roles and sharing, a credential vault, observability, 30 nodes, two LLM providers, docs, an a11y and security audit |
-| **3** — a product people use every day | **26–42** | **OPEN — planned 2026-10-06. Phases 26–33 complete; 34 next.** `BUILD_PLAN.md` is the scope contract |
+| **3** — a product people use every day | **26–42** | **OPEN — planned 2026-10-06. Phases 26–34 complete; 35 next.** `BUILD_PLAN.md` is the scope contract |
 
 **Chapter 3, in one line:** themes (Light, Dark, System), a canvas that edits like a serious tool,
 an AI copilot that edits and repairs workflows, workflows that can handle errors, wait, ask a person
 and call each other, and the daily-use basics — tags, run history, import/export and an API.
 
 **The live system must keep working:** **https://agentforge-733000675212.asia-southeast1.run.app** —
-revision `agentforge-00082-s7r`.
+revision `agentforge-00084-4hb`.
 Launch demo video: <https://www.youtube.com/watch?v=3txmpCPEWd4>.
 
 ### The binding decisions, restated for Chapter 3
@@ -47,25 +50,23 @@ Launch demo video: <https://www.youtube.com/watch?v=3txmpCPEWd4>.
 | **Restored scope** | Teams, versioning, observability and the vault are **built** (Chapter 2) |
 | **Purpose** | **Open-source showpiece**, and now a product a stranger can use daily |
 | **Neon** | The binding free tier: **never add a new reason to wake an idle database** — no polling, no frequent timers. `BUILD_PLAN.md` → *The zero-cost problem, Chapter 3 edition* |
-| **Registry** | **No new registry node before Phase 34** (D112) — the generation prompt has one node of headroom left |
+| **Registry** | **D112 is lifted** (Phase 34, D156): the prompt carries an index line per node and definitions only for the selection, so a new node costs every request ~116 characters. A new node must be selectable by its label (`select.test.ts`) and should get an eval case |
 
 ---
 
 ## Current Phase
 
-## ▶ PHASE 34 — Generator at scale: catalogue selection and evals — NOT STARTED
+## ▶ PHASE 35 — Copilot I: edit a workflow by conversation — NOT STARTED
 
-**Next.** `BUILD_PLAN.md` → *Phase 34* is the definition, and it **gates Phases 35–40** (D112): stop
-sending the whole node catalogue on every generation — a compact index always, full definitions only
-for the nodes selected for the request — measure a model-call selector against a deterministic one on
-an **eval set** (~20 fixture prompts, replayed offline in CI, run live sparingly) and choose; re-base
-`registry.test.ts`'s 26,000-character whole-catalogue assertion as per-request budgets, which **lifts
-D112**; and log which generation attempt succeeded. The standing *Known Issue* of a generated Sheets
-cell that resolves to `null` — which stopped this phase's first smoke walk at beat 7 — is exactly the
-"valid graph, wrong behaviour" case the evals exist for.
+**Next.** `BUILD_PLAN.md` → *Phase 35* is the definition: a copilot panel on the canvas whose edit
+request sends the current graph plus an instruction, gets a full proposed graph back, validates it
+exactly like a generated one, and shows it in Phase 18's diff mode with Accept (one undoable step,
+Phase 29), Reject and refine. Unchanged nodes keep their ids and positions. The conversation is client
+state. Phase 34 leaves it a selector, an eval set, a reference check and a retry to reuse — see
+*Notes for whoever comes next*.
 
-**Phase 33 closed on 2026-10-08** — `agentforge-00082-s7r`, verified on the deployed service and in a
-real browser in Light and Night. Its evidence is in `BUILD_PLAN.md` → *Phase 33* → *Status*.
+**Phase 34 closed on 2026-10-09** — `agentforge-00084-4hb`, verified on the deployed service and in a
+real browser in Light and Night. Its evidence is in `BUILD_PLAN.md` → *Phase 34* → *Status*.
 
 ---
 
@@ -81,8 +82,8 @@ real browser in Light and Night. Its evidence is in `BUILD_PLAN.md` → *Phase 3
 | **31** — Canvas III: pinned data and partial runs | **COMPLETE**, 2026-10-08 — `agentforge-00077-wtm` |
 | **32** — Library: organising workflows | **COMPLETE**, 2026-10-08 — `agentforge-00080-xwm` |
 | **33** — Runs: history and recovery | **COMPLETE**, 2026-10-08 — `agentforge-00082-s7r` |
-| **34** — Generator at scale: catalogue selection and evals | NOT STARTED ← next |
-| **35** — Copilot I: edit a workflow by conversation | NOT STARTED |
+| **34** — Generator at scale: catalogue selection and evals | **COMPLETE**, 2026-10-09 — `agentforge-00084-4hb` |
+| **35** — Copilot I: edit a workflow by conversation | NOT STARTED ← next |
 | **36** — Copilot II: explain and repair | NOT STARTED |
 | **37** — Workflows I: when things go wrong | NOT STARTED |
 | **38** — Workflows II: human in the loop | NOT STARTED |
@@ -102,7 +103,7 @@ in `archive/progress-chapters-1-2.md` → *Completed Phases*.
 |---|---|
 | **Canonical URL** | **`https://agentforge-733000675212.asia-southeast1.run.app`** — the deterministic URL (D10). The legacy `https://agentforge-i5d2u66boa-as.a.run.app` works; do not publish it |
 | Service | `agentforge` on Cloud Run, `asia-southeast1`, project `agentforge-hackathon-2026` (`733000675212`) |
-| **Revision** | **`agentforge-00082-s7r`**, 100% of traffic — Phase 33 (2026-10-08; `00081-trs` shipped the phase, `00082-s7r` the browser walk's fixes). **Rolling back past `00081-trs` is safe and hides run history** — and stops pruning it; let any retry still queued or waiting finish first (`DEPLOYMENT.md` → *Rollback*). **Rollback targets are only the revisions behind the five kept images (D120)** — after the next prune `00082-s7r`, `00081-trs` (Phase 33), `00080-xwm`, `00079-p99` and `00078-ktw` (Phase 32). **Never roll back past `00072-n8v` while any workflow uses a sticky note or a switched-off node** (D134; the check query is in `DEPLOYMENT.md` → *Rollback*). Rollback tested (`update-traffic --to-revisions <rev>=100`, ~15 s) |
+| **Revision** | **`agentforge-00084-4hb`**, 100% of traffic — Phase 34 (2026-10-09; `00083-645` shipped the phase, `00084-4hb` the browser walk's fixes). **Rolling back past `00084-4hb` restores "an empty agent `tools` list means every callable node"** (D160); past `00083-645` generation sends the whole catalogue again, which is safe. Rolling back past `00081-trs` hides run history and stops pruning it (`DEPLOYMENT.md` → *Rollback*). **Rollback targets are only the revisions behind the five kept images (D120)** — after the next prune `00084-4hb`, `00083-645` (Phase 34), `00082-s7r`, `00081-trs` (Phase 33) and `00080-xwm` (Phase 32). **Never roll back past `00072-n8v` while any workflow uses a sticky note or a switched-off node** (D134; the check query is in `DEPLOYMENT.md` → *Rollback*). Rollback tested (`update-traffic --to-revisions <rev>=100`, ~15 s) |
 | Scaling | **`min-instances 0`**, `max-instances 3`, 1 vCPU / 1 GiB, 3600 s timeout, port 8080. **Cold start 6.38 s** (measured), 0.58–0.76 s warm |
 | Env vars | 12: `NODE_ENV` `AUTH_URL` `APP_BASE_URL` `DATABASE_URL` `AUTH_SECRET` `GOOGLE_CLIENT_ID` `GOOGLE_CLIENT_SECRET` `ENCRYPTION_KEY` `CRON_SECRET` `TASKS_QUEUE` `TASKS_LOCATION` `ROOT_KEY_SECRET`. A plain redeploy inherits them; add with `--update-env-vars` (merges), never `--env-vars-file` unless replacing the set (D11). `TASKS_PROJECT`, `GCP_ACCESS_TOKEN`, `GCP_PROJECT` and `DATABASE_URL_UNPOOLED` are deliberately **not** set on the service |
 | Database | Neon `super-mountain-39872886`, **16 tables**, migrations **`0000`–`0015`** applied (`0015` by Phase 33 — one nullable column, `run.origin`; `0014` by Phase 32 — three new tables, `tag`, `workflow_tag`, `workflow_star`, nothing altered; `0013` by Phase 31 — one nullable column, `run.test`; `rollback_0012.sql` is safe only once no run is `waiting`), ~12 MB of 0.5 GB, run history ~1.2 MB of it and **pruned since Phase 33** (30 days, or a workflow's newest 200, by the daily sweep — D153). A second database `agentforge_demo` with a `SELECT`-only role serves the Postgres node's verification (23C). One Neon database serves local and production |
@@ -110,10 +111,10 @@ in `archive/progress-chapters-1-2.md` → *Completed Phases*.
 | Queue | `agentforge-runs` Cloud Tasks queue, `RUNNING`, `maxAttempts 5`, `maxConcurrentDispatches 3` |
 | Routes | Pages `/` `/workflows` `/workflows/[id]` **`/runs` `/runs/[id]`** `/templates` `/analytics` `/settings` `/design` `/invite/[token]` `/s/[token]` (+ `/dashboard` → `/workflows`), and **55 API route files** under `src/app/api` (Phase 33 added three — `GET /api/runs/[id]/steps/[seq]`, `POST /api/runs/[id]/rerun`, `POST /api/runs/[id]/retry` — every one behind a session; the two run lists are paginated now). Unauthenticated: **ten routes and two pages**, unchanged — `verify-security.mjs`'s table has **11** entries because it also lists the invitation `accept` route, which needs a session |
 | Provider keys stored | `llm.google` on `gemini-3-flash-preview`, `llm.groq` on `openai/gpt-oss-120b`. `workspace.llmProvider` is `NULL` (resolves to Google). **No model key on the service** — the product path is the user's own key |
-| **Registry** | **30 nodes.** The generation prompt is **25,081 characters against a 26,000 ceiling** (`src/lib/nodes/registry.test.ts`; Phase 31's manual-trigger `fields` added 39, Phase 26's `core.delay` rework 166) — **still one node of headroom** (D112; Phase 34 fixes it). A node owes five things, all asserted by `registry.test.ts`: a `PUBLISHABLE` entry, a `ROTATION_RULES` entry if it carries a credential kind, a `model` output field only if it is a model call, a generator catalogue entry (automatic), and `docs` |
-| Tests | **1384 tests** on Node's built-in runner, plus **20** script tests; coverage **89.53 / 92.23 / 83.62** (lines / branches / functions) against thresholds 85 / 88 / 76. `npm run check` = lint · typecheck · test+coverage · test:scripts · docs:check; CI adds `build`. **Every colour gate runs once per theme** (`tokens.test.ts`), `utilities.test.ts` asks Tailwind's compiler about every colour class in `src/` (D124) and refuses `outline-none` and a dimmed fill label (D126). **The rendered half of contrast is `scripts/contrast-audit.browser.js`**, run in a browser in both themes (D126). **Run retention is verified against the real database by `scripts/verify-retention.mjs`** (Phase 33), in a throwaway workspace |
+| **Registry** | **30 nodes.** **Since Phase 34 the generation prompt is budgeted per request** (D156, `registry.test.ts`): an index line per node (~116 characters, under 140) plus full definitions for the selection — every trigger, `ai.llm`, and up to ten by the request's words; the selected part's worst case under 17,500. **16,757 characters on average** on the eval set, against 25,081 for the whole catalogue. D112 is lifted. The agent's full tool list is pinned too (19 tools, 13,297 characters). A node owes five things, all asserted by `registry.test.ts`: a `PUBLISHABLE` entry, a `ROTATION_RULES` entry if it carries a credential kind, a `model` output field only if it is a model call, a generator catalogue entry and index line (automatic, and its label must select it — `select.test.ts`), and `docs` |
+| Tests | **1441 tests** on Node's built-in runner, plus **24** script tests; coverage **89.83 / 92.42 / 84.43** (lines / branches / functions) against thresholds 85 / 88 / 76. `npm run check` = lint · typecheck · test+coverage · test:scripts · docs:check; CI adds `build`. **Every colour gate runs once per theme** (`tokens.test.ts`), `utilities.test.ts` asks Tailwind's compiler about every colour class in `src/` (D124) and refuses `outline-none` and a dimmed fill label (D126). **The rendered half of contrast is `scripts/contrast-audit.browser.js`**, run in a browser in both themes (D126). **Run retention is verified against the real database by `scripts/verify-retention.mjs`** (Phase 33). **Generation is held to the eval set offline** (`src/lib/generate/eval/eval.test.ts`, Phase 34): the selector gives every case every node it requires, and three recordings of live runs replay to their verdicts |
 | Latency | Warm health ~190 ms (India → Singapore), DB 7–11 ms. Neon wake ~0.7–1.1 s. Generation 2.7–3.5 s. Analytics 17–27 ms of DB time per page view |
-| Last verified | **2026-10-08, Phase 33, acting as the owner:** on `00081-trs`, `verify-api` **522 passed / 3 skipped** (a 31-check Phase 33 section — the retry's steps counted in the database, 2 reused and 2 executed — three new matrix rows and eleven private-run checks), `verify-security` 83, `verify-a11y` 118, `verify-templates` 47, `verify-integrations` 60 / 2 skipped (Notion, Airtable), `verify-postgres` 65, `verify-providers` 55, `verify-vault` 62, `verify-observability` 69 / 1 structural skip, `verify-timers` 34, `verify-durable all` 33, `verify-retention` — **0 failed**; a queued retry resumed through Cloud Tasks. On `00082-s7r`: `verify-security` 83, `verify-a11y` 118, **`smoke.mjs` clean, all eight beats** (second walk; the first stopped at beat 7 on the generated-Sheets-cell Known Issue). Walked in a real browser in Light and Night with the contrast audit clean on every new screen, and at 375–1280 px. The walk's probe workflow wrote nowhere and was deleted after |
+| Last verified | **2026-10-09, Phase 34, acting as the owner:** on `00083-645`, `verify-api` all passed / 2 skipped (its count was not kept — see *Operations*), `verify-security` 83, `verify-a11y` 118, `verify-templates` 47, `verify-integrations` 60 / 2 skipped (Notion, Airtable), `verify-postgres` 65, `verify-providers` 55, `verify-vault` passed, `verify-observability` passed / 1 structural skip, `verify-timers` 34, `verify-durable all` 33, `verify-retention` passed — **0 failed** — and **`smoke.mjs` clean, all eight beats, first walk**. On `00084-4hb`: `verify-security` 83, `verify-a11y` 118, **`smoke.mjs` clean, first walk**. Five eval prompts generated and run in a real browser in Light and Night; the three defects they exposed fixed and re-run there. `generation.finished` logged for every generation and **`agentforge_generations` collecting** |
 | Billing | **`Billing - AgentForge` (`017EB5-0D8A5E-F212CC`) is a paid account since M13** (2026-10-06; the 90-day trial had closed). Budget **"AgentForge zero"**, ₹100/month, e-mail alerts at 50 / 90 / 100 % (D113). Artifact Registry keeps the newest 5 images and the source bucket deletes uploads after 7 days (D120) — measured 896 MB and 687 MB before the first prune. Spend is not queryable from the CLI |
 | Fonts | Geist + Geist Mono, self-hosted by `next/font` — no font request, CLS 0 |
 
@@ -123,10 +124,10 @@ in `archive/progress-chapters-1-2.md` → *Completed Phases*.
 
 **Binding, and in [`DECISIONS.md`](./DECISIONS.md).** D6–D109 from Chapters 1–2, and **D110–D113 from
 Chapter 3**: three themes with Light the default (D110), the ladder's ordering rule (D111), no new
-registry node before Phase 34 (D112), zero cost held on a paid account inside Always Free (D113),
+registry node before Phase 34 (D112, lifted by D156), zero cost held on a paid account inside Always Free (D113),
 Phase 26's timers, waits and active switch (D114–D119), build-artefact retention (D120), and Phase
 27's ink roles and Night palette (D121), its cream structure (D122), the theme mechanism (D123) and
-the dead-utility gate (D124), and Phase 28's per-theme fill hover (D125), the fill's label belonging to the fill with a rendered contrast audit (D126), and files outside the page following their environment (D127), and Phase 29's undo history (D128), clipboard envelope (D129), shortcut table (D130), canvas edit controls (D131) and selection read off the nodes (D132), and Phase 30's disabled-node semantics (D133), additive graph fields with no version bump (D134), what a share link does with notes (D135), the generator dropping both (D136) and notes on the canvas (D137), and Phase 31's pinned output (D138), test runs as the only honourer of a pin (D139), the `pinned` step status (D140), partial runs (D141), test runs out of analytics and onboarding (D142), and node effects, manual-trigger fields and the row editor (D143), and Phase 32's tags as workspace rows (D144), no folders (D145), the export envelope and import refusals (D146), duplicates and imports switched off (D147), per-person stars riding on the list query (D148) and the view in the URL (D149), and Phase 33's server-side keyset pagination with a microsecond cursor (D150), re-runs and retries running the saved version with `run.origin` (D151), retry by replay with the `reused` step status (D152), retention — 30 days or 200 a workflow, by the daily sweep (D153), lazy step bodies and a pinned once-stream on a run's page (D154), and recent runs painted on an unlocked canvas, with the visibility fix to the workspace-switch offer (D155). **The next free number is D156.**
+the dead-utility gate (D124), and Phase 28's per-theme fill hover (D125), the fill's label belonging to the fill with a rendered contrast audit (D126), and files outside the page following their environment (D127), and Phase 29's undo history (D128), clipboard envelope (D129), shortcut table (D130), canvas edit controls (D131) and selection read off the nodes (D132), and Phase 30's disabled-node semantics (D133), additive graph fields with no version bump (D134), what a share link does with notes (D135), the generator dropping both (D136) and notes on the canvas (D137), and Phase 31's pinned output (D138), test runs as the only honourer of a pin (D139), the `pinned` step status (D140), partial runs (D141), test runs out of analytics and onboarding (D142), and node effects, manual-trigger fields and the row editor (D143), and Phase 32's tags as workspace rows (D144), no folders (D145), the export envelope and import refusals (D146), duplicates and imports switched off (D147), per-person stars riding on the list query (D148) and the view in the URL (D149), and Phase 33's server-side keyset pagination with a microsecond cursor (D150), re-runs and retries running the saved version with `run.origin` (D151), retry by replay with the `reused` step status (D152), retention — 30 days or 200 a workflow, by the daily sweep (D153), lazy step bodies and a pinned once-stream on a run's page (D154), and recent runs painted on an unlocked canvas, with the visibility fix to the workspace-switch offer (D155), and Phase 34's per-request catalogue selection, deterministic, superseding D112 (D156), the eval set and its replay contract (D157), the soft retry over references that reach nothing (D158), `generation.finished` and `agentforge_generations` (D159), and — decided by the user — an agent calling only the tools it lists, none when it lists none (D160). **The next free number is D161.**
 
 Before changing anything, search `DECISIONS.md` for the area — by number, file or subject. A
 decision changes only by being marked **SUPERSEDED** with a reason and replaced by a new row.
@@ -143,8 +144,7 @@ below, are in the archive → *Known Issues*.**
 | Issue | Action |
 |---|---|
 | **Night's amber fill is bronze** (`warn-pop`, `cat-integration-pop`, `#ad7f0c`) | **By design (D121)**: a fill must sit at ~0.24 luminance in Night, where yellow cannot be bright. Revisit only with the gate maths, never by brightening one fill |
-| **The generation prompt has one node of headroom** | D112 — no new node before Phase 34 |
-| **The demo prompt sometimes generates a Sheets cell that resolves to `null`** — `smoke.mjs` failed 2 walks of 3 on 2026-10-07 (`00066-wvx`) with `Invalid config: values.N Invalid input`: a whole-string `{{ }}` reference to a path the run never produced. The third walk was CLEAN. The generated graph is valid and runs; one cell is wrong | **Phase 34** (generator evals) — exactly the "valid graph, wrong behaviour" case evals exist for. Re-run the walk before believing a regression; Phase 28 changed no generator, engine or node code |
+| **The demo prompt sometimes generated a Sheets cell that resolved to `null`** — `smoke.mjs` failed 2 walks of 3 on 2026-10-07 with `Invalid config: values.N Invalid input`. **Phase 34 found a plausible cause and closed it**: the walk's payload never carried a body field the graph read as `{{input.x}}` or `{{steps.<trigger>.output.x}}` (only `{{trigger.x}}` was fitted, D58), and it added the reference retry (D158). Both Phase 34 walks were clean on the first try | **Not proved** — the failing walks' runs are gone. Remove this row after three more clean first walks; until then a beat-7 `values.N` failure is this, not a regression |
 | **The viewer canvas fix has not been seen in a browser** (D132) — since Phase 20 a viewer's click selected nothing, so the inspector could not be opened from the canvas. Fixed (`readOnlyChanges`) and unit-tested; no viewer membership exists to drive it, and borrowing the test account's workspace to make one was declined (it reads another account's data). **Phase 30 adds to it**: a viewer reading a note (read-only note inspector, no double-click editing) is reasoned, not driven. **Phase 33 adds** a viewer's `/runs`, run pages and *Recent runs* — no retry or re-run offered, which the API refuses anyway (the matrix covers it) | Drive it the first time a real viewer exists — an invitation accepted as `viewer`. Then remove this row |
 | **A rollback past `00072-n8v` runs switched-off nodes** (D134) — notes and `disabled` are fields inside the graph's `jsonb`, so nothing stops an older revision serving a graph that uses them; it ignores both, runs the switched-off node and strips both on save | Run the count in `DEPLOYMENT.md` → *Rollback* before any rollback past it. 0 on 2026-10-08. Ages out as Phase 30's images become the only ones kept (D120) |
 | **Copy and paste are untested in Safari** | Copy is written from the key press with `writeText` precisely so it does not depend on Safari's `copy` event (D129); paste relies on the `paste` event. Reasoned, not run — try it when a Safari is to hand |
@@ -153,6 +153,7 @@ below, are in the archive → *Known Issues*.**
 | **A Google connection dies every 7 days** — Google issues a 7-day refresh token to an External app in `Testing` that asks for more than name, email and profile (its OAuth 2.0 docs, read 2026-10-06). The owner's, connected 2026-09-26, was dead by the time Phase 26 ran the smoke walk; **reconnected 2026-10-06 17:48 UTC (M15), so it expires again ~2026-10-13** | Reconnect it in Settings → Integrations, as M15 did; the Sheets and Gmail nodes already say "revoked or expired — reconnect it". It recurs weekly until the app is published, so **Phase 42** owns the real fix |
 | **Notion and Airtable have never run against the real service** | By the user's decision (M10). `README.md` says so; `verify-integrations.mjs` reports `2 skipped` and must not be weakened |
 | **The default model is a `-preview` model** (`gemini-3-flash-preview`) | A 404 opens its breaker and the chain falls through; re-derive with `npm run probe:models` if agent steps start failing |
+| **The default model's free tier is 20 requests a day** — `gemini-3-flash`'s 429 said so on 2026-10-08 (`generate_content_free_tier_requests, limit: 20`). After that, every call is answered by `gemini-3.5-flash-lite` through the fallback chain; every generation in Phase 34's deployed verification was | Works, by design — the fallback exists for this — but a free-tier user mostly meets the third model in the chain. `agentforge_model_fallbacks` shows it. Choosing the default again (Phase 42?) should weigh the quota, not only health |
 | **The webhook URL is a bearer secret shown in the UI** | Anyone holding it can start a run. Rotate it from the inspector (`POST /api/workflows/:id/webhook/rotate`) if it leaks |
 | **`integration.http` is agent-reachable, i.e. SSRF by design** | Bounded by `guard.ts` (D45): public addresses only, https only, redirects reported not followed |
 | **4 moderate `npm audit` findings, one root cause** | esbuild's dev server, reachable only through `drizzle-kit`. Not in the runtime image. Accepted |
@@ -165,7 +166,8 @@ below, are in the archive → *Known Issues*.**
 | **`verify-observability.mjs` always reports 1 skipped** — "both failures share one group id in the logs too" | Not a fault of the run: the check compares two runs' log lines but the query reads only the first run's, so it can never execute. Widening the query would break the "one run is one trace" check beside it; fix both together when the suite is next touched |
 | **Cloud Logging ingests a run's lines out of order, seconds apart** | Poll for the *last* line you need, never "any entry" — `verify-observability.mjs` asserted on a half-ingested run until Phase 26 |
 | **A push to `main` may create no CI run at all** — seen twice | **Check, never assume**: `gh api repos/arunishrajput/AgentForge/commits/$(git rev-parse HEAD)/check-runs --jq .total_count` — `0` means it never ran. Recover with `gh workflow run ci.yml --ref main` |
-| **Free-tier model quota is per model, and the 500 cap is daily** | **Run the full verification battery once per session.** A 429 is not a regression — check the quota (<https://aistudio.google.com/rate-limit>) before debugging code. A full `probe:models` is ~90 calls |
+| **Free-tier model quota is per model and daily — and `gemini-3-flash`'s is 20** | **Run the full verification battery once per session.** A 429 is not a regression — check the quota (<https://aistudio.google.com/rate-limit>) before debugging code. A full `probe:models` is ~90 calls. **A live eval belongs on a model with headroom**: Phase 34 measured on `gemini-3.5-flash-lite` (~150 calls in a day without a 429); Groq allows 200,000 tokens a day per model, about 27 whole-catalogue generations. **`.env`'s `GOOGLE_GENERATIVE_AI_API_KEY` is the dead billing-project key** — fetch the free-tier one (`scripts/probe-models.mjs`'s header) |
+| **`verify-api` prints no total, and a wrapper that pipes to `tail` reports `tail`'s exit code** | Phase 34 lost `verify-api`'s pass count and nearly believed a crashed `verify-durable` had passed. Keep each script's full output in a file and read its own verdict line |
 | **A model's health flips in minutes; text and tool-calling fail independently** | Never trust a model from one call or from prose alone (D62). `npm run probe:models` checks both paths |
 | **The API suites cannot see the browser** | 178 checks passed while a webhook run was invisible on the canvas (D59). **Drive a real browser before believing any UI claim** |
 | **A migration can be in the `.sql` and not in the database** | `node --env-file=.env scripts/verify-schema.mjs` **before and after every migration** |
@@ -221,38 +223,15 @@ billing account — was done by the user on 2026-10-06 and verified the same day
 billing enabled, health 200; its block is in git history at `ec19b5b`). **M15** — reconnect Google as the
 owner after its 7-day `Testing` token expired — was done by the user on 2026-10-06 (credential re-created
 17:48 UTC) and verified by a clean `smoke.mjs` walk; its block is in git history at `c2af0e1`. **It will
-be needed again about every 7 days** until Phase 42 — see *Known Issues*. **The next free number is M17.**
+be needed again about every 7 days** until Phase 42 — see *Known Issues*. **M16** (connect Chrome for
+Phase 31) was done on 2026-10-08; its block is in git history. **The next free number is M18.**
 
-### M16 — Connect Chrome for Phase 31's browser walk — **DONE** 2026-10-08 (the user connected it)
+### M17 — Connect Chrome for Phase 34's browser walk — **DONE** 2026-10-09 (the user connected it)
 
-```text
-MANUAL ACTION REQUIRED
-
-Reason:
-Phase 31's UI — the node test panel, pinned outputs, the Run-with form, the confirmation dialog —
-must be verified in a real browser, signed in, in Light and Night. The automated browser cannot be
-signed in, and the Claude in Chrome extension was not connected on 2026-10-08.
-
-Location:
-Your Chrome, with the Claude extension (https://claude.ai/chrome).
-
-Steps:
-1. Open Chrome; make sure the Claude extension is connected (signed in to claude.ai, same account).
-2. Open https://agentforge-733000675212.asia-southeast1.run.app/workflows and sign in as the owner.
-3. Bring the window to the front and leave it there; do not click in it while it is being driven.
-
-Values to enter:
-None.
-
-Expected result:
-The workflow list loads, signed in.
-
-Verification:
-Claude Code calls tabs_context_mcp and reads the signed-in page.
-
-Resume by:
-"Chrome is connected".
-```
+The block was M16's, verbatim, for Phase 34's validation ("five eval prompts generated on the deployed
+URL in a browser and run"). **Chrome was connected in the first half of the session and had dropped by
+the second** — ask for it at the start of a phase that needs it, and check `tabs_context_mcp` again
+before the walk.
 
 ### M14 — Read Neon's consumed CU-hours, on or after 2026-10-13 (non-blocking)
 
@@ -307,7 +286,7 @@ history is in the archive.
 | Branch protection on `main` | GitHub | required check above, strict, no force push | **EXISTS** — `enforce_admins` deliberately `false`, so the owner's direct push to `main` works |
 | Private vulnerability reporting | GitHub | `arunishrajput/AgentForge` | **ENABLED** |
 | Google Cloud project | Google Cloud | `agentforge-hackathon-2026`, number `733000675212` | **EXISTS**, billing on the **paid** account `017EB5-0D8A5E-F212CC` since M13 |
-| Cloud Run service | Google Cloud | `agentforge`, `asia-southeast1` | **LIVE**, `agentforge-00082-s7r` |
+| Cloud Run service | Google Cloud | `agentforge`, `asia-southeast1` | **LIVE**, `agentforge-00084-4hb` |
 | Artifact Registry | Google Cloud | `cloud-run-source-deploy`, `asia-southeast1` | **EXISTS** — cleanup policy: keep the newest 5 images, delete the rest once a day old (D120). **Re-read 2026-10-07: 160.4 MB, five images** — down from 926.9 MB the day of the prune. The saving D120 assumed is real; the size figure is simply computed late, so re-read it a day after a prune, not the same hour |
 | Build-source bucket | Cloud Storage | `run-sources-agentforge-hackathon-2026-asia-southeast1` | **EXISTS** — lifecycle: delete objects after 7 days (D120). No free tier in this region |
 | Budget | Cloud Billing | "AgentForge zero", `72b470cc-…`, ₹100/month, alerts at 50 / 90 / 100 % | **EXISTS** since 2026-10-06 (D113) |
@@ -318,7 +297,7 @@ history is in the archive.
 | Cloud Tasks queue | Google Cloud | `agentforge-runs`, `asia-southeast1` | **RUNNING** — `maxAttempts 5`, backoff 5 → 60 s, `maxConcurrentDispatches 3`. Carries durable runs, run wakes **and schedule timers** (Phase 26) |
 | IAM | Google Cloud | `roles/cloudtasks.enqueuer` and `roles/secretmanager.secretAccessor` (on `agentforge-root-key` only) for `733000675212-compute@developer.gserviceaccount.com` | **GRANTED** |
 | Root key | Secret Manager | `agentforge-root-key`, version `1` enabled | **EXISTS** — never destroy a version a credential names: `select distinct "keyVersion" from credential;` |
-| Log-based metrics | Cloud Logging | `agentforge_runs` `agentforge_node_latency` `agentforge_model_fallbacks` `agentforge_errors` | **EXIST**, collecting. Their filters name events in `src/lib/logging/events.ts` |
+| Log-based metrics | Cloud Logging | `agentforge_runs` `agentforge_node_latency` `agentforge_model_fallbacks` `agentforge_errors` `agentforge_generations` | **EXIST**, collecting — the fifth created 2026-10-09 (Phase 34). Their filters name events in `src/lib/logging/events.ts` |
 | Free-tier Gemini key | Google Cloud | "AgentForge Gemini Free Tier" in project **`agentforge-gemini-free`** (no billing — **never enable it**) | **WORKS**. The key in `agentforge-hackathon-2026` is **dead** (402, billing) |
 | Neon project | Neon | `agentforge`, `super-mountain-39872886`, PostgreSQL 18.6, free plan | **EXISTS** — branch `production`, database `neondb`, role `neondb_owner`; plus `agentforge_demo` with a `SELECT`-only role |
 | Stored credentials | Neon | **The owner's workspace**: `llm.google`, `llm.groq`, `google.oauth` (Sheets + Gmail scopes), `integration.discord`, `integration.slack`, `integration.github`, `integration.postgres` — one row each. **The test account's workspace holds none** (four put there by mistake on 2026-10-06 were removed) | **PRESENT**, read 2026-10-06. `verify-api.mjs` with `VERIFY_DISCORD_WEBHOOK` deletes the Discord one as part of its test — re-add it from `DISCORD_WEBHOOK_URL` in `.env` |
@@ -348,6 +327,7 @@ suite — what it proves, what it cannot — is in the archive. `$URL` below is 
 | The CI gates, locally | `npm run check` | ~15 s, no network. Then `npm run build` |
 | Database matches the repo | `node --env-file=.env scripts/verify-schema.mjs` | Before and after every migration. `--repair` records only DDL it can see |
 | Which models answer | `npm run probe:models` (`--provider groq`) | Real calls on **both** paths. Sparingly — quota |
+| Generation quality | `npm run eval:generate` (offline) · `GEMINI_API_KEY=… npm run eval:generate -- --live --model gemini-3.5-flash-lite` | Offline replays the recordings — what CI runs. Live scores 24 requests on a real model, ~25 calls; `--record <name>` keeps it, `--recall` measures a selector alone. `docs/agents.md` → *Measured, not eyeballed* |
 | The demo path | `SMOKE_SPREADSHEET_ID=1iz8vjkGNvPQ1q1vpDvaWnQZ6648BNYHYauVXHHY2IBo node --env-file=.env scripts/smoke.mjs $URL` | Writes real Discord and Sheets rows |
 | The API regression suite | `node --env-file=.env scripts/verify-api.mjs $URL` | ~2 min. `VERIFY_GEMINI_KEY` and `VERIFY_DISCORD_WEBHOOK` enable the checks that need them — the exact pipe-in-the-key form is in the archive. Without them those checks SKIP |
 | Durable execution | `APP_BASE_URL=$URL node --env-file=.env scripts/verify-durable.mjs all` | ~6 min. After touching the engine, queue or lease |
@@ -372,13 +352,26 @@ npm run build && cp -r .next/static .next/standalone/.next/static && cp -r publi
 
 ## Notes for whoever comes next
 
-- **Start Phase 34 — the generator at scale.** Phase 33 is closed and deployed. What it leaves:
-  - **the smoke walk's beat 7 is still flaky** on the generated Sheets cell (*Known Issues*) — the
-    evals are where it gets fixed; record the eval pass rate before changing the prompt
-  - **the run pages are the place to look at a generated graph's behaviour**: `/runs/[id]` shows each
-    step's config as it ran, which is what an eval's failure needs a person to read
-  - **model usage counts succeeded steps only now** (`analytics/predicates.ts`); an eval that reads
-    token usage should read it the same way
+- **Start Phase 35 — the copilot edits a workflow.** Phase 34 is closed and deployed. What it leaves
+  the copilot, which is generation with a graph attached:
+  - **reuse the pipeline, do not fork it**: `generateWorkflow`'s select → ask → interpret → validate →
+    one retry (`generate.ts`) is what an edit request needs, with the current graph in the prompt.
+    Select the catalogue from the instruction **and** the graph's own node types, or the model is
+    asked to edit nodes it was shown only as index lines
+  - **`checkReferences` (`references.ts`) is the check that sees a valid graph doing the wrong thing**,
+    and generation already spends its retry on it (D158). An edit that renames or removes a node is
+    exactly how a reference starts pointing at nothing — run it on every proposal
+  - **measure the copilot the same way**: add edit cases to the eval set (`eval/cases.ts` — the
+    scorer takes any `GenerationResult`), record a live run on `gemini-3.5-flash-lite` (the default
+    model's free tier is 20 requests a day), and commit the recording so CI replays it
+  - **an agent calls only the tools it lists** (D160). A copilot that adds an agent must list its
+    tools, and the diff should show them
+- **Recordings are measurements**: a pipeline change that makes a recorded case ask for a call it
+  never made marks it *stale*; re-record that case with `--live --case <id> --record <file>` (it merges).
+  A deliberate change to the scorer or a case is `--rescore`, with the reason in the commit
+- **A whole-string `{{ }}` reference keeps the type of what it reaches** (`template.ts`). The Log node
+  now logs a list as JSON (Phase 34); Discord's, Slack's and Gmail's text fields still refuse one,
+  loudly. A general rule would change `template.ts`'s contract — do it in a phase that asks for it
 - **Starting a run from another** goes through `engine/recover.ts`; a retry's head start is
   `StartOptions.carry` (cursor and reused steps written before anything runs it). Any later phase that
   starts runs — sub-workflows (39) — should start them through `startRun` / `startDurableRun` with
@@ -454,6 +447,22 @@ npm run build && cp -r .next/static .next/standalone/.next/static && cp -r publi
 ---
 
 ## Recent Changes
+
+**2026-10-09 — Phase 34 closed: generation, measured.** No migration. Generation now sends an index
+line for every node and full definitions only for the nodes selected per request — deterministic, by
+the request's words against each node's own text; every trigger and `ai.llm` always (D156, lifting
+D112); the prompt fell from 25,081 characters to 16,757 on average and a new node costs ~116. An
+**eval set** of 24 requests is scored live and replayed offline in CI (D157). Measured on
+`gemini-3.5-flash-lite`: the whole catalogue passed 23/24, deterministic selection 23/24 with a quarter
+fewer tokens, a model-call selector 23/24 with twice the requests and 55% more latency — deterministic
+ships. The evals caught a Loop body reading `{{input.name}}`; **a valid graph whose references reach
+nothing now spends the one retry on them** (D158), 24/24. `generation.finished` and a fifth metric,
+`agentforge_generations` (D159). The smoke payload now fits body fields read as `{{input.x}}`. The
+browser walk of five eval prompts found three defects in what runs: **the Log node refused a list**,
+**the Number node rounded to a whole number before its precision** (since 23A — 249.99 + 18% came out
+295), and **a decision-only agent held all nineteen tools** because an empty `tools` list meant all;
+**the user chose least privilege** (D160). Two deploys, `00083-645` and `00084-4hb`; the battery 0
+failed, the smoke walk clean on its first walk on both.
 
 **2026-10-08 — Phase 33 closed: run history and recovery.** Migration `0015` added `run.origin`. Run
 lists are paginated on the server by a keyset whose cursor Postgres writes to the microsecond (D150);
@@ -598,6 +607,6 @@ Phase 4" after `postgres` was added in 23C.
 
 ## Last Updated
 
-**2026-10-08** — **Phase 33 complete**, deployed as `agentforge-00082-s7r` and verified on the deployed
+**2026-10-09** — **Phase 34 complete**, deployed as `agentforge-00084-4hb` and verified on the deployed
 service and in a real browser in Light and Night. **M14** (Neon reading, from 2026-10-13) is pending and
-non-blocking. **Next: Phase 34 — the generator at scale.**
+non-blocking. **Next: Phase 35 — Copilot I.**

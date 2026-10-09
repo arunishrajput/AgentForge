@@ -49,8 +49,8 @@ is the file it means.
 31  Canvas III — the test loop: pinned data and partial runs  ✅
 32  Library — organising workflows                         ✅
 33  Runs — history and recovery                            ✅
-34  Generator at scale — catalogue selection and evals      ← START HERE
-35  Copilot I — edit a workflow by conversation
+34  Generator at scale — catalogue selection and evals      ✅
+35  Copilot I — edit a workflow by conversation             ← START HERE
 36  Copilot II — explain and repair
 37  Workflows I — when things go wrong
 38  Workflows II — human in the loop
@@ -1184,8 +1184,9 @@ offline, and D112 is marked lifted.
 
 **Commit.** `feat: complete phase 34 generator catalogue selection and evals`
 
-**Status: COMPLETE, 2026-10-09 — deployed as `00083-645` and verified there.** One deploy. No
-migration. What was built:
+**Status: COMPLETE, 2026-10-09 — deployed as `00084-4hb` and verified there, on the API and in a
+real browser in Light and Toybox Night.** Two deploys: `00083-645` shipped the phase, `00084-4hb` what
+the browser walk found. No migration. What was built:
 
 - **Per-request catalogue selection** (D156, `generate/select.ts`) — every node as one **index** line
   (type, label, first sentence of its description), full **definitions** only for the selection:
@@ -1210,6 +1211,8 @@ migration. What was built:
   set caught one; soft, so a valid graph is never refused or lost over a reference
 - **Which attempt produced the graph** (D159) — `generation.finished` on every generation, counted
   by a fifth log-based metric, `agentforge_generations`, labelled `outcome` and `selector`
+- **An agent may call exactly the tools it lists — an empty list is none** (D160, **decided by the
+  user** on the walk's evidence below). Until now an empty list meant every callable node
 
 **Measured** — `gemini-3.5-flash-lite`, fallbacks off, all 24 cases. The production default,
 `gemini-3-flash`, was not usable for it: **its free tier is 20 requests a day** (the 429 said so),
@@ -1251,7 +1254,50 @@ case is noise, which is why the choice rests on cost and recall rather than pass
 product defaults to was not evaluated live (its 20-a-day quota); `--live --model gemini-3-flash-preview`
 is the command when a day's quota can be spent on it.
 
-<!-- DEPLOYED VERIFICATION -->
+**Found by the browser walk, fixed with tests that failed first, re-run on `00084-4hb`.** Five eval
+prompts that write nowhere were generated through the page's own form and run from the canvas —
+`cheap-products`, `greeting` and `order-tax` in Light, `dedupe-addresses` and `refund-decision` in
+Night. All five generated a correct graph on the first try; **three of them exposed defects the
+evals could not see, because each was in what runs, not in what was generated**:
+
+- **The Log node refused a list.** "Log the result" was generated as `message:
+  "{{steps.sort_products.output.items}}"`, and a value that is only a reference keeps its type, so the
+  run failed at its last step: "expected string, received array". A message that resolves to data is
+  now logged as its JSON, cut to the limit; `null` — a reference that reached nothing — is still
+  refused, and the JSON Schema the form and the generator read is unchanged. Re-run: the log line is
+  the filtered, sorted list
+- **The Number node's `round` went to a whole number before applying `precision`** (since Phase 23A),
+  so "add 18% tax and round to two decimal places" — generated exactly right — turned 249.99 into
+  **295**. `round`, `floor` and `ceil` now work at `precision` places. Re-run: **294.99**
+- **A generated decision-only agent was handed all nineteen callable tools**, because an empty `tools`
+  list meant every one. It spent three model calls probing Postgres (reads, all refused — the demo
+  database's role may only `SELECT` and the tables did not exist) and could as easily have posted to
+  Slack; Phase 31's partial-run confirmation keyed on a non-empty `tools`, so it would not have warned.
+  Measured: 2 of 3 stored agents had an empty list, and one empty-list step in all of history had
+  called a tool — this one. **The user chose least privilege** (D160). Re-run: "0 tool(s): none", one
+  model call, "approved" with its reason, 4.0 s instead of 17.5 s. The prompt now says an agent can
+  call only what it lists; `SECURITY.md` says so too
+
+**Verified on the deployed service.** On `00083-645`: `verify-security` 83, `verify-a11y` 118,
+`verify-api` **all passed, 2 skipped** (its pass count was not kept — the battery's wrapper trimmed
+each script to its last lines, and `verify-api` prints no total), `verify-templates` 47,
+`verify-integrations` 60 / 2 skipped (Notion, Airtable), `verify-postgres` 65, `verify-providers` 55,
+`verify-vault` passed, `verify-observability` passed / 1 structural skip, `verify-timers` 34,
+`verify-durable all` 33 (its first run died on an HTTP/2 transport reset mid-suite; the re-run
+passed every check), `verify-retention` passed — **0 failed** — and **`smoke.mjs` clean, all eight
+beats, on its first walk**: the demo prompt took the retry (`second`), then beat 7 — the flaky one —
+passed. The owner's Discord connection, which `verify-api` deletes, was restored. On `00084-4hb`:
+`verify-security` 83, `verify-a11y` 118, **`smoke.mjs` clean on its first walk again** (generated in one
+attempt, the agent with no tools still routing the urgent payload right). The service logged
+`generation.finished` for every generation — 11, 10 `first` and 1 `second`, all `deterministic`, 13–14
+nodes selected, 16.3–17.9K-character prompts — and **`agentforge_generations` is collecting** those
+points. The walk's five probe workflows were deleted afterwards.
+
+1441 tests (24 script tests); coverage 89.83 / 92.42 / 84.43. The remaining sinks of the Log node's
+class — a whole-reference list into Discord's or Slack's message — were reasoned about, not met; they
+fail loudly with the same message, and a general rule would be a change to `template.ts`'s contract
+that no phase has asked for.
+
 
 ---
 

@@ -262,14 +262,15 @@ provider, and this documentation. Chapter 3 — a product people use every day �
 schedules that fire from exact-time timers, a dark theme, Toybox Night, on every screen, and a
 canvas that edits like a serious tool: undo, copy and paste, multi-select, the keyboard, sticky
 notes, steps that switch off, and a test loop — pinned outputs and partial runs — then a library of
-tags, stars, export and import, and run history you can retry from the step that failed.
+tags, stars, export and import, and run history you can retry from the step that failed. Generation
+is now measured rather than eyeballed — an eval set of 24 requests, scored live and replayed in CI —
+and shows the model full definitions only for the nodes a request needs, so the catalogue can grow.
 
 It is live, it works, and [`PROGRESS.md`](./PROGRESS.md) is the honest status board — including
 what is unfinished.
 
 **What comes next** is Chapter 3, planned phase by phase in [`BUILD_PLAN.md`](./BUILD_PLAN.md):
 
-- a generator that scales to a larger catalogue, with evals
 - a copilot that edits and repairs workflows by conversation
 - error paths, approval steps and sub-workflows
 - forms, and a public API
