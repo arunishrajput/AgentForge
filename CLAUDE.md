@@ -1,7 +1,7 @@
 # CLAUDE.md — How to work on AgentForge
 
 Read this first, then `PROGRESS.md`, then `BUILD_PLAN.md` → *Chapter 3*. **Before implementing
-anything, read all three.** The current work is **Chapter 3, phases 26–42**; phases 0–25 are closed
+anything, read all three.** Chapter 3 (phases 26–42) is complete as of 2026-10-10; phases 0–25 are closed
 history. Then read only the further docs the phase actually needs: `CONTRACT.md` before
 touching a shared schema or protocol, `DEPLOYMENT.md` before any cloud work, `ARCHITECTURE.md`
 before adding a component or a dependency, `DESIGN.md` before touching the interface — and the rows
@@ -37,7 +37,7 @@ nodes, connections, editable configuration — not a mockup. It runs, streams pe
 logs live, and its agent nodes use tool-calling to decide what to do at runtime instead of
 following a fixed script.
 
-**Context: Chapters 1 and 2 are closed and Chapter 3 has begun.**
+**Context: Chapters 1, 2 and 3 are closed. Re-plan before the next piece of work.**
 
 - **Chapter 1 (phases 0–12)** built a hackathon MVP for Zero Origin, submitted on 2026-09-26
   (<https://devpost.com/software/agentforge-kz832x>)
@@ -123,7 +123,7 @@ done is not done, and there is no longer any reason to cut corners to reach one.
 | `SUBMISSION.md` | **ARCHIVED.** Devpost submission copy as submitted | Rarely |
 | `SECURITY.md` | Security posture, rotation procedures, disclosure, **and what the product does not claim**. Created in Phase 21 | Before touching auth or crypto |
 | `OPERATIONS.md` | Running it in production — the signals, the runbooks, the budget. **Created in Phase 22** | Before an operational change, and when something is wrong |
-| `docs/`, `adr/` | The docs site (5 pages) and the decision records (5). **Created in Phase 24.** `docs/nodes.md` is generated — run `npm run docs:build`, never edit it | When documenting |
+| `docs/`, `adr/` | The docs site (5 pages) and the decision records (10 since Phase 42). **Created in Phase 24.** `docs/nodes.md` is generated — run `npm run docs:build`, never edit it | When documenting |
 | `README.md` | Practical entry point | When orienting from scratch |
 
 ### Framework docs — read them, do not recall them

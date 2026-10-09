@@ -17,6 +17,11 @@ that turned out badly.
 | [0003](./0003-node-registry-is-the-spine.md) | One node registry feeds the engine, the canvas and the agent's tools | Accepted |
 | [0004](./0004-no-queue.md) | No queue; the executor runs in-process | **Superseded by [0005](./0005-durable-runs-on-cloud-tasks.md)** |
 | [0005](./0005-durable-runs-on-cloud-tasks.md) | Durable runs on Cloud Tasks; the in-process path is kept | Accepted |
+| [0006](./0006-timers-on-cloud-tasks.md) | Schedules fire from per-slot Cloud Tasks timers, not a polling cron | Accepted |
+| [0007](./0007-three-themes-light-first.md) | Three themes, Light the default, every one held to the same gates | Accepted |
+| [0008](./0008-catalogue-selection-and-eval-set.md) | Generation sees only the nodes a request needs, and is measured | Accepted |
+| [0009](./0009-copilot-proposes-the-user-accepts.md) | The copilot proposes; the person accepts | Accepted |
+| [0010](./0010-security-headers-without-script-src.md) | Anti-framing and a partial CSP, with no `script-src` | Accepted |
 
 ## Status values
 

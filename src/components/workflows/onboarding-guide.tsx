@@ -97,7 +97,7 @@ export function OnboardingGuide({ progress }: { progress: OnboardingProgress }) 
           </h2>
           <p className="text-muted mt-0.5 text-sm text-pretty">
             {progress.complete
-              ? "Every step is done — a key is stored, a workflow exists and one has run. This card is finished with."
+              ? "Every step is done — a key is stored, a workflow exists and one has run. Next: open it and press ✦ Copilot to change it by asking, tag it to find it again, or start it from a script with an access token in Settings."
               : "Three steps. The first is the only one AgentForge cannot work without."}
           </p>
         </div>

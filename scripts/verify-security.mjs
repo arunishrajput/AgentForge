@@ -391,6 +391,21 @@ for (const path of ["/workflows", "/runs", `/runs/${SAMPLE}`, "/templates", "/an
   );
 }
 
+/** Phase 42 (D193): every kind of response carries the framing and sniffing headers. */
+console.log("\nSecurity headers on pages, API answers and refusals");
+for (const path of ["/", "/design", "/approve", "/f/" + "x".repeat(32), "/api/health", "/api/workflows", "/no-such-page"]) {
+  const response = await fetch(`${BASE}${path}`, { redirect: "manual" });
+  const csp = response.headers.get("content-security-policy") ?? "";
+  check(
+    /(^|; )frame-ancestors 'self'(;|$)/.test(csp) &&
+      response.headers.get("x-frame-options") === "SAMEORIGIN" &&
+      response.headers.get("x-content-type-options") === "nosniff",
+    `${path} (${response.status}) cannot be framed by another site and is not sniffed`,
+    `${path} (${response.status}) is missing a framing or sniffing header: csp=${JSON.stringify(csp)}`,
+  );
+  check(!/unsafe-|form-action/.test(csp), `${path}'s policy has no unsafe- source and no form-action`);
+}
+
 console.log(`\n${passed} passed / ${failed} failed\n`);
 if (failed > 0) {
   console.log("Security review FAILED\n");

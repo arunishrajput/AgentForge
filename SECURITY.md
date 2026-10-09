@@ -674,9 +674,19 @@ The honest limits. Each one is a real gap, not a hedge.
    mistake on a developer machine reaches real data. `DEPLOYMENT.md` records it.
 9. **No penetration test and no third-party audit.** Everything here is one maintainer's
    reasoning, which is exactly why it is written down in this much detail.
-10. **The OAuth consent screen is in Testing.** Only listed test users can sign in to the
-   deployed app, which is a limit on availability rather than on security, but it is the reason
-   you may not be able to reproduce a finding.
+10. **The OAuth consent screen is in Testing, and publishing it is out of reach at zero cost.** Only
+   listed test users can sign in to the deployed app, and a Google connection (Sheets, Gmail) expires
+   every 7 days. Researched in Phase 42 against Google's verification documentation (read 2026-10-10):
+   Sheets and Gmail send are *sensitive* scopes, so leaving Testing means brand verification — a
+   homepage and privacy policy **on a domain the project owner has verified in Search Console** — plus
+   a demo video and a justification for each scope. `*.run.app` cannot be verified (Google owns it), a
+   domain costs money, and the zero-cost ceiling binds. Unverified, an app is capped at 100 new users
+   behind a warning screen. **A split that might work at no cost, not built:** sign-in uses only
+   `openid email profile`, which need no verification, so a *second* Google project holding the
+   sign-in client could be published while the integrations client stays in Testing — at the price of
+   two clients and of D46's one-client design. `UNKNOWN — VERIFY` that Google publishes a basic-scope
+   app without a verified domain; it needs the owner at the Console (`MANUAL ACTION REQUIRED`), so it
+   is a decision, not a task. Until then it is a limit on availability, not on security.
 11. **A secret typed into a node's config is exported with it.** An HTTP node's `Authorization`
    header written into its config is part of the workflow, and an export carries the workflow.
    Secrets belong in Settings → Integrations, where they are encrypted and never leave; the API
@@ -691,6 +701,14 @@ The honest limits. Each one is a real gap, not a hedge.
    read it, keep the timeout short for anything that matters, or leave Ask unconnected and decide in
    the product, where the node's named approvers are enforced. The two link routes are not
    rate-limited (item 3); a 256-bit token is not guessed by retrying.
+
+14. **There is no script-restricting Content-Security-Policy.** Since Phase 42 every response carries
+   `frame-ancestors 'self'` and `X-Frame-Options: SAMEORIGIN` (another site cannot frame the app),
+   `nosniff`, a referrer policy and a permissions policy, and a CSP with `base-uri 'self'` and
+   `object-src 'none'`. It has **no `script-src`**: Next's inline hydration scripts would need a
+   per-request nonce, which makes the static pages dynamic, and `unsafe-inline` would be a policy that
+   looks present and prevents nothing (D193, ADR 0010). So an injected script is not stopped by the
+   browser; what stops one is that the app renders no user-supplied HTML.
 
 ---
 

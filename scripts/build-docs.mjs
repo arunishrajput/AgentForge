@@ -266,6 +266,27 @@ function routePath(file) {
   );
 }
 
+/**
+ * A claim about how many nodes there are, in prose, drifts the day a node is added: the README
+ * said 34 and 32 while the registry held 36 (Phase 42). Every "N nodes" the front-door documents
+ * make must equal the registry's count. The patterns are the shapes those documents use — a
+ * badge, a bold lead, "All N nodes", and the diagram's "N nodes, one object each".
+ */
+function checkNodeCounts() {
+  const actual = describeNodes().length;
+  const claim = /(?:registry-(\d+)%20nodes|\*\*(\d+) nodes\*\*|All (\d+) nodes|(\d+) nodes, one object)/g;
+  const problems = [];
+  for (const path of ["README.md", "docs/README.md", "docs/agents.md", "docs/architecture.md"]) {
+    const full = join(root, path);
+    if (!existsSync(full)) continue;
+    for (const match of readFileSync(full, "utf8").matchAll(claim)) {
+      const said = Number(match.slice(1).find((group) => group !== undefined));
+      if (said !== actual) problems.push(`${path} says ${said} nodes; the registry has ${actual}`);
+    }
+  }
+  return problems;
+}
+
 function checkApiDoc() {
   const docPath = join(root, "docs/api.md");
   let text;
@@ -408,6 +429,10 @@ for (const file of generated) {
     console.log(`write ${file.path} (${file.body.length} bytes)`);
   }
 }
+
+const countProblems = checkNodeCounts();
+if (countProblems.length > 0) failures.push(...countProblems);
+else console.log("ok    every node count in the front-door documents matches the registry");
 
 const apiProblems = checkApiDoc();
 if (apiProblems.length > 0) failures.push(...apiProblems);

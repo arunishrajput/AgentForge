@@ -91,7 +91,7 @@ export function onboardingProgress(facts: OnboardingFacts): OnboardingProgress {
       id: "run",
       title: "Run it",
       detail:
-        "Press Run on the canvas. Each node lights up as it executes and its output is there to inspect when it finishes.",
+        "Press Run on the canvas. Each node lights up as it executes and its output is there to inspect when it finishes. If a step fails, the run page can say why and retry from it.",
       done: facts.hasSuccessfulRun,
     },
   ];

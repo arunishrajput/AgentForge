@@ -57,7 +57,9 @@ is the file it means.
 39  Workflows III — composition: sub-workflows, workflow tools, merge  ✅
 40  Workflows IV — public entry points: forms and webhook responses  ✅
 41  Public API — personal access tokens                  ✅
-42  Chapter 3 launch polish  ← START HERE
+42  Chapter 3 launch polish                          ✅
+
+Chapter 3 is complete. Nothing is marked START HERE: re-plan first (see *After Phase 42*).
 ```
 
 **Move the `← START HERE` marker when a phase closes.** Chapter 2 forgot to, and the marker sat on
@@ -2034,6 +2036,25 @@ reconciled; `PROGRESS.md` marks Chapter 3 complete.
 **Documentation updates.** All, reconciled.
 
 **Commit.** `feat: complete phase 42 chapter 3 launch polish`
+
+### Status — COMPLETE, 2026-10-10 (`agentforge-00101-4rd`, no migration)
+
+- **1 Accessibility.** `verify-a11y` passed. In a real browser a rendered contrast audit was **empty on 10 screens in
+  Light and 5 in Night**; every focusable element on the library, runs, settings, canvas, approval and form pages has
+  an accessible name, and Settings' tabs use roving tabindex with arrow keys.
+- **2 Security.** Anti-framing and a partial CSP shipped (D193, ADR 0010); `verify-security` **131 passed**, now
+  asserting the headers; `SECURITY.md` item 14 says what is absent. `form-action` was left out after reasoning that
+  Chrome applies it to sign-in's redirect.
+- **3 Performance.** Canvas: 13 script files, 256 KB transferred, 1.7 MB decoded; library 0.9 MB decoded; layout shift 0.
+  LCP not readable in the automated (hidden) tab — recorded, not claimed.
+- **4 Onboarding and empty states.** Copy updated; the inbox, tokens, tags, runs and copilot empty states already had
+  designed states with an action.
+- **5 Who can sign in.** Researched; stays a stated limit (`SECURITY.md` item 10); a zero-cost split is **M18**.
+- **6 Documentation.** README counts corrected and guarded by `docs:check`; ADRs 0006–0010.
+- **Validation.** An empty workspace → template cloned → run succeeded; keyless copilot refuses with an action; in the
+  owner's workspace in Night a copilot proposal was accepted (unsaved). `verify-api` 598 passed / 0 failed; `smoke.mjs`
+  clean on its first walk.
+- **Carried and left**: the default model's 20-a-day quota (a product choice).
 
 ---
 

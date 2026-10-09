@@ -14,7 +14,7 @@
 [![CI](https://github.com/arunishrajput/AgentForge/actions/workflows/ci.yml/badge.svg)](https://github.com/arunishrajput/AgentForge/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-6B4EFF.svg)](./LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D20.9-43C59E.svg)](./package.json)
-[![Nodes](https://img.shields.io/badge/registry-32%20nodes-FF8A3D.svg)](./docs/nodes.md)
+[![Nodes](https://img.shields.io/badge/registry-36%20nodes-FF8A3D.svg)](./docs/nodes.md)
 [![Cost to run](https://img.shields.io/badge/cost%20to%20run-%240-FFD23F.svg)](./docs/self-hosting.md)
 
 **[Live app](https://agentforge-733000675212.asia-southeast1.run.app)** ·
@@ -98,7 +98,7 @@ pretending otherwise.
 | **Asks a person** | An approval step stops the run and asks — hours or days later it carries on down Approved or Rejected. Its link goes out through a Discord, Slack or Gmail step you already have, and whoever holds it decides once, without signing in; the people it names decide in their inbox or on the canvas; a timeout decides if nobody does. The link is stored only as a hash and a link preview cannot decide it |
 | **Opens to strangers** | A form trigger is a page anyone with the link can fill in — no sign-in, validated on the server, behind a honeypot and a rate limit, at a link you can replace. A Respond step decides what a webhook's caller or a form's visitor is told: a status, a few allowed headers, a JSON body made from your data |
 | **A public API** | Personal access tokens from Settings — shown once, stored only as a hash, scoped to one workspace, always expiring, and never more powerful than the person who made them *at the moment of each request*. A token lists and edits workflows, starts runs and reads results; it can never touch tokens, credentials, members or the vault. `curl` examples in [the API reference](./docs/api.md#access-tokens) |
-| **34 nodes** | Triggers, logic, nine transforms, two AI nodes, and nine integrations. [Full reference](./docs/nodes.md) — generated from the registry |
+| **36 nodes** | Five triggers (manual, webhook, schedule, error, form), ten logic nodes (branch, switch, loop, delay, approval, sub-workflows, merge, respond, assert, log), ten transforms, two AI nodes, and nine integrations. [Full reference](./docs/nodes.md) — generated from the registry |
 | **Durable runs** | Handed to a queue, survives a redeploy or a crash, resumes from the last finished step |
 | **Versioning and diffing** | Every save is a version. Name one, restore one, compare two visually. Every run records which version it executed |
 | **Workspaces and roles** | `viewer` · `editor` · `admin` · `owner`, enforced server-side on every route. Invite by single-use expiring link |
@@ -242,7 +242,7 @@ The language is written down in [`DESIGN.md`](./DESIGN.md).
 | | |
 |---|---|
 | [**Self-hosting**](./docs/self-hosting.md) | Local, Docker, and Cloud Run — and how to keep it free |
-| [**Node reference**](./docs/nodes.md) | All 34 nodes. **Generated from the registry**, so it cannot drift |
+| [**Node reference**](./docs/nodes.md) | All 36 nodes. **Generated from the registry**, so it cannot drift |
 | [**API reference**](./docs/api.md) | Every route, its role, how a request is authorised, and `curl` with an access token |
 | [**How the agents work**](./docs/agents.md) | Generation, the bounded loop, and what the agent cannot reach |
 | [**Architecture**](./docs/architecture.md) | The orientation, and the one idea the rest follows from |

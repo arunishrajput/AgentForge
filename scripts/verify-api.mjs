@@ -3762,7 +3762,7 @@ try {
   const httpWorkflow = await api(
     "POST",
     "/api/workflows",
-    { name: "Phase 9 HTTP verification", graph: httpGraph("https://api.github.com/zen") },
+    { name: "Phase 9 HTTP verification", graph: httpGraph("https://jsonplaceholder.typicode.com/todos/1") },
     token,
   );
   const httpId = httpWorkflow.json?.data?.id;
@@ -3805,8 +3805,9 @@ try {
     }
 
     // And the positive case: a real public HTTPS API, which also proves the
-    // User-Agent is sent — api.github.com answers 403 without one.
-    await retarget("https://api.github.com/zen");
+    // User-Agent is sent. (jsonplaceholder, not api.github.com: GitHub allows 60 unauthenticated
+    // requests an hour per address and Cloud Run's shared address was over it — Phase 42.)
+    await retarget("https://jsonplaceholder.typicode.com/todos/1");
     const zen = await api("POST", `/api/workflows/${httpId}/runs`, {}, token);
     const zenStep = callStepOf(zen);
     check(
@@ -3819,18 +3820,18 @@ try {
       `${zen.json?.data?.status} / ${JSON.stringify(zenStep?.output).slice(0, 200)}`,
     );
 
-    await retarget("https://api.github.com/rate_limit");
+    await retarget("https://jsonplaceholder.typicode.com/todos/1");
     const jsonRun = await api("POST", `/api/workflows/${httpId}/runs`, {}, token);
     const jsonStep = callStepOf(jsonRun);
     check(
       "a JSON response is parsed into output.json for a template reference to reach",
-      jsonStep?.output?.json?.resources?.core?.limit !== undefined,
+      jsonStep?.output?.json?.id === 1,
       JSON.stringify(jsonStep?.output?.json).slice(0, 160),
     );
 
     // failOnError is the honest default: an author who wrote an explicit API call
     // wants a 404 to stop the run, not to succeed carrying an error page as data.
-    const missing = "https://api.github.com/this-endpoint-does-not-exist-agentforge";
+    const missing = "https://jsonplaceholder.typicode.com/posts/99999999";
     await retarget(missing);
     const notFound = await api("POST", `/api/workflows/${httpId}/runs`, {}, token);
     const notFoundStep = callStepOf(notFound);
