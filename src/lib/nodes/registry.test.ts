@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { agentToolSet } from "@/lib/ai/tools";
 import { GUIDANCE, indexLine, renderCatalogue, renderIndex, systemPrompt } from "@/lib/generate/prompt";
 import { ERROR_HANDLE } from "@/lib/engine/policy";
-import { ALWAYS, MAX_SELECTED } from "@/lib/generate/select";
+import { ALWAYS, ALWAYS_TRIGGERS, MAX_SELECTED } from "@/lib/generate/select";
 
 import { describeNodes, getNode, listAgentTools, listNodes } from "./index";
 
@@ -32,11 +32,12 @@ import { describeNodes, getNode, listAgentTools, listNodes } from "./index";
 
 const nodes = listNodes();
 
-test("the registry is 34 nodes and every type is unique", () => {
+test("the registry is 36 nodes and every type is unique", () => {
   // 31 since Phase 37 added `core.error_trigger`; 32 since Phase 38 added `core.approval`; 34 since
-  // Phase 39 added `core.call_workflow` and `core.merge`.
-  assert.equal(nodes.length, 34);
-  assert.equal(new Set(nodes.map((node) => node.type)).size, 34);
+  // Phase 39 added `core.call_workflow` and `core.merge`; 36 since Phase 40 added `core.form_trigger` and
+  // `core.respond`.
+  assert.equal(nodes.length, 36);
+  assert.equal(new Set(nodes.map((node) => node.type)).size, 36);
 });
 
 test("no node declares an output keyed \"error\" — the on-error policy reserves it (D174)", () => {
@@ -173,7 +174,7 @@ test("getNode answers for every registered type and for nothing else", () => {
  */
 test("the generation prompt is within budget per request, so the registry can grow — D156", () => {
   const described = describeNodes();
-  const always = new Set([...described.filter((node) => node.kind === "trigger").map((node) => node.type), ...ALWAYS]);
+  const always = new Set([...ALWAYS_TRIGGERS, ...ALWAYS]);
   const cost = (type: string) =>
     renderCatalogue(described.filter((node) => node.type === type)).length +
     GUIDANCE.filter((entry) => entry.type === type).reduce((sum, entry) => sum + entry.text.length, 0);

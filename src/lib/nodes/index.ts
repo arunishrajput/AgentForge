@@ -8,10 +8,12 @@ import { branchNode } from "./core/branch";
 import { callWorkflowNode } from "./core/call-workflow";
 import { delayNode } from "./core/delay";
 import { errorTrigger } from "./core/error-trigger";
+import { formTrigger } from "./core/form-trigger";
 import { logNode } from "./core/log";
 import { loopNode } from "./core/loop";
 import { mergeNode } from "./core/merge";
 import { manualTrigger } from "./core/manual-trigger";
+import { respondNode } from "./core/respond";
 import { scheduleTrigger } from "./core/schedule-trigger";
 import { setNode } from "./core/set";
 import { switchNode } from "./core/switch";
@@ -64,6 +66,7 @@ const definitions: RegisteredNode[] = [
   webhookTrigger,
   scheduleTrigger,
   errorTrigger,
+  formTrigger,
   setNode,
   logNode,
   branchNode,
@@ -73,6 +76,7 @@ const definitions: RegisteredNode[] = [
   approvalNode,
   callWorkflowNode,
   mergeNode,
+  respondNode,
   assertNode,
   filterNode,
   mapNode,

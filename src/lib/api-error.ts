@@ -28,6 +28,12 @@ export type ApiErrorCode =
   | "invalid_request"
   | "invalid_graph"
   | "conflict"
+  /**
+   * **Too many requests from one place or to one form — Phase 40.** The answer carries `Retry-After`.
+   * A per-instance, in-memory limit (`lib/ratelimit.ts`), so it is a brake on one noisy caller and not
+   * a guarantee.
+   */
+  | "rate_limited"
   | "internal";
 
 export const STATUS: Record<ApiErrorCode, number> = {
@@ -37,6 +43,7 @@ export const STATUS: Record<ApiErrorCode, number> = {
   invalid_request: 400,
   invalid_graph: 422,
   conflict: 409,
+  rate_limited: 429,
   internal: 500,
 };
 

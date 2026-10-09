@@ -7,6 +7,7 @@ import { describeNodes } from "@/lib/nodes";
 import { indexLine } from "./prompt";
 import {
   ALWAYS,
+  ALWAYS_TRIGGERS,
   MAX_SELECTED,
   MIN_SELECTED,
   selectAll,
@@ -24,6 +25,8 @@ import {
  */
 
 const nodes = describeNodes();
+// Phase 40 (D191): only the three common triggers are sent with every request; the error and form
+// triggers are chosen by the request's words like any other node.
 const triggers = nodes.filter((node) => node.kind === "trigger").map((node) => node.type);
 
 test("the stemmer brings a word's forms together, the same way on both sides", () => {
@@ -40,10 +43,10 @@ test("words drops stop words and bare numbers, and reads 8am as a time of day", 
   assert.deepEqual(words("Post the E-mail to my Slack at 8am, 3 times"), ["post", "email", "slack", "oclock", "tim"]);
 });
 
-test("every trigger, and what is always sent, is selected for any request", () => {
+test("the common triggers, and what is always sent, are selected for any request", () => {
   for (const request of ["", "hello", "post to slack", "SSH into my server"]) {
     const { types } = selectDeterministic(request, nodes);
-    for (const type of [...triggers, ...ALWAYS]) assert.ok(types.includes(type), `${type} for "${request}"`);
+    for (const type of [...ALWAYS_TRIGGERS, ...ALWAYS]) assert.ok(types.includes(type), `${type} for "${request}"`);
   }
 });
 
@@ -121,7 +124,7 @@ test("the model selector keeps what the model named, drops what does not exist, 
   assert.ok(selection.types.includes("integration.slack"));
   assert.ok(!selection.types.includes("integration.teams"));
   // Completed exactly as the deterministic selection is: triggers, what is always sent, companions.
-  for (const type of [...triggers, ...ALWAYS, "core.branch"]) assert.ok(selection.types.includes(type), type);
+  for (const type of [...ALWAYS_TRIGGERS, ...ALWAYS, "core.branch"]) assert.ok(selection.types.includes(type), type);
   assert.equal(selection.usage?.totalTokens, 930);
   assert.equal(model.requests[0]?.json, true);
 });

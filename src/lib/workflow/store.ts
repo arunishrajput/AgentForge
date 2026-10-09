@@ -8,6 +8,7 @@ import { validateGraph } from "@/lib/engine/validate";
 import { required } from "@/lib/env";
 import { nextScheduleState, scheduleArmed, scheduleCron } from "@/lib/triggers/schedule";
 import { armSchedule } from "@/lib/triggers/timer";
+import { formTriggerNode, formUrl } from "@/lib/triggers/form";
 import { mintWebhookToken, webhookTriggerNode, webhookUrl } from "@/lib/triggers/webhook";
 import type { WorkspaceScope } from "@/lib/workspace/scope";
 
@@ -495,10 +496,13 @@ export async function rotateWebhookToken(
   id: string,
 ): Promise<{ workflow: Workflow; url: string }> {
   const workflow = await getWorkflow(scope, id);
-  if (!webhookTriggerNode(workflow.graph)) {
+  // Phase 40: a form's link is the same token behind another path (D189), so a form workflow rotates
+  // here too — and both of a workflow's possible URLs die together, whichever its trigger answers on.
+  const form = formTriggerNode(workflow.graph) !== undefined;
+  if (!form && !webhookTriggerNode(workflow.graph)) {
     throw new ApiError(
       "invalid_request",
-      "This workflow has no webhook trigger, so it has no URL to rotate.",
+      "This workflow has no webhook or form trigger, so it has no URL to rotate.",
     );
   }
 
@@ -522,7 +526,8 @@ export async function rotateWebhookToken(
     );
   }
 
-  return { workflow: updated, url: webhookUrl(required("APP_BASE_URL"), token) };
+  const base = required("APP_BASE_URL");
+  return { workflow: updated, url: form ? formUrl(base, token) : webhookUrl(base, token) };
 }
 
 /**
@@ -591,6 +596,14 @@ export function describeWorkflow(workflow: Workflow) {
      */
     webhookUrl: webhookTriggerNode(workflow.graph)
       ? webhookUrl(required("APP_BASE_URL"), workflow.webhookToken)
+      : null,
+    /**
+     * Phase 40. The hosted form's link — present only when the stored graph holds a form trigger, for
+     * the reason `webhookUrl` is (a link that would 404 is a support question). The same token as the
+     * webhook's (D189), so it is a secret of the same kind and rotates with it.
+     */
+    formUrl: formTriggerNode(workflow.graph)
+      ? formUrl(required("APP_BASE_URL"), workflow.webhookToken)
       : null,
     /** The version the stored graph is — every save produces a new one (Phase 18). */
     version: workflow.version,

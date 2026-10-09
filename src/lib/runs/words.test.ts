@@ -12,7 +12,7 @@ test("a run's origin reads as a phrase with the run it came from", () => {
 });
 
 test("every trigger has a word", () => {
-  assert.deepEqual(Object.keys(TRIGGER_WORDS).sort(), ["agent", "error", "manual", "schedule", "webhook", "workflow"]);
+  assert.deepEqual(Object.keys(TRIGGER_WORDS).sort(), ["agent", "error", "form", "manual", "schedule", "webhook", "workflow"]);
   // Phase 37: started by another workflow's failure — said as what it is, not as "Error".
   assert.equal(TRIGGER_WORDS.error, "Failure");
   assert.equal(shortRunId("abcdefghijk"), "abcdefgh");

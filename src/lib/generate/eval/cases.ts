@@ -1,7 +1,7 @@
 /**
  * **The generation eval set — Phase 34.**
  *
- * Twenty-six requests a stranger might type, each with what a correct answer must contain.
+ * Twenty-eight requests a stranger might type, each with what a correct answer must contain.
  * They exist for two jobs, and the second is the one that justified building them:
  *
  *  1. **Measure generation** rather than eyeball it. A live run (`npm run eval:generate --
@@ -27,7 +27,12 @@ export interface EvalCase {
   id: string;
   prompt: string;
   /** The trigger the request implies, when it implies one. */
-  trigger?: "core.manual_trigger" | "core.webhook_trigger" | "core.schedule_trigger" | "core.error_trigger";
+  trigger?:
+    | "core.manual_trigger"
+    | "core.webhook_trigger"
+    | "core.schedule_trigger"
+    | "core.error_trigger"
+    | "core.form_trigger";
   /**
    * Node types the workflow must contain. A string is one type; an array is "any one of these",
    * for a need that more than one node meets.
@@ -282,5 +287,28 @@ export const EVAL_CASES: EvalCase[] = [
     requires: ["integration.slack"],
     forbids: ["core.call_workflow"],
     unsupported: true,
+  },
+  {
+    // Phase 40: a page a stranger fills in. The request never says "form trigger" — it says what a
+    // person would — and the answers are the three things it names, one of them a message.
+    id: "contact-form",
+    prompt:
+      "I want a contact page anyone can fill in with their name, their email and a message. " +
+      "When someone sends it, post the message and who it is from to our Slack channel.",
+    trigger: "core.form_trigger",
+    requires: ["integration.slack"],
+    forbids: ["core.webhook_trigger"],
+    unsupported: false,
+  },
+  {
+    // Phase 40: a webhook that answers. The request never says "respond node" — it says the caller
+    // must get something back — and the thing it gets back comes from a step in the middle.
+    id: "webhook-reply",
+    prompt:
+      "When my webhook receives an order id, fetch https://api.example.com/orders/{id} for it " +
+      "and send the order's status back to whoever called.",
+    trigger: "core.webhook_trigger",
+    requires: ["integration.http", "core.respond"],
+    unsupported: false,
   },
 ];

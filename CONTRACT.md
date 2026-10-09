@@ -243,11 +243,11 @@ invalid graph is stored and returned with `runnable: false` and its problems.
 
 Problem codes: `no_trigger`, `multiple_triggers`, `unknown_node_type`, `duplicate_node_id`,
 `dangling_edge`, `edge_into_trigger`, `unknown_output_handle`, `illegal_cycle`, `invalid_config`,
-`disabled_trigger` (Phase 30).
+`disabled_trigger` (Phase 30), `respond_without_caller` (Phase 40).
 
 Rules: exactly one trigger node; nothing may edge into a trigger; every edge endpoint must exist;
 every `sourceHandle` must be a declared output of its source; **a cycle is legal only when it
-closes through a loop node**; **the trigger is not switched off**. A switched-off node's config is
+closes through a loop node**; **the trigger is not switched off**; **a Respond step needs a webhook or form trigger** (Phase 40). A switched-off node's config is
 not checked — it will not run, and a half-configured node is exactly the kind somebody switches off —
 but every structural rule still applies to it, because the run still routes through it. Notes are
 invisible to all of these rules.
@@ -1140,6 +1140,7 @@ value on; tested on its own, it is fed one value and joins it as the one branch 
 | `not_found` | 404 | No such record **in this workspace** — indistinguishable from a record in somebody else's, deliberately. 404 and never 403, so the reply does not confirm the id exists |
 | `invalid_graph` | 422 | The graph cannot run; `details` is the problem list |
 | `conflict` | 409 | A state the caller can see but not change by retrying the same request: the last owner of a workspace leaving, a spent invitation, a membership that moved underfoot |
+| `rate_limited` | 429 | **Phase 40.** Too many requests to a public form from one address, or to one form altogether in ten minutes. Carries `Retry-After` (seconds). In memory and per instance — see `SECURITY.md` |
 | `internal` | 500 | Unexpected. The detail goes to the server log, never to the client |
 
 ### `details.recovery` — **DEFINED** (Phase 25)
@@ -2276,13 +2277,14 @@ with `mode: "explain"` or `"diagnose"`.
 
 ## Trigger shapes — **DEFINED** (Phase 8)
 
-Source of truth: `src/lib/triggers/`. Four trigger types are registered, and validation still
+Source of truth: `src/lib/triggers/`. Five trigger types are registered, and validation still
 allows **exactly one per workflow**.
 
 | Type | Starts a run when | Output |
 |---|---|---|
 | `core.manual_trigger` | a person presses Run, or `POST /api/workflows/:id/runs` | the JSON the run was started with |
 | `core.webhook_trigger` | something POSTs to the workflow's webhook URL | the posted JSON body |
+| `core.form_trigger` | **Phase 40.** a visitor submits the workflow's hosted form at `/f/<token>` — *Form trigger* below | one key per declared field, validated: text, a number as a number, a checkbox as `true`/`false` |
 | `core.schedule_trigger` | a cron slot comes due and its timer is delivered (Phase 26; the daily sweep catches a lost one) | `{ firedAt, cron, scheduledFor }` |
 | `core.error_trigger` | **Phase 37.** another workflow in the workspace fails with nobody watching — *Failure alerts and the inbox* | `{ workflow, run, failedStep, error }`, or a sample marked `sample: true` when run by hand |
 
@@ -2335,6 +2337,46 @@ Only then is a run created, with `trigger: "webhook"` and the body as its input.
 writes nothing** — no run row, no history, no model spend. The response is the completed run, the
 same synchronous shape as `POST /runs`; a browser watching does not need it, because it follows the
 workflow rather than a run id it could not have known (D28).
+
+### Form trigger — **DEFINED** (Phase 40, D189)
+
+`src/lib/triggers/form.ts` holds every rule; the page, the route and the node read it.
+
+- **Config** (`formConfigSchema`): `title`, `description`, `fields` (≤ 20), `submitLabel`, `successMessage`,
+  `failureMessage`. A field is `{ name, label, type, required, options }`: `name` is `[A-Za-z][A-Za-z0-9_]{0,39}`
+  and is what `{{trigger.<name>}}` reaches (unique, case-insensitively; `hp_website` is reserved);
+  `type` is `text` · `longtext` · `email` · `number` · `select` · `checkbox` · `date`; `options` is a select's
+  choices separated by commas or new lines, and a select needs at least one.
+- **Address**: `/f/<token>`, the **workflow's `webhookToken`** (D41) — one token serves whichever public
+  surface the single trigger selects, and `POST /api/workflows/:id/webhook/rotate` replaces it for either.
+  `formUrl` is on the workflow projection beside `webhookUrl`, each present only when the stored graph holds
+  that trigger.
+- **`POST /api/form/:token`** — JSON, no session. Order of guards: token shape (404) → rate limit per
+  address (12) and per form (120) per ten minutes (**429 `rate_limited`**, `Retry-After`; in memory, per
+  instance) → declared length over 32 KB (400) → one select; no form or unreadable config (404) → switched off
+  (**409**) → body over 32 KB, not JSON, not an object (400) → honeypot `hp_website` filled (**200, as success,
+  nothing started**) → `checkSubmission` (**400**, `details.fields` = a message per field) → a run, `trigger:
+  "form"`, input = the validated values. Only declared fields are kept; every declared field is present
+  (`""`, `null` for a number, `false` for a checkbox). **A rejected submission writes nothing.**
+- **Answer**: a `core.respond` answer if the run recorded one (below); else `200 { data: { accepted: true,
+  message } }` with `successMessage`; `500` with `failureMessage` in the error envelope when the run failed or
+  was cancelled; a `waiting` run is a success. Never a step, error, id or trace.
+- **`trigger: "form"`** is a run trigger kind (`TRIGGER_KINDS`), listed as "Form" (`runs/words.ts`), a library
+  filter, and **unattended** for `alertsFor` — a failed form run reaches the inbox and the error workflows
+  like a webhook's.
+
+### Respond — **DEFINED** (Phase 40, D190)
+
+`core.respond` (`logic` category) records `{ status, headers, body }` as its output. `status` is 200–299 or
+400–599 (never 1xx/3xx); `headers` are only `cache-control`, `content-language`, `etag`, `retry-after`,
+`x-request-id`, `x-correlation-id` (case-insensitive, printable ASCII, ≤ 200 characters, no repeats); `body` is
+a JSON object of at most 64 KB, built by lookup (`{{ }}`) only. Always sent as `application/json` with
+`x-content-type-options: nosniff`; a 204 or 205 has no body. **The first Respond step that succeeded** answers
+the webhook or the form, even if a later step fails; a run that never reaches one — or sleeps first — answers as
+before (201 and the run summary for a webhook). `answerFromSteps` re-parses the recorded output against the same
+schema before anything is sent. In a run started any other way it records its output and passes through —
+nothing is waiting. Validation reports `respond_without_caller` on a Respond in a workflow whose trigger is not
+a webhook or a form.
 
 ### The cron field is validated where it is written
 

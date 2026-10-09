@@ -9,6 +9,7 @@ import { validateGraph } from "@/lib/engine/validate";
 import { logWarn } from "@/lib/logging";
 import { ERROR_TRIGGER_TYPE } from "@/lib/triggers/failure";
 import { scheduleCron } from "@/lib/triggers/schedule";
+import { formTriggerNode } from "@/lib/triggers/form";
 import { webhookTriggerNode } from "@/lib/triggers/webhook";
 import type { WorkspaceScope } from "@/lib/workspace/scope";
 
@@ -186,7 +187,7 @@ export async function unstarWorkflow(scope: WorkspaceScope, workflowId: string):
 }
 
 /**
- * Whether a graph's trigger runs it without anybody pressing Run — a webhook, a schedule, or
+ * Whether a graph's trigger runs it without anybody pressing Run — a webhook, a form (Phase 40), a schedule, or
  * (Phase 37) another workflow's failure. A manual workflow has nothing for the active switch to
  * stop; a copied or imported error workflow would start alerting the moment it existed.
  */
@@ -194,6 +195,7 @@ function runsByItself(graph: WorkflowGraph): boolean {
   return (
     scheduleCron(graph) !== null ||
     webhookTriggerNode(graph) !== undefined ||
+    formTriggerNode(graph) !== undefined ||
     graph.nodes.some((node) => node.type === ERROR_TRIGGER_TYPE)
   );
 }

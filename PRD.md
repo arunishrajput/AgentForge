@@ -342,7 +342,9 @@ is encrypted at rest and never returned to the client in plaintext. Integration 
 the same rule.
 
 **Triggers.** Each webhook trigger has an unguessable URL that validates its payload. Schedule
-triggers fire on a cron expression.
+triggers fire on a cron expression. **A form trigger** (Phase 40) is a hosted page at an unguessable,
+rotatable address that anybody can fill in without signing in; its answers are validated on the server and
+start a run. **A Respond step** decides what a webhook's caller or a form's visitor is told.
 
 **Approvals** (Phase 38). A step can ask a person to approve or reject, with a message built from the
 run's data, and wait up to 30 days. It is decided by a member it allows — named people, or any editor

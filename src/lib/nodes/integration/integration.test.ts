@@ -47,8 +47,9 @@ test("all nine integrations are registered and dispatchable by type", () => {
   }
   assert.equal(integrations.length, 9);
   // 30 after Phase 23C added the database node to Phase 23B's 29; 31 since Phase 37's error trigger;
-  // 32 since Phase 38's approval; 34 since Phase 39's Call workflow and Merge.
-  assert.equal(listNodes().length, 34);
+  // 32 since Phase 38's approval; 34 since Phase 39's Call workflow and Merge; 36 since Phase 40's Form
+  // trigger and Respond.
+  assert.equal(listNodes().length, 36);
 });
 
 test("every integration declares the shape of its output", () => {

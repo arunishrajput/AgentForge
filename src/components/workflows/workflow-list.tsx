@@ -143,7 +143,7 @@ export function WorkflowList({
   const duplicate = async (card: WorkflowCard) => {
     try {
       const copy = await api.duplicateWorkflow(card.id);
-      const off = !copy.active && (copy.scheduleCron !== null || copy.webhookUrl !== null);
+      const off = !copy.active && (copy.scheduleCron !== null || copy.webhookUrl !== null || copy.formUrl !== null);
       toast({
         tone: "ok",
         title: `Duplicated as “${copy.name}”`,
@@ -298,6 +298,10 @@ export function WorkflowList({
               { value: "all", label: "Any", count: counts.total },
               { value: "manual", label: "Manual", count: counts.manual },
               { value: "webhook", label: "Webhook", count: counts.webhook },
+              // Phase 40. Like On failure, offered once there is a form to find.
+              ...(counts.form > 0 || view.trigger === "form"
+                ? [{ value: "form" as const, label: "Form", count: counts.form }]
+                : []),
               { value: "schedule", label: "Schedule", count: counts.schedule },
               // Phase 37. Offered once there is an error workflow to find, or while it is the
               // filter — a fifth chip that always reads 0 is noise for most workspaces.

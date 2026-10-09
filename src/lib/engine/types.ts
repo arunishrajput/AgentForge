@@ -100,8 +100,11 @@ export type StepStatus = (typeof STEP_STATUSES)[number];
  * unattended — the run above them is the one that answers for the failure, handing it on to its own
  * on-error policy or failing — so a called run's failure alerts nobody by itself (`failure.ts`).
  * `agent` was reserved in Chapter 1 for exactly this.
+ *
+ * **`form` is Phase 40's** (D189): a submission to a hosted form, by a visitor with no session. It is
+ * unattended like a webhook — nobody at the canvas is watching it fail — so it alerts the same way.
  */
-export const TRIGGER_KINDS = ["manual", "webhook", "schedule", "agent", "error", "workflow"] as const;
+export const TRIGGER_KINDS = ["manual", "webhook", "schedule", "agent", "error", "workflow", "form"] as const;
 export type TriggerKind = (typeof TRIGGER_KINDS)[number];
 
 export const TERMINAL_RUN_STATUSES: readonly RunStatus[] = ["succeeded", "failed", "cancelled"];

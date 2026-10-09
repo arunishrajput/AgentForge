@@ -3,7 +3,7 @@
 
 # Node reference
 
-**34 nodes**, of which **19 are callable by an agent node as tools**.
+**36 nodes**, of which **19 are callable by an agent node as tools**.
 
 This page is generated from the registry itself, so it cannot drift from what the product does.
 Every entry below is one object in [`src/lib/nodes/`](../src/lib/nodes) — the same object the
@@ -18,6 +18,7 @@ definition. See [`architecture.md`](./architecture.md) → *The registry is the 
 | [Webhook trigger](#corewebhook_trigger--webhook-trigger) | `core.webhook_trigger` | trigger | no |
 | [Schedule trigger](#coreschedule_trigger--schedule-trigger) | `core.schedule_trigger` | trigger | no |
 | [Error trigger](#coreerror_trigger--error-trigger) | `core.error_trigger` | trigger | no |
+| [Form trigger](#coreform_trigger--form-trigger) | `core.form_trigger` | trigger | no |
 | [Log message](#corelog--log-message) | `core.log` | logic | yes |
 | [Branch](#corebranch--branch) | `core.branch` | logic | no |
 | [Switch](#coreswitch--switch) | `core.switch` | logic | no |
@@ -26,6 +27,7 @@ definition. See [`architecture.md`](./architecture.md) → *The registry is the 
 | [Approval](#coreapproval--approval) | `core.approval` | logic | no |
 | [Call workflow](#corecall_workflow--call-workflow) | `core.call_workflow` | logic | no |
 | [Merge](#coremerge--merge) | `core.merge` | logic | no |
+| [Respond](#corerespond--respond) | `core.respond` | logic | no |
 | [Assert](#coreassert--assert) | `core.assert` | logic | no |
 | [Set data](#coreset--set-data) | `core.set` | transform | yes |
 | [Filter list](#transformfilter--filter-list) | `transform.filter` | transform | yes |
@@ -119,7 +121,7 @@ Starts the workflow on a repeating schedule, given as a 5-field cron expression 
 
 **trigger** · **not** callable by the agent
 
-Runs this workflow whenever another workflow in this workspace fails with nobody watching — a webhook or schedule run, not one somebody pressed Run on. Put a Slack, Discord or Gmail step after it and you have a failure alert. Press Run here to try it with a sample failure.
+Runs this workflow whenever another workflow in this workspace fails with nobody watching — not one somebody pressed Run on. Put a Slack, Discord or Gmail step after it and you have a failure alert. Press Run here to try it with a sample failure.
 
 **Input.** nothing to configure — it fires for every workflow in the workspace you can see
 
@@ -134,7 +136,38 @@ _No configuration._
 
 <details><summary>What the agent reads</summary>
 
-> Starts the workflow when another workflow here fails while running by itself (from a webhook or a schedule). Use it to alert on failures: follow it with a Slack, Discord or Gmail node.
+> Starts the workflow when another workflow here fails while running by itself, with nobody watching. Use it to alert on failures: follow it with a Slack, Discord or Gmail node.
+
+</details>
+
+### `core.form_trigger` — Form trigger
+
+**trigger** · **not** callable by the agent
+
+A web page anyone with the link can fill in — no sign-in. Add the fields you want (a name, a label, a type, whether it is required) and each answer becomes a value your steps can use. The link is secret and can be replaced from the trigger's panel. Add a Respond step to change what the visitor is told.
+
+**Input.** nothing — it starts the run. Field names are what you reach as {{trigger.name}}
+
+**Output.** an object with one key per field, e.g. {{trigger.email}}. A checkbox is true or false; a number is a number.
+
+| Field | Type | Required | Default |
+|---|---|---|---|
+| `title` | string | no | `""` |
+| `description` | string | no | `""` |
+| `fields` | array of object | no | `[]` |
+| `submitLabel` | string | no | `Submit` |
+| `successMessage` | string | no | `Thanks — your response was received.` |
+| `failureMessage` | string | no | `Something went wrong, and your response may not have been received. Please try again in a moment.` |
+
+**Examples**
+
+- *A field's answer* — {{trigger.email}}
+- *A field set up as a choice* — name: plan · type: select · options: "Free, Team, Enterprise"
+- *Tell the visitor something specific* — Add a Respond step with status 200 and body message: Thanks {{trigger.name}}
+
+<details><summary>What the agent reads</summary>
+
+> Starts the workflow when someone submits a hosted web form. Use it when the request says a form, a sign-up, a survey or a contact page. Declare "fields": a list of { "name": "email", "label": "Your email", "type": text|longtext|email|number|select|checkbox|date, "required": true, "options": "A, B, C" (select only) }. Each answer is then {{trigger.<name>}}.
 
 </details>
 
@@ -344,6 +377,34 @@ Where branches that ran side by side meet again. In All mode it waits until ever
 <details><summary>What the agent reads</summary>
 
 > Joins branches that run side by side and runs once. In all mode it waits until every branch still on its way has reached it; in first mode it runs on the first branch and ignores the rest. Outputs how many were joined and what each carried.
+
+</details>
+
+### `core.respond` — Respond
+
+**action** · **not** callable by the agent
+
+Decides what the caller of this workflow is told: a status code, a JSON body made from your data, and a few allowed headers. Without one the caller gets a summary of the run, as before. Only the first Respond to run counts, and it only matters when a request from outside started the run.
+
+**Input.** nothing in particular — reference any earlier step with {{steps.<id>.output.x}}
+
+**Output.** { status, headers, body } — the reply that was set.
+
+| Field | Type | Required | Default |
+|---|---|---|---|
+| `status` | integer | no | `200` |
+| `body` | object | no | `{}` |
+| `headers` | object | no | `{}` |
+
+**Examples**
+
+- *A look-up result* — status 200 · body { "price": "{{steps.fetch.output.price}}" }
+- *Refuse a caller* — status 422 · body { "error": "That order does not exist" }
+- *Tell a client to retry* — status 503 · headers retry-after: 30
+
+<details><summary>What the agent reads</summary>
+
+> Sets the reply the caller of this workflow gets back: a status code, a JSON body and headers. Use it when the caller needs data back, not just an acknowledgement.
 
 </details>
 
@@ -950,6 +1011,7 @@ node, never a side effect of registering one — see [`agents.md`](./agents.md) 
 | `core.webhook_trigger` | A trigger starts a run; an agent runs inside one. |
 | `core.schedule_trigger` | A trigger starts a run; an agent runs inside one. |
 | `core.error_trigger` | A trigger starts a run; an agent runs inside one. |
+| `core.form_trigger` | A trigger starts a run; an agent runs inside one. |
 | `core.branch` | Flow control belongs to the graph, not to a tool call. |
 | `core.switch` | Flow control belongs to the graph, not to a tool call. |
 | `core.loop` | Flow control belongs to the graph, not to a tool call. |
@@ -957,6 +1019,7 @@ node, never a side effect of registering one — see [`agents.md`](./agents.md) 
 | `core.approval` | Flow control belongs to the graph, not to a tool call. |
 | `core.call_workflow` | Flow control belongs to the graph, not to a tool call. |
 | `core.merge` | Flow control belongs to the graph, not to a tool call. |
+| `core.respond` | Flow control belongs to the graph, not to a tool call. |
 | `core.assert` | Flow control belongs to the graph, not to a tool call. |
 | `ai.llm` | Flow control belongs to the graph, not to a tool call. |
 | `ai.agent` | Flow control belongs to the graph, not to a tool call. |

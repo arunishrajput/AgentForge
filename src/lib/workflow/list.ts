@@ -18,12 +18,13 @@
 
 import { findTag, sameTagName, sortTags, type TagSummary } from "./tags";
 
-/** The four ways a workflow can start — CONTRACT.md → "Trigger shapes". `error` is Phase 37's. */
-export type TriggerKind = "manual" | "webhook" | "schedule" | "error";
+/** The five ways a workflow can start — CONTRACT.md → "Trigger shapes". `error` is Phase 37's, `form` Phase 40's. */
+export type TriggerKind = "manual" | "webhook" | "form" | "schedule" | "error";
 
 const TRIGGER_TYPES: Record<string, TriggerKind> = {
   "core.manual_trigger": "manual",
   "core.webhook_trigger": "webhook",
+  "core.form_trigger": "form",
   "core.schedule_trigger": "schedule",
   "core.error_trigger": "error",
 };
@@ -32,6 +33,7 @@ const TRIGGER_TYPES: Record<string, TriggerKind> = {
 export const TRIGGER_NAMES: Record<TriggerKind, string> = {
   manual: "manual",
   webhook: "webhook",
+  form: "form",
   schedule: "schedule",
   error: "on failure",
 };
@@ -249,6 +251,7 @@ export function countWorkflows(cards: WorkflowCard[]) {
     problems: cards.filter((card) => !card.runnable).length,
     manual: cards.filter((card) => card.triggers.includes("manual")).length,
     webhook: cards.filter((card) => card.triggers.includes("webhook")).length,
+    form: cards.filter((card) => card.triggers.includes("form")).length,
     schedule: cards.filter((card) => card.triggers.includes("schedule")).length,
     error: cards.filter((card) => card.triggers.includes("error")).length,
     starred: cards.filter((card) => card.starred).length,
@@ -286,7 +289,7 @@ export function isDefaultView(view: ListView): boolean {
  *
  *   q        the search text
  *   status   `runnable` | `problems`
- *   trigger  `manual` | `webhook` | `schedule`
+ *   trigger  `manual` | `webhook` | `form` | `schedule` | `error`
  *   tag      a tag's name
  *   starred  `1`
  *   sort     `created` | `name`
@@ -294,7 +297,7 @@ export function isDefaultView(view: ListView): boolean {
 type SearchParams = Record<string, string | string[] | undefined>;
 
 const STATUSES: readonly StatusKey[] = ["all", "runnable", "problems"];
-const TRIGGER_KEYS: readonly TriggerKey[] = ["all", "manual", "webhook", "schedule", "error"];
+const TRIGGER_KEYS: readonly TriggerKey[] = ["all", "manual", "webhook", "form", "schedule", "error"];
 const SORT_KEYS: readonly SortKey[] = ["recent", "created", "name"];
 
 /** The longest a pasted search or tag is taken to be. Longer is not a search anybody typed. */

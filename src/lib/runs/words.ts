@@ -11,6 +11,8 @@ import type { StepStatus, TriggerKind } from "@/lib/engine/types";
 export const TRIGGER_WORDS: Record<TriggerKind, string> = {
   manual: "Manual",
   webhook: "Webhook",
+  // Phase 40: a visitor submitted the workflow's hosted form.
+  form: "Form",
   schedule: "Schedule",
   // Phase 39: an agent's tool call ran this workflow ("agent"), or another workflow's Call workflow
   // step did ("workflow"). Both name the run above them on the run's page.

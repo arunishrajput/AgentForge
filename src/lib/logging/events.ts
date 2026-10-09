@@ -43,6 +43,11 @@ export const EVENTS = [
    * Carries the request, the outcome and the route, never the comment's words.
    */
   "approval.decided",
+  /**
+   * Somebody submitted a hosted form — Phase 40. `outcome` is `accepted`, `invalid`, `honeypot`,
+   * `limited`, `off` or `unrunnable`. Carries the workflow and the outcome, never an answer or an address.
+   */
+  "form.submitted",
   /** One node finished, succeeded or failed. **The node-latency metric.** */
   "node.finished",
   /** One `generate` call resolved. **The model-fallback metric** (`fallback: true`). */

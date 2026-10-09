@@ -74,6 +74,14 @@ const PUBLIC = {
     // An unknown token is a 404: the route must not confirm which tokens exist.
     expect: [404],
   },
+  // Phase 40 — a hosted form's submission, added in the phase that added it. The token is the workflow
+  // row's (D41); the route has no GET, a per-form and per-address rate limit, a 32 KB cap, a honeypot
+  // and server-side validation (`verify-forms.mjs` proves each against the deployment).
+  "/api/form/[token]": {
+    guard: "192-bit token on the workflow row, plus a rate limit per form and per address",
+    // An unknown token is a 404: the route must not confirm which tokens are forms.
+    expect: [404],
+  },
   "/api/cron/tick": {
     guard: "CRON_SECRET, compared in constant time",
     expect: [401],
@@ -275,10 +283,10 @@ for (const [path, spec] of Object.entries(PUBLIC)) {
 
 /**
  * The count itself is an assertion, so a route added to the table without a thought about
- * `SECURITY.md` fails here. Thirteen entries: the four `SECURITY.md` always named, the
+ * `SECURITY.md` fails here. Fourteen entries: the four `SECURITY.md` always named, the
  * invitation preview and its non-public `accept` sibling, Auth.js's own catch-all, the
  * three Phase 25 found missing — `/api/health` and the two Google OAuth legs — Phase
- * 26's `/api/cron/fire`, and Phase 38's two approval-link routes. `SECURITY.md` says
+ * 26's `/api/cron/fire`, Phase 38's two approval-link routes and Phase 40's `/api/form/[token]`. `SECURITY.md` says
  * "twelve routes" because it counts what answers without a session, and `accept` does
  * not; this counts the table, which lists it.
  */
@@ -291,7 +299,7 @@ check(
 
 const publicRoutes = Object.keys(PUBLIC).length;
 check(
-  publicRoutes === 13,
+  publicRoutes === 14,
   `the exception table holds ${publicRoutes} routes, matching SECURITY.md`,
   `the exception table holds ${publicRoutes} routes — update SECURITY.md and this count together`,
 );
@@ -322,6 +330,22 @@ for (const path of ["/api/approve/describe", "/api/approve/decide"]) {
     `GET ${path} → 405: there is nothing a link preview can call`,
     `GET ${path} → ${response.status}, expected 405`,
   );
+}
+
+/**
+ * **The form page and its submission — Phase 40.** The page is the fourth a signed-out visitor can
+ * reach, and the only one whose address is a credential in the *path*. An address that is not a form
+ * answers the same 404 as any page that does not exist, and the submission route has no GET: a link
+ * preview or a crawler can fetch nothing that starts a run.
+ */
+console.log("\nA form's page and submission");
+{
+  const page = await fetch(`${BASE}/f/${SAMPLE}`, { redirect: "manual" });
+  check(page.status === 404, `/f/<not a form> → 404 with no session`, `/f/<not a form> → ${page.status}`);
+  const malformed = await fetch(`${BASE}/f/!!`, { redirect: "manual" });
+  check(malformed.status === 404, `/f/<malformed> → 404`, `/f/<malformed> → ${malformed.status}`);
+  const get = await fetch(`${BASE}/api/form/${SAMPLE}`, { redirect: "manual" });
+  check(get.status === 405, `GET /api/form/[token] → 405: nothing a link preview can call`, `GET /api/form/[token] → ${get.status}`);
 }
 
 /** A signed-in page must send an anonymous visitor to the landing page, not to an error. */

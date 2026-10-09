@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { workflows } from "@/db/schema";
 import { ApiError, fail, handle, ok } from "@/lib/api";
 import { describeRun, startRun } from "@/lib/engine/run";
+import { answerFromSteps, responseFor } from "@/lib/triggers/respond";
 import {
   readWebhookPayload,
   WEBHOOK_TOKEN_PATTERN,
@@ -30,6 +31,8 @@ export const dynamic = "force-dynamic";
  *  - The payload is validated before a run row exists. A malformed call costs one
  *    indexed select and no writes — this endpoint can spend a user's model quota,
  *    so cheap rejection is a cost property, not tidiness.
+ *
+ * **A `core.respond` step in the workflow replaces the response** (Phase 40): see the end of `POST`.
  *
  * The response waits for the run: execution is in-process (ARCHITECTURE.md → "Queue
  * — deliberately none") and the same synchronous shape as `POST /runs`. A browser
@@ -105,6 +108,16 @@ export async function POST(request: Request, { params }: Context) {
       input: payload.body,
       signal: request.signal,
     });
+
+    /**
+     * **The workflow's own answer — Phase 40** (D190). A `core.respond` step that succeeded decides
+     * what the caller is told: its status, its allowlisted headers, its JSON body — and not the run
+     * summary, which is the answer when the workflow gave none. The first Respond to run wins, even
+     * if a later step failed: the caller was told what the author meant them to be told, and the
+     * failure is in the run history for the author, and alerts as any unattended failure does.
+     */
+    const answer = answerFromSteps(steps);
+    if (answer) return responseFor(answer);
 
     return ok(describeRun(run, steps), 201);
   });

@@ -52,6 +52,21 @@ const BY_TYPE: Record<string, ReactNode> = {
     </>
   ),
 
+  // Phase 40. A page with lines to fill in — the form a visitor sees.
+  "core.form_trigger": (
+    <>
+      <rect x="4.6" y="3.4" width="14.8" height="17.2" rx="2.2" {...STROKE} />
+      <path d="M8.4 8.6h7.2M8.4 12.2h7.2M8.4 15.8h4" {...STROKE} />
+    </>
+  ),
+  // Phase 40. An arrow turning back to where the call came from.
+  "core.respond": (
+    <>
+      <path d="M9.4 5.6 4.2 10.8l5.2 5.2" {...STROKE} />
+      <path d="M4.6 10.8h9.6a5.4 5.4 0 0 1 5.4 5.4v2.4" {...STROKE} />
+    </>
+  ),
+
   "ai.llm": (
     <>
       <path d="M4 6.4A2.4 2.4 0 0 1 6.4 4h11.2A2.4 2.4 0 0 1 20 6.4v6.4a2.4 2.4 0 0 1-2.4 2.4h-5.2L7.6 19.6V15.2H6.4A2.4 2.4 0 0 1 4 12.8z" {...STROKE} />

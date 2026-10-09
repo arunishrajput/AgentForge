@@ -246,6 +246,7 @@ test("countWorkflows counts each axis independently", () => {
     problems: 1,
     manual: 1,
     webhook: 1,
+    form: 0,
     schedule: 1,
     error: 0,
     starred: 0,

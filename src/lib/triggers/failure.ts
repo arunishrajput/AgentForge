@@ -18,7 +18,7 @@ import { scrubText } from "@/lib/generate/scrub";
  *
  * **Only a failure nobody was watching** does either. A person who pressed Run was told on the
  * canvas, in a toast naming the step; a test is somebody at the canvas by definition. A run started
- * by a webhook or a schedule — or by an error trigger — happened with nobody looking, and that is
+ * by a webhook, a form or a schedule — or by an error trigger — happened with nobody looking, and that is
  * the failure the phase is about: "someone hears about it when it was not [planned for]".
  */
 
@@ -37,7 +37,7 @@ export const FAILURE_ERROR_MAX = 2_000;
 const NAME_MAX = 200;
 
 /** Runs started with nobody watching. */
-const UNATTENDED: ReadonlySet<TriggerKind> = new Set(["webhook", "schedule", "error"]);
+const UNATTENDED: ReadonlySet<TriggerKind> = new Set(["webhook", "form", "schedule", "error"]);
 
 /**
  * What a failed run sets off. **An error workflow never sets off another** (`trigger: "error"`): an

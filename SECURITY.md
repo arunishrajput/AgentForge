@@ -275,8 +275,8 @@ credential is `admin`.
 
 ## The unauthenticated surfaces
 
-**Twelve routes and three pages answer with no session** (Phase 26 added `POST /api/cron/fire`; Phase
-38 the two approval-link routes and `/approve`), and
+**Thirteen routes and four pages answer with no session** (Phase 26 added `POST /api/cron/fire`; Phase
+38 the two approval-link routes and `/approve`; Phase 40 `POST /api/form/<token>` and `/f/<token>`), and
 the completeness of this list is the
 whole point of it — so it is no longer maintained by hand alone.
 `scripts/verify-security.mjs` enumerates **every** route file under `src/app/api`, calls each
@@ -285,7 +285,8 @@ it stops answering. Run it against the deployed service; it writes nothing.
 
 | Surface | Guard | Blast radius |
 |---|---|---|
-| `POST /api/webhook/<token>` | 192-bit token on the workflow row | Runs **one** workflow. Body capped at 64 KB, pattern-checked before the database is touched. A switched-off workflow answers 409 and starts nothing (Phase 26) |
+| `POST /api/webhook/<token>` | 192-bit token on the workflow row | Runs **one** workflow. Body capped at 64 KB, pattern-checked before the database is touched. A switched-off workflow answers 409 and starts nothing (Phase 26). **A `core.respond` step chooses what it answers** — status 200–299 or 400–599, six allowlisted headers, a JSON body (Phase 40) |
+| `POST /api/form/<token>` + `/f/<token>` | The same 192-bit token as the webhook, on the workflow row (D41, D189) | A stranger **submits one form**, which starts **one run of one workflow** with only the answers the form declares. 32 KB cap, a honeypot, validation on the server, **12 submissions an address and 120 a form per ten minutes** (in memory, per instance). No GET. The page shows only the form's own words — never the workflow's name, id or graph. Phase 40 — see below |
 | `POST /api/cron/fire` | `CRON_SECRET` **plus** an HMAC-SHA256 token over *(workflow id, slot)*, keyed by `AUTH_SECRET` | Fires **one slot of one workflow**, and only once it is due — a slot not yet due is re-armed, and one that is no longer current is declined. The compare-and-set on the slot makes a replay a no-op (D42). Phase 26 — see below |
 | `POST /api/cron/tick` | `CRON_SECRET`, compared in constant time | The daily safety sweep: fires overdue schedules, re-arms timers, re-schedules lost wakes. Idempotent by compare-and-set |
 | `POST /api/runs/dispatch` | `CRON_SECRET` **plus** the run's own 192-bit `dispatchToken` | Resumes **one** run its owner already started. The lease makes a duplicate delivery harmless (D82) |
@@ -490,6 +491,33 @@ each bounded by the rules it already lived under:
 - **It cannot loop.** A run an error trigger started never starts another (D176); at most five error
   workflows hear one failure
 
+## Forms and answers — Phase 40
+
+**`/f/<token>` and `POST /api/form/<token>` are the first public surface that takes content from a
+stranger and starts a run with it** (D189). What bounds that:
+
+- **The token is the workflow's** (D41) — 192 bits of CSPRNG, shape-checked before any query, the same
+  404 for a wrong token, a workflow with no form and a form that cannot be read. Rotating from the
+  trigger's panel kills the old link at once; it also kills the webhook URL, which is the same token. A
+  form's address appears in Cloud Run's request log, as a webhook's does.
+- **Only declared fields get through.** The server validates against the form's own fields — type,
+  required, length, a choice from the list, a real date — and drops everything else, so a stranger
+  cannot put a key of their choosing into `{{trigger.…}}`. `hp_website` is a reserved name for the
+  honeypot: a filled one is answered like success and starts nothing.
+- **Nothing is written before it validates.** A refusal costs one indexed select and no row. A submission
+  is capped at 32 KB.
+- **Nothing about the run comes back.** A visitor is told the author's success or failure message — or
+  what a Respond step says — and never a step, an error, an id or a trace. A form that cannot run
+  answers with the failure message, not its problem list.
+- **The page leaks nothing of the product.** It is rendered with the form's own title, description and
+  fields only; `robots: noindex`, `no-referrer`.
+- **A Respond is allowlisted twice** (D190): when its config is saved, and again by the receiver from
+  what the run recorded, so a stored step row cannot widen it. Never `Set-Cookie`, `Location`, a CORS or
+  security header, or a status in 100–399. The body is built by lookup only (D17) and is always sent as
+  JSON with `nosniff`.
+- **The rate limit is a brake, not a wall**: in memory and per instance (`max-instances 3`), so a caller
+  spread across instances gets up to three times the limit, and a new instance starts empty.
+
 ## Composition — Phase 39
 
 Workflows calling workflows, and agents calling workflows, add **no unauthenticated surface** and no
@@ -572,8 +600,15 @@ The honest limits. Each one is a real gap, not a hedge.
    by this process by design — a workflow that sends mail must have the token. Envelope
    encryption protects the data *at rest* and makes the key rotatable; it does not protect
    against code execution inside the app.
-3. **No rate limiting.** The webhook and share endpoints are unauthenticated and unthrottled.
-   Cloud Run's `max-instances 3` is a cost ceiling, not a security control.
+3. **Rate limiting is partial, in memory and per instance.** Since Phase 40 the **form** submission
+   route is limited (12 an address and 120 a form per ten minutes, per instance — up to three times
+   that across instances, and a fresh instance starts empty). **The webhook, share and approval-link
+   endpoints are still unthrottled**: a 256-bit or 192-bit token is not guessed by retrying, but a
+   holder of a webhook URL can start runs as fast as the service answers. Cloud Run's
+   `max-instances 3` is a cost ceiling, not a security control. A form is also **not protected by a
+   CAPTCHA**: a determined human or a script that does not fill the honeypot gets through, and each
+   submission starts a run that may spend the workspace's model quota — switch the workflow off or
+   rotate the link if one is abused.
 4. **`sslmode=require` encrypts a database connection but does not verify the certificate.**
    That is what `require` means in Postgres, and it is the default this product uses because
    demanding `verify-full` would refuse the self-signed certificates most self-hosted servers

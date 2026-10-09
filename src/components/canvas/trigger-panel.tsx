@@ -38,6 +38,20 @@ export function TriggerPanel({
   if (node.data.nodeType === "core.webhook_trigger") {
     return (
       <WebhookPanel
+        kind="webhook"
+        workflow={workflow}
+        dirty={dirty}
+        canRotate={canRotate}
+        onRotate={onRotate}
+      />
+    );
+  }
+  // Phase 40. The same panel: a form's link is a secret URL of exactly the webhook's kind (D189), shown,
+  // copied and rotated the same way. Only the words about what the URL does differ.
+  if (node.data.nodeType === "core.form_trigger") {
+    return (
+      <WebhookPanel
+        kind="form"
         workflow={workflow}
         dirty={dirty}
         canRotate={canRotate}
@@ -89,11 +103,13 @@ function ErrorTriggerPanel({ workflow, dirty }: { workflow: Workflow; dirty: boo
 }
 
 function WebhookPanel({
+  kind,
   workflow,
   dirty,
   canRotate,
   onRotate,
 }: {
+  kind: "webhook" | "form";
   workflow: Workflow;
   dirty: boolean;
   canRotate: boolean;
@@ -113,12 +129,16 @@ function WebhookPanel({
   const [rotating, setRotating] = useState(false);
   const [rotated, setRotated] = useState(false);
 
-  if (!workflow.webhookUrl) {
+  const form = kind === "form";
+  const url = form ? workflow.formUrl : workflow.webhookUrl;
+  const title = form ? "Form link" : "Webhook URL";
+
+  if (!url) {
     return (
-      <Section title="Webhook URL">
+      <Section title={title}>
         <p className="text-muted text-xs leading-relaxed">
-          Save the workflow to get its URL. The receiver reads the stored graph, so the
-          URL only answers once this trigger is saved.
+          Save the workflow to get its {form ? "link" : "URL"}. The {form ? "page" : "receiver"} reads the
+          stored graph, so it only answers once this trigger is saved.
         </p>
       </Section>
     );
@@ -140,7 +160,7 @@ function WebhookPanel({
 
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(workflow.webhookUrl!);
+      await navigator.clipboard.writeText(url);
       setCopied(true);
       setCopyFailed(false);
       setTimeout(() => setCopied(false), 2000);
@@ -152,20 +172,24 @@ function WebhookPanel({
   };
 
   return (
-    <Section title="Webhook URL">
+    <Section title={title}>
       {/* Phase 26. Said where the URL is, because this is where somebody debugging a
           failing integration looks — and a 409 they did not expect is the symptom. */}
       {!workflow.active && (
         <p className="border-line bg-sunken rounded-lg border-2 p-2 text-2xs leading-relaxed">
-          <strong className="font-bold">Switched off.</strong> This URL answers{" "}
-          <code>409</code> and starts nothing until the workflow is switched back on.
+          <strong className="font-bold">Switched off.</strong>{" "}
+          {form ? (
+            <>This form says it is closed and starts nothing until the workflow is switched back on.</>
+          ) : (
+            <>This URL answers <code>409</code> and starts nothing until the workflow is switched back on.</>
+          )}
         </p>
       )}
 
       <input
         type="text"
         readOnly
-        value={workflow.webhookUrl}
+        value={url}
         onFocus={(event) => event.currentTarget.select()}
         className="field font-mono text-2xs"
       />
@@ -175,7 +199,7 @@ function WebhookPanel({
         onClick={copy}
         className="btn btn-quiet w-full"
       >
-        {copied ? "Copied" : "Copy URL"}
+        {copied ? "Copied" : form ? "Copy link" : "Copy URL"}
       </button>
 
       {copyFailed && (
@@ -189,9 +213,10 @@ function WebhookPanel({
         (confirming ? (
           <div className="border-line bg-sunken animate-rise space-y-2 rounded-lg border-2 p-2.5">
             <p className="text-2xs leading-relaxed">
-              <strong className="font-bold">The URL above stops working immediately.</strong>{" "}
-              Anything already calling it will get a 404 until you give it the new one. There
-              is no way back to the old URL.
+              <strong className="font-bold">The {form ? "link" : "URL"} above stops working immediately.</strong>{" "}
+              {form
+                ? "Anyone you sent it to will see a page that does not exist until you give them the new one. There is no way back to the old link."
+                : "Anything already calling it will get a 404 until you give it the new one. There is no way back to the old URL."}
             </p>
             <div className="flex gap-1.5">
               <button
@@ -220,13 +245,13 @@ function WebhookPanel({
             }}
             className="btn btn-ghost w-full text-2xs"
           >
-            Rotate this URL
+            {form ? "Rotate this link" : "Rotate this URL"}
           </button>
         ))}
 
       {rotated && (
         <p className="text-2xs text-ok" role="status">
-          Rotated. The URL above is the new one — the previous URL is already refused.
+          Rotated. The {form ? "link" : "URL"} above is the new one — the previous one is already refused.
         </p>
       )}
 
@@ -238,15 +263,24 @@ function WebhookPanel({
 
       {dirty && (
         <p className="text-2xs text-warn">
-          There are unsaved changes. The URL fires the workflow as it is <em>stored</em>.
+          There are unsaved changes. The {form ? "form shows" : "URL fires"} the workflow as it is <em>stored</em>.
         </p>
       )}
 
-      <p className="text-muted text-2xs leading-relaxed">
-        POST JSON here to start a run. Anyone holding this URL can trigger it, so treat
-        it as a secret. The body becomes this node&apos;s output — reach it with{" "}
-        <code>{"{{trigger.field}}"}</code>.
-      </p>
+      {form ? (
+        <p className="text-muted text-2xs leading-relaxed">
+          Anyone with this link can fill the form in — no sign-in — so treat it as a secret and send it
+          only to the people you want answers from. Each answer is checked on the server, and becomes
+          this node&apos;s output: reach it with <code>{"{{trigger.name}}"}</code>. Add a Respond step to
+          change what the visitor is told.
+        </p>
+      ) : (
+        <p className="text-muted text-2xs leading-relaxed">
+          POST JSON here to start a run. Anyone holding this URL can trigger it, so treat
+          it as a secret. The body becomes this node&apos;s output — reach it with{" "}
+          <code>{"{{trigger.field}}"}</code>. Add a Respond step to choose what it answers.
+        </p>
+      )}
     </Section>
   );
 }

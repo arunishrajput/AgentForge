@@ -53,7 +53,18 @@ export type CatalogueOption =
 export const MAX_SELECTED = 10;
 
 /**
- * Sent with every request, as the triggers are. `ai.llm` is the general-purpose text step —
+ * **The triggers sent with every request — Phase 40, D191.** The first decision a workflow makes is how
+ * it starts, and the one most often wrong, so the three ways nearly every request starts are always
+ * defined in full. The others — the error trigger (Phase 37) and the form trigger (Phase 40) — are
+ * chosen by the request's words like any node: each costs a definition on *every* request when always
+ * sent, and Phase 40's would have taken the worst case past D156's budget. Measured by the eval set: a
+ * request for either names it ("fails", "form") or is understood by the model selector, and the index
+ * line lists both whatever was chosen.
+ */
+export const ALWAYS_TRIGGERS = ["core.manual_trigger", "core.webhook_trigger", "core.schedule_trigger"];
+
+/**
+ * Sent with every request. `ai.llm` is the general-purpose text step —
  * summarise, rewrite, extract, classify — and a request can need it without naming any of those
  * verbs: "turn my meeting notes into action items" has no word a matcher could catch.
  */
@@ -102,7 +113,11 @@ const SYNONYMS: string[] = [
   "notify notification alert ping announce tell know channel",
   "decide decision classify classification categorise triage urgent urgency priority prioritise important judge approve approval reject escalate choose choice sentiment whether",
   "schedule scheduled every daily weekly hourly monthly morning evening night weekday weekdays weekend monday tuesday wednesday thursday friday saturday sunday cron timetable oclock",
-  "webhook form submission submit submitted signup sign register incoming arrive arrives receive received callback",
+  "webhook incoming arrive arrives receive received callback",
+  // Phase 40: split from the webhook group, which it shared while only the webhook trigger could be
+  // reached by these words. Together they made every "arrives by webhook" request score the form trigger.
+  "form forms submission submit submitted signup sign register survey questionnaire fill filled filling contact enquiry inquiry",
+  "respond response responds reply replies caller acknowledge",
   "wait delay later pause sleep until afterwards",
   "merge join combine combined both together parallel simultaneous simultaneously concurrently alongside converge",
   "each every per iterate repeat loop individually",
@@ -239,12 +254,25 @@ export function scoreNodes(request: string, nodes: NodeSummary[]): Map<string, n
 /** Below this a match is one common word, which says nothing about the request. */
 const MIN_SCORE = 1.5;
 
+/**
+ * Whether the request says what a trigger *is*: a word of its type or label — "form", "error" — typed
+ * or by synonym. **A trigger that is not always sent is chosen only when it is named** (D191). Its
+ * description is full of the words every request has ("starts the workflow when…"), and scored like an
+ * action it took a slot from the nodes a request needs: measured on the eval set, an unnamed form
+ * trigger sat at rank 6–10 of 10 and pushed `core.log` and `core.switch` out.
+ */
+function names(request: string, node: NodeSummary): boolean {
+  const asked = new Set(words(request).flatMap((word) => [...expand(word)]));
+  return [...documentOf(node).name].some((term) => term !== "trigger" && asked.has(term));
+}
+
 export function selectDeterministic(request: string, nodes: NodeSummary[]): CatalogueSelection {
   const scores = scoreNodes(request, nodes);
-  const chosen = new Set(nodes.filter((node) => node.kind === "trigger").map((node) => node.type));
+  const chosen = new Set<string>();
 
   const ranked = nodes
-    .filter((node) => node.kind !== "trigger" && (scores.get(node.type) ?? 0) >= MIN_SCORE)
+    .filter((node) => !isAlways(node) && (node.kind !== "trigger" || names(request, node)))
+    .filter((node) => (scores.get(node.type) ?? 0) >= MIN_SCORE)
     .sort((a, b) => (scores.get(b.type) ?? 0) - (scores.get(a.type) ?? 0))
     .slice(0, MAX_SELECTED);
   for (const node of ranked) chosen.add(node.type);
@@ -252,14 +280,17 @@ export function selectDeterministic(request: string, nodes: NodeSummary[]): Cata
   return { strategy: "deterministic", types: complete(chosen, nodes) };
 }
 
+/** A node every request is shown in full: the three common triggers, and `ALWAYS`. */
+const isAlways = (node: { type: string }) => ALWAYS_TRIGGERS.includes(node.type) || ALWAYS.includes(node.type);
+
 /**
- * Every trigger always (the first decision a workflow makes, and the one most often wrong), `ALWAYS`,
+ * `ALWAYS_TRIGGERS` (the first decision a workflow makes, and the one most often wrong), `ALWAYS`,
  * the companions of what was chosen, and general-purpose nodes up to `MIN_SELECTED` — in registry
  * order.
  */
 function complete(chosen: Set<string>, nodes: NodeSummary[]): string[] {
   const known = new Set(nodes.map((node) => node.type));
-  for (const node of nodes) if (node.kind === "trigger") chosen.add(node.type);
+  for (const type of ALWAYS_TRIGGERS) chosen.add(type);
   for (const type of ALWAYS) chosen.add(type);
   // A Set visits what is added while it is iterated, so a companion's companions come too.
   for (const type of chosen) for (const companion of COMPANIONS[type] ?? []) chosen.add(companion);

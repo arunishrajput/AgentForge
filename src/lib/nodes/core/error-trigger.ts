@@ -30,7 +30,7 @@ export const errorTrigger = defineNode({
   // Short on purpose: every trigger's definition is sent with every generation request (D156's
   // budget), so this is the model's half; `docs` below is the person's.
   description:
-    "Starts the workflow when another workflow here fails while running by itself (from a webhook or a schedule). " +
+    "Starts the workflow when another workflow here fails while running by itself, with nobody watching. " +
     "Use it to alert on failures: follow it with a Slack, Discord or Gmail node.",
   kind: "trigger",
   category: "trigger",
@@ -40,7 +40,7 @@ export const errorTrigger = defineNode({
     "e.g. {{trigger.workflow.name}}, {{trigger.error}}, {{trigger.run.url}}.",
   docs: {
     summary:
-      "Runs this workflow whenever another workflow in this workspace fails with nobody watching — a webhook or schedule run, not one somebody pressed Run on. Put a Slack, Discord or Gmail step after it and you have a failure alert. Press Run here to try it with a sample failure.",
+      "Runs this workflow whenever another workflow in this workspace fails with nobody watching — not one somebody pressed Run on. Put a Slack, Discord or Gmail step after it and you have a failure alert. Press Run here to try it with a sample failure.",
     accepts: "nothing to configure — it fires for every workflow in the workspace you can see",
     examples: [
       {

@@ -1,4 +1,5 @@
 import { getNode } from "@/lib/nodes";
+import { ANSWERABLE_TRIGGERS, RESPOND_TYPE } from "@/lib/triggers/respond";
 import type { WorkflowGraph } from "@/lib/workflow/graph";
 
 import { ERROR_HANDLE, outputsOf } from "./policy";
@@ -19,7 +20,8 @@ export interface GraphProblem {
     | "unknown_output_handle"
     | "illegal_cycle"
     | "invalid_config"
-    | "disabled_trigger";
+    | "disabled_trigger"
+    | "respond_without_caller";
   message: string;
   nodeId?: string;
   edgeId?: string;
@@ -146,6 +148,20 @@ export function validateGraph(graph: WorkflowGraph): ValidationResult {
       message: `The trigger "${trigger.id}" is switched off, and a run starts at its trigger. Switch it back on — to stop the workflow running by itself, use the Active switch instead.`,
       nodeId: trigger.id,
     });
+  }
+
+  // **A Respond answers somebody, and only a webhook or a form has somebody waiting** (Phase 40,
+  // D190). Reported on the Respond node itself, so the canvas rings it. A workflow that has no
+  // single trigger is already reported above, and saying more would be noise.
+  if (triggers.length === 1 && !ANSWERABLE_TRIGGERS.includes(triggers[0].type)) {
+    for (const node of graph.nodes) {
+      if (node.type !== RESPOND_TYPE) continue;
+      problems.push({
+        code: "respond_without_caller",
+        message: `“${node.label ?? node.id}” answers a webhook or a form, and this workflow starts from neither. Change the trigger, or remove the Respond step.`,
+        nodeId: node.id,
+      });
+    }
   }
 
   for (const edge of graph.edges) {

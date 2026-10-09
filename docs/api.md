@@ -56,6 +56,7 @@ optionally with `details`.
 | `invalid_request` | 400 | The body failed its schema, or a parameter is malformed |
 | `invalid_graph` | 422 | The workflow is syntactically fine and not a runnable graph |
 | `conflict` | 409 | The resource changed underneath you, or the action is not legal in this state |
+| `rate_limited` | 429 | Too many submissions to a public form (Phase 40). Carries `Retry-After`. In memory and per instance |
 | `internal` | 500 | A fault. The message is generic; the detail is in the logs under the request's trace |
 
 An unexpected throw never reaches the client as a stack. It is logged with the request's
@@ -266,10 +267,17 @@ request. See [`../CONTRACT.md`](../CONTRACT.md) → *Approvals* and [`../SECURIT
 | Method | Route | Guard | What it does |
 |---|---|---|---|
 | `POST` | `/api/webhook/[token]` | 192-bit token | **No session.** Runs one workflow. Body capped at 64 KB and pattern-checked before the database is touched. A workflow that is switched off answers **409** and starts nothing |
-| `POST` | `/api/workflows/[id]/webhook/rotate` | admin | Issues a new webhook token and refuses the old one immediately |
+| `POST` | `/api/form/[token]` | 192-bit token | **No session.** A hosted form's submission: JSON, one key per declared field. Checked on the server against the form's fields — **400** with `details.fields` (a message per field) when something needs another look; **429** with `Retry-After` past 12 submissions from one address or 120 to one form in ten minutes; **409** for a form that is switched off; **404** for a token that is not a form. A filled honeypot is answered like success and starts nothing. Body capped at 32 KB. Answers `{ accepted, message }` — or whatever a **Respond** step in the workflow says — and never anything about the run |
+| `POST` | `/api/workflows/[id]/webhook/rotate` | admin | Issues a new webhook token and refuses the old one immediately. A form's link is the same token (D189), so this rotates it too |
 | `POST` | `/api/cron/fire` | `CRON_SECRET` **and** an HMAC token for one slot of one workflow | **No session.** A schedule timer's delivery: fires that slot, or arms it again if it is not yet due. A stale or duplicate timer starts nothing — the slot is claimed by compare-and-set. Cloud Tasks calls this |
 | `POST` | `/api/cron/tick` | `CRON_SECRET`, compared in constant time | **No session.** The **daily** safety sweep: fires overdue schedules, re-arms timers, wakes lost waiting runs, and prunes run history and inbox entries past retention (Phases 33, 37). Idempotent by compare-and-set. Cloud Scheduler calls this |
 | `POST` | `/api/runs/dispatch` | `CRON_SECRET` **and** the run's own 192-bit dispatch token | **No session.** Resumes one run its owner already started — including a `waiting` run at its wake time. A duplicate delivery is harmless — the lease makes it so |
+
+**The form trigger** (`core.form_trigger`, Phase 40) is a hosted page at **`/f/<token>`** — the workflow's
+own token, so it is rotated and switched off like the webhook's. It has no GET API: the page is
+rendered on the server, and the only thing it calls is the `POST` above. **A Respond step
+(`core.respond`) answers whoever called** — a webhook caller gets its status, its allowlisted
+headers and its JSON body instead of the run summary; a form's visitor sees its `message`.
 
 A workflow's automatic triggers have an **active switch**: `PATCH /api/workflows/[id]` with
 `{ "active": false }` (editor) makes its webhook refuse and stops its schedule; manual runs
@@ -393,6 +401,11 @@ by `CRON_SECRET`.
 curl -fsS -X POST "$APP_BASE_URL/api/webhook/$WEBHOOK_TOKEN" \
   -H 'content-type: application/json' \
   -d '{"email":"ada@example.com","message":"the rota is wrong again"}'
+
+# A hosted form takes the same call the page makes. One key per field the form declares.
+curl -fsS -X POST "$APP_BASE_URL/api/form/$FORM_TOKEN" \
+  -H 'content-type: application/json' \
+  -d '{"name":"Ada","email":"ada@example.com","message":"the rota is wrong again"}'
 
 # Health, which needs nothing at all.
 curl -fsS "$APP_BASE_URL/api/health" | python3 -m json.tool

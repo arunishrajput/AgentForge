@@ -9,6 +9,7 @@ import type { GraphProblem, NodeSummary, Run, RunSummary, TestScope, Workflow } 
 import { canPin } from "@/lib/engine/partial";
 import { ERROR_TRIGGER_TYPE } from "@/lib/triggers/failure";
 import { manualTrigger, type ManualField } from "@/lib/nodes/core/manual-trigger";
+import { FORM_TRIGGER_TYPE, formConfigSchema } from "@/lib/triggers/form";
 import type { Platform } from "@/lib/ui/keys";
 
 import { ConfigForm } from "./config-form";
@@ -294,9 +295,19 @@ function runFacts(nodes: CanvasNode[], registry: Map<string, NodeSummary>) {
     trigger?.data.nodeType === manualTrigger.type
       ? manualTrigger.configSchema.safeParse(trigger.data.config ?? {})
       : null;
+  // Phase 40: a form trigger run by hand has no visitor, so the run box asks for its fields the way it
+  // asks for a manual trigger's — the same names, so the steps after it can be tried without the form.
+  const form =
+    trigger?.data.nodeType === FORM_TRIGGER_TYPE ? formConfigSchema.safeParse(trigger.data.config ?? {}) : null;
   const fields: ManualField[] = declared?.success
     ? (declared.data as { fields: ManualField[] }).fields
-    : [];
+    : form?.success
+      ? form.data.fields.map((field) => ({
+          name: field.name,
+          type: field.type === "number" ? "number" : field.type === "checkbox" ? "boolean" : "text",
+          required: field.required,
+        }))
+      : [];
   const pinned = nodes.filter(
     (node) =>
       node.data.pinned !== undefined && !node.data.disabled && canPin(registry.get(node.data.nodeType)),

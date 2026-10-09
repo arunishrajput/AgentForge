@@ -63,6 +63,10 @@ const PUBLISHABLE: Readonly<Record<string, SharePolicy>> = {
   "core.schedule_trigger": { values: ["cron"] },
   // Phase 37. No config at all; what it means — "when another workflow here fails" — is its type.
   "core.error_trigger": {},
+  // Phase 40. The fields are the form's interface — what a visitor is asked — and are published, the
+  // way `requiredFields` is. The title, description and the two messages are the author's own words
+  // to their own visitors: content, withheld. `options` is a select's list of choices, interface too.
+  "core.form_trigger": { values: ["fields"] },
 
   // Logic and transform. The operator is published because "is not empty" is the shape of
   // the decision; `left` and `right` are redacted because they are as often a literal the
@@ -83,6 +87,10 @@ const PUBLISHABLE: Readonly<Record<string, SharePolicy>> = {
   // learn, and its `input` is typed content: both withheld, and counted.
   "core.merge": { values: ["mode"] },
   "core.call_workflow": {},
+  // Phase 40. The status is shape; the body's names say what the workflow answers with and every
+  // value in it is something somebody typed or a reference to their data. Header values are withheld
+  // with the body's: a `retry-after` is harmless and an `etag` may not be, and a reader gains little.
+  "core.respond": { values: ["status"], keys: ["body", "headers"] },
   // `fields` is the clearest case for `keys`: the set of names a Set node produces is
   // most of what it means, and every value in it is something somebody typed.
   "core.set": { values: ["merge"], keys: ["fields"] },

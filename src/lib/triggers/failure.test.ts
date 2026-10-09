@@ -20,8 +20,8 @@ import {
  * here clause by clause; the writes are exercised against the deployed service by `verify-api.mjs`.
  */
 
-test("a failure nobody was watching is told: a webhook's, a schedule's", () => {
-  for (const trigger of ["webhook", "schedule"] as const) {
+test("a failure nobody was watching is told: a webhook's, a form's (Phase 40), a schedule's", () => {
+  for (const trigger of ["webhook", "form", "schedule"] as const) {
     assert.deepEqual(alertsFor({ trigger, test: null }), { inbox: true, errorWorkflows: true }, trigger);
   }
 });
