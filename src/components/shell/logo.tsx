@@ -58,11 +58,16 @@ export function Mark({ className }: { className?: string }) {
 }
 
 /** The mark and the name, as one object. The name is text, never an image. */
-export function Wordmark({ className }: { className?: string }) {
+/**
+ * `shrinks` — Phase 37: below 360 px the name yields and the mark stands alone, so the shell
+ * header's controls fit at 320 px once the inbox bell joined them (measured: 24 px of overlap
+ * and a 9 px sideways scroll without it). Only where the link around it carries the name.
+ */
+export function Wordmark({ className, shrinks = false }: { className?: string; shrinks?: boolean }) {
   return (
     <span className={cn("inline-flex items-center gap-2", className)}>
       <Mark className="size-7" />
-      <span className="text-base font-bold tracking-tight">AgentForge</span>
+      <span className={cn("text-base font-bold tracking-tight", shrinks && "max-[359px]:hidden")}>AgentForge</span>
     </span>
   );
 }

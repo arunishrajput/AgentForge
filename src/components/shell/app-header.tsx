@@ -64,7 +64,7 @@ export async function AppHeader({
     <header className="border-line bg-surface sticky top-0 z-30 border-b-2">
       <div className="mx-auto flex max-w-5xl items-center gap-2 px-4 py-2.5 sm:px-6">
         <Link href="/workflows" aria-label="AgentForge — workflows" className="rounded-lg">
-          <Wordmark />
+          <Wordmark shrinks />
         </Link>
 
         <WorkspaceSwitcher active={workspace} workspaces={workspaces} />
