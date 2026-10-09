@@ -59,15 +59,18 @@ export function Mark({ className }: { className?: string }) {
 
 /** The mark and the name, as one object. The name is text, never an image. */
 /**
- * `shrinks` — Phase 37: below 360 px the name yields and the mark stands alone, so the shell
- * header's controls fit at 320 px once the inbox bell joined them (measured: 24 px of overlap
- * and a 9 px sideways scroll without it). Only where the link around it carries the name.
+ * `shrinks` — Phase 37: on a phone (below `sm`) the name yields and the mark stands alone, so the
+ * shell header's controls fit once the inbox bell joined them. Measured on the deployed header:
+ * 24 px of overlap and a 9 px sideways scroll at 320 px; a first cut-off at 360 px left 9 px of
+ * overlap at 360, a common Android width. Below `sm` the workspace switcher — the one item that
+ * shrinks, and the more informative of the two (Phase 23A) — gets the room instead of a 32 px
+ * caret. Only where the link around it carries the name.
  */
 export function Wordmark({ className, shrinks = false }: { className?: string; shrinks?: boolean }) {
   return (
     <span className={cn("inline-flex items-center gap-2", className)}>
       <Mark className="size-7" />
-      <span className={cn("text-base font-bold tracking-tight", shrinks && "max-[359px]:hidden")}>AgentForge</span>
+      <span className={cn("text-base font-bold tracking-tight", shrinks && "max-sm:hidden")}>AgentForge</span>
     </span>
   );
 }
