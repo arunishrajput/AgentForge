@@ -227,7 +227,7 @@ export function RunPanel({
       {run.output !== null && run.output !== undefined && (
         <section>
           <h3 className="eyebrow mb-1.5">Output</h3>
-          <pre className="bg-sunken border-line overflow-x-auto rounded-lg border-2 p-2.5 font-mono text-2xs leading-relaxed">
+          <pre className="relative bg-sunken border-line overflow-x-auto rounded-lg border-2 p-2.5 font-mono text-2xs leading-relaxed">
             {JSON.stringify(run.output, null, 2)}
           </pre>
         </section>

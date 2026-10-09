@@ -9,6 +9,7 @@ import {
   answered,
   ask as askCopilot,
   failed,
+  opened,
   reject as rejectProposal,
   setAside as setAsideCopilot,
   type CopilotState,
@@ -47,11 +48,14 @@ export function useCopilot({
   workflowId,
   graph,
   registry,
+  onOpened,
 }: {
   workflowId: string;
   /** The canvas's graph as of this render. */
   graph: WorkflowGraph;
   registry: ReadonlyMap<string, NodeSummary>;
+  /** A proposal opened, or a refinement replaced it (`opened`) — the editor fits the canvas to it. */
+  onOpened: () => void;
 }): Copilot {
   const [state, setState] = useState<CopilotState>(EMPTY_COPILOT);
   const [draft, setDraft] = useState("");
@@ -74,7 +78,10 @@ export function useCopilot({
       setDraft("");
       try {
         const response = await api.proposeEdit(workflowId, started.request);
-        commit(answered(current.current, response, canvas.current, registry));
+        const before = current.current;
+        const next = answered(before, response, canvas.current, registry);
+        commit(next);
+        if (opened(before, next)) onOpened();
       } catch (error) {
         commit(
           failed(
@@ -92,7 +99,7 @@ export function useCopilot({
         );
       }
     },
-    [commit, registry, workflowId],
+    [commit, onOpened, registry, workflowId],
   );
 
   const accept = useCallback(() => {

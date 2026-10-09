@@ -705,7 +705,7 @@
   padding-top: max(--spacing(2), env(safe-area-inset-top));
 }
 
-/* An indeterminate progress bar — the generation wait, and nothing else. */
+/* An indeterminate progress bar — a model drafting: generation, and the copilot (Phase 35). */
 @utility sweep-bar {
   position: relative;
   overflow: hidden;

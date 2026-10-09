@@ -88,7 +88,7 @@ export function NodeTable({ nodes }: { nodes: NodeStat[] }) {
           by the card and its right-hand columns would be unreachable — found at 375 px in
           a browser, which is the only place it is visible. Scrolling the table rather
           than the page keeps the card's outline where it is. */}
-      <div className="overflow-x-auto">
+      <div className="relative overflow-x-auto">
       <table className="w-full min-w-[22rem] text-sm">
         <caption className="sr-only">
           Every node type that ran in this window, slowest 95th percentile first.
@@ -147,7 +147,7 @@ export function ModelTable({ models }: { models: ModelStat[] }) {
   return (
     <Card className="animate-rise">
       <CardHeader title="Model usage" aside={<Badge>answered</Badge>} />
-      <div className="overflow-x-auto">
+      <div className="relative overflow-x-auto">
       <table className="w-full min-w-[22rem] text-sm">
         <caption className="sr-only">
           Model calls in this window, counted by the model that answered rather than the
@@ -202,7 +202,7 @@ export function DayTable({ days }: { days: DayBucket[] }) {
       <summary className="text-ui cursor-pointer px-4 py-2.5 font-bold">
         Runs by day, as a table ({active.length} day{active.length === 1 ? "" : "s"} with runs)
       </summary>
-      <div className="overflow-x-auto border-t-2 border-(--color-line)">
+      <div className="relative overflow-x-auto border-t-2 border-(--color-line)">
       <table className="w-full min-w-[20rem] text-sm">
         <thead>
           <tr className="text-faint border-line border-b-2 text-left text-xs">

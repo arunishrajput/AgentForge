@@ -197,6 +197,15 @@ export function answered(
   );
 }
 
+/**
+ * Whether an answer put a new proposal on the canvas — a first one, or a refinement replacing the
+ * last. The editor fits the canvas to it then, as it does when two versions are compared: a
+ * proposal's added node lands beside the graph, and found in a browser, half under the minimap.
+ */
+export function opened(before: CopilotState, after: CopilotState): boolean {
+  return after.proposal !== null && after.proposal.turn !== before.proposal?.turn;
+}
+
 /** The request failed. An open proposal stays open — a failed refine has not changed it. */
 export function failed(
   state: CopilotState,

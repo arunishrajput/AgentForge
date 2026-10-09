@@ -428,7 +428,11 @@ function EditorInner({
   const graph = useMemo(() => fromFlow(nodes, edges, notes), [nodes, edges, notes]);
 
   /** The copilot's conversation, and the proposal it has open — Phase 35 (`use-copilot.ts`). */
-  const copilot = useCopilot({ workflowId: workflow.id, graph, registry });
+  const fitProposal = useCallback(() => {
+    // A frame, so the union graph is on the canvas before it is measured — as `compare` does.
+    requestAnimationFrame(() => fitView({ ...FIT, duration: tweenMs(250) }));
+  }, [fitView]);
+  const copilot = useCopilot({ workflowId: workflow.id, graph, registry, onOpened: fitProposal });
   const { accept: takeProposal, reject: dropProposal, setAside: setCopilotAside, busy: copilotBusy } = copilot;
   const proposal = copilot.state.proposal;
 

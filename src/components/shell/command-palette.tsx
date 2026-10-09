@@ -367,7 +367,7 @@ export function CommandPalette({
           id={listId}
           role="listbox"
           aria-label="Results"
-          className="max-h-[50vh] overflow-y-auto p-1.5"
+          className="relative max-h-[50vh] overflow-y-auto p-1.5"
         >
           {rows.map(({ command, heading }, at) => {
             const selected = at === index;

@@ -179,7 +179,7 @@ export function History({
         </p>
       ) : (
         <div className="grid gap-4 sm:grid-cols-[minmax(0,17rem)_minmax(0,1fr)]">
-          <ol className="max-h-[22rem] space-y-1.5 overflow-y-auto pr-0.5">
+          <ol className="relative max-h-[22rem] space-y-1.5 overflow-y-auto pr-0.5">
             {versions.map((version) => (
               <li key={version.number}>
                 <VersionRow

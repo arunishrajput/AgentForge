@@ -275,7 +275,7 @@ export function VaultPanel({
           // between every row of a quiet log. Invisible to every test in this repo and obvious
           // in a browser — the trap DESIGN.md records as "a class being in the DOM is not
           // evidence that it applies".
-          <ul className="bg-sunken border-line divide-line-soft mt-4 max-h-80 divide-y overflow-y-auto rounded-lg border-2">
+          <ul className="relative bg-sunken border-line divide-line-soft mt-4 max-h-80 divide-y overflow-y-auto rounded-lg border-2">
             {vault.events.map((event) => (
               <li
                 key={event.id}

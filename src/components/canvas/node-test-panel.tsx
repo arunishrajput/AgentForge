@@ -139,7 +139,7 @@ function JsonBlock({ value, label }: { value: unknown; label: string }) {
     // is keyboard-focusable by itself in current browsers, so it needs no tabIndex.
     <pre
       aria-label={label}
-      className="bg-sunken border-line max-h-56 overflow-auto rounded-lg border-2 p-2.5 font-mono text-2xs leading-relaxed"
+      className="relative bg-sunken border-line max-h-56 overflow-auto rounded-lg border-2 p-2.5 font-mono text-2xs leading-relaxed"
     >
       {JSON.stringify(value, null, 2)}
     </pre>

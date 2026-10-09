@@ -517,7 +517,7 @@ function Body({ title, value }: { title: string; value: unknown }) {
       {value === null || value === undefined ? (
         <p className="text-faint text-2xs">Nothing.</p>
       ) : (
-        <pre className="bg-sunken border-line max-h-80 overflow-auto rounded-lg border-2 p-2.5 font-mono text-2xs leading-relaxed">
+        <pre className="relative bg-sunken border-line max-h-80 overflow-auto rounded-lg border-2 p-2.5 font-mono text-2xs leading-relaxed">
           {JSON.stringify(value, null, 2)}
         </pre>
       )}

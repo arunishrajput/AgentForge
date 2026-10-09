@@ -7,7 +7,18 @@ import { diffGraphs } from "@/lib/workflow/diff";
 import { GRAPH_VERSION, type WorkflowGraph } from "@/lib/workflow/graph";
 
 import type { CopilotResponse } from "./client";
-import { EMPTY_COPILOT, accept, answered, ask, failed, reject, setAside, type CopilotState, type Turn } from "./copilot";
+import {
+  EMPTY_COPILOT,
+  accept,
+  answered,
+  ask,
+  failed,
+  opened,
+  reject,
+  setAside,
+  type CopilotState,
+  type Turn,
+} from "./copilot";
 
 const registry = new Map(describeNodes().map((node) => [node.type, node]));
 
@@ -147,6 +158,23 @@ test("a failed refine keeps the open proposal open", () => {
   assert.ok(next.proposal);
   const turn = last(next);
   assert.ok(turn.from === "copilot" && turn.state === "failed" && turn.message === "Quota");
+});
+
+test("the canvas is fitted to a proposal when one opens or a refinement replaces it — never otherwise", () => {
+  const thinking = asking(EMPTY_COPILOT, "Also post to Slack").state;
+  const first = answered(thinking, response(withSlack("Hi")), CANVAS, registry);
+  assert.equal(opened(thinking, first), true);
+
+  const refining = asking(first, "say Urgent").state;
+  const refined = answered(refining, response(withSlack("Urgent")), CANVAS, registry);
+  assert.equal(opened(refining, refined), true);
+
+  // A failed refine leaves the same proposal on screen; an answer of no change opens none.
+  const failedRefine = failed(asking(refined, "x").state, { message: "m", issues: [], recovery: null });
+  assert.equal(opened(refined, failedRefine), false);
+  const nothing = answered(asking(EMPTY_COPILOT, "x").state, response(CANVAS), CANVAS, registry);
+  assert.equal(opened(EMPTY_COPILOT, nothing), false);
+  assert.equal(opened(first, reject(first)), false);
 });
 
 test("a restored version sets aside whatever was open or in flight, and says why", () => {

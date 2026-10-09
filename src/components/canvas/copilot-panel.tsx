@@ -126,7 +126,7 @@ export function CopilotPanel({
           // whatever the person is doing — usually reading the canvas.
           aria-live="polite"
           aria-label="Conversation with the copilot"
-          className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3"
+          className="relative min-h-0 flex-1 space-y-3 overflow-y-auto p-3"
         >
           {state.turns.length === 0 && (
             <li className="space-y-3">

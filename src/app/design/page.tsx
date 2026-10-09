@@ -269,7 +269,7 @@ export default function DesignPage() {
         aria-label="Sections"
         className="border-line bg-canvas/92 sticky top-0 z-30 border-b-2 backdrop-blur-sm"
       >
-        <ul className="mx-auto flex max-w-6xl gap-1.5 overflow-x-auto px-5 py-2.5">
+        <ul className="relative mx-auto flex max-w-6xl gap-1.5 overflow-x-auto px-5 py-2.5">
           {NAV.map(([id, label]) => (
             <li key={id}>
               <a href={`#${id}`} className="btn btn-ghost text-2xs whitespace-nowrap">
@@ -306,7 +306,7 @@ export default function DesignPage() {
           title="Themes"
           lead="Light is the default and the reference; Toybox Night and System are choices a reader makes, kept in their own browser. Until Phase 27 one near-black did four jobs. On a cream page it can; on an indigo one it cannot — text must turn light, a label on a bright fill must stay dark, and an outline and a shadow must still show against the page. So each job has its own name."
         >
-          <div className="card overflow-x-auto">
+          <div className="relative card overflow-x-auto">
             {/* No minimum width, unlike the contrast table: on a phone the cells wrap
                 rather than scroll, so the Night column — the one this table is for — is on
                 screen without a sideways swipe. */}
@@ -370,7 +370,7 @@ export default function DesignPage() {
         >
           {THEMES.map((theme) => (
             <ForTheme key={theme} theme={theme}>
-              <div className="card overflow-x-auto">
+              <div className="relative card overflow-x-auto">
                 <table className="w-full min-w-[34rem] text-left">
                   <caption className="sr-only">
                     WCAG contrast ratio of each text token against each surface, in{" "}

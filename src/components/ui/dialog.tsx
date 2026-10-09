@@ -114,7 +114,7 @@ export function Dialog({
         </Button>
       </div>
 
-      {children && <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{children}</div>}
+      {children && <div className="relative min-h-0 flex-1 overflow-y-auto px-5 py-4">{children}</div>}
 
       {footer && (
         <div className="border-line bg-canvas flex flex-wrap justify-end gap-2 border-t-2 px-5 py-3">

@@ -360,7 +360,7 @@ function NodeInspector({
         <span className="ml-auto shrink-0 font-mono text-3xs">{node.id}</span>
       </div>
 
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-3 py-3.5">
+      <div className="relative min-h-0 flex-1 space-y-4 overflow-y-auto px-3 py-3.5">
         {definition ? (
           <NodeDocs definition={definition} />
         ) : (
@@ -577,7 +577,7 @@ function WorkflowInspector({
   const { fields, pinned, pinnedTrigger } = runFacts(nodes, registry);
 
   return (
-    <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-3 py-3.5">
+    <div className="relative min-h-0 flex-1 space-y-4 overflow-y-auto px-3 py-3.5">
       {problems.length > 0 && (
         <Notice
           tone="warn"
