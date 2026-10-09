@@ -19,6 +19,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { CommandPalette } from "@/components/shell/command-palette";
+import { Button } from "@/components/ui/button";
 import { Toggle } from "@/components/ui/field";
 import { usePlatform } from "@/components/ui/kbd";
 import { useTheme } from "@/components/ui/theme";
@@ -83,6 +84,7 @@ import { atLeast, type WorkspaceRole } from "@/lib/workspace/roles";
 
 import { CanvasContext, type NoteControls } from "./context";
 import { buildCanvasCommands } from "./canvas-commands";
+import { COPILOT_COMPOSER, CopilotPanel } from "./copilot-panel";
 import { DiffBar } from "./diff/diff-bar";
 import { History } from "./diff/history";
 import { EditControls } from "./edit-controls";
@@ -94,6 +96,7 @@ import { ShareDialog } from "./share-dialog";
 import { ShortcutsDialog } from "./shortcuts-dialog";
 import { TestConfirmDialog } from "./test-confirm-dialog";
 import { useClipboard } from "./use-clipboard";
+import { useCopilot } from "./use-copilot";
 import { useHistory } from "./use-history";
 import { useShortcuts } from "./use-shortcuts";
 import { WorkflowNodeView } from "./workflow-node";
@@ -248,6 +251,12 @@ function EditorInner({
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [paletteCollapsed, setPaletteCollapsed] = useCollapsed("palette-collapsed");
   const [inspectorCollapsed, setInspectorCollapsed] = useCollapsed("inspector-collapsed");
+  /**
+   * **What the right-hand column shows — Phase 35 (D161).** The copilot takes the inspector's
+   * column rather than adding a third, so `inspectorOpen` and `inspectorCollapsed` are the
+   * column's, whichever is in it. Selecting a node gives it back to the inspector.
+   */
+  const [rightPanel, setRightPanel] = useState<"inspector" | "copilot">("inspector");
 
   const closePanels = useCallback(() => {
     setPaletteOpen(false);
@@ -418,6 +427,11 @@ function EditorInner({
 
   const graph = useMemo(() => fromFlow(nodes, edges, notes), [nodes, edges, notes]);
 
+  /** The copilot's conversation, and the proposal it has open — Phase 35 (`use-copilot.ts`). */
+  const copilot = useCopilot({ workflowId: workflow.id, graph, registry });
+  const { accept: takeProposal, reject: dropProposal, setAside: setCopilotAside, busy: copilotBusy } = copilot;
+  const proposal = copilot.state.proposal;
+
   /**
    * What React Flow draws: the notes, then the nodes. Two memos, so dragging a node does not
    * hand React Flow fifty new note objects every frame. A note's accessible name is its text,
@@ -471,17 +485,23 @@ function EditorInner({
    * draggable diff would feed nodes from a graph nobody ever saved straight back into
    * the editing state and the next Save would write it.
    */
-  const diffView = useMemo(() => {
-    if (!comparison) return null;
+  /**
+   * The diff on screen: two versions being compared, or — Phase 35 — a copilot proposal against
+   * the canvas. Both are the same mode with the same safety story; only the bar above differs.
+   */
+  const shownDiff = comparison?.diff ?? proposal?.diff ?? null;
 
-    const union = diffGraph(comparison.diff, saved.graph.version);
+  const diffView = useMemo(() => {
+    if (!shownDiff) return null;
+
+    const union = diffGraph(shownDiff, saved.graph.version);
     const flow = toFlow(union);
 
     // `diffGraph` emits the edges in the same order it was handed them, so the two
     // arrays line up by index. Zipping beats re-deriving the change from the rendered
     // id, which would mean reading meaning out of a string this file minted.
     const edges = flow.edges.map((edge, index) => {
-      const change = comparison.diff.edges[index]?.change ?? "unchanged";
+      const change = shownDiff.edges[index]?.change ?? "unchanged";
       return {
         ...edge,
         type: "smoothstep" as const,
@@ -490,7 +510,7 @@ function EditorInner({
       };
     });
 
-    const states = new Map(comparison.diff.nodes.map((entry) => [entry.id, entry]));
+    const states = new Map(shownDiff.nodes.map((entry) => [entry.id, entry]));
 
     /**
      * `initialWidth`/`initialHeight`, and they are not decoration.
@@ -513,7 +533,7 @@ function EditorInner({
     }));
 
     // Notes carry their own width and height, so they need no estimate (Phase 30).
-    const noteStates = new Map(comparison.diff.notes.map((entry) => [entry.id, entry]));
+    const noteStates = new Map(shownDiff.notes.map((entry) => [entry.id, entry]));
 
     return {
       nodes: [...flow.notes, ...nodes] as (CanvasNode | CanvasNote)[],
@@ -521,7 +541,7 @@ function EditorInner({
       states,
       noteStates,
     };
-  }, [comparison, saved.graph.version]);
+  }, [shownDiff, saved.graph.version]);
 
   const comparing = diffView !== null;
 
@@ -579,6 +599,7 @@ function EditorInner({
     // and expanding a railed inspector mid-drag would resize the canvas under the box;
     // the rail names the selection ("3 nodes selected") instead.
     if (ids.length === 1) {
+      setRightPanel("inspector");
       setInspectorOpen(true);
       setInspectorCollapsed(false);
     }
@@ -598,6 +619,39 @@ function EditorInner({
   );
   const history = useHistory({ graph, apply: applyGraph, enabled: editable });
   const { beginGesture, endGesture, mark, reset: resetHistory, undo, redo } = history;
+
+  /**
+   * **Accept — one step of undo, and unsaved** (Phase 35, task 4). Marked as a step of its own and
+   * put on the canvas the way undo puts a graph back (`restoreNodes` keeps every surviving node's
+   * React Flow state), so the history records the canvas from before the proposal and ⌘Z returns
+   * to it exactly. Nothing is saved: the toolbar reads *Unsaved changes*, and Save makes it a version.
+   */
+  const acceptProposal = useCallback(() => {
+    const accepted = takeProposal();
+    if (!accepted) return;
+    mark(null);
+    applyGraph(accepted);
+    requestAnimationFrame(() => fitView({ ...FIT, duration: tweenMs(250) }));
+  }, [applyGraph, fitView, mark, takeProposal]);
+
+  const rejectProposal = useCallback(() => {
+    dropProposal();
+    requestAnimationFrame(() => fitView({ ...FIT, duration: tweenMs(250) }));
+  }, [dropProposal, fitView]);
+
+  /** Open the copilot in the right-hand column and put the cursor in it. */
+  const openCopilot = useCallback(() => {
+    const wasCollapsed = inspectorCollapsed;
+    setRightPanel("copilot");
+    setInspectorCollapsed(false);
+    setInspectorOpen(true);
+    setPaletteOpen(false);
+    if (wasCollapsed) refit();
+    // A frame, so a drawer that was `invisible` — or a column not yet rendered — is focusable first.
+    // By id rather than a ref: ⌘K's commands are built during render, and *Ask the copilot* is one
+    // of them (`findNode` says why).
+    requestAnimationFrame(() => document.getElementById(COPILOT_COMPOSER)?.focus());
+  }, [inspectorCollapsed, refit, setInspectorCollapsed]);
 
   /**
    * React Flow reports nodes and notes through one callback; each list applies its own
@@ -1455,6 +1509,16 @@ function EditorInner({
    */
   const compare = useCallback(
     async (from: number, to: number) => {
+      // One diff on the canvas at a time. A proposal waiting on Accept is the person's open
+      // decision, and a comparison drawn over it would hide it — so they finish it first.
+      if (proposal || copilotBusy) {
+        toast({
+          tone: "warn",
+          title: "The copilot has a change open",
+          detail: "Accept or reject its proposal first, then compare versions.",
+        });
+        return;
+      }
       try {
         const result = await api.compareVersions(workflow.id, from, to);
         setNodes((all) => all.map((node) => ({ ...node, selected: false })));
@@ -1471,7 +1535,7 @@ function EditorInner({
         });
       }
     },
-    [fitView, setNodes, setNotes, toast, workflow.id],
+    [copilotBusy, fitView, proposal, setNodes, setNotes, toast, workflow.id],
   );
 
   /**
@@ -1506,9 +1570,13 @@ function EditorInner({
       setNotes(flow.notes);
       setEditingNote(null);
       setComparison(null);
+      // A proposal is a change to the canvas the restore just replaced (Phase 35).
+      setCopilotAside(
+        "A version was restored over the canvas, so the copilot's proposal was set aside. Ask again to change what is there now.",
+      );
       requestAnimationFrame(() => fitView({ ...FIT, duration: tweenMs(250) }));
     },
-    [fitView, resetHistory, setEdges, setNodes, setNotes],
+    [fitView, resetHistory, setCopilotAside, setEdges, setNodes, setNotes],
   );
 
   /**
@@ -1639,9 +1707,28 @@ function EditorInner({
           shortcuts: () => setShortcutsOpen(true),
           find: findNode,
           addNote,
+          // An editor, and not while two versions are compared — but while a proposal is open,
+          // which is when a refinement is asked for (Phase 35).
+          ...(canEdit && !comparison ? { copilot: openCopilot } : {}),
         },
       }),
-    [addNote, arrange, comparing, editable, findNode, fit, nodes, platform, redo, registry, selectAll, undo],
+    [
+      addNote,
+      arrange,
+      canEdit,
+      comparing,
+      comparison,
+      editable,
+      findNode,
+      fit,
+      nodes,
+      openCopilot,
+      platform,
+      redo,
+      registry,
+      selectAll,
+      undo,
+    ],
   );
 
   const noteControls = useMemo(
@@ -1683,7 +1770,9 @@ function EditorInner({
 
   const status = comparison
     ? `Comparing v${comparison.from} with v${comparison.to}`
-    : busy === "saving"
+    : proposal
+      ? "Reviewing the copilot's proposal"
+      : busy === "saving"
       ? "Saving…"
       : dirty
         ? "Unsaved changes"
@@ -1700,13 +1789,15 @@ function EditorInner({
    */
   const statusShort = comparison
     ? "Comparing"
-    : busy === "saving"
-      ? "Saving…"
-      : dirty
-        ? "Unsaved"
-        : saved.runnable
-          ? "Saved"
-          : `${saved.problems.length} problem${saved.problems.length === 1 ? "" : "s"}`;
+    : proposal
+      ? "Reviewing"
+      : busy === "saving"
+        ? "Saving…"
+        : dirty
+          ? "Unsaved"
+          : saved.runnable
+            ? "Saved"
+            : `${saved.problems.length} problem${saved.problems.length === 1 ? "" : "s"}`;
 
   return (
     <CanvasContext value={canvasValue}>
@@ -1774,10 +1865,14 @@ function EditorInner({
             )}
             <button
               type="button"
-              aria-expanded={inspectorOpen}
+              aria-expanded={inspectorOpen && rightPanel === "inspector"}
               aria-controls="node-inspector"
               onClick={() => {
-                setInspectorOpen((open) => !open);
+                // The drawer may be showing the copilot (Phase 35): Details always means the inspector.
+                if (rightPanel === "copilot") {
+                  setRightPanel("inspector");
+                  setInspectorOpen(true);
+                } else setInspectorOpen((open) => !open);
                 setPaletteOpen(false);
               }}
               className="btn btn-quiet px-2.5"
@@ -1873,6 +1968,21 @@ function EditorInner({
               </button>
             )}
 
+            {/* The copilot — Phase 35. An editor's, because what it does is change the workflow; it
+                opens in the inspector's column (D161). Below `sm` the glyph alone, with the word
+                for a screen reader: the phone toolbar is measured to the pixel (Phase 28). */}
+            {canEdit && (
+              <button
+                type="button"
+                onClick={openCopilot}
+                aria-controls="copilot-panel"
+                className="btn btn-quiet shrink-0 max-sm:px-2.5"
+              >
+                <span aria-hidden="true">✦</span>
+                <span className="max-sm:sr-only">Copilot</span>
+              </button>
+            )}
+
             {canEdit && (
               <button
                 type="button"
@@ -1945,11 +2055,30 @@ function EditorInner({
             describes is directly under it and the toolbar keeps its position. */}
         {comparison && (
           <DiffBar
-            from={comparison.from}
-            to={comparison.to}
+            heading={
+              <>
+                Comparing v{comparison.from} <span aria-hidden="true">→</span>
+                <span className="sr-only">with</span> v{comparison.to}
+              </>
+            }
             summary={comparison.diff.summary}
-            onExit={stopComparing}
-          />
+          >
+            <Button tone="ink" size="sm" onClick={stopComparing}>
+              Back to editing
+            </Button>
+          </DiffBar>
+        )}
+        {/* A copilot proposal is the same mode, with the decision where the way out was (Phase
+            35). The words the bar leads with say whose graph this is: not yours yet. */}
+        {!comparison && proposal && (
+          <DiffBar heading="The copilot's proposal — not applied yet" summary={proposal.diff.summary}>
+            <Button size="sm" onClick={rejectProposal} disabled={copilotBusy}>
+              Reject
+            </Button>
+            <Button tone="ink" size="sm" onClick={acceptProposal} disabled={copilotBusy}>
+              Accept
+            </Button>
+          </DiffBar>
         )}
 
         <div className="relative flex min-h-0 flex-1">
@@ -2061,6 +2190,29 @@ function EditorInner({
             </ReactFlow>
           </main>
 
+          {/* The right-hand column: the copilot or the inspector, never both (D161). The copilot is
+              an editor's; a viewer's column is always the inspector. */}
+          {rightPanel === "copilot" && canEdit ? (
+            <CopilotPanel
+              id="copilot-panel"
+              open={inspectorOpen}
+              collapsed={inspectorCollapsed}
+              onClose={closePanels}
+              onExpand={() => {
+                setInspectorCollapsed(false);
+                refit();
+              }}
+              onCollapse={() => {
+                setInspectorCollapsed(true);
+                refit();
+              }}
+              onShowDetails={() => setRightPanel("inspector")}
+              copilot={copilot}
+              onAccept={acceptProposal}
+              comparingVersions={comparison !== null}
+              platform={platform}
+            />
+          ) : (
           <Inspector
             id="node-inspector"
             open={inspectorOpen}
@@ -2128,6 +2280,7 @@ function EditorInner({
                   : null,
             }}
           />
+          )}
         </div>
       </div>
 

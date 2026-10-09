@@ -25,12 +25,13 @@ const registry = new Map<string, NodeSummary>([
 
 const nodes = [node("gmail", "integration.gmail", "Send the summary"), node("agent_2", "ai.agent")];
 
-function build(options: { editable: boolean; comparing: boolean }, found: string[] = []) {
+function build(options: { editable: boolean; comparing: boolean; copilot?: boolean }, found: string[] = []) {
   return buildCanvasCommands({
     nodes,
     registry,
     platform: "apple",
-    ...options,
+    editable: options.editable,
+    comparing: options.comparing,
     actions: {
       undo: () => {},
       redo: () => {},
@@ -40,6 +41,7 @@ function build(options: { editable: boolean; comparing: boolean }, found: string
       shortcuts: () => {},
       find: (id) => found.push(id),
       addNote: () => {},
+      ...(options.copilot ? { copilot: () => {} } : {}),
     },
   });
 }
@@ -58,6 +60,19 @@ describe("the canvas's commands in ⌘K", () => {
       "canvas:shortcuts",
       "node:gmail",
       "node:agent_2",
+    ]);
+  });
+
+  it("offers the copilot after the editing actions when the editor provides it — and in a proposal's diff mode", () => {
+    assert.deepEqual(ids(build({ editable: true, comparing: false, copilot: true })).slice(3, 6), [
+      "canvas:add-note",
+      "canvas:copilot",
+      "canvas:fit",
+    ]);
+    assert.deepEqual(ids(build({ editable: false, comparing: true, copilot: true })), [
+      "canvas:copilot",
+      "canvas:fit",
+      "canvas:shortcuts",
     ]);
   });
 

@@ -1,8 +1,10 @@
 import { getNode } from "@/lib/nodes";
+import { valuesEqual, type WorkflowGraph } from "@/lib/workflow/graph";
 
 import type { GenerationResult } from "../generate";
 import { checkReferences, type ReferenceProblem } from "../references";
 import type { EvalCase } from "./cases";
+import type { EditEvalCase } from "./edit-cases";
 
 /**
  * **Scoring one generation against one eval case — Phase 34.** Pure, so the live runner and the
@@ -86,4 +88,55 @@ export function scoreCase(evalCase: EvalCase, result: GenerationResult): CaseSco
     types: [...types].sort(),
     references,
   };
+}
+
+/**
+ * **Scoring one copilot edit — Phase 35.** Everything `scoreCase` checks of a graph — required and
+ * forbidden types, `unsupported` used honestly, every reference resolving — and then what only an
+ * edit can get wrong: a node it should have left alone that it changed or removed, a node it should
+ * have removed that is still there, a label or a value it should have set and did not.
+ */
+export function scoreEdit(evalCase: EditEvalCase, start: WorkflowGraph, result: GenerationResult): CaseScore {
+  const base = scoreCase(
+    {
+      id: evalCase.id,
+      prompt: evalCase.instruction,
+      requires: evalCase.requires,
+      forbids: evalCase.forbids,
+      unsupported: evalCase.unsupported,
+    },
+    result,
+  );
+  if (!result.ok) return base;
+
+  const failures = [...base.failures];
+  const before = new Map(start.nodes.map((node) => [node.id, node]));
+  const after = new Map(result.graph.nodes.map((node) => [node.id, node]));
+
+  for (const id of evalCase.keeps ?? []) {
+    const was = before.get(id);
+    const now = after.get(id);
+    if (!now) failures.push(`removed "${id}", which the change does not touch`);
+    else if (
+      was &&
+      (now.type !== was.type || (now.label ?? "") !== (was.label ?? "") || !valuesEqual(now.config, was.config))
+    ) {
+      failures.push(`changed "${id}", which the change does not touch`);
+    }
+  }
+  for (const id of evalCase.removes ?? []) {
+    if (after.has(id)) failures.push(`kept "${id}", which the change removes`);
+  }
+  for (const [id, label] of Object.entries(evalCase.labels ?? {})) {
+    const now = after.get(id)?.label;
+    if (now !== label) failures.push(`"${id}" is labelled ${JSON.stringify(now ?? null)}, not ${JSON.stringify(label)}`);
+  }
+  for (const expected of evalCase.sets ?? []) {
+    const value = JSON.stringify(after.get(expected.node)?.config[expected.key] ?? null);
+    if (!value.includes(expected.includes)) {
+      failures.push(`"${expected.node}".${expected.key} is ${value}, which does not contain ${JSON.stringify(expected.includes)}`);
+    }
+  }
+
+  return { ...base, pass: failures.length === 0, failures };
 }

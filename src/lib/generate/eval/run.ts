@@ -1,8 +1,10 @@
 import type { GenerateRequest, GenerateResult, LanguageModel } from "@/lib/ai/types";
 
-import { generateWorkflow, type GenerationResult } from "../generate";
+import { editWorkflow } from "../edit";
+import { assembleGraph, generateWorkflow, type GenerationResult } from "../generate";
 import type { EvalCase } from "./cases";
-import { scoreCase, type CaseScore } from "./score";
+import { STARTS, type EditEvalCase } from "./edit-cases";
+import { scoreCase, scoreEdit, type CaseScore } from "./score";
 
 /**
  * **Running the eval set, live or from a recording — Phase 34.**
@@ -41,6 +43,12 @@ export interface RecordedCase {
 
 export interface Recording {
   label: string;
+  /**
+   * What was measured: generation (`cases.ts`), or — Phase 35 — the copilot's edits
+   * (`edit-cases.ts`). Absent on the recordings made before the copilot existed, which are
+   * generation's.
+   */
+  mode?: "create" | "edit";
   description: string;
   provider: string;
   model: string;
@@ -161,4 +169,35 @@ export async function replayCase(
     modelId: "replay",
     generateOptions,
   });
+}
+
+/**
+ * **A copilot edit case — Phase 35.** The start is assembled exactly as a generated workflow is, so
+ * its positions are `layout()`'s and the copilot is measured on a graph like one it will meet.
+ */
+export function startGraph(evalCase: EditEvalCase) {
+  const start = STARTS[evalCase.start];
+  return { name: start.name, description: start.description, graph: assembleGraph(start) };
+}
+
+export async function runEditCase(evalCase: EditEvalCase, options: EvalRunOptions): Promise<EvalRunResult> {
+  const subject = startGraph(evalCase);
+  const result = await editWorkflow({
+    ...options.generateOptions,
+    model: options.model,
+    modelId: options.modelId,
+    instruction: evalCase.instruction,
+    earlier: evalCase.earlier,
+    subject,
+  });
+  return { score: scoreEdit(evalCase, subject.graph, result), result };
+}
+
+export async function replayEditCase(
+  evalCase: EditEvalCase,
+  recorded: RecordedCase,
+  generateOptions: Record<string, unknown> = {},
+): Promise<EvalRunResult | undefined> {
+  if (recorded.error) return undefined;
+  return runEditCase(evalCase, { model: replayModel(recorded.calls), modelId: "replay", generateOptions });
 }

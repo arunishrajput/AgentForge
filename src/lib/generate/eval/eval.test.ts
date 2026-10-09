@@ -3,15 +3,18 @@ import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 
+import { validateGraph } from "@/lib/engine/validate";
 import { describeNodes, hasNode } from "@/lib/nodes";
 import { GRAPH_VERSION } from "@/lib/workflow/graph";
 
 import { DEMO_PROMPT as SCRIPT_DEMO_PROMPT } from "../../../../scripts/demo-payload.mjs";
 import type { GenerationResult } from "../generate";
-import { selectDeterministic } from "../select";
+import { checkReferences } from "../references";
+import { selectDeterministic, withTypes } from "../select";
 import { DEMO_PROMPT, EVAL_CASES, type EvalCase } from "./cases";
-import { replayCase, replayModel, type Recording } from "./run";
-import { describeRequirement, requirementMet, scoreCase } from "./score";
+import { EDIT_CASES, STARTS, type EditEvalCase } from "./edit-cases";
+import { replayCase, replayEditCase, replayModel, startGraph, type Recording } from "./run";
+import { describeRequirement, requirementMet, scoreCase, scoreEdit } from "./score";
 
 /**
  * **The eval set, offline, on every push — Phase 34.**
@@ -85,9 +88,11 @@ test("there is a recording to replay", () => {
 
 test("every recording replays to the verdict it was recorded with", async () => {
   const byId = new Map(EVAL_CASES.map((entry) => [entry.id, entry]));
+  const editsById = new Map(EDIT_CASES.map((entry) => [entry.id, entry]));
   for (const { file, recording } of recordings()) {
     for (const [id, recorded] of Object.entries(recording.cases)) {
-      const entry = byId.get(id);
+      const editing = recording.mode === "edit";
+      const entry = editing ? editsById.get(id) : byId.get(id);
       assert.ok(entry, `${file} records a case that no longer exists: ${id}`);
       // A model selector's own call is the recording's first, so it is replayed through the
       // selector; a deterministic recording is held to the selection it was made with.
@@ -95,7 +100,9 @@ test("every recording replays to the verdict it was recorded with", async () => 
         recording.selector === "deterministic"
           ? { strategy: "fixed", types: recorded.selected ?? [] }
           : { strategy: recording.selector };
-      const replayed = await replayCase(entry, recorded, { catalogue });
+      const replayed = editing
+        ? await replayEditCase(entry as EditEvalCase, recorded, { catalogue })
+        : await replayCase(entry as EvalCase, recorded, { catalogue });
       if (!replayed) continue;
       assert.equal(
         replayed.score.pass ? "pass" : "fail",
@@ -104,6 +111,101 @@ test("every recording replays to the verdict it was recorded with", async () => 
       );
     }
   }
+});
+
+test("there is a recording of the copilot's edits to replay — Phase 35", () => {
+  assert.ok(
+    recordings().some(({ recording }) => recording.mode === "edit"),
+    "no edit recording — make one with `npm run eval:generate -- --edit --live --record <name>`",
+  );
+});
+
+/* ------------------------------------------------------------------ *
+ * The copilot's eval set — Phase 35
+ * ------------------------------------------------------------------ */
+
+test("every workflow an edit case starts from is valid, and its references resolve", () => {
+  for (const [name, start] of Object.entries(STARTS)) {
+    const { graph } = startGraph({ id: name, start: name as keyof typeof STARTS, instruction: "x" });
+    assert.deepEqual(validateGraph(graph).problems, [], name);
+    assert.deepEqual(checkReferences(graph, nodes), [], name);
+    assert.ok(start.nodes.length > 2, name);
+  }
+});
+
+test("the edit cases are well formed, and cover the five kinds the phase validates plus a refine", () => {
+  assert.equal(new Set(EDIT_CASES.map((entry) => entry.id)).size, EDIT_CASES.length);
+  for (const entry of EDIT_CASES) {
+    assert.match(entry.id, /^[a-z0-9]+(-[a-z0-9]+)*$/, entry.id);
+    const ids = new Set(STARTS[entry.start].nodes.map((node) => node.id));
+    for (const id of [...(entry.keeps ?? []), ...(entry.removes ?? []), ...Object.keys(entry.labels ?? {})]) {
+      assert.ok(ids.has(id), `${entry.id} names ${id}, which its start does not have`);
+    }
+    for (const set of entry.sets ?? []) assert.ok(ids.has(set.node), `${entry.id} sets ${set.node}`);
+    for (const type of [...(entry.requires ?? []).flat(), ...(entry.forbids ?? [])]) assert.ok(hasNode(type), `${entry.id} names ${type}`);
+  }
+  const kinds = {
+    add: EDIT_CASES.some((entry) => (entry.requires ?? []).length > 0 && !entry.earlier),
+    config: EDIT_CASES.some((entry) => (entry.sets ?? []).length > 0),
+    remove: EDIT_CASES.some((entry) => (entry.removes ?? []).length > 0),
+    rename: EDIT_CASES.some((entry) => Object.keys(entry.labels ?? {}).length > 0),
+    impossible: EDIT_CASES.some((entry) => entry.unsupported === true),
+    refine: EDIT_CASES.some((entry) => (entry.earlier ?? []).length > 0),
+  };
+  assert.deepEqual(Object.values(kinds), Object.values(kinds).map(() => true), JSON.stringify(kinds));
+});
+
+test("an edit's selection gives every case every node it requires, and every type already there", () => {
+  for (const entry of EDIT_CASES) {
+    const { graph } = startGraph(entry);
+    const selected = new Set(
+      withTypes(selectDeterministic(entry.instruction, nodes), graph.nodes.map((node) => node.type), nodes).types,
+    );
+    for (const requirement of entry.requires ?? []) {
+      assert.ok(requirementMet(requirement, selected), `${entry.id}: ${describeRequirement(requirement)}`);
+    }
+    for (const node of graph.nodes) assert.ok(selected.has(node.type), `${entry.id}: ${node.type}`);
+  }
+});
+
+test("an edit is scored on what it kept, removed, renamed and set — not only on what it contains", () => {
+  const entry: EditEvalCase = {
+    id: "t",
+    start: "triage",
+    instruction: "x",
+    keeps: ["trigger", "summarise"],
+    removes: ["log_normal"],
+    labels: { decide: "Decide" },
+    sets: [{ node: "post_discord", key: "content", includes: "URGENT" }],
+  };
+  const { graph } = startGraph(entry);
+  const touched = {
+    ...graph,
+    nodes: graph.nodes.map((node) => (node.id === "summarise" ? { ...node, config: { prompt: "changed" } } : node)),
+  };
+  const score = scoreEdit(entry, graph, {
+    ok: true,
+    name: "x",
+    description: null,
+    graph: touched,
+    unsupported: [],
+    model: "m",
+    usage: null,
+    attempts: [{ model: "m", issues: [], ms: 1 }],
+    attempt: 1,
+    selection: { strategy: "deterministic", types: [] },
+    promptChars: 1,
+  });
+  assert.equal(score.pass, false);
+  assert.deepEqual(
+    score.failures.map((failure) => failure.split(",")[0]),
+    [
+      'changed "summarise"',
+      'kept "log_normal"',
+      '"decide" is labelled "Decide urgency"',
+      '"post_discord".content is "Urgent: {{steps.summarise.output.text}}"',
+    ],
+  );
 });
 
 test("a replay hands back each recorded call in turn, a failed one as a failure, and no more", async () => {

@@ -1,0 +1,332 @@
+{
+  "label": "edit-deterministic-flash-lite",
+  "mode": "edit",
+  "description": "copilot edits, deterministic selector + the graph's own types",
+  "provider": "google",
+  "model": "gemini-3.5-flash-lite",
+  "selector": "deterministic",
+  "recordedAt": "2026-10-09T06:12:04.485Z",
+  "cases": {
+    "add-slack": {
+      "calls": [
+        "{\n  \"name\": \"Triage support messages\",\n  \"description\": \"Summarises each support message and alerts on the urgent ones.\",\n  \"nodes\": [\n    {\n      \"id\": \"trigger\",\n      \"type\": \"core.webhook_trigger\",\n      \"config\": {}\n    },\n    {\n      \"id\": \"summarise\",\n      \"type\": \"ai.llm\",\n      \"label\": \"Summarise\",\n      \"config\": {\n        \"prompt\": \"Summarise this support message in one sentence: {{trigger.message}}\"\n      }\n    },\n    {\n      \"id\": \"decide\",\n      \"type\": \"ai.agent\",\n      \"label\": \"Decide urgency\",\n      \"config\": {\n        \"objective\": \"Decide whether this support message is urgent: {{steps.summarise.output.text}}\",\n        \"choices\": [\n          \"urgent\",\n          \"normal\"\n        ]\n      }\n    },\n    {\n      \"id\": \"route\",\n      \"type\": \"core.branch\",\n      \"config\": {\n        \"left\": \"{{input.decision}}\",\n        \"operator\": \"equals\",\n        \"right\": \"urgent\"\n      }\n    },\n    {\n      \"id\": \"post_discord\",\n      \"type\": \"integration.discord\",\n      \"label\": \"Alert on Discord\",\n      \"config\": {\n        \"content\": \"Urgent: {{steps.summarise.output.text}}\"\n      }\n    },\n    {\n      \"id\": \"post_slack\",\n      \"type\": \"integration.slack\",\n      \"label\": \"Alert on Slack\",\n      \"config\": {\n        \"text\": \"Urgent: {{steps.summarise.output.text}}\"\n      }\n    },\n    {\n      \"id\": \"log_normal\",\n      \"type\": \"core.log\",\n      \"label\": \"Log the rest\",\n      \"config\": {\n        \"message\": \"Normal: {{steps.summarise.output.text}}\"\n      }\n    }\n  ],\n  \"edges\": [\n    {\n      \"source\": \"trigger\",\n      \"target\": \"summarise\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"summarise\",\n      \"target\": \"decide\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"decide\",\n      \"target\": \"route\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"route\",\n      \"target\": \"post_discord\",\n      \"sourceHandle\": \"true\"\n    },\n    {\n      \"source\": \"route\",\n      \"target\": \"post_slack\",\n      \"sourceHandle\": \"true\"\n    },\n    {\n      \"source\": \"route\",\n      \"target\": \"log_normal\",\n      \"sourceHandle\": \"false\"\n    }\n  ],\n  \"unsupported\": []\n}"
+      ],
+      "models": [
+        "gemini-3.5-flash-lite"
+      ],
+      "ms": [
+        3242
+      ],
+      "tokens": [
+        {
+          "input": 4515,
+          "output": 683
+        }
+      ],
+      "selected": [
+        "core.manual_trigger",
+        "core.webhook_trigger",
+        "core.schedule_trigger",
+        "core.log",
+        "core.branch",
+        "core.switch",
+        "ai.llm",
+        "ai.agent",
+        "integration.discord",
+        "integration.slack"
+      ],
+      "promptChars": 15336,
+      "verdict": "pass",
+      "failures": []
+    },
+    "change-message": {
+      "calls": [
+        "{\n  \"name\": \"Triage support messages\",\n  \"description\": \"Summarises each support message and alerts on the urgent ones.\",\n  \"nodes\": [\n    {\n      \"id\": \"trigger\",\n      \"type\": \"core.webhook_trigger\",\n      \"config\": {}\n    },\n    {\n      \"id\": \"summarise\",\n      \"type\": \"ai.llm\",\n      \"label\": \"Summarise\",\n      \"config\": {\n        \"prompt\": \"Summarise this support message in one sentence: {{trigger.message}}\"\n      }\n    },\n    {\n      \"id\": \"decide\",\n      \"type\": \"ai.agent\",\n      \"label\": \"Decide urgency\",\n      \"config\": {\n        \"objective\": \"Decide whether this support message is urgent: {{steps.summarise.output.text}}\",\n        \"choices\": [\n          \"urgent\",\n          \"normal\"\n        ]\n      }\n    },\n    {\n      \"id\": \"route\",\n      \"type\": \"core.branch\",\n      \"config\": {\n        \"left\": \"{{input.decision}}\",\n        \"operator\": \"equals\",\n        \"right\": \"urgent\"\n      }\n    },\n    {\n      \"id\": \"post_discord\",\n      \"type\": \"integration.discord\",\n      \"label\": \"Alert on Discord\",\n      \"config\": {\n        \"content\": \"URGENT: {{steps.summarise.output.text}}\"\n      }\n    },\n    {\n      \"id\": \"log_normal\",\n      \"type\": \"core.log\",\n      \"label\": \"Log the rest\",\n      \"config\": {\n        \"message\": \"Normal: {{steps.summarise.output.text}}\"\n      }\n    }\n  ],\n  \"edges\": [\n    {\n      \"source\": \"trigger\",\n      \"target\": \"summarise\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"summarise\",\n      \"target\": \"decide\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"decide\",\n      \"target\": \"route\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"route\",\n      \"target\": \"post_discord\",\n      \"sourceHandle\": \"true\"\n    },\n    {\n      \"source\": \"route\",\n      \"target\": \"log_normal\",\n      \"sourceHandle\": \"false\"\n    }\n  ],\n  \"unsupported\": []\n}"
+      ],
+      "models": [
+        "gemini-3.5-flash-lite"
+      ],
+      "ms": [
+        3983
+      ],
+      "tokens": [
+        {
+          "input": 5166,
+          "output": 587
+        }
+      ],
+      "selected": [
+        "core.manual_trigger",
+        "core.webhook_trigger",
+        "core.schedule_trigger",
+        "core.log",
+        "core.branch",
+        "core.switch",
+        "transform.aggregate",
+        "transform.text",
+        "ai.llm",
+        "ai.agent",
+        "integration.discord",
+        "integration.slack",
+        "integration.airtable"
+      ],
+      "promptChars": 17784,
+      "verdict": "pass",
+      "failures": []
+    },
+    "change-schedule": {
+      "calls": [
+        "{\n  \"name\": \"Morning digest\",\n  \"description\": \"Posts a summary of the top stories every weekday morning.\",\n  \"nodes\": [\n    {\n      \"id\": \"every_weekday\",\n      \"type\": \"core.schedule_trigger\",\n      \"config\": {\n        \"cron\": \"0 7 * * 1-5\"\n      }\n    },\n    {\n      \"id\": \"fetch\",\n      \"type\": \"integration.http\",\n      \"label\": \"Fetch top stories\",\n      \"config\": {\n        \"method\": \"GET\",\n        \"url\": \"https://hacker-news.firebaseio.com/v0/topstories.json\"\n      }\n    },\n    {\n      \"id\": \"summarise\",\n      \"type\": \"ai.llm\",\n      \"config\": {\n        \"prompt\": \"Summarise these top story ids for a team channel: {{steps.fetch.output.text}}\"\n      }\n    },\n    {\n      \"id\": \"post\",\n      \"type\": \"integration.slack\",\n      \"label\": \"Post the digest\",\n      \"config\": {\n        \"text\": \"{{steps.summarise.output.text}}\"\n      }\n    }\n  ],\n  \"edges\": [\n    {\n      \"source\": \"every_weekday\",\n      \"target\": \"fetch\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"fetch\",\n      \"target\": \"summarise\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"summarise\",\n      \"target\": \"post\",\n      \"sourceHandle\": null\n    }\n  ],\n  \"unsupported\": []\n}"
+      ],
+      "models": [
+        "gemini-3.5-flash-lite"
+      ],
+      "ms": [
+        2077
+      ],
+      "tokens": [
+        {
+          "input": 4350,
+          "output": 394
+        }
+      ],
+      "selected": [
+        "core.manual_trigger",
+        "core.webhook_trigger",
+        "core.schedule_trigger",
+        "core.switch",
+        "transform.date",
+        "ai.llm",
+        "integration.http",
+        "integration.slack",
+        "integration.github",
+        "integration.postgres"
+      ],
+      "promptChars": 15320,
+      "verdict": "pass",
+      "failures": []
+    },
+    "remove-branch": {
+      "calls": [
+        "{\n  \"name\": \"Triage support messages\",\n  \"description\": \"Summarises each support message and alerts on the urgent ones.\",\n  \"nodes\": [\n    {\n      \"id\": \"trigger\",\n      \"type\": \"core.webhook_trigger\",\n      \"config\": {}\n    },\n    {\n      \"id\": \"summarise\",\n      \"type\": \"ai.llm\",\n      \"label\": \"Summarise\",\n      \"config\": {\n        \"prompt\": \"Summarise this support message in one sentence: {{trigger.message}}\"\n      }\n    },\n    {\n      \"id\": \"decide\",\n      \"type\": \"ai.agent\",\n      \"label\": \"Decide urgency\",\n      \"config\": {\n        \"objective\": \"Decide whether this support message is urgent: {{steps.summarise.output.text}}\",\n        \"choices\": [\n          \"urgent\",\n          \"normal\"\n        ]\n      }\n    },\n    {\n      \"id\": \"route\",\n      \"type\": \"core.branch\",\n      \"config\": {\n        \"left\": \"{{input.decision}}\",\n        \"operator\": \"equals\",\n        \"right\": \"urgent\"\n      }\n    },\n    {\n      \"id\": \"post_discord\",\n      \"type\": \"integration.discord\",\n      \"label\": \"Alert on Discord\",\n      \"config\": {\n        \"content\": \"Urgent: {{steps.summarise.output.text}}\"\n      }\n    }\n  ],\n  \"edges\": [\n    {\n      \"source\": \"trigger\",\n      \"target\": \"summarise\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"summarise\",\n      \"target\": \"decide\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"decide\",\n      \"target\": \"route\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"route\",\n      \"target\": \"post_discord\",\n      \"sourceHandle\": \"true\"\n    }\n  ],\n  \"unsupported\": []\n}"
+      ],
+      "models": [
+        "gemini-3.5-flash-lite"
+      ],
+      "ms": [
+        2496
+      ],
+      "tokens": [
+        {
+          "input": 5473,
+          "output": 490
+        }
+      ],
+      "selected": [
+        "core.manual_trigger",
+        "core.webhook_trigger",
+        "core.schedule_trigger",
+        "core.log",
+        "core.branch",
+        "core.switch",
+        "transform.filter",
+        "transform.unique",
+        "ai.llm",
+        "ai.agent",
+        "integration.discord",
+        "integration.sheets",
+        "integration.notion",
+        "integration.airtable"
+      ],
+      "promptChars": 18967,
+      "verdict": "pass",
+      "failures": []
+    },
+    "rename-step": {
+      "calls": [
+        "{\n  \"name\": \"Triage support messages\",\n  \"description\": \"Summarises each support message and alerts on the urgent ones.\",\n  \"nodes\": [\n    {\n      \"id\": \"trigger\",\n      \"type\": \"core.webhook_trigger\",\n      \"config\": {}\n    },\n    {\n      \"id\": \"summarise\",\n      \"type\": \"ai.llm\",\n      \"label\": \"Summarise the message\",\n      \"config\": {\n        \"prompt\": \"Summarise this support message in one sentence: {{trigger.message}}\"\n      }\n    },\n    {\n      \"id\": \"decide\",\n      \"type\": \"ai.agent\",\n      \"label\": \"Decide urgency\",\n      \"config\": {\n        \"objective\": \"Decide whether this support message is urgent: {{steps.summarise.output.text}}\",\n        \"choices\": [\n          \"urgent\",\n          \"normal\"\n        ]\n      }\n    },\n    {\n      \"id\": \"route\",\n      \"type\": \"core.branch\",\n      \"config\": {\n        \"left\": \"{{input.decision}}\",\n        \"operator\": \"equals\",\n        \"right\": \"urgent\"\n      }\n    },\n    {\n      \"id\": \"post_discord\",\n      \"type\": \"integration.discord\",\n      \"label\": \"Alert on Discord\",\n      \"config\": {\n        \"content\": \"Urgent: {{steps.summarise.output.text}}\"\n      }\n    },\n    {\n      \"id\": \"log_normal\",\n      \"type\": \"core.log\",\n      \"label\": \"Log the rest\",\n      \"config\": {\n        \"message\": \"Normal: {{steps.summarise.output.text}}\"\n      }\n    }\n  ],\n  \"edges\": [\n    {\n      \"source\": \"trigger\",\n      \"target\": \"summarise\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"summarise\",\n      \"target\": \"decide\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"decide\",\n      \"target\": \"route\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"route\",\n      \"target\": \"post_discord\",\n      \"sourceHandle\": \"true\"\n    },\n    {\n      \"source\": \"route\",\n      \"target\": \"log_normal\",\n      \"sourceHandle\": \"false\"\n    }\n  ],\n  \"unsupported\": []\n}"
+      ],
+      "models": [
+        "gemini-3.5-flash-lite"
+      ],
+      "ms": [
+        2235
+      ],
+      "tokens": [
+        {
+          "input": 5966,
+          "output": 588
+        }
+      ],
+      "selected": [
+        "core.manual_trigger",
+        "core.webhook_trigger",
+        "core.schedule_trigger",
+        "core.set",
+        "core.log",
+        "core.branch",
+        "transform.map",
+        "transform.aggregate",
+        "transform.text",
+        "transform.number",
+        "ai.llm",
+        "ai.agent",
+        "integration.discord",
+        "integration.slack",
+        "integration.notion",
+        "integration.github",
+        "integration.postgres"
+      ],
+      "promptChars": 20947,
+      "verdict": "pass",
+      "failures": []
+    },
+    "rename-workflow": {
+      "calls": [
+        "{\n  \"name\": \"Morning digest\",\n  \"description\": \"Posts a summary of the top stories every weekday morning.\",\n  \"nodes\": [\n    {\n      \"id\": \"every_weekday\",\n      \"type\": \"core.schedule_trigger\",\n      \"config\": {\n        \"cron\": \"0 8 * * 1-5\"\n      }\n    },\n    {\n      \"id\": \"fetch\",\n      \"type\": \"integration.http\",\n      \"label\": \"Fetch top stories\",\n      \"config\": {\n        \"method\": \"GET\",\n        \"url\": \"https://hacker-news.firebaseio.com/v0/topstories.json\"\n      }\n    },\n    {\n      \"id\": \"summarise\",\n      \"type\": \"ai.llm\",\n      \"config\": {\n        \"prompt\": \"Summarise these top story ids for a team channel: {{steps.fetch.output.text}}\"\n      }\n    },\n    {\n      \"id\": \"post\",\n      \"type\": \"integration.slack\",\n      \"label\": \"Post the digest\",\n      \"config\": {\n        \"text\": \"{{steps.summarise.output.text}}\"\n      }\n    }\n  ],\n  \"edges\": [\n    {\n      \"source\": \"every_weekday\",\n      \"target\": \"fetch\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"fetch\",\n      \"target\": \"summarise\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"summarise\",\n      \"target\": \"post\",\n      \"sourceHandle\": null\n    }\n  ],\n  \"unsupported\": [\n    \"rename the workflow \\u2014 type the new name in the toolbar\"\n  ]\n}"
+      ],
+      "models": [
+        "gemini-3.5-flash-lite"
+      ],
+      "ms": [
+        2733
+      ],
+      "tokens": [
+        {
+          "input": 5160,
+          "output": 417
+        }
+      ],
+      "selected": [
+        "core.manual_trigger",
+        "core.webhook_trigger",
+        "core.schedule_trigger",
+        "core.set",
+        "transform.filter",
+        "transform.map",
+        "transform.date",
+        "ai.llm",
+        "integration.http",
+        "integration.slack",
+        "integration.notion",
+        "integration.github",
+        "integration.airtable",
+        "integration.postgres"
+      ],
+      "promptChars": 18511,
+      "verdict": "pass",
+      "failures": []
+    },
+    "impossible-ssh": {
+      "calls": [
+        "{\n  \"name\": \"Triage support messages\",\n  \"description\": \"Summarises each support message and alerts on the urgent ones.\",\n  \"nodes\": [\n    {\n      \"id\": \"trigger\",\n      \"type\": \"core.webhook_trigger\",\n      \"config\": {}\n    },\n    {\n      \"id\": \"summarise\",\n      \"type\": \"ai.llm\",\n      \"label\": \"Summarise\",\n      \"config\": {\n        \"prompt\": \"Summarise this support message in one sentence: {{trigger.message}}\"\n      }\n    },\n    {\n      \"id\": \"decide\",\n      \"type\": \"ai.agent\",\n      \"label\": \"Decide urgency\",\n      \"config\": {\n        \"objective\": \"Decide whether this support message is urgent: {{steps.summarise.output.text}}\",\n        \"choices\": [\n          \"urgent\",\n          \"normal\"\n        ]\n      }\n    },\n    {\n      \"id\": \"route\",\n      \"type\": \"core.branch\",\n      \"config\": {\n        \"left\": \"{{input.decision}}\",\n        \"operator\": \"equals\",\n        \"right\": \"urgent\"\n      }\n    },\n    {\n      \"id\": \"post_discord\",\n      \"type\": \"integration.discord\",\n      \"label\": \"Alert on Discord\",\n      \"config\": {\n        \"content\": \"Urgent: {{steps.summarise.output.text}}\"\n      }\n    },\n    {\n      \"id\": \"log_normal\",\n      \"type\": \"core.log\",\n      \"label\": \"Log the rest\",\n      \"config\": {\n        \"message\": \"Normal: {{steps.summarise.output.text}}\"\n      }\n    }\n  ],\n  \"edges\": [\n    {\n      \"source\": \"trigger\",\n      \"target\": \"summarise\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"summarise\",\n      \"target\": \"decide\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"decide\",\n      \"target\": \"route\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"route\",\n      \"target\": \"post_discord\",\n      \"sourceHandle\": \"true\"\n    },\n    {\n      \"source\": \"route\",\n      \"target\": \"log_normal\",\n      \"sourceHandle\": \"false\"\n    }\n  ],\n  \"unsupported\": [\n    \"SSH into the support server and restart it\"\n  ]\n}"
+      ],
+      "models": [
+        "gemini-3.5-flash-lite"
+      ],
+      "ms": [
+        2885
+      ],
+      "tokens": [
+        {
+          "input": 5094,
+          "output": 601
+        }
+      ],
+      "selected": [
+        "core.manual_trigger",
+        "core.webhook_trigger",
+        "core.schedule_trigger",
+        "core.log",
+        "core.branch",
+        "core.switch",
+        "transform.date",
+        "ai.llm",
+        "ai.agent",
+        "integration.discord",
+        "integration.github",
+        "integration.postgres"
+      ],
+      "promptChars": 17476,
+      "verdict": "pass",
+      "failures": []
+    },
+    "agent-tool": {
+      "calls": [
+        "{\n  \"name\": \"Triage support messages\",\n  \"description\": \"Summarises each support message and alerts on the urgent ones.\",\n  \"nodes\": [\n    {\n      \"id\": \"trigger\",\n      \"type\": \"core.webhook_trigger\",\n      \"config\": {}\n    },\n    {\n      \"id\": \"summarise\",\n      \"type\": \"ai.llm\",\n      \"label\": \"Summarise\",\n      \"config\": {\n        \"prompt\": \"Summarise this support message in one sentence: {{trigger.message}}\"\n      }\n    },\n    {\n      \"id\": \"check_status\",\n      \"type\": \"integration.http\",\n      \"label\": \"Check status page\",\n      \"config\": {\n        \"method\": \"GET\",\n        \"url\": \"https://status.example.com\"\n      }\n    },\n    {\n      \"id\": \"decide\",\n      \"type\": \"ai.agent\",\n      \"label\": \"Decide urgency\",\n      \"config\": {\n        \"objective\": \"Decide whether this support message is urgent given the summary '{{steps.summarise.output.text}}' and the current status page data '{{steps.check_status.output.text}}'.\",\n        \"choices\": [\n          \"urgent\",\n          \"normal\"\n        ],\n        \"tools\": [\n          \"integration.http\"\n        ]\n      }\n    },\n    {\n      \"id\": \"route\",\n      \"type\": \"core.branch\",\n      \"config\": {\n        \"left\": \"{{input.decision}}\",\n        \"operator\": \"equals\",\n        \"right\": \"urgent\"\n      }\n    },\n    {\n      \"id\": \"post_discord\",\n      \"type\": \"integration.discord\",\n      \"label\": \"Alert on Discord\",\n      \"config\": {\n        \"content\": \"Urgent: {{steps.summarise.output.text}}\"\n      }\n    },\n    {\n      \"id\": \"log_normal\",\n      \"type\": \"core.log\",\n      \"label\": \"Log the rest\",\n      \"config\": {\n        \"message\": \"Normal: {{steps.summarise.output.text}}\"\n      }\n    }\n  ],\n  \"edges\": [\n    {\n      \"source\": \"trigger\",\n      \"target\": \"summarise\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"summarise\",\n      \"target\": \"check_status\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"check_status\",\n      \"target\": \"decide\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"decide\",\n      \"target\": \"route\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"route\",\n      \"target\": \"post_discord\",\n      \"sourceHandle\": \"true\"\n    },\n    {\n      \"source\": \"route\",\n      \"target\": \"log_normal\",\n      \"sourceHandle\": \"false\"\n    }\n  ],\n  \"unsupported\": []\n}"
+      ],
+      "models": [
+        "gemini-3.5-flash-lite"
+      ],
+      "ms": [
+        3244
+      ],
+      "tokens": [
+        {
+          "input": 5735,
+          "output": 725
+        }
+      ],
+      "selected": [
+        "core.manual_trigger",
+        "core.webhook_trigger",
+        "core.schedule_trigger",
+        "core.log",
+        "core.branch",
+        "core.switch",
+        "core.delay",
+        "transform.filter",
+        "transform.map",
+        "transform.sort",
+        "transform.text",
+        "ai.llm",
+        "ai.agent",
+        "integration.http",
+        "integration.discord",
+        "integration.notion"
+      ],
+      "promptChars": 19846,
+      "verdict": "pass",
+      "failures": []
+    },
+    "refine-only-slack": {
+      "calls": [
+        "{\n  \"name\": \"Triage support messages\",\n  \"description\": \"Summarises each support message and alerts on the urgent ones.\",\n  \"nodes\": [\n    {\n      \"id\": \"trigger\",\n      \"type\": \"core.webhook_trigger\",\n      \"config\": {}\n    },\n    {\n      \"id\": \"summarise\",\n      \"type\": \"ai.llm\",\n      \"label\": \"Summarise\",\n      \"config\": {\n        \"prompt\": \"Summarise this support message in one sentence: {{trigger.message}}\"\n      }\n    },\n    {\n      \"id\": \"decide\",\n      \"type\": \"ai.agent\",\n      \"label\": \"Decide urgency\",\n      \"config\": {\n        \"objective\": \"Decide whether this support message is urgent: {{steps.summarise.output.text}}\",\n        \"choices\": [\n          \"urgent\",\n          \"normal\"\n        ]\n      }\n    },\n    {\n      \"id\": \"route\",\n      \"type\": \"core.branch\",\n      \"config\": {\n        \"left\": \"{{input.decision}}\",\n        \"operator\": \"equals\",\n        \"right\": \"urgent\"\n      }\n    },\n    {\n      \"id\": \"post_slack\",\n      \"type\": \"integration.slack\",\n      \"label\": \"Alert on Slack\",\n      \"config\": {\n        \"text\": \"Urgent: {{steps.summarise.output.text}}\"\n      }\n    },\n    {\n      \"id\": \"log_normal\",\n      \"type\": \"core.log\",\n      \"label\": \"Log the rest\",\n      \"config\": {\n        \"message\": \"Normal: {{steps.summarise.output.text}}\"\n      }\n    }\n  ],\n  \"edges\": [\n    {\n      \"source\": \"trigger\",\n      \"target\": \"summarise\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"summarise\",\n      \"target\": \"decide\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"decide\",\n      \"target\": \"route\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"route\",\n      \"target\": \"post_slack\",\n      \"sourceHandle\": \"true\"\n    },\n    {\n      \"source\": \"route\",\n      \"target\": \"log_normal\",\n      \"sourceHandle\": \"false\"\n    }\n  ],\n  \"unsupported\": []\n}"
+      ],
+      "models": [
+        "gemini-3.5-flash-lite"
+      ],
+      "ms": [
+        3387
+      ],
+      "tokens": [
+        {
+          "input": 6098,
+          "output": 586
+        }
+      ],
+      "selected": [
+        "core.manual_trigger",
+        "core.webhook_trigger",
+        "core.schedule_trigger",
+        "core.log",
+        "core.branch",
+        "core.delay",
+        "transform.filter",
+        "transform.map",
+        "transform.sort",
+        "transform.aggregate",
+        "transform.text",
+        "ai.llm",
+        "ai.agent",
+        "integration.discord",
+        "integration.slack",
+        "integration.airtable",
+        "integration.postgres"
+      ],
+      "promptChars": 20829,
+      "verdict": "pass",
+      "failures": []
+    }
+  }
+}

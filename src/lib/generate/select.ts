@@ -271,6 +271,17 @@ function complete(chosen: Set<string>, nodes: NodeSummary[]): string[] {
   return nodes.map((node) => node.type).filter((type) => chosen.has(type) && known.has(type));
 }
 
+/**
+ * **A selection widened by the node types a graph already uses — Phase 35.** The copilot edits a
+ * workflow, and an edit is mostly copying nodes unchanged: a node it was shown only as an index
+ * line is a node whose config it is asked to keep without being told what that config means. So
+ * the instruction picks what the change needs, and every type already on the canvas is defined
+ * in full beside it. Completed by the same rule as any selection, in registry order.
+ */
+export function withTypes(selection: CatalogueSelection, types: Iterable<string>, nodes: NodeSummary[]): CatalogueSelection {
+  return { ...selection, types: complete(new Set([...selection.types, ...types]), nodes) };
+}
+
 export function selectAll(nodes: NodeSummary[]): CatalogueSelection {
   return { strategy: "full", types: nodes.map((node) => node.type) };
 }

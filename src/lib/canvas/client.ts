@@ -19,7 +19,7 @@ import type {
   TokenIntegrationStatus,
 } from "@/lib/integrations/store";
 import type { NodeSummary } from "@/lib/nodes";
-import type { GraphDiff } from "@/lib/workflow/diff";
+import type { DiffSummary, GraphDiff } from "@/lib/workflow/diff";
 import type { SharedWorkflow } from "@/lib/workflow/share";
 import type { WorkflowVisibility } from "@/lib/workflow/visibility";
 import type { InvitableRole, InvitationSummary } from "@/lib/workspace/invitations";
@@ -97,6 +97,22 @@ export interface GenerationResponse {
     source: "user" | "environment";
     /** Parts of the request no registered node can do. Shown to the user. */
     unsupported: string[];
+    usage: { inputTokens: number; outputTokens: number; totalTokens: number } | null;
+    attempts: GenerationAttempt[];
+  };
+}
+
+/** CONTRACT.md → "Copilot request/response". Phase 35. Nothing in it has been applied or saved. */
+export interface CopilotResponse {
+  proposal: {
+    graph: WorkflowGraph;
+    unsupported: string[];
+    changes: DiffSummary;
+    problems: GraphProblem[];
+  };
+  generation: {
+    model: string;
+    source: "user" | "environment";
     usage: { inputTokens: number; outputTokens: number; totalTokens: number } | null;
     attempts: GenerationAttempt[];
   };
@@ -201,6 +217,17 @@ export const api = {
    */
   generateWorkflow: (body: { prompt: string; name?: string }) =>
     request<GenerationResponse>("/api/workflows/generate", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  /**
+   * Ask the copilot for a change to the graph on the canvas — Phase 35. Answers a **proposal**:
+   * nothing is applied and nothing is saved. `earlier` is the instructions a proposal being
+   * refined already reflects.
+   */
+  proposeEdit: (id: string, body: { instruction: string; graph: WorkflowGraph; earlier: string[] }) =>
+    request<CopilotResponse>(`/api/workflows/${id}/copilot`, {
       method: "POST",
       body: JSON.stringify(body),
     }),

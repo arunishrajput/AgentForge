@@ -1,6 +1,7 @@
 "use client";
 
-import { Button } from "@/components/ui/button";
+import type { ReactNode } from "react";
+
 import { cn } from "@/components/ui/cn";
 import { changeLook } from "@/lib/canvas/changes";
 import type { DiffSummary, NodeChange } from "@/lib/canvas/client";
@@ -17,17 +18,24 @@ import type { DiffSummary, NodeChange } from "@/lib/canvas/client";
  * Every count carries its glyph, its colour **and its word**, which is the same rule
  * the node ribbons follow. A legend that is four coloured dots is a legend that only
  * works for some readers.
+ *
+ * **Phase 35 shares it with the copilot**: a proposal is a diff of the canvas against what
+ * Accept would make it, and the same bar says so — with Accept and Reject where *Back to
+ * editing* is for two versions. The heading and the way out are the caller's.
  */
 export function DiffBar({
-  from,
-  to,
+  heading,
+  identical = "These two versions have identical graphs.",
   summary,
-  onExit,
+  children,
 }: {
-  from: number;
-  to: number;
+  /** What is being compared — "Comparing v3 → v5", or a copilot proposal (Phase 35). */
+  heading: ReactNode;
+  /** What to say when the two graphs are the same. */
+  identical?: string;
   summary: DiffSummary;
-  onExit: () => void;
+  /** The way out, at the end of the bar: *Back to editing*, or Accept and Reject. */
+  children: ReactNode;
 }) {
   const counts: { change: NodeChange; count: number }[] = [
     { change: "added", count: summary.added },
@@ -50,13 +58,10 @@ export function DiffBar({
       // mistake.
       className="border-line bg-accent-pop text-accent-ink flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b-2 px-3 py-2"
     >
-      <span className="text-ui shrink-0 font-bold">
-        Comparing v{from} <span aria-hidden="true">→</span>
-        <span className="sr-only">with</span> v{to}
-      </span>
+      <span className="text-ui shrink-0 font-bold">{heading}</span>
 
       {shown.length === 0 && edges === 0 && summary.notes === 0 ? (
-        <span className="text-2xs">These two versions have identical graphs.</span>
+        <span className="text-2xs">{identical}</span>
       ) : (
         <span className="flex flex-wrap items-center gap-1.5">
           {shown.map(({ change, count }) => {
@@ -99,9 +104,7 @@ export function DiffBar({
         </span>
       )}
 
-      <Button tone="ink" size="sm" onClick={onExit} className="ml-auto shrink-0">
-        Back to editing
-      </Button>
+      <span className="ml-auto flex shrink-0 items-center gap-2">{children}</span>
     </div>
   );
 }

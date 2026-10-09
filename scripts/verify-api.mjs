@@ -2110,6 +2110,51 @@ try {
         JSON.stringify({ patch: patched.status, label: reread.json?.data?.graph?.nodes?.at(-1)?.label }),
       );
 
+      // --- phase 35: the copilot proposes an edit, and writes nothing ---------
+      //
+      // A real model, through the deployed route, edits the workflow it just generated. The
+      // proposal must be the same workflow plus the change — every node it had, where it was —
+      // and the stored workflow must not have moved at all: no new version, the same graph.
+      const storedBefore = (await api("GET", `/api/workflows/${madeId}`, undefined, token)).json?.data;
+      const versionsQuery = 'select count(*)::int as n from "workflow_version" where "workflowId" = $1';
+      const [{ n: versionsBefore }] = await sql.query(versionsQuery, [madeId]);
+      const proposed = await api(
+        "POST",
+        `/api/workflows/${madeId}/copilot`,
+        { instruction: "At the very end, also log the text 'triage finished'.", graph: storedBefore?.graph },
+        token,
+      );
+      const proposal = proposed.json?.data?.proposal;
+      const proposedNodes = new Map((proposal?.graph?.nodes ?? []).map((node) => [node.id, node]));
+      check(
+        "the copilot proposes an edit: every node kept where it was, one added, all from the registry",
+        proposed.status === 200 &&
+          (storedBefore?.graph?.nodes ?? []).every((node) => {
+            const kept = proposedNodes.get(node.id);
+            return kept && kept.type === node.type && kept.position.x === node.position.x && kept.position.y === node.position.y;
+          }) &&
+          proposal.changes.added >= 1 &&
+          proposal.changes.removed === 0 &&
+          proposal.graph.nodes.every((node) => registryTypes.has(node.type)) &&
+          Array.isArray(proposal.unsupported) &&
+          typeof proposed.json?.data?.generation?.model === "string",
+        JSON.stringify({
+          status: proposed.status,
+          changes: proposal?.changes,
+          nodes: proposal?.graph?.nodes?.map((node) => [node.id, node.type]),
+          error: proposed.json?.error,
+        }),
+      );
+      const storedAfter = (await api("GET", `/api/workflows/${madeId}`, undefined, token)).json?.data;
+      const [{ n: versionsAfter }] = await sql.query(versionsQuery, [madeId]);
+      check(
+        "a proposal is not applied: the stored workflow, its version and its history are untouched",
+        storedAfter?.version === storedBefore?.version &&
+          JSON.stringify(storedAfter?.graph) === JSON.stringify(storedBefore?.graph) &&
+          versionsAfter === versionsBefore,
+        JSON.stringify({ before: storedBefore?.version, after: storedAfter?.version, versionsBefore, versionsAfter }),
+      );
+
       await api("DELETE", `/api/workflows/${madeId}`, undefined, token);
     }
 
@@ -2118,6 +2163,27 @@ try {
       "an empty prompt is refused before any model is called",
       emptyPrompt.status === 400 && emptyPrompt.json?.error?.code === "invalid_request",
       JSON.stringify(emptyPrompt.json),
+    );
+
+    // Phase 35. The copilot's refusals that need no model: a blank instruction, a body that is
+    // not a graph, and a workflow that is not there — each before a model is called.
+    const someGraph = { version: 1, nodes: [{ id: "t", type: "core.manual_trigger", position: { x: 0, y: 0 }, config: {} }], edges: [] };
+    const blankInstruction = await api("POST", `/api/workflows/${workflowId}/copilot`, { instruction: "  ", graph: someGraph }, token);
+    const notAGraph = await api("POST", `/api/workflows/${workflowId}/copilot`, { instruction: "add a log", graph: { nodes: "x" } }, token);
+    const noWorkflow = await api(
+      "POST",
+      "/api/workflows/00000000-0000-4000-8000-000000000000/copilot",
+      { instruction: "add a log", graph: someGraph },
+      token,
+    );
+    check(
+      "the copilot refuses a blank instruction and a malformed graph with 400, and an unknown workflow with 404",
+      blankInstruction.status === 400 &&
+        blankInstruction.json?.error?.code === "invalid_request" &&
+        notAGraph.status === 400 &&
+        noWorkflow.status === 404 &&
+        noWorkflow.json?.error?.code === "not_found",
+      JSON.stringify({ blank: blankInstruction.status, graph: notAGraph.status, missing: noWorkflow.status }),
     );
 
     // A request for things no node can do must be told so, not quietly given a
@@ -3775,6 +3841,12 @@ try {
       ["delete a workflow", "DELETE", `/api/workflows/${workflowId}`, undefined],
       ["run a workflow", "POST", `/api/workflows/${workflowId}/runs`, { input: null, mode: "sync" }],
       ["generate a workflow", "POST", "/api/workflows/generate", { prompt: "do something" }],
+      [
+        "ask the copilot for a change",
+        "POST",
+        `/api/workflows/${workflowId}/copilot`,
+        { instruction: "do something", graph: { version: 1, nodes: [], edges: [] } },
+      ],
       ["label a version", "PATCH", `/api/workflows/${workflowId}/versions/1`, { label: "viewer" }],
       ["restore a version", "POST", `/api/workflows/${workflowId}/versions/1/restore`, {}],
       ["store a provider key", "PUT", "/api/settings/provider", { apiKey: "AIzaNotARealKey" }],

@@ -96,9 +96,11 @@ at does not need a link to the field you are looking at. `href` is always a path
 | `PATCH` | `/api/workflows/[id]` | editor | Renames it, replaces the graph, or changes its visibility. **Every save writes a version** |
 | `DELETE` | `/api/workflows/[id]` | editor | Deletes it, its versions and its runs |
 | `POST` | `/api/workflows/generate` | editor | **Natural language → a workflow.** Returns a validated graph, or `unsupported` with a reason |
+| `POST` | `/api/workflows/[id]/copilot` | editor | **Propose an edit** (Phase 35). The graph on the canvas and a change in plain words in; a validated **proposed** graph out, with `unsupported` and the diff's counts. **Writes nothing** — the canvas shows it as a diff, and only Accept applies it |
 
 The graph shape, and the rules a graph must satisfy to be runnable, are in
-[`../CONTRACT.md`](../CONTRACT.md) → *Workflow graph*.
+[`../CONTRACT.md`](../CONTRACT.md) → *Workflow graph*. The copilot's request and response are in
+[`../CONTRACT.md`](../CONTRACT.md) → *Copilot request/response*.
 
 `GET /api/workflows` adds two fields to each workflow that a single read does not carry:
 `tags` — `[{ id, name }]`, the tags it wears — and `starred`, whether **you** have starred it.

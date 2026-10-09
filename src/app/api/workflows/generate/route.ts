@@ -52,7 +52,8 @@ export async function POST(request: Request) {
     // Phase 34: which attempt produced the graph, counted by `agentforge_generations`. A provider
     // failure above is not a generation outcome — nothing was produced to judge — and
     // `model.call` already records it.
-    const fields = generationLogFields(result, Date.now() - started);
+    // `mode` since Phase 35, when the copilot began logging the same event (D165).
+    const fields = { ...generationLogFields(result, Date.now() - started), mode: "create" };
     if (result.ok) logInfo("generation.finished", `Generated a workflow on attempt ${fields.attempts}.`, fields);
     else logWarn("generation.finished", "Generation produced no valid workflow in two attempts.", fields);
 

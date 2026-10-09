@@ -254,9 +254,13 @@ export function diffGraphs(base: WorkflowGraph, target: WorkflowGraph): GraphDif
 const NODE_WIDTH = 224;
 const NODE_HEIGHT = 150;
 /** How far a displaced ghost drops per attempt. Card height plus a clear gutter. */
-const CLEAR_STEP = 180;
+export const CLEAR_STEP = 180;
 
-function overlaps(a: Position, b: Position): boolean {
+/**
+ * Whether two cards placed at these positions would sit on each other. Exported for the copilot
+ * (Phase 35), which places the nodes it adds among nodes that stay exactly where they are.
+ */
+export function overlaps(a: Position, b: Position): boolean {
   return Math.abs(a.x - b.x) < NODE_WIDTH && Math.abs(a.y - b.y) < NODE_HEIGHT;
 }
 

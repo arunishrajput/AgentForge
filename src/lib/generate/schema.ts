@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { workflowGraphSchema } from "@/lib/workflow/graph";
+
 /**
  * What a model is allowed to emit — CONTRACT.md → "Generation request/response".
  *
@@ -80,3 +82,20 @@ export const generateRequestSchema = z.object({
 });
 
 export type GenerateWorkflowRequest = z.infer<typeof generateRequestSchema>;
+
+/** At most this many earlier instructions travel with a refinement — the newest ones. */
+export const COPILOT_EARLIER_MAX = 10;
+
+/**
+ * **What the canvas sends the copilot — Phase 35.** The graph *as it is on the canvas*, saved or
+ * not, because that is what the person is looking at and asking to change; the change, in their
+ * words; and, when refining a proposal, the instructions that proposal already reflects. Nothing
+ * here is stored: the conversation is the canvas's own state (D164).
+ */
+export const copilotRequestSchema = z.object({
+  instruction: z.string().trim().min(1).max(2000),
+  graph: workflowGraphSchema,
+  earlier: z.array(z.string().trim().min(1).max(2000)).max(COPILOT_EARLIER_MAX).default([]),
+});
+
+export type CopilotRequest = z.infer<typeof copilotRequestSchema>;

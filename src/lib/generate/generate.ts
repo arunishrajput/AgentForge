@@ -5,7 +5,7 @@ import { describeNodes, type NodeSummary } from "@/lib/nodes";
 import { GRAPH_VERSION, workflowGraphSchema, type WorkflowGraph } from "@/lib/workflow/graph";
 
 import { layout } from "./layout";
-import { checkReferences } from "./references";
+import { checkReferences, type ReferenceProblem } from "./references";
 import { generatedWorkflowSchema, type GeneratedWorkflow } from "./schema";
 import { renderCatalogue, systemPrompt, userPrompt } from "./prompt";
 import {
@@ -118,7 +118,15 @@ export interface GenerateWorkflowOptions {
  */
 export const DEFAULT_CATALOGUE: CatalogueOption = { strategy: "deterministic" };
 
-async function chooseCatalogue(options: GenerateWorkflowOptions, nodes: NodeSummary[]): Promise<CatalogueSelection> {
+/**
+ * The catalogue for one request, by the strategy asked for. `request` is what the person typed —
+ * a whole request when generating, the instruction when the copilot edits (`edit.ts`).
+ */
+export async function chooseCatalogue(
+  options: Pick<GenerateWorkflowOptions, "model" | "modelId" | "catalogue" | "signal">,
+  request: string,
+  nodes: NodeSummary[],
+): Promise<CatalogueSelection> {
   const catalogue = options.catalogue ?? DEFAULT_CATALOGUE;
   switch (catalogue.strategy) {
     case "full":
@@ -131,12 +139,12 @@ async function chooseCatalogue(options: GenerateWorkflowOptions, nodes: NodeSumm
       return selectWithModel({
         model: options.model,
         modelId: options.modelId,
-        request: options.prompt,
+        request,
         nodes,
         signal: options.signal,
       });
     case "deterministic":
-      return selectDeterministic(options.prompt, nodes);
+      return selectDeterministic(request, nodes);
   }
 }
 
@@ -190,7 +198,7 @@ const MIN_VIABLE_AGENT_ITERATIONS = 3;
  * and only by removing the key. A user who types 1 into the config form on the canvas
  * still gets 1 — that is their choice to make, and D16's bounds are untouched.
  */
-function viableAgentConfig(node: GeneratedWorkflow["nodes"][number]): Record<string, unknown> {
+export function viableAgentConfig(node: GeneratedWorkflow["nodes"][number]): Record<string, unknown> {
   if (node.type !== "ai.agent") return node.config;
 
   const requested = node.config.maxIterations;
@@ -229,11 +237,53 @@ export function assembleGraph(generated: GeneratedWorkflow): WorkflowGraph {
 }
 
 /**
+ * **What a proposal is not blamed for — Phase 35 (D162).** The copilot edits a graph that may
+ * already have problems: a node dropped from the palette and not yet configured, a reference
+ * the person has not fixed. Holding the proposal to *those* would fail every edit of a
+ * half-built canvas, and spending the retry on them would ask the model to invent the values
+ * the person deliberately left blank. So a proposal may not *add* a problem; one the graph it
+ * started from already had is carried, not counted. Generation starts from nothing, so it
+ * tolerates nothing.
+ */
+export interface Tolerated {
+  /** `problemKey` of each validation problem the starting graph had. */
+  problems: ReadonlySet<string>;
+  /** `referenceKey` of each unresolved reference the starting graph had. */
+  references: ReadonlySet<string>;
+}
+
+export const NOTHING_TOLERATED: Tolerated = { problems: new Set(), references: new Set() };
+
+/** A validation problem's identity, without its wording: what it is and where. */
+export function problemKey(problem: GraphProblem): string {
+  return JSON.stringify([problem.code, problem.nodeId ?? null, problem.edgeId ?? null]);
+}
+
+/** An unresolved reference's identity: which node, which reference. */
+export function referenceKey(problem: Pick<ReferenceProblem, "nodeId" | "reference">): string {
+  return JSON.stringify([problem.nodeId, problem.reference]);
+}
+
+/** What the starting graph already had wrong — the copilot's `Tolerated`. */
+export function toleratedIn(graph: WorkflowGraph, nodes: NodeSummary[]): Tolerated {
+  return {
+    problems: new Set(validateGraph(graph).problems.map(problemKey)),
+    references: new Set(checkReferences(graph, nodes).map(referenceKey)),
+  };
+}
+
+/**
  * One attempt's output → either a validated graph or the issues that stopped it.
  * Exported because every failure mode in here is worth asserting directly.
+ *
+ * `assemble` turns the model's nodes and edges into a stored graph — `assembleGraph` for a new
+ * workflow, `assembleEdit` for the copilot's proposal (`edit.ts`). `tolerated` names the problems
+ * the starting graph already had; only a problem outside it fails the answer.
  */
 export function interpret(
   text: string,
+  assemble: (generated: GeneratedWorkflow) => WorkflowGraph = assembleGraph,
+  tolerated: ReadonlySet<string> = NOTHING_TOLERATED.problems,
 ): { ok: true; generated: GeneratedWorkflow; graph: WorkflowGraph } | { ok: false; issues: GenerationIssue[] } {
   let raw: unknown;
   try {
@@ -259,7 +309,7 @@ export function interpret(
     };
   }
 
-  const graph = assembleGraph(parsed.data);
+  const graph = assemble(parsed.data);
 
   // The real graph schema, applied to our own assembly. `generatedWorkflowSchema`
   // bounds what the model sends, but this is the shape that gets stored, and a bug
@@ -276,8 +326,8 @@ export function interpret(
     };
   }
 
-  const validation = validateGraph(shaped.data);
-  if (!validation.valid) return { ok: false, issues: validation.problems };
+  const problems = validateGraph(shaped.data).problems.filter((problem) => !tolerated.has(problemKey(problem)));
+  if (problems.length > 0) return { ok: false, issues: problems };
 
   return { ok: true, generated: parsed.data, graph: shaped.data };
 }
@@ -337,10 +387,46 @@ export async function generateWorkflow(
   options: GenerateWorkflowOptions,
 ): Promise<GenerationResult> {
   const nodes = options.nodes ?? describeNodes();
-  const selection = await chooseCatalogue(options, nodes);
-  const system = systemPrompt(nodes, selection.types);
+  const selection = await chooseCatalogue(options, options.prompt, nodes);
+  return converse({
+    model: options.model,
+    modelId: options.modelId,
+    nodes,
+    selection,
+    system: systemPrompt(nodes, selection.types),
+    request: userPrompt(options.prompt),
+    assemble: assembleGraph,
+    tolerated: NOTHING_TOLERATED,
+    name: options.name,
+    signal: options.signal,
+  });
+}
+
+/** What one conversation with the model needs — everything that differs between a new workflow and an edit. */
+export interface ConverseOptions {
+  model: LanguageModel;
+  modelId: string;
+  nodes: NodeSummary[];
+  selection: CatalogueSelection;
+  system: string;
+  /** The first user turn: the request, or the current graph and the change (`edit.ts`). */
+  request: string;
+  assemble: (generated: GeneratedWorkflow) => WorkflowGraph;
+  tolerated: Tolerated;
+  name?: string;
+  signal?: AbortSignal;
+}
+
+/**
+ * **The pipeline, shared — ask, interpret, validate, and at most one retry.** Generation and the
+ * copilot (Phase 35) differ only in what they ask and how an answer becomes a stored graph; the
+ * rules that make an answer safe to show a person are this function, once. `PROGRESS.md` asked
+ * for exactly that: "reuse the pipeline, do not fork it".
+ */
+export async function converse(options: ConverseOptions): Promise<GenerationResult> {
+  const { nodes, selection, system } = options;
   const promptChars = system.length;
-  const turns: ChatTurn[] = [{ role: "user", text: userPrompt(options.prompt) }];
+  const turns: ChatTurn[] = [{ role: "user", text: options.request }];
   const attempts: GenerationAttempt[] = [];
   /** A valid first answer held while its references are retried. */
   let kept: { interpreted: Extract<ReturnType<typeof interpret>, { ok: true }>; result: GenerateResult } | null = null;
@@ -365,7 +451,7 @@ export async function generateWorkflow(
       signal: options.signal,
     });
 
-    const interpreted = interpret(result.text);
+    const interpreted = interpret(result.text, options.assemble, options.tolerated.problems);
     const ms = Date.now() - started;
 
     const accept = (
@@ -392,12 +478,16 @@ export async function generateWorkflow(
       // `{{input.name}}` inside a Loop, whose input is `{ index, item, total }`. So the first
       // attempt's references earn the one retry, with the exact problem; the second attempt's
       // are listed and accepted, because a valid graph is never failed over them.
-      const unresolved = checkReferences(interpreted.graph, nodes).map((problem) => ({
-        code: "unresolved_reference" as const,
-        message: `{{${problem.reference}}}: ${problem.message}`,
-        nodeId: problem.nodeId,
-        reference: problem.reference,
-      }));
+      // A reference the starting graph already had unresolved is the copilot's to carry, not to
+      // be retried over (D162) — the same rule as a validation problem.
+      const unresolved = checkReferences(interpreted.graph, nodes)
+        .filter((problem) => !options.tolerated.references.has(referenceKey(problem)))
+        .map((problem) => ({
+          code: "unresolved_reference" as const,
+          message: `{{${problem.reference}}}: ${problem.message}`,
+          nodeId: problem.nodeId,
+          reference: problem.reference,
+        }));
       attempts.push({ model: result.model, issues: unresolved, ms });
       if (unresolved.length === 0 || attempt === 1) return accept(interpreted, result, attempt === 0 ? 1 : 2);
 

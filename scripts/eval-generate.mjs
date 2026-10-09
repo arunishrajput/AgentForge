@@ -27,6 +27,12 @@
  *                                               rewrite its verdicts — after a deliberate change to
  *                                               the scorer or a case's expectations, never to hide one
  *
+ *   --edit                                      **the copilot's edits** (Phase 35) instead of
+ *                                               generation: `edit-cases.ts`, each a change to a
+ *                                               starting workflow, scored on what it kept and removed
+ *                                               as well. With --live it records `mode: "edit"`;
+ *                                               offline, every recording replays by its own mode
+ *
  * **Live runs spend real quota — run them sparingly, once per session** (`PROGRESS.md` →
  * *Operations*). The fallback chain is switched off for a live run, so every answer comes from the
  * model named and two runs are comparable; the model that answered is recorded per call anyway.
@@ -41,7 +47,8 @@ import { geminiModel, DEFAULT_MODEL } from "../src/lib/ai/gemini.ts";
 import { groqModel, GROQ_DEFAULT_MODEL } from "../src/lib/ai/groq.ts";
 import { describeNodes } from "../src/lib/nodes/index.ts";
 import { EVAL_CASES } from "../src/lib/generate/eval/cases.ts";
-import { recordingModel, replayCase, runCase } from "../src/lib/generate/eval/run.ts";
+import { EDIT_CASES } from "../src/lib/generate/eval/edit-cases.ts";
+import { recordingModel, replayCase, replayEditCase, runCase, runEditCase } from "../src/lib/generate/eval/run.ts";
 import { describeRequirement, requirementMet } from "../src/lib/generate/eval/score.ts";
 import { selectDeterministic, selectWithModel } from "../src/lib/generate/select.ts";
 
@@ -54,10 +61,14 @@ const option = (name, fallback) => {
   return index >= 0 && args[index + 1] && !args[index + 1].startsWith("--") ? args[index + 1] : fallback;
 };
 
+const editing = flag("edit");
+/** The case table a mode measures — generation's, or the copilot's (Phase 35). */
+const tableFor = (mode) => (mode === "edit" ? EDIT_CASES : EVAL_CASES);
 const only = option("case")?.split(",");
-const cases = only ? EVAL_CASES.filter((entry) => only.includes(entry.id)) : EVAL_CASES;
+const table = tableFor(editing ? "edit" : "create");
+const cases = only ? table.filter((entry) => only.includes(entry.id)) : table;
 if (only && cases.length !== only.length) {
-  console.error(`Unknown case in --case. Known: ${EVAL_CASES.map((entry) => entry.id).join(", ")}`);
+  console.error(`Unknown case in --case. Known: ${table.map((entry) => entry.id).join(", ")}`);
   process.exit(2);
 }
 
@@ -117,8 +128,10 @@ async function offline({ rescore = false } = {}) {
   let drift = 0;
   for (const file of files) {
     const recording = JSON.parse(readFileSync(path.join(RECORDINGS, file), "utf8"));
+    const edit = recording.mode === "edit";
+    const own = tableFor(recording.mode);
     const rows = [];
-    for (const evalCase of cases) {
+    for (const evalCase of only ? own.filter((entry) => only.includes(entry.id)) : own) {
       const recorded = recording.cases[evalCase.id];
       if (!recorded) continue;
       if (recorded.error) {
@@ -127,7 +140,8 @@ async function offline({ rescore = false } = {}) {
       }
       let replayed;
       try {
-        replayed = await replayCase(evalCase, recorded, generateOptionsFor(recording.selector, recorded));
+        const replay = edit ? replayEditCase : replayCase;
+        replayed = await replay(evalCase, recorded, generateOptionsFor(recording.selector, recorded));
       } catch (error) {
         // The pipeline now asks for a call the recording never made — it is stale, not failed.
         drift += 1;
@@ -147,7 +161,7 @@ async function offline({ rescore = false } = {}) {
     }
     if (rescore) writeFileSync(path.join(RECORDINGS, file), `${JSON.stringify(recording, null, 2)}\n`);
     report(
-      `${file} — ${recording.description} (${recording.provider} ${recording.model}, selector ${recording.selector}, ${recording.recordedAt.slice(0, 10)})`,
+      `${file} — ${edit ? "copilot edits: " : ""}${recording.description} (${recording.provider} ${recording.model}, selector ${recording.selector}, ${recording.recordedAt.slice(0, 10)})`,
       rows,
     );
   }
@@ -192,7 +206,10 @@ async function live() {
       ? groqModel({ apiKey: key, defaultModel: modelId, fallbacks: [], ignoreHealth: true, totalBudgetMs: 90_000, attemptTimeoutMs: 60_000 })
       : geminiModel({ apiKey: key, defaultModel: modelId, fallbacks: [], ignoreHealth: true, totalBudgetMs: 90_000, attemptTimeoutMs: 60_000 });
 
-  console.log(`Live: ${cases.length} cases on ${providerId} ${modelId}, selector ${selector}. This spends real quota.`);
+  console.log(
+    `Live: ${cases.length} ${editing ? "copilot edit" : "generation"} cases on ${providerId} ${modelId}, selector ${selector}. This spends real quota.`,
+  );
+  const run = editing ? runEditCase : runCase;
 
   const rows = [];
   const recorded = {};
@@ -206,7 +223,7 @@ async function live() {
       for (let attempt = 0; ; attempt += 1) {
         model = recordingModel(base);
         try {
-          outcome = await runCase(evalCase, { model, modelId, generateOptions: { catalogue: { strategy: selector } } });
+          outcome = await run(evalCase, { model, modelId, generateOptions: { catalogue: { strategy: selector } } });
           break;
         } catch (error) {
           if (attempt >= 2) throw error;
@@ -239,7 +256,7 @@ async function live() {
   }
   process.stdout.write("\n");
 
-  report(`Live — ${providerId} ${modelId}, selector ${selector}`, rows);
+  report(`Live — ${editing ? "copilot edits, " : ""}${providerId} ${modelId}, selector ${selector}`, rows);
 
   if (recordAs) {
     const file = path.join(RECORDINGS, `${recordAs}.json`);
@@ -248,7 +265,7 @@ async function live() {
       const existing = JSON.parse(readFileSync(file, "utf8"));
       Object.assign(existing.cases, recorded);
       existing.cases = Object.fromEntries(
-        EVAL_CASES.filter((entry) => existing.cases[entry.id]).map((entry) => [entry.id, existing.cases[entry.id]]),
+        tableFor(existing.mode).filter((entry) => existing.cases[entry.id]).map((entry) => [entry.id, existing.cases[entry.id]]),
       );
       writeFileSync(file, `${JSON.stringify(existing, null, 2)}\n`);
       console.log(`\nMerged ${cases.length} case(s) into ${path.relative(process.cwd(), file)}`);
@@ -256,6 +273,7 @@ async function live() {
     }
     const recording = {
       label: recordAs,
+      mode: editing ? "edit" : "create",
       description: option("description", `${selector} selector`),
       provider: providerId,
       model: modelId,
@@ -310,6 +328,13 @@ async function recall() {
     `\n  ${selector}: ${met}/${total} required nodes selected · ${(sizes / cases.length).toFixed(1)} selected a case` +
       (model ? ` · ${fellBack} fell back · ${Math.round(tokens / cases.length)} tokens a case for the selector` : ""),
   );
+}
+
+if (editing && flag("recall")) {
+  // An edit's selection is the instruction's plus every type already on the canvas — the recall the
+  // offline suite asserts for every edit case (`eval.test.ts`).
+  console.error("--recall measures generation's selector; an edit's selection is asserted offline by eval.test.ts.");
+  process.exit(2);
 }
 
 await (flag("live") ? live() : flag("recall") ? recall() : offline({ rescore: flag("rescore") }));

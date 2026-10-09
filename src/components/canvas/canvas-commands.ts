@@ -41,6 +41,12 @@ export function buildCanvasCommands({
     shortcuts: () => void;
     find: (id: string) => void;
     addNote: () => void;
+    /**
+     * Open the copilot — Phase 35. Given only to somebody who may edit, and kept while a copilot
+     * proposal is on screen (that is when a refinement is asked for); withheld while two versions
+     * are compared.
+     */
+    copilot?: () => void;
   };
 }): PaletteCommand[] {
   const hint = (action: ShortcutAction) => chordLabel(shortcutFor(action).chords[0], platform);
@@ -71,6 +77,16 @@ export function buildCanvasCommands({
         run: actions.addNote,
       },
     );
+  }
+  if (actions.copilot) {
+    canvas.push({
+      id: "canvas:copilot",
+      group,
+      title: "Ask the copilot for a change",
+      subtitle: "Describe it in plain words; review it as a diff before it applies",
+      keywords: ["copilot", "ai", "assistant", "edit", "change", "ask", "chat"],
+      run: actions.copilot,
+    });
   }
   canvas.push({
     id: "canvas:fit",
