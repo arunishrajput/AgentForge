@@ -1,4 +1,6 @@
 import type { ProviderSettings, ProviderState } from "@/lib/ai/settings";
+import type { RunFacts } from "@/lib/generate/evidence";
+import type { Diagnosis, Explanation } from "@/lib/generate/explain";
 import type { GenerationAttempt, GenerationIssue } from "@/lib/generate/generate";
 import type { ModelInfo } from "@/lib/ai/types";
 /**
@@ -102,6 +104,14 @@ export interface GenerationResponse {
   };
 }
 
+/** Which model answered a copilot ask, and what it cost. */
+export interface CopilotGeneration {
+  model: string;
+  source: "user" | "environment";
+  usage: { inputTokens: number; outputTokens: number; totalTokens: number } | null;
+  attempts: GenerationAttempt[];
+}
+
 /** CONTRACT.md → "Copilot request/response". Phase 35. Nothing in it has been applied or saved. */
 export interface CopilotResponse {
   proposal: {
@@ -110,12 +120,23 @@ export interface CopilotResponse {
     changes: DiffSummary;
     problems: GraphProblem[];
   };
-  generation: {
-    model: string;
-    source: "user" | "environment";
-    usage: { inputTokens: number; outputTokens: number; totalTokens: number } | null;
-    attempts: GenerationAttempt[];
-  };
+  generation: CopilotGeneration;
+}
+
+/** Phase 36 — *explain this workflow*. A walkthrough whose sentences cite node ids. */
+export interface ExplainResponse {
+  explanation: Explanation;
+  generation: CopilotGeneration;
+}
+
+/**
+ * Phase 36 — *why did this run fail?* The diagnosis, and the run's facts: which step failed and
+ * which already ran, so the canvas can offer the right way to run it again after a fix (D171).
+ */
+export interface DiagnoseResponse {
+  diagnosis: Diagnosis;
+  run: RunFacts;
+  generation: CopilotGeneration;
 }
 
 /** The `details` of a 422 from the generation route. */
@@ -230,6 +251,20 @@ export const api = {
     request<CopilotResponse>(`/api/workflows/${id}/copilot`, {
       method: "POST",
       body: JSON.stringify(body),
+    }),
+
+  /** Phase 36. Reads the canvas's graph; changes nothing. */
+  explainWorkflow: (id: string, graph: WorkflowGraph) =>
+    request<ExplainResponse>(`/api/workflows/${id}/copilot`, {
+      method: "POST",
+      body: JSON.stringify({ kind: "explain", graph }),
+    }),
+
+  /** Phase 36. The server reads the run itself; the graph is the canvas's, which a fix would change. */
+  diagnoseRun: (id: string, runId: string, graph: WorkflowGraph) =>
+    request<DiagnoseResponse>(`/api/workflows/${id}/copilot`, {
+      method: "POST",
+      body: JSON.stringify({ kind: "diagnose", runId, graph }),
     }),
 
   /** The whole graph goes in one PATCH — it is a single atomic row update (D14). */

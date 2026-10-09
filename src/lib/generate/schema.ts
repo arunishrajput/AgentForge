@@ -92,10 +92,39 @@ export const COPILOT_EARLIER_MAX = 10;
  * words; and, when refining a proposal, the instructions that proposal already reflects. Nothing
  * here is stored: the conversation is the canvas's own state (D164).
  */
-export const copilotRequestSchema = z.object({
+export const copilotEditSchema = z.object({
+  kind: z.literal("edit"),
   instruction: z.string().trim().min(1).max(2000),
   graph: workflowGraphSchema,
   earlier: z.array(z.string().trim().min(1).max(2000)).max(COPILOT_EARLIER_MAX).default([]),
 });
+
+/** **Phase 36: explain the workflow on the canvas.** Reads, changes nothing. */
+export const copilotExplainSchema = z.object({
+  kind: z.literal("explain"),
+  graph: workflowGraphSchema,
+});
+
+/**
+ * **Phase 36: why did this run fail?** The run is named, never sent: the server reads its record
+ * itself, behind the same visibility join as every run read (D101), so what the model is shown is
+ * the run's, bounded and scrubbed (`evidence.ts`). The graph is the canvas's — what a fix changes.
+ */
+export const copilotDiagnoseSchema = z.object({
+  kind: z.literal("diagnose"),
+  runId: z.string().trim().min(1).max(64),
+  graph: workflowGraphSchema,
+});
+
+/**
+ * One copilot, three asks. A body with no `kind` is an edit — the shape Phase 35 shipped, which
+ * every client it has sends — so the contract only grew. Discriminated, so a malformed body is
+ * reported against the shape it was trying to be.
+ */
+export const copilotRequestSchema = z.preprocess(
+  (body) =>
+    body !== null && typeof body === "object" && !Array.isArray(body) && !("kind" in body) ? { ...body, kind: "edit" } : body,
+  z.discriminatedUnion("kind", [copilotEditSchema, copilotExplainSchema, copilotDiagnoseSchema]),
+);
 
 export type CopilotRequest = z.infer<typeof copilotRequestSchema>;

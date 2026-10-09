@@ -22,3 +22,29 @@ export function prefersReducedMotion(): boolean {
 export function tweenMs(ms: number): number {
   return prefersReducedMotion() ? 0 : ms;
 }
+
+/** A screen rectangle — the part of a `DOMRect` the camera rule reads. */
+export interface Box {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
+
+/**
+ * **Whether every box is wholly inside the frame — Phase 36.** The camera moves to a step a copilot
+ * sentence cites only when it is out of sight; pressing sentence after sentence of a workflow already
+ * on screen should ring steps, not zoom the canvas about (found in the browser walk, D169). A box that
+ * could not be measured (`undefined`) counts as out of sight, so the camera goes and looks.
+ */
+export function allInFrame(boxes: readonly (Box | undefined)[], frame: Box | undefined): boolean {
+  if (!frame) return false;
+  return boxes.every(
+    (box) =>
+      box !== undefined &&
+      box.left >= frame.left &&
+      box.right <= frame.right &&
+      box.top >= frame.top &&
+      box.bottom <= frame.bottom,
+  );
+}

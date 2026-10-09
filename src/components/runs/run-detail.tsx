@@ -228,6 +228,18 @@ export function RunDetail({
               Stop
             </Button>
           )}
+          {/* Phase 36 (D170). On the canvas, not here: the answer can be a fix, and a fix is a
+              proposal — it needs the canvas to be shown as a diff and accepted on. */}
+          {canEdit && run.status === "failed" && (
+            <Link
+              href={`/workflows/${workflow.id}?diagnose=${encodeURIComponent(run.id)}`}
+              className="btn btn-quiet"
+              title="Opens the workflow with the copilot diagnosing this run"
+            >
+              <span aria-hidden="true">✦</span>
+              Why did this fail?
+            </Link>
+          )}
           <Link href={`/workflows/${workflow.id}`} className="btn btn-quiet">
             Open workflow
           </Link>

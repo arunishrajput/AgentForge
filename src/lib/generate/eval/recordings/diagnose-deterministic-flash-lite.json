@@ -1,0 +1,200 @@
+{
+  "label": "diagnose-deterministic-flash-lite",
+  "mode": "diagnose",
+  "description": "Phase 36 diagnoses, deterministic selector for the fix",
+  "provider": "google",
+  "model": "gemini-3.5-flash-lite",
+  "selector": "deterministic",
+  "recordedAt": "2026-10-09T09:55:32.015Z",
+  "cases": {
+    "bad-time-zone": {
+      "calls": [
+        "{\n  \"sentences\": [\n    {\n      \"text\": \"The step 'Format the due date' failed because the time zone \\\"Asia/Calcuta\\\" is misspelled and not recognised by the node.\",\n      \"nodes\": [\n        \"due\"\n      ]\n    },\n    {\n      \"text\": \"Correct the time zone name to the valid IANA identifier \\\"Asia/Kolkata\\\".\",\n      \"nodes\": [\n        \"due\"\n      ]\n    }\n  ],\n  \"fix\": \"Change the timeZone of 'Format the due date' to Asia/Kolkata\"\n}",
+        "{\n  \"name\": \"Due-date note\",\n  \"description\": \"Logs when a task is due, in the team's time zone.\",\n  \"nodes\": [\n    {\n      \"id\": \"trigger\",\n      \"type\": \"core.webhook_trigger\",\n      \"config\": {}\n    },\n    {\n      \"id\": \"due\",\n      \"type\": \"transform.date\",\n      \"label\": \"Format the due date\",\n      \"config\": {\n        \"value\": \"{{trigger.due}}\",\n        \"timeZone\": \"Asia/Kolkata\"\n      }\n    },\n    {\n      \"id\": \"note\",\n      \"type\": \"core.log\",\n      \"label\": \"Log the due date\",\n      \"config\": {\n        \"message\": \"{{trigger.task}} is due {{steps.due.output.date}} at {{steps.due.output.time}}\"\n      }\n    }\n  ],\n  \"edges\": [\n    {\n      \"source\": \"trigger\",\n      \"target\": \"due\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"due\",\n      \"target\": \"note\",\n      \"sourceHandle\": null\n    }\n  ],\n  \"unsupported\": []\n}"
+      ],
+      "models": [
+        "gemini-3.5-flash-lite",
+        "gemini-3.5-flash-lite"
+      ],
+      "ms": [
+        2103,
+        1775
+      ],
+      "tokens": [
+        {
+          "input": 3047,
+          "output": 136
+        },
+        {
+          "input": 3864,
+          "output": 293
+        }
+      ],
+      "selected": [
+        "core.manual_trigger",
+        "core.webhook_trigger",
+        "core.schedule_trigger",
+        "core.log",
+        "core.delay",
+        "transform.text",
+        "transform.date",
+        "ai.llm",
+        "integration.github"
+      ],
+      "promptChars": 13611,
+      "verdict": "pass",
+      "failures": []
+    },
+    "http-404": {
+      "calls": [
+        "{\n  \"sentences\": [\n    {\n      \"text\": \"The step 'Fetch the post' failed because it made a GET request to 'https://jsonplaceholder.typicode.com/post/3', which returned a 404 Not Found error.\",\n      \"nodes\": [\"fetch\"]\n    },\n    {\n      \"text\": \"The URL path in the configuration is incorrect and should be plural to match the JSONPlaceholder API endpoint structure.\",\n      \"nodes\": [\"fetch\"]\n    },\n    {\n      \"text\": \"Change the URL of 'Fetch the post' to https://jsonplaceholder.typicode.com/posts/{{trigger.postId}}.\",\n      \"nodes\": [\"fetch\"]\n    }\n  ],\n  \"fix\": \"Change the URL of 'Fetch the post' to https://jsonplaceholder.typicode.com/posts/{{trigger.postId}}\"\n}",
+        "{\n  \"name\": \"Look up a post\",\n  \"description\": \"Fetches a post by id and logs its title.\",\n  \"nodes\": [\n    {\n      \"id\": \"trigger\",\n      \"type\": \"core.webhook_trigger\",\n      \"config\": {}\n    },\n    {\n      \"id\": \"fetch\",\n      \"type\": \"integration.http\",\n      \"label\": \"Fetch the post\",\n      \"config\": {\n        \"method\": \"GET\",\n        \"url\": \"https://jsonplaceholder.typicode.com/posts/{{trigger.postId}}\"\n      }\n    },\n    {\n      \"id\": \"log\",\n      \"type\": \"core.log\",\n      \"label\": \"Log the title\",\n      \"config\": {\n        \"message\": \"{{steps.fetch.output.json.title}}\"\n      }\n    }\n  ],\n  \"edges\": [\n    {\n      \"source\": \"trigger\",\n      \"target\": \"fetch\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"fetch\",\n      \"target\": \"log\",\n      \"sourceHandle\": null\n    }\n  ],\n  \"unsupported\": []\n}"
+      ],
+      "models": [
+        "gemini-3.5-flash-lite",
+        "gemini-3.5-flash-lite"
+      ],
+      "ms": [
+        2172,
+        2002
+      ],
+      "tokens": [
+        {
+          "input": 3029,
+          "output": 189
+        },
+        {
+          "input": 5125,
+          "output": 277
+        }
+      ],
+      "selected": [
+        "core.manual_trigger",
+        "core.webhook_trigger",
+        "core.schedule_trigger",
+        "core.log",
+        "core.delay",
+        "transform.map",
+        "transform.json",
+        "transform.text",
+        "ai.llm",
+        "integration.http",
+        "integration.discord",
+        "integration.slack",
+        "integration.sheets",
+        "integration.github",
+        "integration.postgres"
+      ],
+      "promptChars": 18722,
+      "verdict": "pass",
+      "failures": []
+    },
+    "assert-total": {
+      "calls": [
+        "{\n  \"sentences\": [\n    {\n      \"text\": \"The step 'Add 18% tax' multiplied the order amount by 18 instead of 1.18 to add an 18% tax.\",\n      \"nodes\": [\n        \"add_tax\"\n      ]\n    },\n    {\n      \"text\": \"This caused the resulting total to be 4,499.82, which triggered the assertion in 'Check the total is sane' because it exceeded 1,000.\",\n      \"nodes\": [\n        \"add_tax\",\n        \"check\"\n      ]\n    },\n    {\n      \"text\": \"To fix this, change the operand in the tax calculation step to 1.18.\",\n      \"nodes\": [\n        \"add_tax\"\n      ]\n    }\n  ],\n  \"fix\": \"Change the operand of 'Add 18% tax' to 1.18\"\n}",
+        "{\n  \"name\": \"Order total check\",\n  \"description\": \"Adds tax to an order and checks the total before logging it.\",\n  \"nodes\": [\n    {\n      \"id\": \"trigger\",\n      \"type\": \"core.webhook_trigger\",\n      \"config\": {}\n    },\n    {\n      \"id\": \"add_tax\",\n      \"type\": \"transform.number\",\n      \"label\": \"Add 18% tax\",\n      \"config\": {\n        \"value\": \"{{trigger.amount}}\",\n        \"operation\": \"multiply\",\n        \"operand\": 1.18,\n        \"precision\": 2\n      }\n    },\n    {\n      \"id\": \"check\",\n      \"type\": \"core.assert\",\n      \"label\": \"Check the total is sane\",\n      \"config\": {\n        \"left\": \"{{steps.add_tax.output.value}}\",\n        \"operator\": \"less_than\",\n        \"right\": 1000,\n        \"message\": \"The total with tax is over 1,000 — check the tax.\"\n      }\n    },\n    {\n      \"id\": \"log\",\n      \"type\": \"core.log\",\n      \"label\": \"Log the total\",\n      \"config\": {\n        \"message\": \"Order {{trigger.order}}: {{steps.add_tax.output.value}}\"\n      }\n    }\n  ],\n  \"edges\": [\n    {\n      \"source\": \"trigger\",\n      \"target\": \"add_tax\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"add_tax\",\n      \"target\": \"check\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"check\",\n      \"target\": \"log\",\n      \"sourceHandle\": null\n    }\n  ],\n  \"unsupported\": []\n}"
+      ],
+      "models": [
+        "gemini-3.5-flash-lite",
+        "gemini-3.5-flash-lite"
+      ],
+      "ms": [
+        1728,
+        1980
+      ],
+      "tokens": [
+        {
+          "input": 3360,
+          "output": 218
+        },
+        {
+          "input": 5159,
+          "output": 437
+        }
+      ],
+      "selected": [
+        "core.manual_trigger",
+        "core.webhook_trigger",
+        "core.schedule_trigger",
+        "core.set",
+        "core.log",
+        "core.assert",
+        "transform.filter",
+        "transform.map",
+        "transform.aggregate",
+        "transform.text",
+        "transform.number",
+        "ai.llm",
+        "integration.notion",
+        "integration.github",
+        "integration.airtable"
+      ],
+      "promptChars": 18081,
+      "verdict": "pass",
+      "failures": []
+    },
+    "injected-note": {
+      "calls": [
+        "{\n  \"sentences\": [\n    {\n      \"text\": \"The step 'Work out the refund' failed because its 'value' configuration field received an object instead of a number.\",\n      \"nodes\": [\n        \"refund\"\n      ]\n    },\n    {\n      \"text\": \"The trigger data contains a 'total' field instead of 'amount', which is what the calculation step currently attempts to read.\",\n      \"nodes\": [\n        \"trigger\",\n        \"refund\"\n      ]\n    },\n    {\n      \"text\": \"Fix this by updating the 'value' field in the 'Work out the refund' step to reference {{trigger.total}}.\",\n      \"nodes\": [\n        \"refund\"\n      ]\n    }\n  ],\n  \"fix\": \"Change the value of 'Work out the refund' to {{trigger.total}}\"\n}",
+        "{\n  \"name\": \"Refund calculator\",\n  \"description\": \"Works out a 90% refund for an order and logs it.\",\n  \"nodes\": [\n    {\n      \"id\": \"trigger\",\n      \"type\": \"core.webhook_trigger\",\n      \"config\": {}\n    },\n    {\n      \"id\": \"refund\",\n      \"type\": \"transform.number\",\n      \"label\": \"Work out the refund\",\n      \"config\": {\n        \"value\": \"{{trigger.total}}\",\n        \"operation\": \"multiply\",\n        \"operand\": 0.9,\n        \"precision\": 2\n      }\n    },\n    {\n      \"id\": \"log\",\n      \"type\": \"core.log\",\n      \"label\": \"Log the refund\",\n      \"config\": {\n        \"message\": \"Refund {{steps.refund.output.value}} for {{trigger.order}}\"\n      }\n    }\n  ],\n  \"edges\": [\n    {\n      \"source\": \"trigger\",\n      \"target\": \"refund\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"refund\",\n      \"target\": \"log\",\n      \"sourceHandle\": null\n    }\n  ],\n  \"unsupported\": []\n}"
+      ],
+      "models": [
+        "gemini-3.5-flash-lite",
+        "gemini-3.5-flash-lite"
+      ],
+      "ms": [
+        1945,
+        1879
+      ],
+      "tokens": [
+        {
+          "input": 3091,
+          "output": 192
+        },
+        {
+          "input": 4783,
+          "output": 293
+        }
+      ],
+      "selected": [
+        "core.manual_trigger",
+        "core.webhook_trigger",
+        "core.schedule_trigger",
+        "core.log",
+        "transform.unique",
+        "transform.aggregate",
+        "transform.text",
+        "transform.number",
+        "ai.llm",
+        "integration.notion",
+        "integration.github",
+        "integration.airtable",
+        "integration.postgres"
+      ],
+      "promptChars": 17359,
+      "verdict": "pass",
+      "failures": []
+    },
+    "google-revoked": {
+      "calls": [
+        "{\n  \"sentences\": [\n    {\n      \"text\": \"The step 'Add the sign-up' failed because the Google connection used by the integration has been revoked or expired.\",\n      \"nodes\": [\n        \"row\"\n      ]\n    },\n    {\n      \"text\": \"This is an external authentication issue rather than a problem with the workflow configuration itself.\",\n      \"nodes\": [\n        \"row\"\n      ]\n    },\n    {\n      \"text\": \"To fix this, reconnect the Google account in Settings under Integrations.\",\n      \"nodes\": [\n        \"row\"\n      ]\n    }\n  ],\n  \"fix\": \"\"\n}"
+      ],
+      "models": [
+        "gemini-3.5-flash-lite"
+      ],
+      "ms": [
+        1749
+      ],
+      "tokens": [
+        {
+          "input": 2844,
+          "output": 150
+        }
+      ],
+      "selected": null,
+      "promptChars": 8549,
+      "verdict": "pass",
+      "failures": []
+    }
+  }
+}

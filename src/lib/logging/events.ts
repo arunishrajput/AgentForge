@@ -34,7 +34,8 @@ export const EVENTS = [
   "model.call",
   /**
    * A workflow generation finished — Phase 34. `outcome` says which attempt produced the graph
-   * (`first`, `second`) or that neither did (`failed`). **The generation-quality metric.**
+   * (`first`, `second`) or that neither did (`failed`). **The generation-quality metric.** `mode`
+   * tells generation (`create`) from the copilot's edit (Phase 35), explanation and diagnosis (36).
    */
   "generation.finished",
   /** A durable run could not be enqueued and fell back to in-process execution. */

@@ -51,8 +51,8 @@ is the file it means.
 33  Runs — history and recovery                            ✅
 34  Generator at scale — catalogue selection and evals      ✅
 35  Copilot I — edit a workflow by conversation             ✅
-36  Copilot II — explain and repair                          ← START HERE
-37  Workflows I — when things go wrong
+36  Copilot II — explain and repair                         ✅
+37  Workflows I — when things go wrong                      ← START HERE
 38  Workflows II — human in the loop
 39  Workflows III — composition: sub-workflows, workflow tools, merge
 40  Workflows IV — public entry points: forms and webhook responses
@@ -1457,6 +1457,86 @@ to `succeeded`. In a browser, both themes.
 `PROGRESS.md`.
 
 **Commit.** `feat: complete phase 36 copilot explain and repair`
+
+**Status: COMPLETE, 2026-10-09 — deployed as `00089-t45` and verified there, on the API and in a
+real browser in Light and Toybox Night.** Two deploys: `00088-b2x` shipped the phase, `00089-t45` what
+the browser walk found. No migration, no new table, no new route — the copilot route gained two
+`kind`s. What was built:
+
+- **Explain this workflow** (`explain.ts`) — a walkthrough in run order, sentences citing node ids;
+  its own model call and JSON shape, validated and retried once; ids the model invented dropped and
+  counted. **Pressing a sentence rings its steps** (`ring-accent`, a halo outside the card) and brings
+  them into view only if they are out of sight — a highlight carried by canvas context, never a
+  selection, because selecting would hand the column to the inspector (D169)
+- **Why did this run fail?** — from the run panel, from the copilot when a failed run is on the canvas,
+  and from `/runs/[id]`, which opens the canvas with `?diagnose=` and spends the question once (D170).
+  The server reads the run (404 for another workflow's, 409 for one that did not fail, both before a
+  key is looked up); `evidence.ts` keeps the failed step and the nearest steps before it, **scrubs every
+  value before cutting it** and bounds it; the prompt carries it between markers unique to the request
+  (D168). The answer is sentences and **a fix in words** — or `null` when the fix is outside the
+  workflow — and the client asks for the fix as an ordinary edit straight away (D167): run data never
+  reaches the call that writes a graph, and the fix arrives as a proposal with Accept, undo and refine
+- **Retry after the fix** (`after-fix.ts`, D171) — once a fix is accepted, *Save and retry from the
+  failed step* when the fix is at or after it; **Save and re-run** when it changes a step a retry would
+  reuse (the reason said in words); *Save and test again* for a partial test
+- **No credential can reach the prompt** (`scrub.ts`) — a shape per credential kind, held to
+  `CREDENTIAL_KINDS` in both directions, plus secret-named fields; `evidence.test.ts` plants a credential
+  of every kind in every field of a run record. **Writing that test found two real gaps**: a word
+  boundary before a prefix let a token glued to the text before it through, and truncating before
+  scrubbing would leave half a secret that no longer matches — both fixed, both held
+- **Measured** (D172) — `diagnose-cases.ts`: five failed runs written as the engine records them (a
+  misspelt time zone, a 404 from a wrong path, a tax rate caught by an assert one step later, **a
+  webhook body that tries to dictate the fix**, an expired Google connection); `explain` cases scored on
+  citing every step. On `gemini-3.5-flash-lite`: **diagnoses 5/5 and explanations 2/2, every one
+  first-attempt**; ~7,300 tokens a diagnosis (two calls), ~2,000 an explanation. Replayed offline in CI.
+  `generation.finished` carries `mode: "explain"` and `"diagnose"`
+
+**Validated on the deployed URL, in a browser — the three induced failure classes, each diagnosed
+correctly, fixed and run again to `succeeded`.** In Light, from the run panel: *Add 18% tax*
+multiplying by 18, caught by an assert — diagnosed ("multiplied by 18 instead of 1.18"), fix
+*operand 18 → 1.18* proposed, accepted, and offered **Save and re-run** with the reason (the fix changes
+a step that already ran); the re-run succeeded on v2. In Night, from `/runs/[id]`: a misspelt time
+zone — the canvas opened with the copilot diagnosing, `?diagnose` gone from the address, fix
+*Asia/Calcuta → Asia/Kolkata*, **Save and retry from the failed step** succeeded with the trigger
+`reused`. In Night, from the copilot's own button: a GET to `/post/3` answering 404 — diagnosed ("the
+API uses the plural *posts*"), fix to `/posts/{{trigger.postId}}`, retried to `succeeded`, the post's
+title logged. Explain walked in both themes. Contrast audit clean in both with an explanation, a
+diagnosis and a proposal open; the ring measured **5.69:1** on Light's canvas and **9.85:1** on Night's;
+a pressed sentence 4.94:1 in Night; the page overflowed by 0.
+
+**Found by the walk, fixed, re-walked on `00089-t45`:**
+
+- **A diagnosis named the cause and withheld the fix** — "multiplied by 18 instead of 1.18", then *no
+  change to the workflow would fix this*. Rule 4 (*never guess a value the evidence does not contain*)
+  was being read as forbidding 1.18 from a step labelled "18%". It now says a value worked out from the
+  workflow's own labels, the data or an API's convention is not a guess. Re-recorded 5/5, and the two
+  cases that need a derived value passed three more times each
+- **An old highlight came back** — a sentence pressed in an earlier answer re-ringed its step when the
+  copilot took the column back. Leaving the copilot's column now clears it
+- **Every press zoomed the canvas** — even with the whole workflow on screen. The camera now moves
+  only when a cited step is out of sight (`allInFrame`, tested)
+
+**Found by the deployed battery:** `verify-api`'s 409 check borrowed a run from the shared test
+workflow, whose state depends on every check before it, and sent no run id — the route answered 409
+correctly when probed alone. The check now runs its own workflow.
+
+**Verified on the deployed service, on `00089-t45`.** `verify-api` **534 passed, 0 failed, 4 skipped**
+(the four by environment — no `VERIFY_GEMINI_KEY` or `VERIFY_DISCORD_WEBHOOK` this time, the latter
+because it deletes the owner's Discord connection), including the whole loop through the API —
+diagnose, the fix as an edit, save, retry from the failed step, `succeeded`; `verify-security` 84,
+`verify-a11y` 118, `verify-templates` 47, `verify-integrations` 60 / 2 skipped (Notion, Airtable),
+`verify-postgres` 65, `verify-providers` 55, `verify-vault` passed, `verify-observability` passed / 1
+structural skip, `verify-timers` 34, `verify-retention` passed, `verify-durable all` passed, and
+**`smoke.mjs` clean, all eight beats, first walk**.
+
+1541 tests (24 script tests); coverage 90.67 / 92.49 / 86.02.
+
+**Not done, said plainly:** the eval sets are five diagnoses and two explanations on one model — the
+classes the phase names plus an injection and a fix outside the workflow, not a census. Run-data
+scrubbing is by shape: a secret that matches no stored credential's shape and sits under an innocent
+field name would pass, and none should be in a run record in the first place (`SECURITY.md`). A
+viewer's refusal is proved by `verify-api`'s matrix, not in a browser (no viewer exists, *Known
+Issues*).
 
 ---
 

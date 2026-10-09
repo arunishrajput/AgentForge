@@ -1,21 +1,24 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { Textarea } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
+import type { AfterFix } from "@/lib/canvas/after-fix";
 import { changeLook } from "@/lib/canvas/changes";
 import type { DiffSummary, NodeChange } from "@/lib/canvas/client";
-import type { ProposalOutcome, Turn } from "@/lib/canvas/copilot";
+import type { CopilotTask, ProposalOutcome, Turn } from "@/lib/canvas/copilot";
 import type { ChangeKind, ChangeLine } from "@/lib/canvas/proposal";
 import { shortcutFor } from "@/lib/canvas/shortcuts";
+import type { Sentence } from "@/lib/generate/explain";
+import { shortRunId } from "@/lib/runs/words";
 import { chordLabel, type Platform } from "@/lib/ui/keys";
 
 import { Panel } from "./panel";
-import type { Copilot } from "./use-copilot";
+import type { Copilot, Highlight } from "./use-copilot";
 
 /**
  * **The copilot — `BUILD_PLAN.md` Phase 35, task 1.** A conversation about the workflow on the
@@ -33,6 +36,13 @@ import type { Copilot } from "./use-copilot";
  * Everything the copilot says is rendered as text. A proposal is described in words — every node it
  * adds with the values it sets, every value it changes before and after — because "Changed:
  * configuration" on a ribbon does not say what Accept would do (`lib/canvas/proposal.ts`).
+ *
+ * **Phase 36** adds two answers that change nothing — *explain this workflow* and *why did this run
+ * fail?* — as sentences you can press: a pressed sentence rings the steps it is about on the canvas
+ * and brings them into view (D169). It is a highlight and not a selection, because selecting a node
+ * gives this column back to the inspector (D161) and the sentence would vanish under the click. A
+ * diagnosis's fix is drafted straight away as an ordinary proposal; once accepted, it offers the
+ * right way to run the failed run again — retry from the failed step, or re-run (D171).
  */
 
 /** The composer's id, which the editor focuses when the copilot is opened from the toolbar or ⌘K. */
@@ -66,6 +76,9 @@ export function CopilotPanel({
   onAccept,
   comparingVersions,
   platform,
+  failedRun,
+  onFollowFix,
+  nameOf,
 }: {
   id: string;
   open: boolean;
@@ -81,6 +94,12 @@ export function CopilotPanel({
   /** A version comparison is on the canvas — the copilot waits until it is closed. */
   comparingVersions: boolean;
   platform: Platform;
+  /** Phase 36: the failed run on the canvas, which *Why did this fail?* is about. Null when none is. */
+  failedRun: { id: string } | null;
+  /** Phase 36: save the canvas and run the fixed run again — retry or re-run, as `next` says. */
+  onFollowFix: (turnId: number, runId: string, next: AfterFix) => void;
+  /** A node's name as the canvas shows it. */
+  nameOf: (nodeId: string) => string;
 }) {
   const { state, busy, draft, setDraft } = copilot;
   const proposal = state.proposal;
@@ -102,6 +121,8 @@ export function CopilotPanel({
   };
 
   const undoKeys = chordLabel(shortcutFor("undo").chords[0], platform);
+  /** Explain and diagnose wait for a proposal to be decided, and for anything in flight. */
+  const reading = busy || proposal !== null || comparingVersions;
 
   return (
     <Panel
@@ -136,7 +157,8 @@ export function CopilotPanel({
               </p>
               <p className="text-muted text-2xs leading-relaxed">
                 The copilot proposes it on the canvas as a diff. Nothing changes until you accept it, and
-                an accepted change is one step of undo and not saved until you save.
+                an accepted change is one step of undo and not saved until you save. It can also explain
+                the workflow, and say why a run failed.
               </p>
               <div className="flex flex-wrap gap-1.5">
                 {EXAMPLES.map((example) => (
@@ -167,6 +189,10 @@ export function CopilotPanel({
                 onAccept={onAccept}
                 onReject={copilot.reject}
                 acting={busy}
+                highlight={copilot.highlight}
+                onHighlight={copilot.setHighlight}
+                onFollowFix={onFollowFix}
+                nameOf={nameOf}
               />
             </li>
           ))}
@@ -179,6 +205,22 @@ export function CopilotPanel({
           }}
           className="border-line shrink-0 space-y-2 border-t-2 p-3"
         >
+          {!proposal && (
+            // The two asks that change nothing (Phase 36). Buttons, not phrases to type: typed text is
+            // always a change, so "explain this" in the composer would be read as an edit.
+            <div className="flex flex-wrap gap-1.5">
+              <Button size="sm" disabled={reading} onClick={() => void copilot.explain()}>
+                <span aria-hidden="true">✦</span>
+                Explain this workflow
+              </Button>
+              {failedRun && (
+                <Button size="sm" disabled={reading} onClick={() => void copilot.diagnose(failedRun.id)}>
+                  <span aria-hidden="true">?</span>
+                  Why did run {shortRunId(failedRun.id)} fail?
+                </Button>
+              )}
+            </div>
+          )}
           <label htmlFor={COPILOT_COMPOSER} className="eyebrow block">
             {proposal ? "Refine the proposal" : "Ask for a change"}
           </label>
@@ -230,6 +272,10 @@ function TurnView({
   onAccept,
   onReject,
   acting,
+  highlight,
+  onHighlight,
+  onFollowFix,
+  nameOf,
 }: {
   turn: Turn;
   undoKeys: string;
@@ -237,6 +283,10 @@ function TurnView({
   onReject: () => void;
   /** A refine is in flight: the open proposal cannot be accepted or rejected until it lands. */
   acting: boolean;
+  highlight: Highlight | null;
+  onHighlight: (highlight: Highlight | null) => void;
+  onFollowFix: (turnId: number, runId: string, next: AfterFix) => void;
+  nameOf: (nodeId: string) => string;
 }) {
   if (turn.from === "you") {
     return (
@@ -249,7 +299,39 @@ function TurnView({
 
   switch (turn.state) {
     case "thinking":
-      return <Thinking startedAt={turn.startedAt} />;
+      return <Thinking startedAt={turn.startedAt} task={turn.task} />;
+    case "explanation":
+      return (
+        <section aria-label="Explanation of the workflow" className="card space-y-2 p-3">
+          <p className="text-ui font-bold">{turn.summary}</p>
+          <Sentences turn={turn.id} sentences={turn.sentences} highlight={highlight} onHighlight={onHighlight} />
+          <PressHint sentences={turn.sentences} />
+        </section>
+      );
+    case "diagnosis":
+      return (
+        <section aria-label={`Why run ${shortRunId(turn.runId)} failed`} className="card space-y-2.5 p-3">
+          <p className="text-ui font-bold">Why run {shortRunId(turn.runId)} failed</p>
+          <Sentences turn={turn.id} sentences={turn.sentences} highlight={highlight} onHighlight={onHighlight} />
+          {turn.fix ? (
+            <div className="space-y-1">
+              <p className="eyebrow">The fix, in words</p>
+              <blockquote className="border-line bg-sunken rounded-lg border-2 px-2.5 py-1.5 text-2xs leading-relaxed break-words">
+                {turn.fix}
+              </blockquote>
+            </div>
+          ) : (
+            <p className="text-muted text-2xs leading-relaxed">
+              No change to the workflow would fix this, as far as the copilot can tell — the diagnosis says
+              what to do instead.
+            </p>
+          )}
+          <p className="text-muted text-3xs leading-relaxed">
+            Read from the run&rsquo;s record, which is treated as data: text from outside — a webhook body, a
+            service&rsquo;s answer — cannot instruct the copilot, and nothing changes until you accept.
+          </p>
+        </section>
+      );
     case "failed":
       return (
         <Notice
@@ -298,13 +380,30 @@ function TurnView({
           onAccept={onAccept}
           onReject={onReject}
           acting={acting}
+          after={
+            turn.fix && turn.outcome === "accepted" ? (
+              <AfterFixView
+                fix={turn.fix}
+                nameOf={nameOf}
+                onFollow={() => turn.fix && onFollowFix(turn.id, turn.fix.runId, turn.fix.next)}
+              />
+            ) : null
+          }
         />
       );
   }
 }
 
+/** What each kind of ask is doing while it waits. */
+const DOING: Record<CopilotTask, string> = {
+  edit: "Drafting a change, then validating it against the registry.",
+  fix: "Drafting the fix, then validating it against the registry.",
+  explain: "Reading the workflow.",
+  diagnose: "Reading the run's record and the workflow.",
+};
+
 /** The wait, with an honest clock — the generation form's treatment, for the same reason. */
-function Thinking({ startedAt }: { startedAt: number }) {
+function Thinking({ startedAt, task }: { startedAt: number; task: CopilotTask }) {
   const [now, setNow] = useState(startedAt);
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 100);
@@ -315,7 +414,7 @@ function Thinking({ startedAt }: { startedAt: number }) {
       <div className="sweep-bar h-1.5" aria-hidden="true" />
       <div className="flex items-baseline justify-between gap-3">
         <p className="text-muted text-2xs" role="status">
-          Drafting a change, then validating it against the registry.
+          {DOING[task]}
         </p>
         <span className="text-muted shrink-0 font-mono text-2xs tabular-nums">
           {(Math.max(0, now - startedAt) / 1000).toFixed(1)}s
@@ -355,6 +454,7 @@ function ProposalView({
   onAccept,
   onReject,
   acting,
+  after,
 }: {
   summary: DiffSummary;
   lines: ChangeLine[];
@@ -365,6 +465,8 @@ function ProposalView({
   onAccept: () => void;
   onReject: () => void;
   acting: boolean;
+  /** Phase 36: what comes after an accepted fix — the way to run the failed run again. */
+  after: ReactNode;
 }) {
   const open = outcome === "open";
   return (
@@ -411,7 +513,93 @@ function ProposalView({
             : OUTCOME[outcome]}
         </p>
       )}
+      {after}
     </section>
+  );
+}
+
+/**
+ * A walkthrough's sentences, each a toggle that rings its steps on the canvas (D169). A sentence
+ * citing no step is plain text: there is nothing for it to show.
+ */
+function Sentences({
+  turn,
+  sentences,
+  highlight,
+  onHighlight,
+}: {
+  turn: number;
+  sentences: Sentence[];
+  highlight: Highlight | null;
+  onHighlight: (highlight: Highlight | null) => void;
+}) {
+  return (
+    <ol className="-mx-1 space-y-0.5">
+      {sentences.map((sentence, index) => {
+        const pressed = highlight?.turn === turn && highlight.index === index;
+        return (
+          <li key={index}>
+            {sentence.nodes.length > 0 ? (
+              <button
+                type="button"
+                aria-pressed={pressed}
+                onClick={() => onHighlight(pressed ? null : { turn, index, nodes: sentence.nodes })}
+                className={cn(
+                  "w-full rounded-lg border-2 px-1.5 py-1 text-left text-sm leading-relaxed transition-colors duration-100",
+                  pressed ? "border-line bg-accent-pop text-accent-ink" : "hover:bg-sunken border-transparent",
+                )}
+              >
+                {sentence.text}
+              </button>
+            ) : (
+              <p className="px-1.5 py-1 text-sm leading-relaxed">{sentence.text}</p>
+            )}
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+function PressHint({ sentences }: { sentences: Sentence[] }) {
+  if (!sentences.some((sentence) => sentence.nodes.length > 0)) return null;
+  return <p className="text-muted text-3xs">Press a sentence to find its steps on the canvas.</p>;
+}
+
+/**
+ * After a fix is accepted: save it and run the failed run again, the way that will actually run the
+ * fix (`after-fix.ts`, D171). A retry reuses the steps that finished; when the fix changed one of
+ * those, it says so and offers a re-run instead.
+ */
+function AfterFixView({
+  fix,
+  nameOf,
+  onFollow,
+}: {
+  fix: { runId: string; next: AfterFix; followed: boolean };
+  nameOf: (nodeId: string) => string;
+  onFollow: () => void;
+}) {
+  if (fix.followed) {
+    return <p className="text-muted text-2xs leading-relaxed">Saved and started again — it streams on the canvas.</p>;
+  }
+  const { next } = fix;
+  const names = next.kind === "rerun" ? next.nodes.map((id) => `‘${nameOf(id)}’`).join(", ") : "";
+  return (
+    <div className="border-line-soft space-y-2 border-t pt-2.5">
+      {next.kind === "rerun" && (
+        <p className="text-muted text-2xs leading-relaxed">
+          {next.why === "test"
+            ? "That run was a test of part of the workflow, so it is tested again rather than retried."
+            : next.why === "gone"
+              ? `The step it failed at, ${names}, is no longer in the workflow, so there is nothing to retry from. A re-run starts again from the trigger.`
+              : `The fix changes ${names}, which already ran. A retry reuses what finished steps produced, so it would fail the same way — a re-run starts again from the trigger, and repeats any step that sends or posts.`}
+        </p>
+      )}
+      <Button tone="primary" size="sm" onClick={onFollow}>
+        {next.kind === "retry" ? "Save and retry from the failed step" : next.why === "test" ? "Save and test again" : "Save and re-run"}
+      </Button>
+    </div>
   );
 }
 

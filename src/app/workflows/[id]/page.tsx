@@ -69,13 +69,19 @@ export async function generateMetadata({
  */
 export default async function WorkflowPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  /** Phase 36: `?diagnose=<run>` — `/runs/[id]`'s *Why did this fail?* (D170). */
+  searchParams: Promise<{ diagnose?: string | string[] }>;
 }) {
   const session = await auth();
   if (!session?.user?.id) redirect("/");
 
   const { id } = await params;
+  const { diagnose } = await searchParams;
+  // A run id's shape, or nothing: the value is handed to the canvas, which asks the API about it.
+  const diagnoseRunId = typeof diagnose === "string" && /^[A-Za-z0-9-]{1,64}$/.test(diagnose) ? diagnose : null;
 
   // The try guards the loads and nothing else. JSX built inside a try/catch looks
   // guarded and is not — React renders it after this function has returned, so a
@@ -145,6 +151,7 @@ export default async function WorkflowPage({
       // what the canvas draws; every control it hides is separately refused by the API.
       role={loaded.scope.role}
       viewerUserId={session.user.id}
+      diagnoseRunId={diagnoseRunId}
     />
   );
 }

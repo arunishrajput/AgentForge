@@ -87,6 +87,13 @@ export interface CanvasContextValue {
   /** How each note differs between the two versions compared — `diffStates` for notes. */
   noteDiffStates: Map<string, NoteDiff>;
   notes: NoteControls;
+  /**
+   * **The steps a pressed copilot sentence is about — Phase 36 (D169).** Ringed on the canvas, and
+   * by context for the reason everything here is: a highlight is not part of the graph, and it is
+   * deliberately not a selection — selecting a node gives the copilot's column to the inspector.
+   * Optional, because only the editor's canvas has a copilot.
+   */
+  highlighted?: ReadonlySet<string>;
 }
 
 export const CanvasContext = createContext<CanvasContextValue>({

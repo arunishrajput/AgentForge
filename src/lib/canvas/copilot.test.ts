@@ -6,13 +6,17 @@ import { describeNodes } from "@/lib/nodes";
 import { diffGraphs } from "@/lib/workflow/diff";
 import { GRAPH_VERSION, type WorkflowGraph } from "@/lib/workflow/graph";
 
-import type { CopilotResponse } from "./client";
+import type { CopilotResponse, DiagnoseResponse, ExplainResponse } from "./client";
 import {
   EMPTY_COPILOT,
   accept,
   answered,
   ask,
+  askAbout,
+  diagnosed,
+  explained,
   failed,
+  followed,
   opened,
   reject,
   setAside,
@@ -189,4 +193,116 @@ test("a restored version sets aside whatever was open or in flight, and says why
   // A late answer to a set-aside question changes nothing.
   assert.equal(answered(inFlight, response(withSlack("Hi")), CANVAS, registry), inFlight);
   assert.equal(setAside(EMPTY_COPILOT, "restored"), EMPTY_COPILOT);
+});
+
+// Phase 36 — explain, diagnose, and a diagnosis's fix.
+
+const EXPLAINED: ExplainResponse = {
+  explanation: {
+    summary: "Logs a greeting when somebody presses Run.",
+    sentences: [
+      { text: "A person presses Run.", nodes: ["trigger"] },
+      { text: "'Log' writes hi.", nodes: ["log"] },
+    ],
+  },
+  generation: { model: "m", source: "user", usage: null, attempts: [] },
+};
+
+function diagnosis(fix: string | null): DiagnoseResponse {
+  return {
+    diagnosis: { sentences: [{ text: "'Log' was given nothing to write.", nodes: ["log"] }], fix },
+    run: { id: "run-1", failedNodeId: "log", ran: ["trigger"], partialTest: false },
+    generation: { model: "m", source: "user", usage: null, attempts: [] },
+  };
+}
+
+test("explain is asked from a button: the label is the question, and the answer is sentences that cite steps", () => {
+  const started = askAbout(EMPTY_COPILOT, { kind: "explain" }, "Explain this workflow", CANVAS, 5);
+  assert.ok(started);
+  assert.deepEqual(started.request, { kind: "explain" });
+  assert.deepEqual(
+    started.state.turns.map((turn) => (turn.from === "you" ? turn.text : `${turn.state}:${turn.state === "thinking" ? turn.task : ""}`)),
+    ["Explain this workflow", "thinking:explain"],
+  );
+  // An answer that changes nothing is shown even if the canvas moved meanwhile.
+  const next = explained(started.state, EXPLAINED);
+  const turn = last(next);
+  assert.ok(turn.from === "copilot" && turn.state === "explanation");
+  assert.equal(turn.summary, "Logs a greeting when somebody presses Run.");
+  assert.deepEqual(turn.sentences[1].nodes, ["log"]);
+  assert.equal(next.pending, null);
+  assert.equal(next.proposal, null);
+});
+
+test("explain and diagnose wait for an open proposal to be decided, and for any answer in flight", () => {
+  const { state } = asking(EMPTY_COPILOT, "Also post to Slack");
+  assert.equal(askAbout(state, { kind: "explain" }, "Explain", CANVAS, 1), null, "in flight");
+  const open = answered(state, response(withSlack("Hi")), CANVAS, registry);
+  assert.equal(askAbout(open, { kind: "diagnose", runId: "r" }, "Why?", CANVAS, 1), null, "a proposal is open");
+});
+
+test("each answer goes only to the ask it answers", () => {
+  const explaining = askAbout(EMPTY_COPILOT, { kind: "explain" }, "Explain", CANVAS, 1)!.state;
+  assert.equal(diagnosed(explaining, diagnosis("x")).state, explaining);
+  assert.equal(answered(explaining, response(withSlack("Hi")), CANVAS, registry), explaining);
+  const editing = asking(EMPTY_COPILOT, "Also post to Slack").state;
+  assert.equal(explained(editing, EXPLAINED), editing);
+});
+
+test("a diagnosis with a fix is shown, and hands back the fix to ask for — quietly, remembering the run", () => {
+  const started = askAbout(EMPTY_COPILOT, { kind: "diagnose", runId: "run-1" }, "Why did run run-1 fail?", CANVAS, 5)!;
+  const { state, fix } = diagnosed(started.state, diagnosis("Change the message of 'Log' to hello"));
+  const turn = last(state);
+  assert.ok(turn.from === "copilot" && turn.state === "diagnosis");
+  assert.equal(turn.fix, "Change the message of 'Log' to hello");
+  assert.ok(fix);
+  assert.equal(fix.text, "Change the message of 'Log' to hello");
+
+  // The copilot asks for the fix itself: no "you" turn — the diagnosis already says it in words.
+  const chained = ask(state, fix.text, CANVAS, 6, fix.fixes)!;
+  assert.deepEqual(chained.request, { instruction: "Change the message of 'Log' to hello", graph: CANVAS, earlier: [] });
+  assert.deepEqual(
+    chained.state.turns.map((entry) => (entry.from === "you" ? "you" : entry.state === "thinking" ? `thinking:${entry.task}` : entry.state)),
+    ["you", "diagnosis", "thinking:fix"],
+  );
+
+  // Its proposal is an ordinary one that also knows how to run the run again once accepted.
+  const fixedGraph: WorkflowGraph = { ...CANVAS, nodes: [CANVAS.nodes[0], { ...CANVAS.nodes[1], config: { message: "hello" } }] };
+  const proposed = answered(chained.state, response(fixedGraph), CANVAS, registry);
+  const proposal = last(proposed);
+  assert.ok(proposal.from === "copilot" && proposal.state === "proposal");
+  assert.deepEqual(proposal.fix, { runId: "run-1", next: { kind: "retry" }, followed: false });
+  assert.equal(proposed.proposal?.fixes?.run.id, "run-1");
+
+  // A refine of a fix is still a fix of the same run.
+  const refining = ask(proposed, "and say hello twice", CANVAS, 7)!;
+  const refined = answered(refining.state, response(fixedGraph), CANVAS, registry);
+  const again = last(refined);
+  assert.ok(again.from === "copilot" && again.state === "proposal" && again.fix?.runId === "run-1");
+
+  // Accepted, then followed by a retry from the panel: it stops offering one.
+  const accepted = accept(refined)!.state;
+  const done = followed(accepted, again.id);
+  const final = done.turns.find((entry) => entry.id === again.id);
+  assert.ok(final && final.from === "copilot" && final.state === "proposal" && final.fix?.followed === true);
+});
+
+test("a diagnosis whose fix is not in the workflow asks for nothing more", () => {
+  const started = askAbout(EMPTY_COPILOT, { kind: "diagnose", runId: "run-1" }, "Why?", CANVAS, 5)!;
+  const { state, fix } = diagnosed(started.state, diagnosis(null));
+  assert.equal(fix, null);
+  assert.equal(state.pending, null);
+  const turn = last(state);
+  assert.ok(turn.from === "copilot" && turn.state === "diagnosis" && turn.fix === null);
+});
+
+test("a fix to a step that already ran is offered as a re-run, not a retry", () => {
+  const started = askAbout(EMPTY_COPILOT, { kind: "diagnose", runId: "run-1" }, "Why?", CANVAS, 5)!;
+  const response36 = diagnosis("Set the trigger's input");
+  const { state, fix } = diagnosed(started.state, { ...response36, run: { ...response36.run, ran: ["trigger", "log"], failedNodeId: null } });
+  const chained = ask(state, fix!.text, CANVAS, 6, fix!.fixes)!;
+  const changed: WorkflowGraph = { ...CANVAS, nodes: [CANVAS.nodes[0], { ...CANVAS.nodes[1], config: { message: "bye" } }] };
+  const turn = last(answered(chained.state, response(changed), CANVAS, registry));
+  assert.ok(turn.from === "copilot" && turn.state === "proposal");
+  assert.deepEqual(turn.fix?.next, { kind: "rerun", why: "ran", nodes: ["log"] });
 });

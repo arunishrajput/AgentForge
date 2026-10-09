@@ -22,7 +22,7 @@ Do not pre-empt them.
 | Credential storage shape | **DEFINED** | Table Phase 3, API Phase 6, **envelope + vault Phase 21** |
 | Credential audit log | **DEFINED** | Phase 21 — `src/lib/credentials/audit.ts` |
 | Generation request/response | **DEFINED** | Phase 7 |
-| Copilot request/response | **DEFINED** | Phase 35 — `src/lib/generate/edit.ts`, `src/lib/canvas/copilot.ts` |
+| Copilot request/response | **DEFINED** | Phase 35 — `src/lib/generate/edit.ts`, `src/lib/canvas/copilot.ts`; explain and diagnose, Phase 36 — `src/lib/generate/explain.ts`, `evidence.ts` |
 | Trigger shapes | **DEFINED** | Phase 8 — `src/lib/triggers/` |
 | Design token names | **DEFINED** | Phase 14 — `src/app/globals.css`, `src/lib/design/palette.ts`; two themes since Phase 27 |
 
@@ -1857,11 +1857,20 @@ not build, and the UI shows it instead of navigating to a workflow that quietly 
 equally the honest answer to a request that is merely *early*: Discord and Sheets have no node until
 Phase 9.
 
-## Copilot request/response — **DEFINED** (Phase 35)
+## Copilot request/response — **DEFINED** (Phase 35, extended in Phase 36)
 
 `POST /api/workflows/:id/copilot`, `editor`. Source of truth: `src/lib/generate/edit.ts` (the
-proposal) and `src/lib/canvas/copilot.ts` (the conversation). **It writes nothing** — not the
-workflow, not a version, not the conversation.
+proposal), `src/lib/generate/explain.ts` (explain and diagnose) and `src/lib/canvas/copilot.ts` (the
+conversation). **It writes nothing** — not the workflow, not a version, not the conversation.
+
+One route, three asks by `kind`. **A body with no `kind` is an edit** — the shape Phase 35 shipped —
+so the contract only grew:
+
+| `kind` | Asks | Answers |
+|---|---|---|
+| `edit` (default) | a change to the graph sent | `proposal` — below |
+| `explain` | a walkthrough of the graph sent | `explanation` |
+| `diagnose` | why run `runId` failed, and the fix | `diagnosis` and `run` |
 
 ```jsonc
 // request
@@ -1906,6 +1915,44 @@ failure** — a bad key, a spent quota — is `422 invalid_graph` with the provi
 instructions it reflects as `earlier`; it is still shown as one diff from the canvas it started
 from. Accept puts the proposal on the canvas as **one step of undo** and leaves it unsaved; Save makes
 it a version. Logged as `generation.finished` with `mode: "edit"` (`OPERATIONS.md`).
+
+### Explain and diagnose — Phase 36
+
+```jsonc
+// explain — request, and the 200 response
+{ "kind": "explain", "graph": { /* the graph on the canvas */ } }
+{ "data": {
+    "explanation": {
+      "summary": "When a webhook arrives, it summarises the message and alerts on urgent ones.",
+      "sentences": [ { "text": "'Summarise' asks the model for one sentence.", "nodes": ["summarise"] } ] },
+    "generation": { "model": "…", "source": "user", "usage": { … }, "attempts": [ … ] } } }
+
+// diagnose — request, and the 200 response
+{ "kind": "diagnose", "runId": "…", "graph": { /* the graph on the canvas — what a fix changes */ } }
+{ "data": {
+    "diagnosis": {
+      "sentences": [ { "text": "'Fetch the post' asked for /post/ and the API answered 404.", "nodes": ["fetch"] } ],
+      "fix": "Change the URL of 'Fetch the post' to https://…/posts/{{trigger.postId}}" },   // or null
+    "run": { "id": "…", "failedNodeId": "fetch", "ran": ["trigger"], "partialTest": false },
+    "generation": { … } } }
+```
+
+- **A sentence's `nodes`** are ids the graph has — for a diagnosis, also ids the run's record names
+  (the failed step may since have been removed). An id the model invented is dropped, never sent
+- **`fix` is words, not a graph** (D167). The client asks for it as an `edit` — with no `earlier`,
+  against the canvas as it is then — so a fix is a proposal held to everything an edit is. `null`
+  means the fix is not a change to the workflow; the sentences say what to do instead
+- **`run`** is what the canvas needs to offer the right way to run it again once a fix is accepted
+  (D171): the node it stopped at (null if it stopped between steps), every node with a step that
+  finished before that — what a retry would reuse — and whether it was a test of part of the workflow
+- **The run is named, never sent** — the server reads its record itself, behind the run visibility
+  join (D101), and hands the model a bounded, scrubbed copy as data (`evidence.ts`, `scrub.ts`, D168)
+
+**Failure**, in addition to the edit's: `404 not_found` for a run this person cannot see **or a run
+of another workflow** (the same answer, so the route confirms nothing); `409 conflict` for a run that
+did not fail — both before a key is looked up. An answer that is not the shape asked for, twice, is
+`422 invalid_graph` with `{ issues, attempts }`, as an edit's is. Logged as `generation.finished`
+with `mode: "explain"` or `"diagnose"`.
 
 ## Trigger shapes — **DEFINED** (Phase 8)
 

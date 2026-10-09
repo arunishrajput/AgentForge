@@ -2155,6 +2155,26 @@ try {
         JSON.stringify({ before: storedBefore?.version, after: storedAfter?.version, versionsBefore, versionsAfter }),
       );
 
+      // --- phase 36: the copilot explains the workflow, and writes nothing ----
+      //
+      // A pause first: the free tier allows `gemini-3-flash` five calls a minute, and the
+      // generation and edit checks above have just spent them (Phase 35's battery met exactly that).
+      await new Promise((resolve) => setTimeout(resolve, 20_000));
+      const explained = await api("POST", `/api/workflows/${madeId}/copilot`, { kind: "explain", graph: storedBefore?.graph }, token);
+      const explanation = explained.json?.data?.explanation;
+      const graphIds = new Set((storedBefore?.graph?.nodes ?? []).map((node) => node.id));
+      const citedIds = (explanation?.sentences ?? []).flatMap((sentence) => sentence.nodes);
+      check(
+        "the copilot explains a workflow in sentences that cite only steps it has, and stores nothing",
+        explained.status === 200 &&
+          typeof explanation?.summary === "string" &&
+          explanation.sentences.length > 0 &&
+          citedIds.length > 0 &&
+          citedIds.every((id) => graphIds.has(id)) &&
+          (await api("GET", `/api/workflows/${madeId}`, undefined, token)).json?.data?.version === storedBefore?.version,
+        JSON.stringify({ status: explained.status, sentences: explanation?.sentences?.length, cited: citedIds, error: explained.json?.error }),
+      );
+
       await api("DELETE", `/api/workflows/${madeId}`, undefined, token);
     }
 
@@ -2185,6 +2205,128 @@ try {
         noWorkflow.json?.error?.code === "not_found",
       JSON.stringify({ blank: blankInstruction.status, graph: notAGraph.status, missing: noWorkflow.status }),
     );
+
+    // --- phase 36: why did this run fail? — diagnose, fix, retry ----------------
+    //
+    // The whole loop the canvas runs, through the deployed API: a run that fails on a misspelt time
+    // zone; the copilot diagnoses it from the run's record (which the server reads itself) and names
+    // the fix in words; the fix, asked for as an edit, comes back as a proposal; saving the proposal
+    // stands in for Accept and Save; and Phase 33's retry from the failed step then succeeds.
+    const P36 = "zzzz-phase36";
+    const dueGraph = {
+      version: 1,
+      nodes: [
+        { id: "trigger", type: "core.manual_trigger", position: { x: 0, y: 0 }, config: {} },
+        { id: "due", type: "transform.date", label: "Format the due date", position: { x: 300, y: 0 }, config: { value: "{{trigger.due}}", timeZone: "Asia/Calcuta" } },
+        { id: "note", type: "core.log", label: "Log the due date", position: { x: 600, y: 0 }, config: { message: "Due {{steps.due.output.date}}" } },
+      ],
+      edges: [
+        { id: "e1", source: "trigger", target: "due", sourceHandle: null },
+        { id: "e2", source: "due", target: "note", sourceHandle: null },
+      ],
+    };
+    const dueId = (await api("POST", "/api/workflows", { name: `${P36} diagnose`, graph: dueGraph }, token)).json?.data?.id;
+    const dueRun = (await api("POST", `/api/workflows/${dueId}/runs`, { input: { due: "2026-10-12T09:30:00Z" } }, token)).json?.data;
+    check(
+      "a misspelt time zone fails its run at the date step",
+      dueRun?.status === "failed" && dueRun.steps?.find((step) => step.nodeId === "due")?.status === "failed",
+      JSON.stringify({ status: dueRun?.status, steps: dueRun?.steps?.map((step) => [step.nodeId, step.status, step.error]) }),
+    );
+
+    // Refusals that need no model — each answered before a key is even looked up. A workflow of its
+    // own for the run that succeeds: the shared one's state depends on every check before this.
+    const okGraph = {
+      version: 1,
+      nodes: [
+        { id: "trigger", type: "core.manual_trigger", position: { x: 0, y: 0 }, config: {} },
+        { id: "say", type: "core.log", position: { x: 300, y: 0 }, config: { message: "fine" } },
+      ],
+      edges: [{ id: "e1", source: "trigger", target: "say", sourceHandle: null }],
+    };
+    const okId = (await api("POST", "/api/workflows", { name: `${P36} succeeds`, graph: okGraph }, token)).json?.data?.id;
+    const okRun = (await api("POST", `/api/workflows/${okId}/runs`, { input: {} }, token)).json?.data;
+    const notFailed = await api("POST", `/api/workflows/${okId}/copilot`, { kind: "diagnose", runId: okRun?.id, graph: okGraph }, token);
+    const elsewhereRun = await api("POST", `/api/workflows/${okId}/copilot`, { kind: "diagnose", runId: dueRun?.id, graph: okGraph }, token);
+    const noRunId = await api("POST", `/api/workflows/${dueId}/copilot`, { kind: "diagnose", graph: dueGraph }, token);
+    const unknownKind = await api("POST", `/api/workflows/${dueId}/copilot`, { kind: "rewrite", graph: dueGraph }, token);
+    const explainNoGraph = await api("POST", `/api/workflows/${dueId}/copilot`, { kind: "explain", graph: { nodes: "x" } }, token);
+    check(
+      "a diagnosis is refused for a run that did not fail (409), another workflow's run (404), and a malformed ask (400)",
+      okRun?.status === "succeeded" &&
+        notFailed.status === 409 &&
+        notFailed.json?.error?.code === "conflict" &&
+        elsewhereRun.status === 404 &&
+        elsewhereRun.json?.error?.code === "not_found" &&
+        noRunId.status === 400 &&
+        unknownKind.status === 400 &&
+        explainNoGraph.status === 400,
+      JSON.stringify({
+        okRun: okRun?.status,
+        notFailed: notFailed.status,
+        elsewhere: elsewhereRun.status,
+        noRunId: noRunId.status,
+        unknownKind: unknownKind.status,
+        explain: explainNoGraph.status,
+      }),
+    );
+
+    const [{ n: dueVersionsBefore }] = await sql.query('select count(*)::int as n from "workflow_version" where "workflowId" = $1', [dueId]);
+    const diagnosed = await api("POST", `/api/workflows/${dueId}/copilot`, { kind: "diagnose", runId: dueRun?.id, graph: dueGraph }, token);
+    const diagnosis = diagnosed.json?.data?.diagnosis;
+    const facts = diagnosed.json?.data?.run;
+    const [{ n: dueVersionsAfter }] = await sql.query('select count(*)::int as n from "workflow_version" where "workflowId" = $1', [dueId]);
+    check(
+      "the copilot diagnoses the failed run: it cites the date step, names a fix, and says which steps already ran",
+      diagnosed.status === 200 &&
+        diagnosis?.sentences?.some((sentence) => sentence.nodes.includes("due")) &&
+        typeof diagnosis?.fix === "string" &&
+        facts?.id === dueRun?.id &&
+        facts?.failedNodeId === "due" &&
+        isDeepStrictEqual(facts?.ran, ["trigger"]) &&
+        facts?.partialTest === false &&
+        dueVersionsAfter === dueVersionsBefore,
+      JSON.stringify({ status: diagnosed.status, diagnosis, facts, error: diagnosed.json?.error }),
+    );
+
+    if (typeof diagnosis?.fix === "string") {
+      const fixProposed = await api("POST", `/api/workflows/${dueId}/copilot`, { instruction: diagnosis.fix, graph: dueGraph }, token);
+      const fixedGraph = fixProposed.json?.data?.proposal?.graph;
+      const fixedZone = fixedGraph?.nodes?.find((node) => node.id === "due")?.config?.timeZone;
+      // A zone this runtime recognises — Asia/Kolkata, or the Asia/Calcutta alias, both run.
+      const realZone = (() => {
+        if (typeof fixedZone !== "string" || fixedZone === "Asia/Calcuta") return false;
+        try {
+          // Throws a RangeError for a zone this runtime does not know.
+          return new Intl.DateTimeFormat("en", { timeZone: fixedZone }).resolvedOptions().timeZone.length > 0;
+        } catch {
+          return false;
+        }
+      })();
+      check(
+        "the fix, asked for as an edit, proposes a real time zone on the date step and changes nothing else",
+        fixProposed.status === 200 &&
+          realZone &&
+          isDeepStrictEqual(fixedGraph?.nodes?.find((node) => node.id === "note")?.config, dueGraph.nodes[2].config),
+        JSON.stringify({ status: fixProposed.status, fix: diagnosis.fix, zone: fixedZone, error: fixProposed.json?.error }),
+      );
+      // Accept, then Save — the canvas's two acts, as one PATCH — then retry the original run.
+      const savedFix = await api("PATCH", `/api/workflows/${dueId}`, { graph: fixedGraph }, token);
+      const retriedFix = await api("POST", `/api/runs/${dueRun?.id}/retry`, { mode: "sync" }, token);
+      const retryRun = retriedFix.json?.data;
+      check(
+        "after the fix is saved, the retry from the failed step succeeds — the trigger reused, the date step run",
+        savedFix.status === 200 &&
+          retriedFix.status === 201 &&
+          retryRun?.status === "succeeded" &&
+          retryRun?.steps?.find((step) => step.nodeId === "trigger")?.status === "reused" &&
+          retryRun?.steps?.find((step) => step.nodeId === "due")?.status === "succeeded",
+        JSON.stringify({ saved: savedFix.status, status: retryRun?.status, steps: retryRun?.steps?.map((step) => [step.nodeId, step.status]) }),
+      );
+    } else {
+      skip("the fix becomes a proposal, and the retry succeeds", "the diagnosis named no fix — see the check above");
+    }
+    await api("DELETE", `/api/workflows/${dueId}`, undefined, token);
+    await api("DELETE", `/api/workflows/${okId}`, undefined, token);
 
     // A request for things no node can do must be told so, not quietly given a
     // workflow that does less than it was asked. Nothing dangerous can be generated
@@ -3846,6 +3988,18 @@ try {
         "POST",
         `/api/workflows/${workflowId}/copilot`,
         { instruction: "do something", graph: { version: 1, nodes: [], edges: [] } },
+      ],
+      [
+        "ask the copilot to explain a workflow",
+        "POST",
+        `/api/workflows/${workflowId}/copilot`,
+        { kind: "explain", graph: { version: 1, nodes: [], edges: [] } },
+      ],
+      [
+        "ask the copilot why a run failed",
+        "POST",
+        `/api/workflows/${workflowId}/copilot`,
+        { kind: "diagnose", runId: "00000000-0000-4000-8000-000000000000", graph: { version: 1, nodes: [], edges: [] } },
       ],
       ["label a version", "PATCH", `/api/workflows/${workflowId}/versions/1`, { label: "viewer" }],
       ["restore a version", "POST", `/api/workflows/${workflowId}/versions/1/restore`, {}],

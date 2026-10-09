@@ -58,7 +58,7 @@ const STAGGER_CAP_MS = 660;
 const NODE_WIDTH = "w-56";
 
 export function WorkflowNodeView({ id, data, selected }: NodeProps<CanvasNode>) {
-  const { registry, runStates, diffStates, entryOrder } = useCanvas();
+  const { registry, runStates, diffStates, entryOrder, highlighted } = useCanvas();
   const definition = registry.get(data.nodeType);
   const state = runStates.get(id);
 
@@ -166,6 +166,15 @@ export function WorkflowNodeView({ id, data, selected }: NodeProps<CanvasNode>) 
           <span
             aria-hidden="true"
             className="animate-breathe ring-live pointer-events-none absolute -inset-0.5 rounded-xl ring-2"
+          />
+        )}
+        {/* Phase 36: a copilot sentence about this step is pressed (D169). A halo outside the card,
+            so it reads over every status and change look, and pops in once rather than pulsing —
+            a pulse already means "running". The words are the sentence's; this only points. */}
+        {highlighted?.has(id) && (
+          <span
+            aria-hidden="true"
+            className="animate-pop ring-accent pointer-events-none absolute -inset-2 rounded-2xl ring-4"
           />
         )}
 

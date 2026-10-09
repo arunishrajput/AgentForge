@@ -50,6 +50,7 @@ export function RunPanel({
   onSelectNode,
   past = null,
   restart = null,
+  diagnose = null,
 }: {
   run: Run;
   /** A stream is open — the panel is watching, not showing history. */
@@ -67,6 +68,11 @@ export function RunPanel({
    * viewer, and while another run is starting.
    */
   restart?: { onRestart: (kind: "rerun" | "retry") => void; busy: boolean } | null;
+  /**
+   * **Phase 36.** Ask the copilot why this run failed — it opens in the right-hand column with the
+   * diagnosis and, where the fix is in the workflow, the fix as a proposal. Null for a viewer.
+   */
+  diagnose?: { onDiagnose: (runId: string) => void; disabled: boolean } | null;
 }) {
   const look = runStatusLook(run.status);
   const test = testLabel(run.test ?? null, names);
@@ -192,6 +198,12 @@ export function RunPanel({
         {restart && rerunnable(run.status) && (
           <Button size="sm" loading={restart.busy} onClick={() => restart.onRestart("rerun")}>
             {partialTest ? "Test again" : "Re-run"}
+          </Button>
+        )}
+        {diagnose && run.status === "failed" && (
+          <Button size="sm" disabled={diagnose.disabled} onClick={() => diagnose.onDiagnose(run.id)}>
+            <span aria-hidden="true">✦</span>
+            Why did this fail?
           </Button>
         )}
         <Link

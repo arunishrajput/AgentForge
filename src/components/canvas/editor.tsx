@@ -55,7 +55,8 @@ import {
   type RunSummary,
   type Workflow,
 } from "@/lib/canvas/client";
-import { tweenMs } from "@/lib/canvas/motion";
+import { allInFrame, tweenMs } from "@/lib/canvas/motion";
+import type { AfterFix } from "@/lib/canvas/after-fix";
 import { COPILOT_PANEL, INSPECTOR_PANEL, controls, type RightPanel } from "@/lib/canvas/right-column";
 import { runStatesOf } from "@/lib/canvas/run-states";
 import { edgeRunLook } from "@/lib/canvas/status";
@@ -70,6 +71,7 @@ import { formatDuration } from "@/lib/format/duration";
 import { mergeRecent } from "@/lib/runs/recent";
 import { layout } from "@/lib/generate/layout";
 import { formatUtc } from "@/lib/triggers/cron";
+import { replaceAddress } from "@/lib/ui/url";
 import { diffGraph, type GraphDiff, type NodeDiff, type NoteDiff } from "@/lib/workflow/diff";
 import {
   jsonBytes,
@@ -120,6 +122,7 @@ export function Editor({
   recentRuns = [],
   role,
   viewerUserId,
+  diagnoseRunId = null,
 }: {
   workflow: Workflow;
   registry: NodeSummary[];
@@ -127,6 +130,12 @@ export function Editor({
   liveRun?: Run | null;
   /** This workflow's newest runs, as summaries — Phase 33's *Recent runs*. */
   recentRuns?: RunSummary[];
+  /**
+   * **Phase 36.** A failed run to diagnose on arrival — `/runs/[id]`'s *Why did this fail?* opens
+   * the canvas with `?diagnose=<run>` (D170), because the fix is a proposal and a proposal needs a
+   * canvas to be accepted on.
+   */
+  diagnoseRunId?: string | null;
   /**
    * The viewer's role in this workflow's workspace — **Phase 20**.
    *
@@ -150,6 +159,7 @@ export function Editor({
         recentRuns={recentRuns}
         role={role}
         viewerUserId={viewerUserId}
+        diagnoseRunId={diagnoseRunId}
       />
     </ReactFlowProvider>
   );
@@ -211,6 +221,7 @@ function EditorInner({
   recentRuns,
   role,
   viewerUserId,
+  diagnoseRunId,
 }: {
   workflow: Workflow;
   palette: NodeSummary[];
@@ -218,6 +229,7 @@ function EditorInner({
   recentRuns: RunSummary[];
   role: WorkspaceRole;
   viewerUserId: string;
+  diagnoseRunId: string | null;
 }) {
   const initial = useMemo(() => toFlow(workflow.graph), [workflow.graph]);
   const toast = useToast();
@@ -434,7 +446,15 @@ function EditorInner({
     requestAnimationFrame(() => fitView({ ...FIT, duration: tweenMs(250) }));
   }, [fitView]);
   const copilot = useCopilot({ workflowId: workflow.id, graph, registry, onOpened: fitProposal });
-  const { accept: takeProposal, reject: dropProposal, setAside: setCopilotAside, busy: copilotBusy } = copilot;
+  const {
+    accept: takeProposal,
+    reject: dropProposal,
+    setAside: setCopilotAside,
+    busy: copilotBusy,
+    diagnose: diagnoseRun,
+    markFollowed,
+    setHighlight,
+  } = copilot;
   const proposal = copilot.state.proposal;
 
   /**
@@ -611,10 +631,13 @@ function EditorInner({
     // the rail names the selection ("3 nodes selected") instead.
     if (ids.length === 1) {
       setRightPanel("inspector");
+      // A copilot sentence's highlight goes with the sentence (D169) — back in the copilot, nothing
+      // is pressed rather than an old ring reappearing over a conversation that scrolled on.
+      setHighlight(null);
       setInspectorOpen(true);
       setInspectorCollapsed(false);
     }
-  }, [setInspectorCollapsed]);
+  }, [setHighlight, setInspectorCollapsed]);
 
   /**
    * Undo and redo (Phase 29). The history watches `graph`; putting a step back on the
@@ -1347,15 +1370,15 @@ function EditorInner({
    * retry.
    */
   const restart = useCallback(
-    async (kind: "rerun" | "retry") => {
-      if (!run) return;
+    async (kind: "rerun" | "retry", runId = run?.id): Promise<boolean> => {
+      if (!runId) return false;
       const current = dirty ? await save() : saved;
-      if (!current) return;
+      if (!current) return false;
 
       setBusy("restarting");
       watch();
       try {
-        const started = await api.restartRun(run.id, kind, "durable");
+        const started = await api.restartRun(runId, kind, "durable");
         setPastRunId(null);
         setRun((current) => adoptStarted(current, started));
         toast({
@@ -1366,6 +1389,7 @@ function EditorInner({
               ? "The steps that finished are reused, not run again. It streams here as it goes."
               : "With the same input, on the workflow as it is saved now.",
         });
+        return true;
       } catch (error) {
         toast({
           tone: "bad",
@@ -1373,12 +1397,61 @@ function EditorInner({
           detail: error instanceof ApiRequestError ? error.message : undefined,
           duration: null,
         });
+        return false;
       } finally {
         setBusy(null);
       }
     },
     [dirty, run, save, saved, setRun, toast, watch],
   );
+
+  /**
+   * **Why did this run fail? — Phase 36.** The copilot opens in the right-hand column and diagnoses
+   * the run; a fix in the workflow arrives as a proposal on the canvas (D167).
+   */
+  const askWhy = useCallback(
+    (runId: string) => {
+      openCopilot();
+      void diagnoseRun(runId);
+    },
+    [diagnoseRun, openCopilot],
+  );
+
+  /**
+   * An accepted fix, run again the way that will actually run it (D171): saved first — Accept left
+   * it unsaved, and retry and re-run execute what is stored (D151) — then retried from the failed
+   * step, or re-run when the fix changed a step a retry would reuse.
+   */
+  const followFix = useCallback(
+    async (turnId: number, runId: string, next: AfterFix) => {
+      if (await restart(next.kind === "retry" ? "retry" : "rerun", runId)) markFollowed(turnId);
+    },
+    [markFollowed, restart],
+  );
+
+  /**
+   * Arriving from `/runs/[id]` with `?diagnose=<run>` (D170): show that run on the canvas and ask
+   * the copilot about it, once. The parameter is taken out of the address first, so a reload does
+   * not spend the person's model quota on the same question again.
+   */
+  const arrived = useRef(false);
+  useEffect(() => {
+    if (arrived.current || !diagnoseRunId) return;
+    // Its own task, after the canvas's first commit: arriving is an event, like a click, and what
+    // it does — opening the column, asking — is the click's work, not this render's. The flag is
+    // set inside, so a development double-mount, whose cleanup clears the first timer, still asks once.
+    const timer = setTimeout(() => {
+      if (arrived.current) return;
+      arrived.current = true;
+      const url = new URL(window.location.href);
+      url.searchParams.delete("diagnose");
+      replaceAddress(`${url.pathname}${url.search}${url.hash}`);
+      if (!canEdit) return;
+      void openRun(diagnoseRunId);
+      askWhy(diagnoseRunId);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [askWhy, canEdit, diagnoseRunId, openRun]);
 
   /**
    * **Test part of the workflow — Phase 31.** *Test this node* runs one node, fed from pins and
@@ -1753,6 +1826,31 @@ function EditorInner({
     [changeNote, editable, editingNote],
   );
 
+  /**
+   * The steps a pressed copilot sentence cites — Phase 36 (D169). While the copilot holds the column:
+   * once the inspector takes it back the sentence is gone, and a ring pointing at it would be
+   * pointing at nothing. A closed drawer keeps it — on a phone, closing the drawer is how the ringed
+   * step is seen at all.
+   */
+  const highlightedNodes = copilot.highlight?.nodes;
+  const highlightShown = column === "copilot";
+  const highlighted = useMemo(
+    () => new Set(highlightShown ? (highlightedNodes ?? []) : []),
+    [highlightShown, highlightedNodes],
+  );
+  useEffect(() => {
+    if (highlighted.size === 0) return;
+    // The camera moves only for a step out of sight: pressing sentence after sentence of a
+    // workflow already on screen should ring steps, not zoom the canvas about (found in the walk).
+    const frame = document.querySelector(".react-flow")?.getBoundingClientRect();
+    const boxes = [...highlighted].map((id) =>
+      document.querySelector(`.react-flow__node[data-id="${CSS.escape(id)}"]`)?.getBoundingClientRect(),
+    );
+    if (allInFrame(boxes, frame)) return;
+    // Into view, not into a close-up: the step among its neighbours is what a sentence describes.
+    fitView({ nodes: [...highlighted].map((id) => ({ id })), padding: 0.6, maxZoom: 1, duration: tweenMs(300) });
+  }, [fitView, highlighted]);
+
   const canvasValue = useMemo(
     () => ({
       registry,
@@ -1761,8 +1859,9 @@ function EditorInner({
       entryOrder,
       noteDiffStates: diffView?.noteStates ?? EMPTY_NOTE_DIFF,
       notes: noteControls,
+      highlighted,
     }),
-    [diffView, entryOrder, noteControls, registry, runStates],
+    [diffView, entryOrder, highlighted, noteControls, registry, runStates],
   );
 
   /**
@@ -1882,6 +1981,7 @@ function EditorInner({
                 // The drawer may be showing the copilot (Phase 35): Details always means the inspector.
                 if (rightPanel === "copilot") {
                   setRightPanel("inspector");
+                  setHighlight(null);
                   setInspectorOpen(true);
                 } else setInspectorOpen((open) => !open);
                 setPaletteOpen(false);
@@ -2217,11 +2317,17 @@ function EditorInner({
                 setInspectorCollapsed(true);
                 refit();
               }}
-              onShowDetails={() => setRightPanel("inspector")}
+              onShowDetails={() => {
+                setRightPanel("inspector");
+                setHighlight(null);
+              }}
               copilot={copilot}
               onAccept={acceptProposal}
               comparingVersions={comparison !== null}
               platform={platform}
+              failedRun={run?.status === "failed" ? { id: run.id } : null}
+              onFollowFix={(turnId, runId, next) => void followFix(turnId, runId, next)}
+              nameOf={(nodeId) => names.get(nodeId) ?? nodeId}
             />
           ) : (
           <Inspector
@@ -2289,6 +2395,11 @@ function EditorInner({
                 canEdit && !comparing && !inFlight && (busy === null || busy === "restarting")
                   ? { onRestart: (kind) => void restart(kind), busy: busy === "restarting" }
                   : null,
+              // Phase 36: an editor's, like the copilot itself. Waits while it is busy or has a
+              // change open, as its own buttons do.
+              diagnose: canEdit
+                ? { onDiagnose: askWhy, disabled: copilotBusy || proposal !== null || comparing }
+                : null,
             }}
           />
           )}

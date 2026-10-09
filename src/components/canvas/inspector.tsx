@@ -269,6 +269,8 @@ export interface RunHistory {
   past: { onClose: () => void } | null;
   /** Retry or re-run the run on the canvas. Null for a viewer. */
   restart: { onRestart: (kind: "rerun" | "retry") => void; busy: boolean } | null;
+  /** Phase 36: ask the copilot why the run on the canvas failed. Null for a viewer. */
+  diagnose: { onDiagnose: (runId: string) => void; disabled: boolean } | null;
 }
 
 /**
@@ -659,6 +661,7 @@ function WorkflowInspector({
           onSelectNode={onSelectNode}
           past={history.past}
           restart={history.restart}
+          diagnose={history.diagnose}
         />
       ) : (
         problems.length === 0 &&

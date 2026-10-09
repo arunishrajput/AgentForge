@@ -579,6 +579,9 @@ src/lib/generate/
   layout.ts      nodes + edges -> positions, cycle-safe and non-overlapping (pure, tested)
   generate.ts    the pipeline: select -> ask -> parse -> assemble -> validate -> one retry (`converse`)
   edit.ts        the copilot's edit: the same pipeline, a graph attached — Phase 35
+  explain.ts     the copilot's answers that change nothing: explain, diagnose — Phase 36
+  evidence.ts    a failed run as a diagnosis may see it: chosen, scrubbed, bounded — Phase 36
+  scrub.ts       what a secret looks like, per credential kind, so none reaches a prompt — Phase 36
   references.ts  does every {{ }} in a graph reach something? — the retry's and the evals' check
   eval/          the eval set, its scorer, and the recorded model answers CI replays
 ```
@@ -624,6 +627,17 @@ a problem the canvas already had is carried rather than counted (D162). The rout
 conversation and the open proposal are the canvas's state (`src/lib/canvas/copilot.ts`, D164), shown
 in the version history's diff mode and applied as one step of undo by Accept. The copilot takes the
 inspector's column rather than a third one (D161).
+
+**Explain and diagnose are not graphs — Phase 36** (`explain.ts`). Each is its own model call with its
+own small JSON shape — sentences citing node ids — validated and retried once, as generation is; they
+do not go through `converse`, because nothing in them is assembled or validated as a workflow. A
+diagnosis is the one model call that reads a run: the route reads the run itself, and `evidence.ts`
+chooses the failed step and the nearest steps before it, scrubs every value of credential shapes
+(`scrub.ts`) **before** cutting it, bounds it, and the prompt carries it between markers unique to the
+request. **Its fix is words, and the client asks for it as an edit** (D167) — so the call that writes a
+graph never sees run data, and a fix is a proposal like any other. What to do after Accept is pure
+(`lib/canvas/after-fix.ts`, D171): retry when the fix lands at or after the failed step, re-run when
+a retry would reuse a step it changed.
 
 `generateWorkflow` takes its `LanguageModel` as an argument, the same trick as the engine's recorder
 (D18): the whole pipeline is tested against a scripted model in milliseconds, with no key and no

@@ -96,7 +96,7 @@ at does not need a link to the field you are looking at. `href` is always a path
 | `PATCH` | `/api/workflows/[id]` | editor | Renames it, replaces the graph, or changes its visibility. **Every save writes a version** |
 | `DELETE` | `/api/workflows/[id]` | editor | Deletes it, its versions and its runs |
 | `POST` | `/api/workflows/generate` | editor | **Natural language → a workflow.** Returns a validated graph, or `unsupported` with a reason |
-| `POST` | `/api/workflows/[id]/copilot` | editor | **Propose an edit** (Phase 35). The graph on the canvas and a change in plain words in; a validated **proposed** graph out, with `unsupported` and the diff's counts. **Writes nothing** — the canvas shows it as a diff, and only Accept applies it |
+| `POST` | `/api/workflows/[id]/copilot` | editor | **The copilot. Writes nothing.** By `kind`: **`edit`** (the default, Phase 35) — the graph on the canvas and a change in plain words in, a validated **proposed** graph out, with `unsupported` and the diff's counts; the canvas shows it as a diff and only Accept applies it. **`explain`** (Phase 36) — a walkthrough of the graph, sentences citing node ids. **`diagnose`** (Phase 36) — why run `runId` failed and the fix in words; the server reads the run itself, scrubbed and bounded; `409` for a run that did not fail, `404` for another workflow's |
 
 The graph shape, and the rules a graph must satisfy to be runnable, are in
 [`../CONTRACT.md`](../CONTRACT.md) → *Workflow graph*. The copilot's request and response are in

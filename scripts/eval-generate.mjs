@@ -32,6 +32,12 @@
  *                                               starting workflow, scored on what it kept and removed
  *                                               as well. With --live it records `mode: "edit"`;
  *                                               offline, every recording replays by its own mode
+ *   --diagnose                                  **the copilot's diagnoses** (Phase 36): a failed run
+ *                                               per case (`diagnose-cases.ts`), scored on the step it
+ *                                               blames, where it puts the fix, and the proposal the
+ *                                               fix becomes through the edit pipeline
+ *   --explain                                   **the copilot's explanations** (Phase 36): scored on
+ *                                               citing every step and inventing none
  *
  * **Live runs spend real quota — run them sparingly, once per session** (`PROGRESS.md` →
  * *Operations*). The fallback chain is switched off for a live run, so every answer comes from the
@@ -47,8 +53,19 @@ import { geminiModel, DEFAULT_MODEL } from "../src/lib/ai/gemini.ts";
 import { groqModel, GROQ_DEFAULT_MODEL } from "../src/lib/ai/groq.ts";
 import { describeNodes } from "../src/lib/nodes/index.ts";
 import { EVAL_CASES } from "../src/lib/generate/eval/cases.ts";
+import { DIAGNOSE_CASES, EXPLAIN_CASES } from "../src/lib/generate/eval/diagnose-cases.ts";
 import { EDIT_CASES } from "../src/lib/generate/eval/edit-cases.ts";
-import { recordingModel, replayCase, replayEditCase, runCase, runEditCase } from "../src/lib/generate/eval/run.ts";
+import {
+  recordingModel,
+  replayCase,
+  replayDiagnoseCase,
+  replayEditCase,
+  replayExplainCase,
+  runCase,
+  runDiagnoseCase,
+  runEditCase,
+  runExplainCase,
+} from "../src/lib/generate/eval/run.ts";
 import { describeRequirement, requirementMet } from "../src/lib/generate/eval/score.ts";
 import { selectDeterministic, selectWithModel } from "../src/lib/generate/select.ts";
 
@@ -61,11 +78,18 @@ const option = (name, fallback) => {
   return index >= 0 && args[index + 1] && !args[index + 1].startsWith("--") ? args[index + 1] : fallback;
 };
 
-const editing = flag("edit");
-/** The case table a mode measures — generation's, or the copilot's (Phase 35). */
-const tableFor = (mode) => (mode === "edit" ? EDIT_CASES : EVAL_CASES);
+/** What this run measures: generation, or one of the copilot's asks (Phases 35 and 36). */
+const mode = flag("edit") ? "edit" : flag("diagnose") ? "diagnose" : flag("explain") ? "explain" : "create";
+const MODES = {
+  create: { cases: EVAL_CASES, run: runCase, replay: replayCase, words: "generation", title: "generation" },
+  edit: { cases: EDIT_CASES, run: runEditCase, replay: replayEditCase, words: "copilot edit", title: "copilot edits" },
+  diagnose: { cases: DIAGNOSE_CASES, run: runDiagnoseCase, replay: replayDiagnoseCase, words: "copilot diagnosis", title: "copilot diagnoses" },
+  explain: { cases: EXPLAIN_CASES, run: runExplainCase, replay: replayExplainCase, words: "copilot explanation", title: "copilot explanations" },
+};
+/** The case table a mode measures. A recording made before modes existed is generation's. */
+const tableFor = (recorded) => MODES[recorded ?? "create"].cases;
 const only = option("case")?.split(",");
-const table = tableFor(editing ? "edit" : "create");
+const table = tableFor(mode);
 const cases = only ? table.filter((entry) => only.includes(entry.id)) : table;
 if (only && cases.length !== only.length) {
   console.error(`Unknown case in --case. Known: ${table.map((entry) => entry.id).join(", ")}`);
@@ -128,7 +152,6 @@ async function offline({ rescore = false } = {}) {
   let drift = 0;
   for (const file of files) {
     const recording = JSON.parse(readFileSync(path.join(RECORDINGS, file), "utf8"));
-    const edit = recording.mode === "edit";
     const own = tableFor(recording.mode);
     const rows = [];
     for (const evalCase of only ? own.filter((entry) => only.includes(entry.id)) : own) {
@@ -140,8 +163,7 @@ async function offline({ rescore = false } = {}) {
       }
       let replayed;
       try {
-        const replay = edit ? replayEditCase : replayCase;
-        replayed = await replay(evalCase, recorded, generateOptionsFor(recording.selector, recorded));
+        replayed = await MODES[recording.mode ?? "create"].replay(evalCase, recorded, generateOptionsFor(recording.selector, recorded));
       } catch (error) {
         // The pipeline now asks for a call the recording never made — it is stale, not failed.
         drift += 1;
@@ -161,7 +183,7 @@ async function offline({ rescore = false } = {}) {
     }
     if (rescore) writeFileSync(path.join(RECORDINGS, file), `${JSON.stringify(recording, null, 2)}\n`);
     report(
-      `${file} — ${edit ? "copilot edits: " : ""}${recording.description} (${recording.provider} ${recording.model}, selector ${recording.selector}, ${recording.recordedAt.slice(0, 10)})`,
+      `${file} — ${recording.mode && recording.mode !== "create" ? `${MODES[recording.mode].title}: ` : ""}${recording.description} (${recording.provider} ${recording.model}, selector ${recording.selector}, ${recording.recordedAt.slice(0, 10)})`,
       rows,
     );
   }
@@ -207,9 +229,9 @@ async function live() {
       : geminiModel({ apiKey: key, defaultModel: modelId, fallbacks: [], ignoreHealth: true, totalBudgetMs: 90_000, attemptTimeoutMs: 60_000 });
 
   console.log(
-    `Live: ${cases.length} ${editing ? "copilot edit" : "generation"} cases on ${providerId} ${modelId}, selector ${selector}. This spends real quota.`,
+    `Live: ${cases.length} ${MODES[mode].words} cases on ${providerId} ${modelId}, selector ${selector}. This spends real quota.`,
   );
-  const run = editing ? runEditCase : runCase;
+  const { run } = MODES[mode];
 
   const rows = [];
   const recorded = {};
@@ -256,7 +278,7 @@ async function live() {
   }
   process.stdout.write("\n");
 
-  report(`Live — ${editing ? "copilot edits, " : ""}${providerId} ${modelId}, selector ${selector}`, rows);
+  report(`Live — ${mode === "create" ? "" : `${MODES[mode].title}, `}${providerId} ${modelId}, selector ${selector}`, rows);
 
   if (recordAs) {
     const file = path.join(RECORDINGS, `${recordAs}.json`);
@@ -273,7 +295,7 @@ async function live() {
     }
     const recording = {
       label: recordAs,
-      mode: editing ? "edit" : "create",
+      mode,
       description: option("description", `${selector} selector`),
       provider: providerId,
       model: modelId,
@@ -330,9 +352,9 @@ async function recall() {
   );
 }
 
-if (editing && flag("recall")) {
+if (mode !== "create" && flag("recall")) {
   // An edit's selection is the instruction's plus every type already on the canvas — the recall the
-  // offline suite asserts for every edit case (`eval.test.ts`).
+  // offline suite asserts for every edit case (`eval.test.ts`). The copilot's other asks select nothing.
   console.error("--recall measures generation's selector; an edit's selection is asserted offline by eval.test.ts.");
   process.exit(2);
 }

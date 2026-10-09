@@ -1,10 +1,12 @@
 import type { GenerateRequest, GenerateResult, LanguageModel } from "@/lib/ai/types";
 
 import { editWorkflow } from "../edit";
+import { diagnoseRun, explainWorkflow, type AnswerResult, type Diagnosis, type Explanation } from "../explain";
 import { assembleGraph, generateWorkflow, type GenerationResult } from "../generate";
 import type { EvalCase } from "./cases";
+import { caseRun, type DiagnoseEvalCase, type ExplainEvalCase } from "./diagnose-cases";
 import { STARTS, type EditEvalCase } from "./edit-cases";
-import { scoreCase, scoreEdit, type CaseScore } from "./score";
+import { scoreCase, scoreDiagnosis, scoreEdit, scoreExplanation, type CaseScore } from "./score";
 
 /**
  * **Running the eval set, live or from a recording — Phase 34.**
@@ -18,6 +20,9 @@ import { scoreCase, scoreEdit, type CaseScore } from "./score";
  * A recording is a measurement taken on one day against one prompt; `promptChars` and
  * `recordedAt` say which. Re-record it when the prompt changes materially.
  */
+
+/** What a recording measured. */
+export type EvalMode = "create" | "edit" | "diagnose" | "explain";
 
 /** One case as a live run recorded it. */
 export interface RecordedCase {
@@ -45,10 +50,10 @@ export interface Recording {
   label: string;
   /**
    * What was measured: generation (`cases.ts`), or — Phase 35 — the copilot's edits
-   * (`edit-cases.ts`). Absent on the recordings made before the copilot existed, which are
-   * generation's.
+   * (`edit-cases.ts`), or — Phase 36 — its diagnoses and explanations (`diagnose-cases.ts`). Absent
+   * on the recordings made before the copilot existed, which are generation's.
    */
-  mode?: "create" | "edit";
+  mode?: EvalMode;
   description: string;
   provider: string;
   model: string;
@@ -144,7 +149,8 @@ export interface EvalRunOptions {
 
 export interface EvalRunResult {
   score: CaseScore;
-  result: GenerationResult;
+  /** What was judged last — the graph for a generation, an edit or a fix; the answer otherwise. */
+  result: GenerationResult | AnswerResult<Diagnosis | Explanation>;
 }
 
 export async function runCase(evalCase: EvalCase, options: EvalRunOptions): Promise<EvalRunResult> {
@@ -200,4 +206,45 @@ export async function replayEditCase(
 ): Promise<EvalRunResult | undefined> {
   if (recorded.error) return undefined;
   return runEditCase(evalCase, { model: replayModel(recorded.calls), modelId: "replay", generateOptions });
+}
+
+/** A case's workflow as the canvas would hold it: assembled exactly as a generated one is. */
+function subjectOf(workflow: { name: string; description?: string | null } & Parameters<typeof assembleGraph>[0]) {
+  return { name: workflow.name, description: workflow.description ?? null, graph: assembleGraph(workflow) };
+}
+
+/**
+ * **A diagnosis case — Phase 36.** The diagnosis, then — when it finds a fix — the fix asked for as an
+ * edit, as the canvas asks for it (D167). One recording holds both calls, in order.
+ */
+export async function runDiagnoseCase(evalCase: DiagnoseEvalCase, options: EvalRunOptions): Promise<EvalRunResult> {
+  const subject = subjectOf(evalCase.workflow);
+  const { evidence, facts } = caseRun(evalCase, subject.graph);
+  const diagnosis = await diagnoseRun({ model: options.model, modelId: options.modelId, subject, evidence });
+  const fix = diagnosis.ok ? diagnosis.answer.fix : null;
+  const proposal =
+    fix === null
+      ? null
+      : await editWorkflow({ ...options.generateOptions, model: options.model, modelId: options.modelId, instruction: fix, subject });
+  return { score: scoreDiagnosis(evalCase, subject.graph, facts, diagnosis, proposal), result: proposal ?? diagnosis };
+}
+
+export async function runExplainCase(evalCase: ExplainEvalCase, options: EvalRunOptions): Promise<EvalRunResult> {
+  const subject = subjectOf(evalCase.workflow);
+  const result = await explainWorkflow({ model: options.model, modelId: options.modelId, subject });
+  return { score: scoreExplanation(evalCase, subject.graph, result), result };
+}
+
+export async function replayDiagnoseCase(
+  evalCase: DiagnoseEvalCase,
+  recorded: RecordedCase,
+  generateOptions: Record<string, unknown> = {},
+): Promise<EvalRunResult | undefined> {
+  if (recorded.error) return undefined;
+  return runDiagnoseCase(evalCase, { model: replayModel(recorded.calls), modelId: "replay", generateOptions });
+}
+
+export async function replayExplainCase(evalCase: ExplainEvalCase, recorded: RecordedCase): Promise<EvalRunResult | undefined> {
+  if (recorded.error) return undefined;
+  return runExplainCase(evalCase, { model: replayModel(recorded.calls), modelId: "replay" });
 }

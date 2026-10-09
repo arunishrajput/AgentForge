@@ -1,0 +1,53 @@
+{
+  "label": "explain-flash-lite",
+  "mode": "explain",
+  "description": "Phase 36 explanations",
+  "provider": "google",
+  "model": "gemini-3.5-flash-lite",
+  "selector": "deterministic",
+  "recordedAt": "2026-10-09T09:23:59.890Z",
+  "cases": {
+    "explain-triage": {
+      "calls": [
+        "{\n  \"summary\": \"This workflow triages incoming support messages by summarising them, checking their urgency, and alerting on urgent ones via Discord while logging the rest.\",\n  \"sentences\": [\n    {\n      \"text\": \"The workflow starts when an external system sends a webhook trigger with a support message.\",\n      \"nodes\": [\n        \"trigger\"\n      ]\n    },\n    {\n      \"text\": \"The 'Summarise' step uses a language model to summarise the support message in one sentence.\",\n      \"nodes\": [\n        \"summarise\"\n      ]\n    },\n    {\n      \"text\": \"The 'Decide urgency' agent evaluates the summary to determine if the message is urgent or normal.\",\n      \"nodes\": [\n        \"decide\"\n      ]\n    },\n    {\n      \"text\": \"A branch checks if the decision equals urgent.\",\n      \"nodes\": [\n        \"route\"\n      ]\n    },\n    {\n      \"text\": \"If the message is urgent, the 'Alert on Discord' step posts the summary to Discord.\",\n      \"nodes\": [\n        \"post_discord\"\n      ]\n    },\n    {\n      \"text\": \"If the message is not urgent, the 'Log the rest' step records the summary in the run log.\",\n      \"nodes\": [\n        \"log_normal\"\n      ]\n    }\n  ]\n}"
+      ],
+      "models": [
+        "gemini-3.5-flash-lite"
+      ],
+      "ms": [
+        2285
+      ],
+      "tokens": [
+        {
+          "input": 1996,
+          "output": 313
+        }
+      ],
+      "selected": null,
+      "promptChars": 5602,
+      "verdict": "pass",
+      "failures": []
+    },
+    "explain-order": {
+      "calls": [
+        "{\n  \"summary\": \"This workflow starts when an incoming webhook provides order details, calculates the tax, verifies the amount is below a threshold, and logs the final total.\",\n  \"sentences\": [\n    {\n      \"text\": \"The workflow begins with a webhook trigger that receives the order data.\",\n      \"nodes\": [\n        \"trigger\"\n      ]\n    },\n    {\n      \"text\": \"The 'Add 18% tax' step multiplies the incoming amount by 18 with a precision of two decimal places.\",\n      \"nodes\": [\n        \"add_tax\"\n      ]\n    },\n    {\n      \"text\": \"The 'Check the total is sane' step asserts that the calculated total is less than 1,000, failing the run with a custom message if it is not.\",\n      \"nodes\": [\n        \"check\"\n      ]\n    },\n    {\n      \"text\": \"Finally, the 'Log the total' step records a message containing the order identifier and the calculated total.\",\n      \"nodes\": [\n        \"log\"\n      ]\n    }\n  ]\n}"
+      ],
+      "models": [
+        "gemini-3.5-flash-lite"
+      ],
+      "ms": [
+        1740
+      ],
+      "tokens": [
+        {
+          "input": 1501,
+          "output": 249
+        }
+      ],
+      "selected": null,
+      "promptChars": 4156,
+      "verdict": "pass",
+      "failures": []
+    }
+  }
+}

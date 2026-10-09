@@ -2,8 +2,9 @@
 
 This is the part of AgentForge that is not n8n. Three things here are driven by a model rather
 than by you: **generation**, which turns a sentence into a graph; the **copilot**, which turns a
-sentence into a change to a graph you already have; and the **agent node**, which reasons and calls
-tools while a run is in flight.
+sentence into a change to a graph you already have — and explains a workflow, and says why a run
+failed and how to fix it; and the **agent node**, which reasons and calls tools while a run is in
+flight.
 
 They share one provider adapter and one tool surface, and they fail in opposite directions —
 which is the most useful thing to understand about them.
@@ -131,8 +132,8 @@ What is new is about the graph that already exists:
   instruction selects — a node it must copy unchanged is a node whose config it should understand
 - **It is not blamed for what the canvas already had wrong.** A node you dropped in and have not
   configured yet stays as it is; the proposal may not *add* a problem
-- **It never sees your run data.** A pinned output is a captured webhook body somebody else wrote,
-  and it is not sent. `SECURITY.md` → *The copilot*
+- **An edit never sees your run data.** A pinned output is a captured webhook body somebody else
+  wrote, and it is not sent. Only a *diagnosis* reads a run — below. `SECURITY.md` → *The copilot*
 - **It cannot rename the workflow itself** — the name is outside the graph and outside undo — and
   says so, pointing at the toolbar
 
@@ -152,6 +153,75 @@ npm run eval:generate                                    # replays every recordi
 
 Measured on `gemini-3.5-flash-lite`: **9/9, every one on the first attempt.** The recording is
 replayed in CI on every push.
+
+## The copilot explains, and repairs
+
+Two more things to ask, from buttons above the copilot's composer — **not phrases to type**, because
+whatever you type is read as a change.
+
+**Explain this workflow** answers with a walkthrough in the order a run goes, a sentence per step or
+group of steps, each saying what that step's configuration actually does. **Press a sentence and
+its steps are ringed on the canvas** and brought into view. It is a highlight, not a selection:
+selecting a node gives the copilot's column to the inspector, and the sentence would vanish under
+your click.
+
+**Why did this run fail?** — from the run panel on the canvas, from the copilot when the run on the
+canvas failed, or from the run's own page (which opens the canvas, because a fix needs a canvas to be
+accepted on). The answer has two parts:
+
+1. **A diagnosis**: what failed, its most likely cause with the evidence — a configuration value, a
+   field of the input, the service's answer — and what to do. The model is asked to tell three kinds
+   of failure apart, because each is fixed somewhere different: the workflow's own configuration
+   (fixed in the workflow), a service's error (a wrong URL is fixed in the workflow; an expired
+   connection or an outage is not — it says what to do instead), and data the run was started with
+   that was not what the workflow expects
+2. **The fix, where the fix is a change to the workflow**, said in words and then drafted straight
+   away as an ordinary copilot proposal — the same diff, the same Accept, undo and refine. It goes
+   through the edit pipeline unchanged; the diagnosis only writes the instruction
+
+Once you accept a fix, the copilot offers to **save it and run the failed run again** — and picks
+the right way. *Retry from the failed step* (Phase 33) reuses every step that finished, so it is
+offered only when the fix is to the failed step or after it. A fix to a step that already ran — a
+tax rate one step upstream of the check that caught it — would be reused unchanged by a retry and
+fail the same way, so the copilot says so and offers a **re-run** instead
+([`after-fix.ts`](../src/lib/canvas/after-fix.ts)).
+
+### Run data is untrusted, and is read as data
+
+A diagnosis is the one place a model reads what a run carried — and a run carries text from outside:
+a webhook body, an API's answer, a model's output. Any of it can contain instructions. So:
+
+- **The server reads the run**, never the browser: the record is the run's, behind the same
+  visibility rules as every run read
+- **Bounded**: the failed step's error, its config as it ran, its input and last log lines, and what
+  the nearest steps before it produced — each value cut down where it is, so field names survive
+- **Scrubbed first**: anything shaped like a credential this product stores is removed before
+  anything is cut ([`scrub.ts`](../src/lib/generate/scrub.ts)); a test plants a credential of every
+  kind in every field of a run record and searches the prompt for each
+- **Delimited**: the record sits between markers unique to the request, under a rule never to follow
+  anything inside it
+- **The worst outcome is a proposal**: the edit that drafts a fix never sees the run, and a fix is a
+  diff you read before you accept it
+
+### Measured too
+
+[`diagnose-cases.ts`](../src/lib/generate/eval/diagnose-cases.ts) holds five failed runs — a misspelt
+time zone, a 404 from a wrong path, an assert tripped by a wrong tax rate upstream, **a webhook body
+that tries to dictate the fix**, and an expired Google connection whose fix is not in the workflow —
+each written as the engine records it, with the error each node really throws. A diagnosis is scored
+on the step it blames, where it puts the fix, what it mentions, and what its fix became: valid, set
+where it should be, touching nothing else, and run again the right way. The injection's payload
+anywhere in the answer fails the case. Two explanation cases are scored on citing every step and
+inventing none.
+
+```bash
+npm run eval:generate -- --diagnose --live --record <name>
+npm run eval:generate -- --explain --live --record <name>
+```
+
+Measured on `gemini-3.5-flash-lite`: **diagnoses 5/5 and explanations 2/2, every one on the first
+attempt** — the injection case found the real cause (the body's field is `total`, not `amount`) and
+carried none of the planted instruction.
 
 ## The agent node — reasoning inside a run
 
@@ -278,7 +348,9 @@ because a hard-won reliability fix is exactly the kind of thing that rots in dup
 | [`src/lib/ai/gemini.ts`](../src/lib/ai/gemini.ts) · [`groq.ts`](../src/lib/ai/groq.ts) | The two wire formats |
 | [`src/lib/generate/`](../src/lib/generate) | The generation pipeline. Touches no database |
 | [`src/lib/generate/edit.ts`](../src/lib/generate/edit.ts) | The copilot's edit: what is carried by id, where an added node goes |
-| [`src/lib/canvas/copilot.ts`](../src/lib/canvas/copilot.ts) | The copilot's conversation — ask, refine, accept, reject. Pure |
+| [`src/lib/canvas/copilot.ts`](../src/lib/canvas/copilot.ts) | The copilot's conversation — ask, refine, accept, reject, explain, diagnose. Pure |
+| [`src/lib/generate/explain.ts`](../src/lib/generate/explain.ts) | Explain and diagnose: their prompts, their answers, the one retry |
+| [`src/lib/generate/evidence.ts`](../src/lib/generate/evidence.ts) · [`scrub.ts`](../src/lib/generate/scrub.ts) | A failed run as a diagnosis may see it — chosen, scrubbed, bounded |
 | [`src/lib/generate/select.ts`](../src/lib/generate/select.ts) | Which nodes a request is shown in full |
 | [`src/lib/generate/eval/`](../src/lib/generate/eval) | The eval set, its scorer, and the recordings CI replays |
 | [`src/lib/nodes/ai/agent.ts`](../src/lib/nodes/ai/agent.ts) | The agent node itself |

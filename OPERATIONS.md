@@ -91,7 +91,7 @@ would otherwise leave a metric reporting zero forever, which looks exactly like 
 | `run.finished` | INFO / ERROR | A run reached a terminal status | `status`, `durationMs`, `attempt`, `resumed` |
 | `node.finished` | INFO / ERROR | One node finished | `nodeId`, `nodeType`, `status`, `durationMs` |
 | `model.call` | INFO / WARNING / ERROR | A `generate` resolved | `requested`, `answered`, `fallback`, `attempts` |
-| `generation.finished` | INFO / WARNING | A workflow generation ended (Phase 34) — WARNING when neither attempt produced a valid graph | `outcome` (`first` · `second` · `failed`), `attempts`, `model`, `selector`, `selected`, `selectorFellBack`, `promptChars`, `unsupported`, `issues`, `durationMs` |
+| `generation.finished` | INFO / WARNING | A workflow generation ended (Phase 34), or a copilot edit (35), explanation or diagnosis (36) — WARNING when neither attempt produced a valid answer | `mode` (`create` · `edit` · `explain` · `diagnose`), `outcome` (`first` · `second` · `failed`), `attempts`, `model`, `selector`, `selected`, `selectorFellBack`, `promptChars`, `unsupported`, `issues`, `durationMs`; `uncited`, and a diagnosis's `fix` |
 | `queue.degraded` | **ERROR** | A durable run could not be enqueued | `reason` |
 | `queue.delivered` | INFO | A Cloud Tasks delivery was handled | `handled`, `status`, `retryCount` |
 | `run.waiting` | INFO | A run paused at a long delay (Phase 26) | `wakeAt`, `trigger` |
@@ -119,7 +119,7 @@ gcloud logging metrics list --format='table(name,filter)'
 | `agentforge_node_latency` | A distribution of `durationMs`, labelled `nodeType` and `status` |
 | `agentforge_model_fallbacks` | **The important one.** Calls the requested model did not answer |
 | `agentforge_errors` | Every ERROR, labelled by `errorGroup` — repeats are one line, not a rising count |
-| `agentforge_generations` | Workflow generations **and copilot edits**, labelled `outcome` (`first`, `second`, `failed`), `selector` and — since Phase 35 — `mode` (`create`, `edit`) — **which attempt produced the graph** (Phase 34) |
+| `agentforge_generations` | Workflow generations **and the copilot's answers**, labelled `outcome` (`first`, `second`, `failed`), `selector` and — since Phase 35 — `mode` (`create`, `edit`; Phase 36 adds `explain`, `diagnose`) — **which attempt produced the answer** (Phase 34) |
 
 ---
 
@@ -181,7 +181,10 @@ the log-based metric kept collecting across the change rather than needing to be
 when it took the retry, and `failed` when neither was (a WARNING, and a 422 to the user). **Since
 Phase 35 every copilot proposal (`POST /api/workflows/:id/copilot`) ends in the same line with
 `mode: "edit"`, and generation's carries `mode: "create"`** — one pipeline, one quality question; the
-metric's `mode` label (added in place, so earlier points have none) separates them. A copilot
+metric's `mode` label (added in place, so earlier points have none) separates them. **Since Phase 36
+an explanation and a diagnosis end in it too, as `mode: "explain"` and `mode: "diagnose"`**, with
+`uncited` (ids the model cited that the workflow does not have) and, for a diagnosis, `fix` (whether
+it found one in the workflow); `selector` is absent on both — nothing is selected. A copilot
 `failed` means neither answer was a valid change, and the canvas showed the person the issues. A provider
 failure — a bad key, a quota wall — is not an outcome; nothing was produced to judge, and
 `model.call` records it.
@@ -197,7 +200,8 @@ gcloud logging read \
 question is whether the model changed — a fallback answering (`model` differs from the default), a
 preview model replaced — before the prompt. Then reproduce it offline-first: `npm run eval:generate`
 replays the recorded eval set with no key; `-- --live` runs it against a real model and says which
-cases fail and why. For `mode: "edit"` it is `-- --edit --live`, the copilot's own nine cases. `selected` and `promptChars` are there to rule selection in or out: the eval set
+cases fail and why. For `mode: "edit"` it is `-- --edit --live`, the copilot's own nine cases; for `explain` and
+`diagnose`, `-- --explain --live` and `-- --diagnose --live` (Phase 36). `selected` and `promptChars` are there to rule selection in or out: the eval set
 asserts the selector gives every case what it needs, and `selectorFellBack` is only ever true for
 the model selector, which is not shipped.
 

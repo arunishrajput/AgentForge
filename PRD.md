@@ -170,7 +170,7 @@ keep their meaning.
 | C3-7 | **Run history**, a run detail page, re-run, retry from the failed step, retention | 33 — **DONE** |
 | C3-8 | Generation that scales past 30 nodes, measured by an eval set | 34 — **DONE** |
 | C3-9 | **A copilot that edits a workflow by conversation**, shown as a diff the user accepts | 35 — **DONE** |
-| C3-10 | The copilot explains a workflow and diagnoses a failed run with a proposed fix | 36 |
+| C3-10 | The copilot explains a workflow and diagnoses a failed run with a proposed fix | 36 — **DONE** |
 | C3-11 | Per-node error handling, an error-trigger workflow, an in-app notification inbox | 37 |
 | C3-12 | **Human approval steps** — decided in the app or by a signed single-use link | 38 |
 | C3-13 | Sub-workflows, workflows as agent tools, a merge/join node | 39 |
@@ -298,8 +298,16 @@ appears on the canvas. Invalid model output is rejected and reported rather than
 language. The answer is a **proposal**: validated exactly as a generated workflow is, shown as a diff
 with every value it sets, and applied only when the person presses Accept — as one step of undo,
 unsaved until they save. It can be refined in the same conversation, rejected without a trace, and
-it says what it could not do. Unchanged steps keep their place and settings; run data is never sent
-to the model; a viewer cannot use it.
+it says what it could not do. Unchanged steps keep their place and settings; an edit never sends run
+data to the model; a viewer cannot use it.
+
+**Explain and repair** (Phase 36). The copilot explains a workflow as a walkthrough whose sentences
+point at their steps on the canvas, and answers *why did this run fail?* — from the canvas or the
+run's page — with a diagnosis that says what failed, the likely cause and what to do, and, where the
+fix is a change to the workflow, that fix drafted as an ordinary proposal. Accepted, the fix is saved
+and the run retried from the failed step, or re-run when a retry would reuse a step the fix changed.
+The run's record reaches the model bounded, scrubbed of anything shaped like a stored credential, and
+as data it is told never to follow.
 
 **Configuration.** Model and provider selection in-app. The user supplies their own API key, which
 is encrypted at rest and never returned to the client in plaintext. Integration credentials follow
@@ -353,6 +361,8 @@ Ranked. Earlier items are not tradeable for later ones.
 9. **A person can live in it** — every mistake undoable, every run findable, every failure announced
 10. **A schedule fires when it says it will** — and the product says so when it will not
 11. **A change can be asked for** — the copilot edits a workflow, and nothing changes without Accept
+12. **A failure explains itself** — the copilot says why a run failed and drafts the fix; retrying it
+    is one press
 
 ---
 
