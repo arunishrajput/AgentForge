@@ -317,7 +317,12 @@ export function CommandPalette({
         <span aria-hidden="true">⌕</span>
         <span className="hidden sm:inline">Search</span>
         {/* ⌘K on a Mac and Ctrl+K elsewhere (Phase 29) — it printed ⌘K to everyone. */}
-        <Keys chord={{ key: "k", mod: true }} platform={platform} joined className="hidden sm:inline-flex" />
+        {/* Wrapped, not `className="hidden …"`: `Keys` sets its own `inline-flex`, and two display
+            utilities on one element are decided by the stylesheet's order, not the attribute's —
+            so the cap showed on phones from Phase 29 until Phase 37's walk measured the header. */}
+        <span className="hidden sm:inline-flex">
+          <Keys chord={{ key: "k", mod: true }} platform={platform} joined />
+        </span>
       </button>
 
       {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions --

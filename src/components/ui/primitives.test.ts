@@ -87,3 +87,34 @@ test("Dialog names itself from a generated id", () => {
   assert.match(dialog, /aria-labelledby=\{titleId\}/, "Dialog does not label itself with the id");
   assert.match(dialog, /<h2 id=\{titleId\}/, "Dialog's title does not carry the id");
 });
+
+/**
+ * **A display class handed to a primitive that sets its own display does not win — Phase 37.**
+ *
+ * `cn` only joins, so `className="hidden sm:inline-flex"` on `Keys` — whose root is `inline-flex`
+ * — put both on one element, and the stylesheet's order chose `inline-flex`: the ⌘K cap showed on
+ * every phone. Found by Phase 37's walk, measuring a header that had to fit one more control. The
+ * rule: a caller that needs to show or hide a primitive wraps it. Read across `src/components`.
+ */
+test("no caller hands a display class to a primitive that sets its own display", () => {
+  const DISPLAY = /(?:^|\s)(?:[a-z]+:)?(?:hidden|block|inline|inline-block|flex|inline-flex|grid|inline-grid|contents)(?=\s|$)/;
+  const selfDisplaying = sources
+    .filter(({ text }) => /export function (\w+)[\s\S]*?className=\{cn\("(?:inline-flex|flex|grid|block|inline-grid)\b/.test(text))
+    .flatMap(({ text }) => [...text.matchAll(/export function (\w+)/g)].map((match) => match[1]));
+  assert.ok(selfDisplaying.includes("Keys"), "the scan must find Keys, or it finds nothing");
+
+  const root = join(UI, "..");
+  const files = readdirSync(root, { recursive: true })
+    .map(String)
+    .filter((name) => name.endsWith(".tsx"));
+  const offenders = [];
+  for (const file of files) {
+    const text = readFileSync(join(root, file), "utf8");
+    for (const name of selfDisplaying) {
+      for (const match of text.matchAll(new RegExp(`<${name}\\b[^>]*?className="([^"]*)"`, "g"))) {
+        if (DISPLAY.test(match[1])) offenders.push(`${file}: <${name} className="${match[1]}">`);
+      }
+    }
+  }
+  assert.deepEqual(offenders, []);
+});

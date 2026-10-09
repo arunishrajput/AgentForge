@@ -64,8 +64,13 @@ export function AccountMenu({
                 reading it — they know their own email — and the workspace name is the
                 most, because Phase 19B made it something that changes. So this yields
                 and the name survives. It is still in the menu below, so nothing is
-                lost. */}
-            <span className="hidden max-w-[11rem] truncate sm:inline lg:hidden">{email}</span>
+                lost.
+
+                **From `md`, not `sm` — Phase 37.** The inbox bell joined this bar, and between
+                640 and 767 px it overlapped the workspace switcher by 7 px (measured in a 640 px
+                frame), the switcher being the one item that shrinks. The address yields again, for
+                the same reason as above; below `md` the account shows its letter, as on a phone. */}
+            <span className="hidden max-w-[11rem] truncate md:inline lg:hidden">{email}</span>
             <span className="sr-only">Account</span>
           </span>
         }
