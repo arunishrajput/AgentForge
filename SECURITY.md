@@ -490,6 +490,31 @@ each bounded by the rules it already lived under:
 - **It cannot loop.** A run an error trigger started never starts another (D176); at most five error
   workflows hear one failure
 
+## Composition — Phase 39
+
+Workflows calling workflows, and agents calling workflows, add **no unauthenticated surface** and no
+credential path: a called run executes with its own workspace's credentials exactly as any run does, in
+the same workspace. What it adds is a way for one run to start another, so what bounds that is stated
+here (D185, D186):
+
+- **Workspace and visibility.** A call reaches only the caller's workspace, answering "no such
+  workflow" for anything else (D20). A private callee is visible to its creator's workflows and an
+  admin's, judged by the *calling workflow's author* — a webhook has no person to ask. The save-time
+  cycle check walks only workflows the saver may see, so a refusal never names a colleague's private one
+- **Bounds that cannot be got round.** Depth three, no workflow above a call called again, one shared
+  step budget and clock — checked at run time over what actually happened, because a save cannot see a
+  `{{ }}` reference or an agent's choice. A called workflow cannot pause the run it is inside
+- **A tool is opt-in twice** (D19's rule, again). Marking a workflow callable by agents hands it to no
+  agent; an agent lists it by id. The model sees a name, the author's sentence and typed inputs — never
+  the graph — and its arguments are checked strictly. An unmarked, missing or invisible workflow is
+  never offered
+- **A callee's output is run data**, passed on as a node's output is. Nothing new is scrubbed because
+  nothing new is secret: the one secret a run holds in memory is an approval's link, and a called
+  workflow cannot hold one
+- **Not claimed.** A prompt-injected agent can call exactly the workflows its author listed, with the
+  inputs those workflows declared, within the depth bound — which is the point of listing them. An
+  agent that lists a workflow which posts to Slack can be talked into posting to Slack
+
 ## Approval links — Phase 38
 
 A run that reaches `core.approval` mints a link — `/approve#<token>` — and its Ask path sends it

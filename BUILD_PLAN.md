@@ -54,8 +54,8 @@ is the file it means.
 36  Copilot II — explain and repair                         ✅
 37  Workflows I — when things go wrong                      ✅
 38  Workflows II — human in the loop                        ✅
-39  Workflows III — composition: sub-workflows, workflow tools, merge  ← START HERE
-40  Workflows IV — public entry points: forms and webhook responses
+39  Workflows III — composition: sub-workflows, workflow tools, merge  ✅
+40  Workflows IV — public entry points: forms and webhook responses  ← START HERE
 41  Public API — personal access tokens
 42  Chapter 3 launch polish
 ```
@@ -1810,6 +1810,47 @@ its own; a diamond with `core.merge` runs the join once with both inputs. In a b
 join row closed), `docs/agents.md`, `docs/nodes.md`, `PRD.md`, `PROGRESS.md`.
 
 **Commit.** `feat: complete phase 39 sub-workflows agent workflow tools and merge`
+
+**Status: COMPLETE, 2026-10-10 — deployed as `00098-2d2` and verified there, on the API and in a real
+browser in Light and Toybox Night.** Migration `0018` (three nullable columns, one partial index —
+`run.parentRunId`, `run.parentNodeId`, `workflow.agentTool`, `run_parent_idx`), applied before the deploy
+with `verify-schema.mjs` before and after. **One deploy** — the browser walk found nothing to fix. What
+was built:
+
+- **`core.call_workflow`** (D183–D185) — runs another workflow of the workspace **inside the caller's own
+  attempt** as a run of its own, linked both ways (`run.parentRunId`/`parentNodeId`; the calling step's
+  output names the child; the run page lists the runs each step started). It answers the plan's
+  "decide whether a long child runs durably": **it does not**, and a called workflow cannot pause the run
+  it is inside — a run waits for one thing at a time (D179). The bounds extend D16 to the tree: depth 3,
+  no workflow above a call called again, one shared step budget and clock (`Lineage`, `RunOutcome.charged`);
+  a cycle or a chain too deep is refused **at save** (422, walking only workflows the saver may see) and
+  **at run time** (where a `{{ }}` reference hides it from the save). Visibility is the calling workflow's
+  author's. The node holds none of this: it asks `context.workflows`, the engine's one door
+- **Workflows as agent tools** (D186) — opt-in twice: an editor offers the workflow to agents (a name, a
+  sentence, typed inputs — `workflow.agentTool`, not a version) and an `ai.agent` lists it as
+  `workflow:<id>`. The model sees `workflow_<name>`, the sentence verbatim and the inputs; arguments are
+  checked strictly; a call is a child run with trigger `agent`. The agent node is handed a name, a spec
+  and a check — never the workflow. An unmarked, missing or invisible one is named in the log and never
+  offered. A real model called one on the deployed service and its run read back on its own
+- **`core.merge`** (D187) — closes `ARCHITECTURE.md`'s oldest simplification. `all` waits until nothing
+  outstanding can still reach it (so a diamond a Branch made does not wait for the side never chosen),
+  `first` takes the first; either runs once. **The work list does the joining** (`engine/join.ts` →
+  `Frontier`), and **the retry's replay takes its work from the same implementation**, so a retried run
+  holds and fires its merges as the original did — held branches ride in `cursor.joins` as seqs
+- **The generator** (D188) — Call workflow is not offered to it (it cannot know a workflow's id); a request
+  for one is answered `unsupported`. Two eval cases, both **first-attempt** on `gemini-3.5-flash-lite`:
+  `parallel-fetch` (needs `core.merge`) and `call-another-workflow` (must say it cannot)
+- **The UI** — a workflow picker on the Call workflow node; an agent's *Tools* as a checklist of nodes and
+  the offered workflows (an entry that is no longer available is shown, and removable); *Offer to agents*
+  on the trigger; the called run linked from its step and the calling run from its page. Two icons
+
+Measured and found: **a build failure no test saw** — a value import from `workflow/tool.ts` into the node
+layer made the production bundle evaluate the node registry in an order that read `agentNode` before it
+existed (`Cannot access 'x' before initialization` at *Collecting page data*); every test passed, because
+the test runner's module order differs. Fixed by keeping `tool.ts` free of node imports (the agent node
+gets a name, a spec and a check from the engine's door instead), with the duplicated prefix guarded by a
+test. And **an incremental `tsc` hid a type error** until `--incremental false` was used. Every mutation of
+the new engine code that was tried was caught by a test (eight of eight). Tests 1618 → 1672.
 
 ---
 

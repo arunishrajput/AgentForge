@@ -173,7 +173,7 @@ keep their meaning.
 | C3-10 | The copilot explains a workflow and diagnoses a failed run with a proposed fix | 36 — **DONE** |
 | C3-11 | Per-node error handling, an error-trigger workflow, an in-app notification inbox | 37 — **DONE** |
 | C3-12 | **Human approval steps** — decided in the app or by a signed single-use link | 38 — **DONE** |
-| C3-13 | Sub-workflows, workflows as agent tools, a merge/join node | 39 |
+| C3-13 | **Sub-workflows, workflows as agent tools, a merge/join node** | 39 — **DONE** |
 | C3-14 | A hosted form trigger; custom webhook responses | 40 |
 | C3-15 | **A public API** with personal access tokens | 41 |
 | C3-16 | Chapter 3 launch polish — a11y and security in both themes, docs, onboarding | 42 |
@@ -207,6 +207,16 @@ on the canvas or on the run's page; **whoever holds the link decides without sig
 nobody does before the timeout, the step's own rule decides: reject (the default), approve, or fail the
 run. The run then carries on down **Approved** or **Rejected**, with who decided and their comment.
 A link cannot be decided by opening it — only by pressing a button — and is stored only as a hash.
+
+**What C3-13 means, precisely** (Phase 39, D183–D188). Workflows can be built from other workflows. A
+**Call workflow** step runs another workflow of the workspace as part of this one, waits for it, and
+carries on with what it returned; the called run has its own page, linked both ways. Calls are bounded
+as one tree — three levels deep, never in a circle, sharing the caller's steps and clock — and a called
+workflow cannot pause the run it is inside. **A workflow can be offered to agents** as a tool — a name,
+a sentence, typed inputs — and an agent that lists it can call it, each call a run of its own; it takes
+two deliberate acts, so offering a workflow hands it to no agent. A **Merge** step joins branches that
+run side by side and runs once, closing the oldest simplification in `ARCHITECTURE.md`. Not in scope: a
+called workflow that waits (D183), a generator that writes calls (D188).
 
 ---
 

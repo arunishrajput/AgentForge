@@ -16,7 +16,7 @@ Nothing was deleted:
 
 ## Project Status
 
-**CHAPTER 3 IS OPEN. PHASES 26–38 ARE COMPLETE (2026-10-09); PHASE 39 IS NEXT.** The product has
+**CHAPTER 3 IS OPEN. PHASES 26–39 ARE COMPLETE (2026-10-10); PHASE 40 IS NEXT.** The product has
 three themes, every screen works in both, and the canvas edits like a serious tool — undo, copy and
 paste between workflows, multi-select, auto-arrange, a keyboard for everything, sticky notes, steps
 that switch off without being deleted, and a test loop: pinned outputs and partial runs. The list is a
@@ -40,20 +40,23 @@ can stop and ask a person**: an approval step sends its link down its Ask path t
 workspace already has and waits, holding nothing, for hours or days; the people it names decide in the
 inbox or on the canvas, whoever holds the link decides once without signing in, and a timeout decides if
 nobody does. The link is stored only as a hash, kept out of everything a run writes, and no GET can
-decide it.
+decide it. **And workflows compose**: a step calls another workflow and carries on with what it
+returned — the called run has its own page, linked both ways, and the whole tree of calls is bounded
+as one run is; a workflow can be offered to agents as a tool, and an agent that lists it calls it as
+a run of its own; and a Merge joins branches that ran side by side and runs once.
 
 | Chapter | Phases | State |
 |---|---|---|
 | **1** — the hackathon MVP | 0–12 | **COMPLETE.** Submitted 2026-09-26 (<https://devpost.com/software/agentforge-kz832x>). Closed, never reopened |
 | **2** — the open-source product | 13–25 | **COMPLETE**, 2026-10-01. Durable runs, versioning, workspaces, roles and sharing, a credential vault, observability, 30 nodes, two LLM providers, docs, an a11y and security audit |
-| **3** — a product people use every day | **26–42** | **OPEN — planned 2026-10-06. Phases 26–38 complete; 39 next.** `BUILD_PLAN.md` is the scope contract |
+| **3** — a product people use every day | **26–42** | **OPEN — planned 2026-10-06. Phases 26–39 complete; 40 next.** `BUILD_PLAN.md` is the scope contract |
 
 **Chapter 3, in one line:** themes (Light, Dark, System), a canvas that edits like a serious tool,
 an AI copilot that edits and repairs workflows, workflows that can handle errors, wait, ask a person
 and call each other, and the daily-use basics — tags, run history, import/export and an API.
 
 **The live system must keep working:** **https://agentforge-733000675212.asia-southeast1.run.app** —
-revision `agentforge-00097-xwf`.
+revision `agentforge-00098-2d2`.
 Launch demo video: <https://www.youtube.com/watch?v=3txmpCPEWd4>.
 
 ### The binding decisions, restated for Chapter 3
@@ -71,17 +74,17 @@ Launch demo video: <https://www.youtube.com/watch?v=3txmpCPEWd4>.
 
 ## Current Phase
 
-## ▶ PHASE 39 — Workflows III: composition — NOT STARTED
+## ▶ PHASE 40 — Workflows IV: forms and webhook responses — NOT STARTED
 
-**Next.** `BUILD_PLAN.md` → *Phase 39* is the definition: **`core.call_workflow`** (a parent calls a
-child in the same workspace, visibility applying, and gets its output — a cycle refused at save and at
-run time, a depth bound, the child counted against the parent's budgets), **workflows as agent tools**
-(opt-in, the tool call a child run), and **`core.merge`** (wait for every branch, or take the first, and
-run once). Two new nodes, five obligations each. See *Notes for whoever comes next*.
+**Next.** `BUILD_PLAN.md` → *Phase 40* is the definition: **`core.form_trigger`** (a hosted public
+form at an unguessable, rotatable URL, validated server-side, with a honeypot, a size cap and per-token
+rate limiting) and **`core.respond`** (the webhook answers its caller with a status, a body built by
+lookup only and allowlisted headers). **Two new unauthenticated surfaces**, enumerated in
+`scripts/verify-security.mjs` in this phase. Two new nodes, five obligations each. See *Notes for whoever
+comes next*.
 
-**Phase 38 closed on 2026-10-09** — `agentforge-00097-xwf`, verified on the deployed service and in a
-real browser in Light and Night, signed in and signed out. Its evidence is in `BUILD_PLAN.md` → *Phase
-38* → *Status*.
+**Phase 39 closed on 2026-10-10** — `agentforge-00098-2d2`, verified on the deployed service and in a
+real browser in Light and Night. Its evidence is in `BUILD_PLAN.md` → *Phase 39* → *Status*.
 
 ---
 
@@ -102,8 +105,8 @@ real browser in Light and Night, signed in and signed out. Its evidence is in `B
 | **36** — Copilot II: explain and repair | **COMPLETE**, 2026-10-09 — `agentforge-00089-t45` |
 | **37** — Workflows I: when things go wrong | **COMPLETE**, 2026-10-09 — `agentforge-00094-w55` |
 | **38** — Workflows II: human in the loop | **COMPLETE**, 2026-10-09 — `agentforge-00097-xwf` |
-| **39** — Workflows III: sub-workflows, workflow tools, merge | NOT STARTED ← next |
-| **40** — Workflows IV: forms and webhook responses | NOT STARTED |
+| **39** — Workflows III: sub-workflows, workflow tools, merge | **COMPLETE**, 2026-10-10 — `agentforge-00098-2d2` |
+| **40** — Workflows IV: forms and webhook responses | NOT STARTED ← next |
 | **41** — Public API: personal access tokens | NOT STARTED |
 | **42** — Chapter 3 launch polish | NOT STARTED |
 
@@ -118,18 +121,18 @@ in `archive/progress-chapters-1-2.md` → *Completed Phases*.
 |---|---|
 | **Canonical URL** | **`https://agentforge-733000675212.asia-southeast1.run.app`** — the deterministic URL (D10). The legacy `https://agentforge-i5d2u66boa-as.a.run.app` works; do not publish it |
 | Service | `agentforge` on Cloud Run, `asia-southeast1`, project `agentforge-hackathon-2026` (`733000675212`) |
-| **Revision** | **`agentforge-00097-xwf`**, 100% of traffic — Phase 38 (2026-10-09; `00095-xgf` shipped the phase, `00096-95g` the walk's fixes, `00097-xwf` the approval page's heading). **Migration `0017` is additive**, but read `DEPLOYMENT.md` → *Rollback* → Phase 38 before a rollback past `00095-xgf`: an older revision does not know a cursor's `approval`, so a run waiting on a person would wake at its timeout and **finish succeeded having run nothing after the approval** — stop those first (`select count(*) from run where status = 'waiting' and cursor ? 'approval'`). Before that, Phase 37's warning: past `00090-kvr` an older revision ignores `onError`, refuses an Error edge and strips the policy on save. **The kept images (D120)** after the next prune: `00097-xwf` to `00093`; Phase 37's `00090-kvr` drops out within two more deploys. Past `00085-cff` the copilot goes entirely; past `00081-trs` run history hides and stops pruning. **Never roll back past `00072-n8v` while any workflow uses a sticky note or a switched-off node** (D134; the check query is in `DEPLOYMENT.md` → *Rollback*). Rollback tested (`update-traffic --to-revisions <rev>=100`, ~15 s) |
+| **Revision** | **`agentforge-00098-2d2`**, 100% of traffic — Phase 39 (2026-10-10), **one deploy**. **Migration `0018` is additive** (three nullable columns, one partial index), so a rollback is a traffic shift — but read `DEPLOYMENT.md` → *Rollback* → Phase 39 first: an older revision refuses `core.call_workflow` and `core.merge` as unknown node types, and a run put down while a merge holds a branch (`cursor ? 'joins'`) would resume with it gone. Before that, Phase 38's warning: past `00095-xgf` a run waiting on a person would wake at its timeout and finish succeeded having run nothing after the approval (`select count(*) from run where status = 'waiting' and cursor ? 'approval'`); Phase 37's: past `00090-kvr` an older revision ignores `onError`. **The kept images (D120)** after the next prune: `00098-2d2` to `00094`; `00093-…` and Phase 37's `00090-kvr` drop out within two more deploys. Past `00085-cff` the copilot goes entirely; past `00081-trs` run history hides and stops pruning. **Never roll back past `00072-n8v` while any workflow uses a sticky note or a switched-off node** (D134). Rollback tested (`update-traffic --to-revisions <rev>=100`, ~15 s) |
 | Scaling | **`min-instances 0`**, `max-instances 3`, 1 vCPU / 1 GiB, 3600 s timeout, port 8080. **Cold start 6.38 s** (measured), 0.58–0.76 s warm |
 | Env vars | 12: `NODE_ENV` `AUTH_URL` `APP_BASE_URL` `DATABASE_URL` `AUTH_SECRET` `GOOGLE_CLIENT_ID` `GOOGLE_CLIENT_SECRET` `ENCRYPTION_KEY` `CRON_SECRET` `TASKS_QUEUE` `TASKS_LOCATION` `ROOT_KEY_SECRET`. A plain redeploy inherits them; add with `--update-env-vars` (merges), never `--env-vars-file` unless replacing the set (D11). `TASKS_PROJECT`, `GCP_ACCESS_TOKEN`, `GCP_PROJECT` and `DATABASE_URL_UNPOOLED` are deliberately **not** set on the service |
-| Database | Neon `super-mountain-39872886`, **18 tables**, migrations **`0000`–`0017`** applied (`0017` by Phase 38 — one table, `approval`, nothing altered; `0016` by Phase 37 — one table, `inbox_item`, and `run.handled` with default 0; `0015` by Phase 33 — one nullable column, `run.origin`; `0014` by Phase 32 — three new tables, `tag`, `workflow_tag`, `workflow_star`, nothing altered; `0013` by Phase 31 — one nullable column, `run.test`; `rollback_0012.sql` is safe only once no run is `waiting`), ~12 MB of 0.5 GB, run history ~1.2 MB of it and **pruned since Phase 33** (30 days, or a workflow's newest 200, by the daily sweep — D153). A second database `agentforge_demo` with a `SELECT`-only role serves the Postgres node's verification (23C). One Neon database serves local and production |
+| Database | Neon `super-mountain-39872886`, **18 tables**, migrations **`0000`–`0018`** applied (`0018` by Phase 39 — three nullable columns, `run.parentRunId`, `run.parentNodeId` and `workflow.agentTool`, and the partial index `run_parent_idx`, nothing altered and no new table; `0017` by Phase 38 — one table, `approval`, nothing altered; `0016` by Phase 37 — one table, `inbox_item`, and `run.handled` with default 0; `0015` by Phase 33 — one nullable column, `run.origin`; `0014` by Phase 32 — three new tables, `tag`, `workflow_tag`, `workflow_star`, nothing altered; `0013` by Phase 31 — one nullable column, `run.test`; `rollback_0012.sql` is safe only once no run is `waiting`), ~12 MB of 0.5 GB, run history ~1.2 MB of it and **pruned since Phase 33** (30 days, or a workflow's newest 200, by the daily sweep — D153). A second database `agentforge_demo` with a `SELECT`-only role serves the Postgres node's verification (23C). One Neon database serves local and production |
 | Scheduler | **`agentforge-cron` is `ENABLED` on `0 4 * * *` UTC** — the daily safety sweep (Phase 26, D114). Schedules fire from per-slot Cloud Tasks timers on `POST /api/cron/fire`, not from the cron. Its first run, 2026-10-06, caught up the three slots overdue since 2026-10-02 |
 | Queue | `agentforge-runs` Cloud Tasks queue, `RUNNING`, `maxAttempts 5`, `maxConcurrentDispatches 3` |
-| Routes | Pages `/` `/workflows` `/workflows/[id]` **`/runs` `/runs/[id]`** `/templates` `/analytics` `/settings` `/design` `/invite/[token]` `/s/[token]` (+ `/dashboard` → `/workflows`), and **61 API route files** under `src/app/api` (**Phase 38 added `GET`/`POST /api/approvals/[id]`**, behind a session, any role — who may decide is the node's rule, D181 — **and the two link routes `POST /api/approve/describe` and `/decide`, with no session**, plus the page `/approve`; **Phase 37 added `GET /api/inbox` and `POST /api/inbox/read`**, both behind a session, any role; Phase 35 added `POST /api/workflows/[id]/copilot`, behind a session and `editor`, writing nothing — **Phase 36 gave it `kind: "explain"` and `"diagnose"`, no new route**; Phase 33 added three run routes, every one behind a session). `/workflows/[id]` reads `?diagnose=<run>` (Phase 36, D170). Unauthenticated: **twelve routes and three pages** since Phase 38 — `verify-security.mjs`'s table has **13** entries because it also lists the invitation `accept` route, which needs a session — and both link routes are asserted to have no GET |
+| Routes | Pages `/` `/workflows` `/workflows/[id]` **`/runs` `/runs/[id]`** `/templates` `/analytics` `/settings` `/design` `/invite/[token]` `/s/[token]` (+ `/dashboard` → `/workflows`), and **63 API route files** under `src/app/api` (**Phase 39 added `GET /api/workflows/callable` and `PUT`/`DELETE /api/workflows/[id]/tool`** — a session, `viewer` and `editor`, no unauthenticated surface; **Phase 38 added `GET`/`POST /api/approvals/[id]`**, behind a session, any role — who may decide is the node's rule, D181 — **and the two link routes `POST /api/approve/describe` and `/decide`, with no session**, plus the page `/approve`; **Phase 37 added `GET /api/inbox` and `POST /api/inbox/read`**, both behind a session, any role; Phase 35 added `POST /api/workflows/[id]/copilot`, behind a session and `editor`, writing nothing — **Phase 36 gave it `kind: "explain"` and `"diagnose"`, no new route**; Phase 33 added three run routes, every one behind a session). `/workflows/[id]` reads `?diagnose=<run>` (Phase 36, D170). Unauthenticated: **twelve routes and three pages** since Phase 38 — `verify-security.mjs`'s table has **13** entries because it also lists the invitation `accept` route, which needs a session — and both link routes are asserted to have no GET |
 | Provider keys stored | `llm.google` on `gemini-3-flash-preview`, `llm.groq` on `openai/gpt-oss-120b`. `workspace.llmProvider` is `NULL` (resolves to Google). **No model key on the service** — the product path is the user's own key |
-| **Registry** | **32 nodes** — Phase 38 added `core.approval` (not a trigger, so sent only when selected; its eval case passed first attempt), Phase 37 `core.error_trigger`, the first since D112 was lifted. **Since Phase 34 the generation prompt is budgeted per request** (D156, `registry.test.ts`): an index line per node (~116 characters, under 140) plus full definitions for the selection — every trigger, `ai.llm`, and up to ten by the request's words; the selected part's worst case under 17,500. **16,757 characters on average** on the eval set before Phase 37, against 25,081 for the whole catalogue; every trigger is always sent, so the error trigger's definition was cut to 540 characters to keep the worst case under 17,500 (D176). D112 is lifted. The agent's full tool list is pinned too (19 tools, 13,297 characters). A node owes five things, all asserted by `registry.test.ts`: a `PUBLISHABLE` entry, a `ROTATION_RULES` entry if it carries a credential kind, a `model` output field only if it is a model call, a generator catalogue entry and index line (automatic, and its label must select it — `select.test.ts`), and `docs` |
-| Tests | **1618 tests** on Node's built-in runner, plus **24** script tests; coverage **90.31 / 92.66 / 84.78** (lines / branches / functions) against thresholds 85 / 88 / 76. `npm run check` = lint · typecheck · test+coverage · test:scripts · docs:check; CI adds `build`. **Every colour gate runs once per theme** (`tokens.test.ts`), `utilities.test.ts` asks Tailwind's compiler about every colour class in `src/` (D124) and refuses `outline-none` and a dimmed fill label (D126). **The rendered half of contrast is `scripts/contrast-audit.browser.js`**, run in a browser in both themes (D126). **Run retention is verified against the real database by `scripts/verify-retention.mjs`** (Phase 33). **Generation is held to the eval set offline** (`src/lib/generate/eval/eval.test.ts`, Phase 34): the selector gives every case every node it requires, and three recordings of live runs replay to their verdicts. **The copilot is held to its own nine edit cases the same way** (`eval/edit-cases.ts`, Phase 35), **and to five diagnoses and two explanations** (`eval/diagnose-cases.ts`, Phase 36), and **every scroll container is positioned** (`scroll-containment.test.ts`, D166). **No credential of any stored kind reaches a diagnosis prompt** — `evidence.test.ts` plants one of each in every field of a run record (D168) | **The on-error policy is held clause by clause against the real engine** (`on-error.test.ts`, Phase 37), the alert rules and the payload's scrubbing by `failure.test.ts`, the inbox's statements as rendered SQL (`inbox-sql.test.ts`), and **no caller may hand a display class to a primitive that sets its own** (`primitives.test.ts`, the ⌘K-cap trap). **Phase 38**: the approval path against the real engine (`approval.test.ts` — asking, waiting, both decisions, the timeouts, the one-wait rule, closing on failure and cancel, the replay), and **no approval link reaches anything the engine writes** — a test plants a token and searches every write and the outcome, mutation-checked; the statements' rules as rendered SQL (`approvals-sql.test.ts`)
+| **Registry** | **34 nodes** — Phase 39 added `core.call_workflow` and `core.merge` (neither a trigger, so sent only when selected; `core.merge`'s eval case passed first attempt, and Call workflow is **not offered to the generator at all**, D188 — its case is that the generator says so). Phase 38 added `core.approval` (not a trigger, so sent only when selected; its eval case passed first attempt), Phase 37 `core.error_trigger`, the first since D112 was lifted. **Since Phase 34 the generation prompt is budgeted per request** (D156, `registry.test.ts`): an index line per node (~116 characters, under 140) plus full definitions for the selection — every trigger, `ai.llm`, and up to ten by the request's words; the selected part's worst case under 17,500. **16,757 characters on average** on the eval set before Phase 37, against 25,081 for the whole catalogue; every trigger is always sent, so the error trigger's definition was cut to 540 characters to keep the worst case under 17,500 (D176). D112 is lifted. The agent's full tool list is pinned too (19 tools, 13,297 characters). A node owes five things, all asserted by `registry.test.ts`: a `PUBLISHABLE` entry, a `ROTATION_RULES` entry if it carries a credential kind, a `model` output field only if it is a model call, a generator catalogue entry and index line (automatic, and its label must select it — `select.test.ts`), and `docs` |
+| Tests | **1672 tests** on Node's built-in runner, plus **24** script tests; coverage **90.58 / 92.71 / 85.18** (lines / branches / functions) against thresholds 85 / 88 / 76. `npm run check` = lint · typecheck · test+coverage · test:scripts · docs:check; CI adds `build`. **Every colour gate runs once per theme** (`tokens.test.ts`), `utilities.test.ts` asks Tailwind's compiler about every colour class in `src/` (D124) and refuses `outline-none` and a dimmed fill label (D126). **The rendered half of contrast is `scripts/contrast-audit.browser.js`**, run in a browser in both themes (D126). **Run retention is verified against the real database by `scripts/verify-retention.mjs`** (Phase 33). **Generation is held to the eval set offline** (`src/lib/generate/eval/eval.test.ts`, Phase 34): the selector gives every case every node it requires, and three recordings of live runs replay to their verdicts. **The copilot is held to its own nine edit cases the same way** (`eval/edit-cases.ts`, Phase 35), **and to five diagnoses and two explanations** (`eval/diagnose-cases.ts`, Phase 36), and **every scroll container is positioned** (`scroll-containment.test.ts`, D166). **No credential of any stored kind reaches a diagnosis prompt** — `evidence.test.ts` plants one of each in every field of a run record (D168) | **The on-error policy is held clause by clause against the real engine** (`on-error.test.ts`, Phase 37), the alert rules and the payload's scrubbing by `failure.test.ts`, the inbox's statements as rendered SQL (`inbox-sql.test.ts`), and **no caller may hand a display class to a primitive that sets its own** (`primitives.test.ts`, the ⌘K-cap trap). **Phase 38**: the approval path against the real engine (`approval.test.ts` — asking, waiting, both decisions, the timeouts, the one-wait rule, closing on failure and cancel, the replay), and **no approval link reaches anything the engine writes** — a test plants a token and searches every write and the outcome, mutation-checked; the statements' rules as rendered SQL (`approvals-sql.test.ts`). **Phase 39**: merge against the real engine, resumed mid-join and across a retry (`merge.test.ts`), the call door's budget, charging and bounds (`call.test.ts`), the save-time circle and depth walk (`calls.test.ts`), the agent's workflow tools (`agent-workflows.test.ts`), the tool's schema and strict arguments (`tool.test.ts`) — every one of eight deliberate mutations of that code was caught
 | Latency | Warm health ~190 ms (India → Singapore), DB 7–11 ms. Neon wake ~0.7–1.1 s. Generation 2.7–3.5 s. Analytics 17–27 ms of DB time per page view |
-| Last verified | **2026-10-09, Phase 38, acting as the owner, on `00097-xwf`:** `verify-api` **597 passed, 0 failed, 3 skipped** (by environment: a key already stored, one free-tier rate limit, Google connected), with every Phase 38 check — the link read back from a real Discord message and its hash the only form at rest, no working link in any step row, a bare GET deciding nothing, a signed-out approve resuming the run through Cloud Tasks, a used link dead, a member's reject, a 403 to a member not named, cancel closing the request, both timeout outcomes, and who may decide as a viewer, named and not, on a private workflow and not; `verify-security` **93**, `verify-a11y` **131** (`/approve` among its pages), `verify-templates` 47, `verify-integrations` 60 / 2 skipped (Notion, Airtable), `verify-postgres` 65, `verify-providers` 55, `verify-vault` passed, `verify-observability` passed / 1 structural skip, `verify-timers` 34, `verify-retention` passed, `verify-durable all` passed, and **`smoke.mjs` clean, all eight beats, first walk** — all on `00097-xwf`. In a real browser, Light and Night: a run asked, its link posted to a **real Discord channel** and read back, **decided from a signed-out browser** at 375 px and the run resumed down Approved; reject from the canvas (resumed live in 1.5 s), approve from the inbox and from the run page; no request in 30 idle seconds; contrast audit clean on every new state in both themes |
+| Last verified | **2026-10-10, Phase 39, acting as the owner, on `00098-2d2`:** `verify-api` **624 passed, 0 failed, 3 skipped** (by environment: a key already stored, Google connected, one model-listing case) — **with 23 new Phase 39 checks**: a parent calling a child and carrying on with its output, the two runs linked both ways and both pages saying so, a failed callee failing the step with its own words, a delay in a callee refused, a missing workflow, a circle and a chain too deep refused at save **and** at run time (through `{{ }}` references the save cannot see), a diamond joined once and a race, a Branch diamond not waiting for the side never chosen, **a retry across a merge reusing the join**, the tool marking (not a version; 400s; 409 without naming the other), the pickers' list, and — with a real model — **an agent calling a workflow as a tool, the child run read back on its own with trigger `agent`**, and an unmarked workflow never offered; `verify-security` passed, `verify-a11y` passed, `verify-templates` 47, `verify-integrations` passed, `verify-postgres` 65, `verify-providers` 55, `verify-vault` passed, `verify-observability` passed / 1 structural skip, `verify-timers` 34, `verify-retention` passed, `verify-durable all` passed, and **`smoke.mjs` clean, all eight beats, first walk**. A first `verify-api` run had 3 model-call failures — the free tier at capacity after the eval's live calls (see *Known Issues*); the re-run was clean. In a real browser, Light and Night: the run page's called-run link, the Call workflow picker, the agent's tools checklist (an unavailable entry shown and removable), *Offer to agents* typed and saved, and a merge diamond run on the canvas — **contrast audit empty on every state in both themes; nothing to fix**. Local `npm run check`: **1672 passing**, coverage 90.58 / 92.71 / 85.18 |
 | Billing | **`Billing - AgentForge` (`017EB5-0D8A5E-F212CC`) is a paid account since M13** (2026-10-06; the 90-day trial had closed). Budget **"AgentForge zero"**, ₹100/month, e-mail alerts at 50 / 90 / 100 % (D113). Artifact Registry keeps the newest 5 images and the source bucket deletes uploads after 7 days (D120) — measured 896 MB and 687 MB before the first prune. Spend is not queryable from the CLI |
 | Fonts | Geist + Geist Mono, self-hosted by `next/font` — no font request, CLS 0 |
 
@@ -142,7 +145,7 @@ Chapter 3**: three themes with Light the default (D110), the ladder's ordering r
 registry node before Phase 34 (D112, lifted by D156), zero cost held on a paid account inside Always Free (D113),
 Phase 26's timers, waits and active switch (D114–D119), build-artefact retention (D120), and Phase
 27's ink roles and Night palette (D121), its cream structure (D122), the theme mechanism (D123) and
-the dead-utility gate (D124), and Phase 28's per-theme fill hover (D125), the fill's label belonging to the fill with a rendered contrast audit (D126), and files outside the page following their environment (D127), and Phase 29's undo history (D128), clipboard envelope (D129), shortcut table (D130), canvas edit controls (D131) and selection read off the nodes (D132), and Phase 30's disabled-node semantics (D133), additive graph fields with no version bump (D134), what a share link does with notes (D135), the generator dropping both (D136) and notes on the canvas (D137), and Phase 31's pinned output (D138), test runs as the only honourer of a pin (D139), the `pinned` step status (D140), partial runs (D141), test runs out of analytics and onboarding (D142), and node effects, manual-trigger fields and the row editor (D143), and Phase 32's tags as workspace rows (D144), no folders (D145), the export envelope and import refusals (D146), duplicates and imports switched off (D147), per-person stars riding on the list query (D148) and the view in the URL (D149), and Phase 33's server-side keyset pagination with a microsecond cursor (D150), re-runs and retries running the saved version with `run.origin` (D151), retry by replay with the `reused` step status (D152), retention — 30 days or 200 a workflow, by the daily sweep (D153), lazy step bodies and a pinned once-stream on a run's page (D154), and recent runs painted on an unlocked canvas, with the visibility fix to the workspace-switch offer (D155), and Phase 34's per-request catalogue selection, deterministic, superseding D112 (D156), the eval set and its replay contract (D157), the soft retry over references that reach nothing (D158), `generation.finished` and `agentforge_generations` (D159), and — decided by the user — an agent calling only the tools it lists, none when it lists none (D160), and Phase 35's copilot in the inspector's column (D161), a proposal not blamed for the canvas's own problems (D162), what the model owns in an edit and what is carried by id (D163), the conversation as client state with refine and set-aside (D164), the copilot measured by its own eval set and `mode` on the generation metric (D165), and every scroll container positioned (D166), and Phase 36's diagnosis that answers in words with its fix asked for as an ordinary edit (D167), run data scrubbed per credential kind before it is cut and sent as delimited data (D168), sentences that highlight their steps without selecting them (D169), the run page's *Why did this fail?* opening the canvas (D170), retry or re-run after a fix by where the fix landed (D171), and explanations and diagnoses measured by their own eval sets (D172), and Phase 37's on-error policy (D173), the Error output as one reserved key added by `outputsOf` (D174), `handled` as a step status of its own with the run succeeding and counting them (D175), the error trigger — unattended failures only, depth one, the author's visibility, a scrubbed payload (D176) — and the inbox, a row per reader written in the failure's path and read on page load (D177), and Phase 38's approval link — hashed, in the fragment, kept out of everything a run writes, no GET (D178), `core.approval`'s three outputs with Ask firing first and one wait at a time (D179), pending requests read live into the inbox rather than written to it (D180), who decides, how a decision wakes the run, and the timeout (D181), and streams following a run about to wake (D182). **The next free number is D183.**
+the dead-utility gate (D124), and Phase 28's per-theme fill hover (D125), the fill's label belonging to the fill with a rendered contrast audit (D126), and files outside the page following their environment (D127), and Phase 29's undo history (D128), clipboard envelope (D129), shortcut table (D130), canvas edit controls (D131) and selection read off the nodes (D132), and Phase 30's disabled-node semantics (D133), additive graph fields with no version bump (D134), what a share link does with notes (D135), the generator dropping both (D136) and notes on the canvas (D137), and Phase 31's pinned output (D138), test runs as the only honourer of a pin (D139), the `pinned` step status (D140), partial runs (D141), test runs out of analytics and onboarding (D142), and node effects, manual-trigger fields and the row editor (D143), and Phase 32's tags as workspace rows (D144), no folders (D145), the export envelope and import refusals (D146), duplicates and imports switched off (D147), per-person stars riding on the list query (D148) and the view in the URL (D149), and Phase 33's server-side keyset pagination with a microsecond cursor (D150), re-runs and retries running the saved version with `run.origin` (D151), retry by replay with the `reused` step status (D152), retention — 30 days or 200 a workflow, by the daily sweep (D153), lazy step bodies and a pinned once-stream on a run's page (D154), and recent runs painted on an unlocked canvas, with the visibility fix to the workspace-switch offer (D155), and Phase 34's per-request catalogue selection, deterministic, superseding D112 (D156), the eval set and its replay contract (D157), the soft retry over references that reach nothing (D158), `generation.finished` and `agentforge_generations` (D159), and — decided by the user — an agent calling only the tools it lists, none when it lists none (D160), and Phase 35's copilot in the inspector's column (D161), a proposal not blamed for the canvas's own problems (D162), what the model owns in an edit and what is carried by id (D163), the conversation as client state with refine and set-aside (D164), the copilot measured by its own eval set and `mode` on the generation metric (D165), and every scroll container positioned (D166), and Phase 36's diagnosis that answers in words with its fix asked for as an ordinary edit (D167), run data scrubbed per credential kind before it is cut and sent as delimited data (D168), sentences that highlight their steps without selecting them (D169), the run page's *Why did this fail?* opening the canvas (D170), retry or re-run after a fix by where the fix landed (D171), and explanations and diagnoses measured by their own eval sets (D172), and Phase 37's on-error policy (D173), the Error output as one reserved key added by `outputsOf` (D174), `handled` as a step status of its own with the run succeeding and counting them (D175), the error trigger — unattended failures only, depth one, the author's visibility, a scrubbed payload (D176) — and the inbox, a row per reader written in the failure's path and read on page load (D177), and Phase 38's approval link — hashed, in the fragment, kept out of everything a run writes, no GET (D178), `core.approval`'s three outputs with Ask firing first and one wait at a time (D179), pending requests read live into the inbox rather than written to it (D180), who decides, how a decision wakes the run, and the timeout (D181), and streams following a run about to wake (D182), and Phase 39's wait-free called workflow (D183), the call link and trigger kinds (D184), the call tree's bounds (D185), workflows as agent tools (D186), the merge held by the work list (D187) and Call workflow withheld from the generator (D188). **The next free number is D189.**
 
 Before changing anything, search `DECISIONS.md` for the area — by number, file or subject. A
 decision changes only by being marked **SUPERSEDED** with a reason and replaced by a new row.
@@ -231,6 +234,8 @@ below, are in the archive → *Known Issues*.**
 | **A cursor made from a JavaScript `Date` skips rows** | 33: Postgres stores microseconds, a `Date` holds milliseconds. Let the database format a keyset cursor (`to_char(... US)`) and compare it as `timestamptz` |
 | **A scroll container must be positioned** | 35: `.sr-only` is absolute, and escapes an `overflow: auto` ancestor that is not positioned — a long copilot conversation stretched the page by 200 px. `scroll-containment.test.ts` refuses a scroller without `relative` (D166) |
 | **An answer that arrives after an `await` is judged against the state *then*** | 35: the copilot reads the conversation and the canvas from refs when an answer lands — a restore in between set the question aside, a canvas edited in between makes the answer a change to a graph that is gone (`use-copilot.ts`, D164) |
+| **A module cycle the tests cannot see can break the production bundle** | 39: `agent.ts → ai/tools.ts → nodes/index.ts → agent.ts` is an old, harmless cycle — until a new value import from the agent's neighbours changes the order Turbopack evaluates it in, when `next build` fails at *Collecting page data* with `Cannot access 'x' before initialization` while every test passes (the runner's order differs). `workflow/tool.ts` therefore may not import the node layer, and the agent node never imports it: the engine hands it a name, a spec and a check. **Run `npm run build` after any change to who imports what around the registry** |
+| **An incremental `tsc` can say nothing is wrong when something is** | 39: `npx tsc --noEmit` stayed silent through a test fixture of the wrong shape; `--incremental false` reported it. Use it to confirm a refactor of a shared type |
 | **Next 16 ignores `history.replaceState(window.history.state, …)`** | 32: its patch skips a call whose state carries the router's `__NA` marker, so the router never hears the new URL and its next commit writes the old one back. Pass `null`, as Next's docs do — `lib/ui/url.ts` |
 
 ---
@@ -305,7 +310,7 @@ history is in the archive.
 | Branch protection on `main` | GitHub | required check above, strict, no force push | **EXISTS** — `enforce_admins` deliberately `false`, so the owner's direct push to `main` works |
 | Private vulnerability reporting | GitHub | `arunishrajput/AgentForge` | **ENABLED** |
 | Google Cloud project | Google Cloud | `agentforge-hackathon-2026`, number `733000675212` | **EXISTS**, billing on the **paid** account `017EB5-0D8A5E-F212CC` since M13 |
-| Cloud Run service | Google Cloud | `agentforge`, `asia-southeast1` | **LIVE**, `agentforge-00094-w55` |
+| Cloud Run service | Google Cloud | `agentforge`, `asia-southeast1` | **LIVE**, `agentforge-00098-2d2` |
 | Artifact Registry | Google Cloud | `cloud-run-source-deploy`, `asia-southeast1` | **EXISTS** — cleanup policy: keep the newest 5 images, delete the rest once a day old (D120). **Re-read 2026-10-07: 160.4 MB, five images** — down from 926.9 MB the day of the prune. The saving D120 assumed is real; the size figure is simply computed late, so re-read it a day after a prune, not the same hour |
 | Build-source bucket | Cloud Storage | `run-sources-agentforge-hackathon-2026-asia-southeast1` | **EXISTS** — lifecycle: delete objects after 7 days (D120). No free tier in this region |
 | Budget | Cloud Billing | "AgentForge zero", `72b470cc-…`, ₹100/month, alerts at 50 / 90 / 100 % | **EXISTS** since 2026-10-06 (D113) |
@@ -371,32 +376,35 @@ npm run build && cp -r .next/static .next/standalone/.next/static && cp -r publi
 
 ## Notes for whoever comes next
 
-- **Start Phase 39 — composition.** Phase 38 is closed and deployed. What it leaves for a child run:
-  - **a run can wait for one thing at a time** (D179): a long delay or a second approval while an
-    approval is outstanding fails its step. A parent waiting on a durable child is a third kind of
-    wait — decide whether it joins this rule, or the cursor gains a field like `wait` and `approval`
-    did (`engine/cursor.ts`; the engine reads them at the top of `executeWorkflow`)
-  - **a decision wakes a run by `wakeAt = now()` and a delivery** (`approvals/store.ts` → `wake`), and
-    a run not yet `waiting` is caught by the suspend write reading the request in the same statement
-    (`lease.ts` → `suspendRun`). A child finishing and waking its parent is the same shape — reuse it
-    rather than inventing a second way to resume (and `engine/recover.ts` for starting one)
-  - **the recorder is how the engine reaches the database for a node** — `requestApproval` and
-    `reissueApproval` (D178) keep the engine testable with no database; a child-run request belongs
-    there too, not in a node's `execute`
-  - **a run's secrets stay in memory** (`engine/redact.ts`): anything a parent hands a child, or a child
-    hands back, that came from an Ask path is already `[removed]` in the rows — the in-memory value is
-    the only working one. A child's output is run data reaching another run: scrub it (D168) or say in a
-    decision why not
-  - **the retry replay knows a step that takes two exits** (`retry.ts` → `decidedApproval`): Ask at
-    once, the decision when its queue runs dry. A merge that waits for its branches changes when a node
-    runs, so the replay must mirror it exactly — the engine-against-replay tests are the guard
-  - **`"agent"` is still reserved in `TRIGGER_KINDS` and unused** — and `alertsFor` must decide what a
-    failed child tells (`failure.test.ts` asserts every kind is decided)
-  - **two more registry nodes**: each owes the five obligations, a `PUBLISHABLE` entry, an icon of its
-    own (a new node drawn with its category's mark is a walk finding), a label `select.test.ts` can
-    select, an eval case recorded with `--live --case <id> --record after-deterministic-flash-lite`,
-    and the registry count moved in **six** places — `registry.test.ts`, `integration.test.ts` and the
-    four verify scripts that pin it
+- **Start Phase 40 — forms and webhook responses.** Phase 39 is closed and deployed. What it leaves:
+  - **two new registry nodes, two new unauthenticated surfaces.** Each node owes the five obligations, a
+    `PUBLISHABLE` entry, an icon of its own, a label `select.test.ts` can select, an eval case recorded
+    with `--live --case <id> --record after-deterministic-flash-lite`, and the registry count moved in
+    **six** places — `registry.test.ts`, `integration.test.ts` and the four verify scripts that pin it.
+    `core.respond` is only meaningful in a workflow with a webhook or form trigger — validation enforces
+    it, and a **called** workflow (D183) has neither, so decide what Respond does there
+  - **a form trigger starts a run like a webhook does** (`triggers/webhook.ts`, D41's token pattern); a
+    run's `trigger` kind is a fixed list (`engine/types.ts`) and **adding one touches the words
+    (`runs/words.ts`), the run filters, `alertsFor` — which must decide whether a form run is unattended,
+    and almost certainly says yes — and `CONTRACT.md`**. `failure.test.ts` asserts every kind is decided
+  - **`core.merge` and `core.call_workflow` are now in the palette's `logic` category**, and a trigger
+    node's inspector carries *Offer to agents* (`agent-tool-panel.tsx`) — a form trigger gets it too,
+    which is right: its fields could be the tool's inputs. **Do not make it import the node layer**
+    (*Known Issues* → engineering rules)
+  - **an agent's tool-called workflow receives its arguments as `{{trigger.<name>}}`**; a form's fields
+    will arrive the same way, so a workflow can be both a form and a tool
+  - the verify scripts' probe rows are `zzzz-phase39`-prefixed; `verify-api` deletes its own
+- **Durable children are NOT YET DECIDED** (D183) — a called workflow cannot pause, by decision. If a
+  real workflow needs a callee that waits, it is a third kind of wait (D179 says a run waits for one
+  thing) and needs a cursor field, a wake from a child's finish to its parent, and an answer to what
+  cancelling the parent does
+- **The generator cannot write a call** (D188) — it does not know workflow ids. Giving it the workspace's
+  workflow list (id, name, description) in the prompt would let it, and the copilot, wire one; that is a
+  deliberate follow-up, not an oversight
+- **The step budget of a call tree is not persisted across a durable resume** (D185) — a caller redelivered
+  after a crash gets a fresh `charged`. Bounded by its own `MAX_STEPS`; accepted
+- **Export and import carry a Call workflow's `workflowId` as written**, and ids are workspace-specific — an
+  imported workflow's call fails with *no workflow with the id* until it is pointed at a real one
 - **An error workflow is live the moment it is saved active** — the walk's had to be deleted, or every
   verify run's failing webhooks would have posted to Discord. **Delete or switch off any error workflow a
   walk makes**; `select id, name from workflow where graph @> '{"nodes":[{"type":"core.error_trigger"}]}'`
@@ -502,6 +510,21 @@ npm run build && cp -r .next/static .next/standalone/.next/static && cp -r publi
 ---
 
 ## Recent Changes
+
+**2026-10-10 — Phase 39 closed: workflows compose.** Migration `0018` — `run.parentRunId`,
+`run.parentNodeId`, `workflow.agentTool`. **`core.call_workflow`** runs another workflow inside the
+caller's own attempt as a run of its own, linked both ways; a called workflow cannot pause the run it is
+inside (D183, answering the plan's open question), and the whole tree is bounded as one run — depth 3, no
+circle, one shared step budget and clock — refused at save and again at run time, under the calling
+workflow's author's visibility (D184, D185). **A workflow can be offered to agents** as a tool, opt-in
+twice, and a real model called one on the deployed service, the child run readable on its own (D186).
+**`core.merge`** joins branches and runs once, held by the work list the retry's replay shares, so a retry
+across a merge reuses it (D187). The generator is not offered Call workflow and says so when asked (D188);
+two eval cases passed first attempt. One deploy, `00098-2d2`; the browser walk in both themes found
+nothing. **The one thing found was a build failure no test saw** — a new import changed the production
+bundle's module evaluation order and `next build` failed — now a rule in *Known Issues*. The battery 0
+failed on the re-run (the first had three model calls at the free tier's capacity), the smoke walk clean
+on its first walk.
 
 **2026-10-09 — Phase 38 closed: a workflow can ask a person.** Migration `0017` — `approval`.
 **`core.approval`** sends its decision link down **Ask** at once, through a step the workspace already
@@ -727,6 +750,7 @@ Phase 4" after `postgres` was added in 23C.
 
 ## Last Updated
 
-**2026-10-09** — **Phase 38 complete**, deployed as `agentforge-00097-xwf` and verified on the deployed
-service and in a real browser in Light and Night, signed in and signed out. **M14** (Neon reading, from
-2026-10-13) is pending and non-blocking. **Next: Phase 39 — Workflows III: composition.**
+**2026-10-10** — **Phase 39 complete**, deployed as `agentforge-00098-2d2` and verified on the deployed
+service and in a real browser in Light and Night. **M14** (Neon reading, from 2026-10-13) is pending and
+non-blocking. **The owner's Google connection expires about 2026-10-13** (a smoke walk passed today).
+**Next: Phase 40 — Workflows IV: forms and webhook responses.**
