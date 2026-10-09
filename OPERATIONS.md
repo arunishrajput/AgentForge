@@ -94,7 +94,9 @@ would otherwise leave a metric reporting zero forever, which looks exactly like 
 | `generation.finished` | INFO / WARNING | A workflow generation ended (Phase 34), or a copilot edit (35), explanation or diagnosis (36) — WARNING when neither attempt produced a valid answer | `mode` (`create` · `edit` · `explain` · `diagnose`), `outcome` (`first` · `second` · `failed`), `attempts`, `model`, `selector`, `selected`, `selectorFellBack`, `promptChars`, `unsupported`, `issues`, `durationMs`; `uncited`, and a diagnosis's `fix` |
 | `queue.degraded` | **ERROR** | A durable run could not be enqueued | `reason` |
 | `queue.delivered` | INFO | A Cloud Tasks delivery was handled | `handled`, `status`, `retryCount` |
-| `run.waiting` | INFO | A run paused at a long delay (Phase 26) | `wakeAt`, `trigger` |
+| `run.waiting` | INFO | A run paused at a long delay (Phase 26) or waiting on a person (Phase 38) | `wakeAt`, `trigger`, `for` (`delay` · `approval`) |
+| `approval.requested` | INFO | A run asked a person (Phase 38): a request recorded, its link minted. Never the message, the addresses or the link | `approvalId`, `nodeId`, `iteration`, `named`, `onTimeout`, `expiresAt` |
+| `approval.decided` | INFO | A request was decided — by a member, through its link, or by its timeout (Phase 38). Never the comment's words | `approvalId`, `runId`, `status`, `via`, `commented` |
 | `run.alerted` | INFO / ERROR | A run nobody was watching failed, and was announced (Phase 37) — ERROR when the announcing itself failed, which never fails the run | `failedRunId`, `trigger`, `inboxes`, `errorWorkflows`, `errorWorkflowsNotStarted` |
 | `schedule.delivered` | INFO | A schedule timer arrived (Phase 26) | `workflowId`, `scheduledFor`, `outcome`, `reason`, `runId` |
 | `cron.tick` | INFO | The daily sweep ran | `due`, `fired`, `skipped`, `cleared`, `armed`, `woken`, `swept`, `pruned`, `prunedRuns`, `prunedInbox` |
@@ -336,6 +338,17 @@ to `/api/runs/dispatch` scheduled for `wakeAt`. If `wakeAt` is in the past:
   `gcloud scheduler jobs run agentforge-cron --location asia-southeast1`.
 
 Stop on the canvas cancels a waiting run at once.
+
+**A run waiting on an approval** (Phase 38; the run panel says *Waiting for a decision*) has its
+timeout as `wakeAt`, so a `wakeAt` in the future is a request nobody has decided yet — that is not a
+fault. **Decided, and the run did not carry on?** A decision sets `wakeAt` to now and queues a
+delivery, so the case above applies from that moment: look for `approval.decided` with that
+`approvalId`, then for `queue.delivered` on its `runId` —
+`gcloud logging read 'jsonPayload.event="approval.decided"' --limit 10 --freshness 1d --format='value(timestamp,jsonPayload.approvalId,jsonPayload.runId,jsonPayload.status,jsonPayload.via)'`.
+A `queue.degraded` "was decided but could not be woken" means the delivery never queued; the sweep
+wakes it, or run the sweep now as above. **A link that "does not work"** is answered *no longer open*
+once anything decided it, its timeout passed, or its run stopped — and *not valid* when only part of it
+was copied. The request's state is on its run's page.
 
 ### A failure did not reach anybody
 

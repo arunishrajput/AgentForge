@@ -14,7 +14,7 @@
 [![CI](https://github.com/arunishrajput/AgentForge/actions/workflows/ci.yml/badge.svg)](https://github.com/arunishrajput/AgentForge/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-6B4EFF.svg)](./LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D20.9-43C59E.svg)](./package.json)
-[![Nodes](https://img.shields.io/badge/registry-30%20nodes-FF8A3D.svg)](./docs/nodes.md)
+[![Nodes](https://img.shields.io/badge/registry-32%20nodes-FF8A3D.svg)](./docs/nodes.md)
 [![Cost to run](https://img.shields.io/badge/cost%20to%20run-%240-FFD23F.svg)](./docs/self-hosting.md)
 
 **[Live app](https://agentforge-733000675212.asia-southeast1.run.app)** ·
@@ -51,7 +51,7 @@ sync by hand — the *same* objects. One registry entry feeds three consumers:
 
 ```
                   ┌──────────────────────┐
-                  │   the node registry  │   31 nodes, one object each
+                  │   the node registry  │   32 nodes, one object each
                   └──────────┬───────────┘
             ┌────────────────┼────────────────┐
             ▼                ▼                ▼
@@ -94,7 +94,9 @@ pretending otherwise.
 | **Live execution** | Per-node status and logs over SSE while it runs. Reload mid-run and the page reattaches |
 | **Run history and retries** | Every run, filtered and paged, each on the graph it executed with every step's input and output. Fix what failed and **retry from the failed step**: the steps that finished are reused, not run again — so it does not send that email twice. Kept 30 days, or a workflow's newest 200 |
 | **A library** | Tags, stars, duplicate, and export and import as a versioned file that never carries a credential. The list's view lives in the URL |
-| **30 nodes** | Triggers, logic, nine transforms, two AI nodes, and nine integrations. [Full reference](./docs/nodes.md) — generated from the registry |
+| **When things go wrong** | A step can stop the run, carry on with its error, or take an Error path. A failure nobody was watching reaches an in-app inbox and starts the workspace's error workflows — which is how it reaches Slack or Discord. Nothing polls |
+| **Asks a person** | An approval step stops the run and asks — hours or days later it carries on down Approved or Rejected. Its link goes out through a Discord, Slack or Gmail step you already have, and whoever holds it decides once, without signing in; the people it names decide in their inbox or on the canvas; a timeout decides if nobody does. The link is stored only as a hash and a link preview cannot decide it |
+| **32 nodes** | Triggers, logic, nine transforms, two AI nodes, and nine integrations. [Full reference](./docs/nodes.md) — generated from the registry |
 | **Durable runs** | Handed to a queue, survives a redeploy or a crash, resumes from the last finished step |
 | **Versioning and diffing** | Every save is a version. Name one, restore one, compare two visually. Every run records which version it executed |
 | **Workspaces and roles** | `viewer` · `editor` · `admin` · `owner`, enforced server-side on every route. Invite by single-use expiring link |
@@ -238,7 +240,7 @@ The language is written down in [`DESIGN.md`](./DESIGN.md).
 | | |
 |---|---|
 | [**Self-hosting**](./docs/self-hosting.md) | Local, Docker, and Cloud Run — and how to keep it free |
-| [**Node reference**](./docs/nodes.md) | All 30 nodes. **Generated from the registry**, so it cannot drift |
+| [**Node reference**](./docs/nodes.md) | All 32 nodes. **Generated from the registry**, so it cannot drift |
 | [**API reference**](./docs/api.md) | Every route, its role, and how a request is authorised |
 | [**How the agents work**](./docs/agents.md) | Generation, the bounded loop, and what the agent cannot reach |
 | [**Architecture**](./docs/architecture.md) | The orientation, and the one idea the rest follows from |
@@ -265,18 +267,20 @@ schedules that fire from exact-time timers, a dark theme, Toybox Night, on every
 canvas that edits like a serious tool: undo, copy and paste, multi-select, the keyboard, sticky
 notes, steps that switch off, and a test loop — pinned outputs and partial runs — then a library of
 tags, stars, export and import, and run history you can retry from the step that failed. Generation
-is now measured rather than eyeballed — an eval set of 25 requests, scored live and replayed in CI —
+is now measured rather than eyeballed — an eval set of 26 requests, scored live and replayed in CI —
 and shows the model full definitions only for the nodes a request needs, so the catalogue can grow.
 And a workflow can now be changed by asking: a copilot proposes the change as a diff you accept,
 explains what a workflow does, and says why a run failed and how to fix it — each measured by its own
-eval set.
+eval set. Workflows now handle their own failures and tell somebody about the rest, and can stop to
+ask a person — approving through a single-use link, the inbox or the canvas — and carry on with the
+answer.
 
 It is live, it works, and [`PROGRESS.md`](./PROGRESS.md) is the honest status board — including
 what is unfinished.
 
 **What comes next** is Chapter 3, planned phase by phase in [`BUILD_PLAN.md`](./BUILD_PLAN.md):
 
-- error paths, approval steps and sub-workflows
+- sub-workflows, workflows as agent tools, and a merge node
 - forms, and a public API
 
 <picture>

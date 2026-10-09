@@ -53,8 +53,8 @@ is the file it means.
 35  Copilot I — edit a workflow by conversation             ✅
 36  Copilot II — explain and repair                         ✅
 37  Workflows I — when things go wrong                      ✅
-38  Workflows II — human in the loop                        ← START HERE
-39  Workflows III — composition: sub-workflows, workflow tools, merge
+38  Workflows II — human in the loop                        ✅
+39  Workflows III — composition: sub-workflows, workflow tools, merge  ← START HERE
 40  Workflows IV — public entry points: forms and webhook responses
 41  Public API — personal access tokens
 42  Chapter 3 launch polish
@@ -1697,6 +1697,77 @@ nothing (asserted).
 `PROGRESS.md`.
 
 **Commit.** `feat: complete phase 38 human approval steps`
+
+**Status: COMPLETE, 2026-10-09 — deployed as `00097-xwf` and verified there, on the API and in a real
+browser in Light and Toybox Night, signed in and signed out.** Migration `0017` (one table,
+`approval`), applied before the first deploy with `verify-schema.mjs` before and after. Three deploys,
+`00095-xgf` to `00097-xwf` — the first shipped the phase, the others what the browser walk and
+`verify-a11y` found. What was built:
+
+- **`core.approval`** (D179) — the second node since D112 was lifted, with the five registry
+  obligations, its own icon, `select.test.ts`, and a new eval case, `refund-approval`, **passed first
+  attempt** on `gemini-3.5-flash-lite` (the model sent the link with `{{steps.approval.output.url}}`).
+  **Three static outputs, not two** — a deliberate departure from the task's wording, recorded in D179:
+  the link has to be sent before the run pauses, by a step the author already has, so **Ask** fires at
+  once with `{ approvalId, message, url, expiresAt }`, the run finishes what it can, and is put down
+  `waiting` until the decision or the timeout; **Approved** and **Rejected** follow the decision. While
+  one is outstanding nothing else may wait. Not agent-callable. The retry replay and the reference
+  check know Ask from the decision
+- **The link** (D178) — `/approve#<token>`: 256 bits, **stored only as SHA-256**, **in the URL's
+  fragment** (in no request line, log or `Referer`; a link preview fetches a static page that knows
+  nothing), POSTed in a body. **The engine removes it from everything it writes** (`engine/redact.ts`):
+  the plaintext lives in the minting attempt's memory, and a resumed attempt whose Ask step has not
+  sent it yet mints a new one. Single use is the request's own compare-and-set — pending, before its
+  timeout, its run still going
+- **Three ways to decide, and a timeout** (D181) — a member the node allows (named people, any role;
+  or editors and above) in the inbox, the run panel or the run's page; whoever holds the link, signed
+  out; or `onTimeout` — reject by default, approve, or fail. A decision wakes the run: `wakeAt = now()`
+  and a delivery, or — while the Ask path is still running — the suspend write reads it and wakes at
+  once. A failed or cancelled run closes its request
+- **The inbox reads requests live** (D180) under *Waiting on you*, with Approve and Reject in the
+  panel; never `inbox_item` rows, so a decision empties every inbox at once
+- **A stream follows a run about to wake** (D182), so the canvas and the run page show a decision
+  resume the run instead of closing on it
+
+**Validated on the deployed URL.** A run paused at its approval; its Ask step posted the link to the
+real `#agentforge-demo` Discord channel (message `1558153955706413094`), read back from Discord while
+the run's own record held `…/approve#[removed]`; **opened in a signed-out browser** (no session), at
+375 px and in both themes, it approved with a comment, and **the run resumed through Cloud Tasks down
+Approved**, `via: "link"` with the comment on its output — the browser sending only the two POSTs, the
+token in no URL. The used link then answered *no longer open*. **Reject** worked from the canvas — the
+run resuming live 1.5 s after the click, the Rejected path lit, the log naming who decided and why —
+**approve** from the inbox and from the run page; the timeout decided both ways in `verify-api`
+(approve, and fail); a bare GET of the page or either route changed nothing (asserted by both
+`verify-api` and `verify-security`). **No request in 30 idle seconds** with a run waiting on an open
+canvas. Contrast audit clean on every new state in both themes: the canvas's waiting card, the run
+page, the open inbox, every state of `/approve`.
+
+**Found by the walk, fixed, re-walked:**
+
+- **The Run toast said "The run reached a delay"** for a run waiting on a person — it has its own now
+- **The inbox's subtitle read "1 waiting on you · all read"**, two statements at once (`panelSummary`,
+  tested), and its row title truncated *asks for a decision* on a long workflow name — the row is the
+  workflow's name alone now, under the *Waiting on you* heading
+- **A link opened in a tab already on `/approve` was ignored** — a fragment change does not reload the
+  page; it listens for `hashchange` now
+
+**Found by `verify-a11y`**, once `/approve` joined its public pages: the page's prerendered state —
+*Reading the request…* — had no `<h1>`, so a screen reader landed on a headingless page while it
+loaded. Shown failing on `00096-95g`, fixed on `00097-xwf`.
+
+**Not found, said plainly:** the inbox panel measured 23 px buttons in a phone-width frame — an
+unfinished scale-in animation, not the layout; with animations finished they are 27.9 px (a trap now in
+`PROGRESS.md`).
+
+**Verified on the deployed service.** `verify-api` **597 passed, 0 failed, 3 skipped** (by environment: a key already stored, one free-tier rate limit, Google connected), with every Phase 38 check — the link read back from a real Discord message and its hash the only form at rest, no working link in any step row, a bare GET deciding nothing, a signed-out approve resuming the run through Cloud Tasks, a used link dead, a member's reject, a 403 to a member not named, cancel closing the request, both timeout outcomes, and who may decide as a viewer, named and not, on a private workflow and not; `verify-security` **93**, `verify-a11y` **131** (`/approve` among its pages), `verify-templates` 47, `verify-integrations` 60 / 2 skipped (Notion, Airtable), `verify-postgres` 65, `verify-providers` 55, `verify-vault` passed, `verify-observability` passed / 1 structural skip, `verify-timers` 34, `verify-retention` passed, `verify-durable all` passed, and **`smoke.mjs` clean, all eight beats, first walk** — all on `00097-xwf`.
+
+1618 tests (24 script tests); coverage 90.31 / 92.66 / 84.78.
+
+**Not done, said plainly:** a viewer deciding was proved through `verify-api`'s probe member, not in a
+browser (no real viewer exists, *Known Issues*). A request decided from the inbox while its run's page
+is open elsewhere is not followed live there — that page catches up on reload. An approval link is a
+bearer credential in whatever channel it was sent to; `SECURITY.md` says so. Neither link route is
+rate-limited (a 256-bit token is not guessed by retrying).
 
 ---
 

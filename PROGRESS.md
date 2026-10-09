@@ -16,7 +16,7 @@ Nothing was deleted:
 
 ## Project Status
 
-**CHAPTER 3 IS OPEN. PHASES 26–37 ARE COMPLETE (2026-10-09); PHASE 38 IS NEXT.** The product has
+**CHAPTER 3 IS OPEN. PHASES 26–38 ARE COMPLETE (2026-10-09); PHASE 39 IS NEXT.** The product has
 three themes, every screen works in both, and the canvas edits like a serious tool — undo, copy and
 paste between workflows, multi-select, auto-arrange, a keyboard for everything, sticky notes, steps
 that switch off without being deleted, and a test loop: pinned outputs and partial runs. The list is a
@@ -35,20 +35,25 @@ data reaches the model scrubbed of anything credential-shaped and as data, never
 **And a failure can be planned for, or heard about**: a step can stop the run, carry on with its error,
 or take an Error path — a run that handled its failures succeeded and says how many — and a failure
 nobody was watching reaches an in-app inbox for everyone who may see the workflow and starts the
-workspace's error workflows, which is how it reaches Slack or Discord. Nothing polls.
+workspace's error workflows, which is how it reaches Slack or Discord. Nothing polls. **And a workflow
+can stop and ask a person**: an approval step sends its link down its Ask path through a channel the
+workspace already has and waits, holding nothing, for hours or days; the people it names decide in the
+inbox or on the canvas, whoever holds the link decides once without signing in, and a timeout decides if
+nobody does. The link is stored only as a hash, kept out of everything a run writes, and no GET can
+decide it.
 
 | Chapter | Phases | State |
 |---|---|---|
 | **1** — the hackathon MVP | 0–12 | **COMPLETE.** Submitted 2026-09-26 (<https://devpost.com/software/agentforge-kz832x>). Closed, never reopened |
 | **2** — the open-source product | 13–25 | **COMPLETE**, 2026-10-01. Durable runs, versioning, workspaces, roles and sharing, a credential vault, observability, 30 nodes, two LLM providers, docs, an a11y and security audit |
-| **3** — a product people use every day | **26–42** | **OPEN — planned 2026-10-06. Phases 26–37 complete; 38 next.** `BUILD_PLAN.md` is the scope contract |
+| **3** — a product people use every day | **26–42** | **OPEN — planned 2026-10-06. Phases 26–38 complete; 39 next.** `BUILD_PLAN.md` is the scope contract |
 
 **Chapter 3, in one line:** themes (Light, Dark, System), a canvas that edits like a serious tool,
 an AI copilot that edits and repairs workflows, workflows that can handle errors, wait, ask a person
 and call each other, and the daily-use basics — tags, run history, import/export and an API.
 
 **The live system must keep working:** **https://agentforge-733000675212.asia-southeast1.run.app** —
-revision `agentforge-00094-w55`.
+revision `agentforge-00097-xwf`.
 Launch demo video: <https://www.youtube.com/watch?v=3txmpCPEWd4>.
 
 ### The binding decisions, restated for Chapter 3
@@ -66,16 +71,17 @@ Launch demo video: <https://www.youtube.com/watch?v=3txmpCPEWd4>.
 
 ## Current Phase
 
-## ▶ PHASE 38 — Workflows II: human in the loop — NOT STARTED
+## ▶ PHASE 39 — Workflows III: composition — NOT STARTED
 
-**Next.** `BUILD_PLAN.md` → *Phase 38* is the definition: **`core.approval`** pauses a run in `waiting`
-and asks a person; they decide in the inbox, on the canvas, or through a **signed, single-use link** the
-author sends with a node they already have — and a timeout decides if nobody does. **A new
-unauthenticated surface** (the decision page and its POST): enumerated by `verify-security.mjs` and
-written into `SECURITY.md` in the phase. A migration again. See *Notes for whoever comes next*.
+**Next.** `BUILD_PLAN.md` → *Phase 39* is the definition: **`core.call_workflow`** (a parent calls a
+child in the same workspace, visibility applying, and gets its output — a cycle refused at save and at
+run time, a depth bound, the child counted against the parent's budgets), **workflows as agent tools**
+(opt-in, the tool call a child run), and **`core.merge`** (wait for every branch, or take the first, and
+run once). Two new nodes, five obligations each. See *Notes for whoever comes next*.
 
-**Phase 37 closed on 2026-10-09** — `agentforge-00094-w55`, verified on the deployed service and in a
-real browser in Light and Night. Its evidence is in `BUILD_PLAN.md` → *Phase 37* → *Status*.
+**Phase 38 closed on 2026-10-09** — `agentforge-00097-xwf`, verified on the deployed service and in a
+real browser in Light and Night, signed in and signed out. Its evidence is in `BUILD_PLAN.md` → *Phase
+38* → *Status*.
 
 ---
 
@@ -95,8 +101,8 @@ real browser in Light and Night. Its evidence is in `BUILD_PLAN.md` → *Phase 3
 | **35** — Copilot I: edit a workflow by conversation | **COMPLETE**, 2026-10-09 — `agentforge-00087-544` |
 | **36** — Copilot II: explain and repair | **COMPLETE**, 2026-10-09 — `agentforge-00089-t45` |
 | **37** — Workflows I: when things go wrong | **COMPLETE**, 2026-10-09 — `agentforge-00094-w55` |
-| **38** — Workflows II: human in the loop | NOT STARTED ← next |
-| **39** — Workflows III: sub-workflows, workflow tools, merge | NOT STARTED |
+| **38** — Workflows II: human in the loop | **COMPLETE**, 2026-10-09 — `agentforge-00097-xwf` |
+| **39** — Workflows III: sub-workflows, workflow tools, merge | NOT STARTED ← next |
 | **40** — Workflows IV: forms and webhook responses | NOT STARTED |
 | **41** — Public API: personal access tokens | NOT STARTED |
 | **42** — Chapter 3 launch polish | NOT STARTED |
@@ -112,18 +118,18 @@ in `archive/progress-chapters-1-2.md` → *Completed Phases*.
 |---|---|
 | **Canonical URL** | **`https://agentforge-733000675212.asia-southeast1.run.app`** — the deterministic URL (D10). The legacy `https://agentforge-i5d2u66boa-as.a.run.app` works; do not publish it |
 | Service | `agentforge` on Cloud Run, `asia-southeast1`, project `agentforge-hackathon-2026` (`733000675212`) |
-| **Revision** | **`agentforge-00094-w55`**, 100% of traffic — Phase 37 (2026-10-09; `00090-kvr` shipped the phase, `00091-wbz` to `00094-w55` the walk's fixes). **Migration `0016` is additive**, but read `DEPLOYMENT.md` → *Rollback* → Phase 37 before a rollback past `00090-kvr`: an older revision ignores `onError` (a handled failure fails the run), refuses an Error edge (the workflow will not run) and strips the policy on save — count `select count(*) from workflow where graph::text like '%"onError"%'` first. **Five deploys spent the rollback window (D120)**: after the next image prune the targets are only `00094-w55` to `00090-kvr`, and Phase 36's `00089-t45` needs a rebuild from `8bc710a`. Past `00085-cff` the copilot goes entirely; past `00081-trs` run history hides and stops pruning. **Never roll back past `00072-n8v` while any workflow uses a sticky note or a switched-off node** (D134; the check query is in `DEPLOYMENT.md` → *Rollback*). Rollback tested (`update-traffic --to-revisions <rev>=100`, ~15 s) |
+| **Revision** | **`agentforge-00097-xwf`**, 100% of traffic — Phase 38 (2026-10-09; `00095-xgf` shipped the phase, `00096-95g` the walk's fixes, `00097-xwf` the approval page's heading). **Migration `0017` is additive**, but read `DEPLOYMENT.md` → *Rollback* → Phase 38 before a rollback past `00095-xgf`: an older revision does not know a cursor's `approval`, so a run waiting on a person would wake at its timeout and **finish succeeded having run nothing after the approval** — stop those first (`select count(*) from run where status = 'waiting' and cursor ? 'approval'`). Before that, Phase 37's warning: past `00090-kvr` an older revision ignores `onError`, refuses an Error edge and strips the policy on save. **The kept images (D120)** after the next prune: `00097-xwf` to `00093`; Phase 37's `00090-kvr` drops out within two more deploys. Past `00085-cff` the copilot goes entirely; past `00081-trs` run history hides and stops pruning. **Never roll back past `00072-n8v` while any workflow uses a sticky note or a switched-off node** (D134; the check query is in `DEPLOYMENT.md` → *Rollback*). Rollback tested (`update-traffic --to-revisions <rev>=100`, ~15 s) |
 | Scaling | **`min-instances 0`**, `max-instances 3`, 1 vCPU / 1 GiB, 3600 s timeout, port 8080. **Cold start 6.38 s** (measured), 0.58–0.76 s warm |
 | Env vars | 12: `NODE_ENV` `AUTH_URL` `APP_BASE_URL` `DATABASE_URL` `AUTH_SECRET` `GOOGLE_CLIENT_ID` `GOOGLE_CLIENT_SECRET` `ENCRYPTION_KEY` `CRON_SECRET` `TASKS_QUEUE` `TASKS_LOCATION` `ROOT_KEY_SECRET`. A plain redeploy inherits them; add with `--update-env-vars` (merges), never `--env-vars-file` unless replacing the set (D11). `TASKS_PROJECT`, `GCP_ACCESS_TOKEN`, `GCP_PROJECT` and `DATABASE_URL_UNPOOLED` are deliberately **not** set on the service |
-| Database | Neon `super-mountain-39872886`, **17 tables**, migrations **`0000`–`0016`** applied (`0016` by Phase 37 — one table, `inbox_item`, and `run.handled` with default 0; `0015` by Phase 33 — one nullable column, `run.origin`; `0014` by Phase 32 — three new tables, `tag`, `workflow_tag`, `workflow_star`, nothing altered; `0013` by Phase 31 — one nullable column, `run.test`; `rollback_0012.sql` is safe only once no run is `waiting`), ~12 MB of 0.5 GB, run history ~1.2 MB of it and **pruned since Phase 33** (30 days, or a workflow's newest 200, by the daily sweep — D153). A second database `agentforge_demo` with a `SELECT`-only role serves the Postgres node's verification (23C). One Neon database serves local and production |
+| Database | Neon `super-mountain-39872886`, **18 tables**, migrations **`0000`–`0017`** applied (`0017` by Phase 38 — one table, `approval`, nothing altered; `0016` by Phase 37 — one table, `inbox_item`, and `run.handled` with default 0; `0015` by Phase 33 — one nullable column, `run.origin`; `0014` by Phase 32 — three new tables, `tag`, `workflow_tag`, `workflow_star`, nothing altered; `0013` by Phase 31 — one nullable column, `run.test`; `rollback_0012.sql` is safe only once no run is `waiting`), ~12 MB of 0.5 GB, run history ~1.2 MB of it and **pruned since Phase 33** (30 days, or a workflow's newest 200, by the daily sweep — D153). A second database `agentforge_demo` with a `SELECT`-only role serves the Postgres node's verification (23C). One Neon database serves local and production |
 | Scheduler | **`agentforge-cron` is `ENABLED` on `0 4 * * *` UTC** — the daily safety sweep (Phase 26, D114). Schedules fire from per-slot Cloud Tasks timers on `POST /api/cron/fire`, not from the cron. Its first run, 2026-10-06, caught up the three slots overdue since 2026-10-02 |
 | Queue | `agentforge-runs` Cloud Tasks queue, `RUNNING`, `maxAttempts 5`, `maxConcurrentDispatches 3` |
-| Routes | Pages `/` `/workflows` `/workflows/[id]` **`/runs` `/runs/[id]`** `/templates` `/analytics` `/settings` `/design` `/invite/[token]` `/s/[token]` (+ `/dashboard` → `/workflows`), and **58 API route files** under `src/app/api` (**Phase 37 added `GET /api/inbox` and `POST /api/inbox/read`**, both behind a session, any role; Phase 35 added `POST /api/workflows/[id]/copilot`, behind a session and `editor`, writing nothing — **Phase 36 gave it `kind: "explain"` and `"diagnose"`, no new route**; Phase 33 added three run routes, every one behind a session). `/workflows/[id]` reads `?diagnose=<run>` (Phase 36, D170). Unauthenticated: **ten routes and two pages**, unchanged — `verify-security.mjs`'s table has **11** entries because it also lists the invitation `accept` route, which needs a session |
+| Routes | Pages `/` `/workflows` `/workflows/[id]` **`/runs` `/runs/[id]`** `/templates` `/analytics` `/settings` `/design` `/invite/[token]` `/s/[token]` (+ `/dashboard` → `/workflows`), and **61 API route files** under `src/app/api` (**Phase 38 added `GET`/`POST /api/approvals/[id]`**, behind a session, any role — who may decide is the node's rule, D181 — **and the two link routes `POST /api/approve/describe` and `/decide`, with no session**, plus the page `/approve`; **Phase 37 added `GET /api/inbox` and `POST /api/inbox/read`**, both behind a session, any role; Phase 35 added `POST /api/workflows/[id]/copilot`, behind a session and `editor`, writing nothing — **Phase 36 gave it `kind: "explain"` and `"diagnose"`, no new route**; Phase 33 added three run routes, every one behind a session). `/workflows/[id]` reads `?diagnose=<run>` (Phase 36, D170). Unauthenticated: **twelve routes and three pages** since Phase 38 — `verify-security.mjs`'s table has **13** entries because it also lists the invitation `accept` route, which needs a session — and both link routes are asserted to have no GET |
 | Provider keys stored | `llm.google` on `gemini-3-flash-preview`, `llm.groq` on `openai/gpt-oss-120b`. `workspace.llmProvider` is `NULL` (resolves to Google). **No model key on the service** — the product path is the user's own key |
-| **Registry** | **31 nodes** — Phase 37 added `core.error_trigger`, the first since D112 was lifted. **Since Phase 34 the generation prompt is budgeted per request** (D156, `registry.test.ts`): an index line per node (~116 characters, under 140) plus full definitions for the selection — every trigger, `ai.llm`, and up to ten by the request's words; the selected part's worst case under 17,500. **16,757 characters on average** on the eval set before Phase 37, against 25,081 for the whole catalogue; every trigger is always sent, so the error trigger's definition was cut to 540 characters to keep the worst case under 17,500 (D176). D112 is lifted. The agent's full tool list is pinned too (19 tools, 13,297 characters). A node owes five things, all asserted by `registry.test.ts`: a `PUBLISHABLE` entry, a `ROTATION_RULES` entry if it carries a credential kind, a `model` output field only if it is a model call, a generator catalogue entry and index line (automatic, and its label must select it — `select.test.ts`), and `docs` |
-| Tests | **1583 tests** on Node's built-in runner, plus **24** script tests; coverage **90.61 / 92.53 / 85.41** (lines / branches / functions) against thresholds 85 / 88 / 76. `npm run check` = lint · typecheck · test+coverage · test:scripts · docs:check; CI adds `build`. **Every colour gate runs once per theme** (`tokens.test.ts`), `utilities.test.ts` asks Tailwind's compiler about every colour class in `src/` (D124) and refuses `outline-none` and a dimmed fill label (D126). **The rendered half of contrast is `scripts/contrast-audit.browser.js`**, run in a browser in both themes (D126). **Run retention is verified against the real database by `scripts/verify-retention.mjs`** (Phase 33). **Generation is held to the eval set offline** (`src/lib/generate/eval/eval.test.ts`, Phase 34): the selector gives every case every node it requires, and three recordings of live runs replay to their verdicts. **The copilot is held to its own nine edit cases the same way** (`eval/edit-cases.ts`, Phase 35), **and to five diagnoses and two explanations** (`eval/diagnose-cases.ts`, Phase 36), and **every scroll container is positioned** (`scroll-containment.test.ts`, D166). **No credential of any stored kind reaches a diagnosis prompt** — `evidence.test.ts` plants one of each in every field of a run record (D168) | **The on-error policy is held clause by clause against the real engine** (`on-error.test.ts`, Phase 37), the alert rules and the payload's scrubbing by `failure.test.ts`, the inbox's statements as rendered SQL (`inbox-sql.test.ts`), and **no caller may hand a display class to a primitive that sets its own** (`primitives.test.ts`, the ⌘K-cap trap)
+| **Registry** | **32 nodes** — Phase 38 added `core.approval` (not a trigger, so sent only when selected; its eval case passed first attempt), Phase 37 `core.error_trigger`, the first since D112 was lifted. **Since Phase 34 the generation prompt is budgeted per request** (D156, `registry.test.ts`): an index line per node (~116 characters, under 140) plus full definitions for the selection — every trigger, `ai.llm`, and up to ten by the request's words; the selected part's worst case under 17,500. **16,757 characters on average** on the eval set before Phase 37, against 25,081 for the whole catalogue; every trigger is always sent, so the error trigger's definition was cut to 540 characters to keep the worst case under 17,500 (D176). D112 is lifted. The agent's full tool list is pinned too (19 tools, 13,297 characters). A node owes five things, all asserted by `registry.test.ts`: a `PUBLISHABLE` entry, a `ROTATION_RULES` entry if it carries a credential kind, a `model` output field only if it is a model call, a generator catalogue entry and index line (automatic, and its label must select it — `select.test.ts`), and `docs` |
+| Tests | **1618 tests** on Node's built-in runner, plus **24** script tests; coverage **90.31 / 92.66 / 84.78** (lines / branches / functions) against thresholds 85 / 88 / 76. `npm run check` = lint · typecheck · test+coverage · test:scripts · docs:check; CI adds `build`. **Every colour gate runs once per theme** (`tokens.test.ts`), `utilities.test.ts` asks Tailwind's compiler about every colour class in `src/` (D124) and refuses `outline-none` and a dimmed fill label (D126). **The rendered half of contrast is `scripts/contrast-audit.browser.js`**, run in a browser in both themes (D126). **Run retention is verified against the real database by `scripts/verify-retention.mjs`** (Phase 33). **Generation is held to the eval set offline** (`src/lib/generate/eval/eval.test.ts`, Phase 34): the selector gives every case every node it requires, and three recordings of live runs replay to their verdicts. **The copilot is held to its own nine edit cases the same way** (`eval/edit-cases.ts`, Phase 35), **and to five diagnoses and two explanations** (`eval/diagnose-cases.ts`, Phase 36), and **every scroll container is positioned** (`scroll-containment.test.ts`, D166). **No credential of any stored kind reaches a diagnosis prompt** — `evidence.test.ts` plants one of each in every field of a run record (D168) | **The on-error policy is held clause by clause against the real engine** (`on-error.test.ts`, Phase 37), the alert rules and the payload's scrubbing by `failure.test.ts`, the inbox's statements as rendered SQL (`inbox-sql.test.ts`), and **no caller may hand a display class to a primitive that sets its own** (`primitives.test.ts`, the ⌘K-cap trap). **Phase 38**: the approval path against the real engine (`approval.test.ts` — asking, waiting, both decisions, the timeouts, the one-wait rule, closing on failure and cancel, the replay), and **no approval link reaches anything the engine writes** — a test plants a token and searches every write and the outcome, mutation-checked; the statements' rules as rendered SQL (`approvals-sql.test.ts`)
 | Latency | Warm health ~190 ms (India → Singapore), DB 7–11 ms. Neon wake ~0.7–1.1 s. Generation 2.7–3.5 s. Analytics 17–27 ms of DB time per page view |
-| Last verified | **2026-10-09, Phase 37, acting as the owner:** the battery on `00090-kvr` — `verify-api` **561 passed / 0 failed / 3 skipped** (by environment), with every Phase 37 check: `continue`, `route`, route-with-nothing failing, an orphaned Error edge refused, a webhook failure in the inbox and an error workflow run through Cloud Tasks, the depth-one bound, the collapse, mark-read, a manual run told to nobody, the active switch, a viewer told about a shared failure and not a private one; `verify-templates` 47, `verify-integrations` 60 / 2 skipped, `verify-postgres` 65 (after its pin moved), `verify-providers` 55, `verify-vault` passed, `verify-observability` passed / 1 structural skip, `verify-timers` 34, `verify-retention` passed, `verify-durable all` passed — then on `00094-w55` `verify-security` **86**, `verify-a11y` 118 and **`smoke.mjs` clean, all eight beats, first walk**. In a real browser, Light and Night: the routed run, the policy and its undo, **two real Discord alerts**, the inbox read and marked read, no request in 40 idle seconds, the header from 320 to 1440 px; contrast audit clean in both |
+| Last verified | **2026-10-09, Phase 38, acting as the owner, on `00097-xwf`:** `verify-api` **597 passed, 0 failed, 3 skipped** (by environment: a key already stored, one free-tier rate limit, Google connected), with every Phase 38 check — the link read back from a real Discord message and its hash the only form at rest, no working link in any step row, a bare GET deciding nothing, a signed-out approve resuming the run through Cloud Tasks, a used link dead, a member's reject, a 403 to a member not named, cancel closing the request, both timeout outcomes, and who may decide as a viewer, named and not, on a private workflow and not; `verify-security` **93**, `verify-a11y` **131** (`/approve` among its pages), `verify-templates` 47, `verify-integrations` 60 / 2 skipped (Notion, Airtable), `verify-postgres` 65, `verify-providers` 55, `verify-vault` passed, `verify-observability` passed / 1 structural skip, `verify-timers` 34, `verify-retention` passed, `verify-durable all` passed, and **`smoke.mjs` clean, all eight beats, first walk** — all on `00097-xwf`. In a real browser, Light and Night: a run asked, its link posted to a **real Discord channel** and read back, **decided from a signed-out browser** at 375 px and the run resumed down Approved; reject from the canvas (resumed live in 1.5 s), approve from the inbox and from the run page; no request in 30 idle seconds; contrast audit clean on every new state in both themes |
 | Billing | **`Billing - AgentForge` (`017EB5-0D8A5E-F212CC`) is a paid account since M13** (2026-10-06; the 90-day trial had closed). Budget **"AgentForge zero"**, ₹100/month, e-mail alerts at 50 / 90 / 100 % (D113). Artifact Registry keeps the newest 5 images and the source bucket deletes uploads after 7 days (D120) — measured 896 MB and 687 MB before the first prune. Spend is not queryable from the CLI |
 | Fonts | Geist + Geist Mono, self-hosted by `next/font` — no font request, CLS 0 |
 
@@ -136,7 +142,7 @@ Chapter 3**: three themes with Light the default (D110), the ladder's ordering r
 registry node before Phase 34 (D112, lifted by D156), zero cost held on a paid account inside Always Free (D113),
 Phase 26's timers, waits and active switch (D114–D119), build-artefact retention (D120), and Phase
 27's ink roles and Night palette (D121), its cream structure (D122), the theme mechanism (D123) and
-the dead-utility gate (D124), and Phase 28's per-theme fill hover (D125), the fill's label belonging to the fill with a rendered contrast audit (D126), and files outside the page following their environment (D127), and Phase 29's undo history (D128), clipboard envelope (D129), shortcut table (D130), canvas edit controls (D131) and selection read off the nodes (D132), and Phase 30's disabled-node semantics (D133), additive graph fields with no version bump (D134), what a share link does with notes (D135), the generator dropping both (D136) and notes on the canvas (D137), and Phase 31's pinned output (D138), test runs as the only honourer of a pin (D139), the `pinned` step status (D140), partial runs (D141), test runs out of analytics and onboarding (D142), and node effects, manual-trigger fields and the row editor (D143), and Phase 32's tags as workspace rows (D144), no folders (D145), the export envelope and import refusals (D146), duplicates and imports switched off (D147), per-person stars riding on the list query (D148) and the view in the URL (D149), and Phase 33's server-side keyset pagination with a microsecond cursor (D150), re-runs and retries running the saved version with `run.origin` (D151), retry by replay with the `reused` step status (D152), retention — 30 days or 200 a workflow, by the daily sweep (D153), lazy step bodies and a pinned once-stream on a run's page (D154), and recent runs painted on an unlocked canvas, with the visibility fix to the workspace-switch offer (D155), and Phase 34's per-request catalogue selection, deterministic, superseding D112 (D156), the eval set and its replay contract (D157), the soft retry over references that reach nothing (D158), `generation.finished` and `agentforge_generations` (D159), and — decided by the user — an agent calling only the tools it lists, none when it lists none (D160), and Phase 35's copilot in the inspector's column (D161), a proposal not blamed for the canvas's own problems (D162), what the model owns in an edit and what is carried by id (D163), the conversation as client state with refine and set-aside (D164), the copilot measured by its own eval set and `mode` on the generation metric (D165), and every scroll container positioned (D166), and Phase 36's diagnosis that answers in words with its fix asked for as an ordinary edit (D167), run data scrubbed per credential kind before it is cut and sent as delimited data (D168), sentences that highlight their steps without selecting them (D169), the run page's *Why did this fail?* opening the canvas (D170), retry or re-run after a fix by where the fix landed (D171), and explanations and diagnoses measured by their own eval sets (D172), and Phase 37's on-error policy (D173), the Error output as one reserved key added by `outputsOf` (D174), `handled` as a step status of its own with the run succeeding and counting them (D175), the error trigger — unattended failures only, depth one, the author's visibility, a scrubbed payload (D176) — and the inbox, a row per reader written in the failure's path and read on page load (D177). **The next free number is D178.**
+the dead-utility gate (D124), and Phase 28's per-theme fill hover (D125), the fill's label belonging to the fill with a rendered contrast audit (D126), and files outside the page following their environment (D127), and Phase 29's undo history (D128), clipboard envelope (D129), shortcut table (D130), canvas edit controls (D131) and selection read off the nodes (D132), and Phase 30's disabled-node semantics (D133), additive graph fields with no version bump (D134), what a share link does with notes (D135), the generator dropping both (D136) and notes on the canvas (D137), and Phase 31's pinned output (D138), test runs as the only honourer of a pin (D139), the `pinned` step status (D140), partial runs (D141), test runs out of analytics and onboarding (D142), and node effects, manual-trigger fields and the row editor (D143), and Phase 32's tags as workspace rows (D144), no folders (D145), the export envelope and import refusals (D146), duplicates and imports switched off (D147), per-person stars riding on the list query (D148) and the view in the URL (D149), and Phase 33's server-side keyset pagination with a microsecond cursor (D150), re-runs and retries running the saved version with `run.origin` (D151), retry by replay with the `reused` step status (D152), retention — 30 days or 200 a workflow, by the daily sweep (D153), lazy step bodies and a pinned once-stream on a run's page (D154), and recent runs painted on an unlocked canvas, with the visibility fix to the workspace-switch offer (D155), and Phase 34's per-request catalogue selection, deterministic, superseding D112 (D156), the eval set and its replay contract (D157), the soft retry over references that reach nothing (D158), `generation.finished` and `agentforge_generations` (D159), and — decided by the user — an agent calling only the tools it lists, none when it lists none (D160), and Phase 35's copilot in the inspector's column (D161), a proposal not blamed for the canvas's own problems (D162), what the model owns in an edit and what is carried by id (D163), the conversation as client state with refine and set-aside (D164), the copilot measured by its own eval set and `mode` on the generation metric (D165), and every scroll container positioned (D166), and Phase 36's diagnosis that answers in words with its fix asked for as an ordinary edit (D167), run data scrubbed per credential kind before it is cut and sent as delimited data (D168), sentences that highlight their steps without selecting them (D169), the run page's *Why did this fail?* opening the canvas (D170), retry or re-run after a fix by where the fix landed (D171), and explanations and diagnoses measured by their own eval sets (D172), and Phase 37's on-error policy (D173), the Error output as one reserved key added by `outputsOf` (D174), `handled` as a step status of its own with the run succeeding and counting them (D175), the error trigger — unattended failures only, depth one, the author's visibility, a scrubbed payload (D176) — and the inbox, a row per reader written in the failure's path and read on page load (D177), and Phase 38's approval link — hashed, in the fragment, kept out of everything a run writes, no GET (D178), `core.approval`'s three outputs with Ask firing first and one wait at a time (D179), pending requests read live into the inbox rather than written to it (D180), who decides, how a decision wakes the run, and the timeout (D181), and streams following a run about to wake (D182). **The next free number is D183.**
 
 Before changing anything, search `DECISIONS.md` for the area — by number, file or subject. A
 decision changes only by being marked **SUPERSEDED** with a reason and replaced by a new row.
@@ -153,7 +159,7 @@ below, are in the archive → *Known Issues*.**
 | Issue | Action |
 |---|---|
 | **Night's amber fill is bronze** (`warn-pop`, `cat-integration-pop`, `#ad7f0c`) | **By design (D121)**: a fill must sit at ~0.24 luminance in Night, where yellow cannot be bright. Revisit only with the gate maths, never by brightening one fill |
-| **The viewer canvas fix has not been seen in a browser** (D132) — since Phase 20 a viewer's click selected nothing, so the inspector could not be opened from the canvas. Fixed (`readOnlyChanges`) and unit-tested; no viewer membership exists to drive it, and borrowing the test account's workspace to make one was declined (it reads another account's data). **Phase 30 adds to it**: a viewer reading a note (read-only note inspector, no double-click editing) is reasoned, not driven. **Phase 33 adds** a viewer's `/runs`, run pages and *Recent runs* — no retry or re-run offered, which the API refuses anyway (the matrix covers it). **Phase 35 adds** the copilot: a viewer sees no ✦ Copilot button and the column stays the inspector; the route's 403 is in `verify-api`'s viewer matrix. **Phase 36 adds** *Why did this fail?* — hidden from a viewer on the run panel and the run page, and `explain` and `diagnose` refused 403 in the same matrix. **Phase 37 adds** a viewer's inbox — `verify-api` proves through a probe member that a viewer is told about a shared workflow's failure and not a private one's; the bell itself was driven only as the owner | Drive it the first time a real viewer exists — an invitation accepted as `viewer`. Then remove this row |
+| **The viewer canvas fix has not been seen in a browser** (D132) — since Phase 20 a viewer's click selected nothing, so the inspector could not be opened from the canvas. Fixed (`readOnlyChanges`) and unit-tested; no viewer membership exists to drive it, and borrowing the test account's workspace to make one was declined (it reads another account's data). **Phase 30 adds to it**: a viewer reading a note (read-only note inspector, no double-click editing) is reasoned, not driven. **Phase 33 adds** a viewer's `/runs`, run pages and *Recent runs* — no retry or re-run offered, which the API refuses anyway (the matrix covers it). **Phase 35 adds** the copilot: a viewer sees no ✦ Copilot button and the column stays the inspector; the route's 403 is in `verify-api`'s viewer matrix. **Phase 36 adds** *Why did this fail?* — hidden from a viewer on the run panel and the run page, and `explain` and `diagnose` refused 403 in the same matrix. **Phase 37 adds** a viewer's inbox — `verify-api` proves through a probe member that a viewer is told about a shared workflow's failure and not a private one's; the bell itself was driven only as the owner. **Phase 38 adds** approvals: `verify-api` proves a viewer is shown no request with nobody named, is refused 403 deciding one, sees and decides one naming them, and never sees one on a private workflow — the card's "not yours to decide" line was not seen in a browser | Drive it the first time a real viewer exists — an invitation accepted as `viewer`. Then remove this row |
 | **A rollback past `00072-n8v` runs switched-off nodes** (D134) — notes and `disabled` are fields inside the graph's `jsonb`, so nothing stops an older revision serving a graph that uses them; it ignores both, runs the switched-off node and strips both on save | Run the count in `DEPLOYMENT.md` → *Rollback* before any rollback past it. 0 on 2026-10-08. Ages out as Phase 30's images become the only ones kept (D120) |
 | **Copy and paste are untested in Safari** | Copy is written from the key press with `writeText` precisely so it does not depend on Safari's `copy` event (D129); paste relies on the `paste` event. Reasoned, not run — try it when a Safari is to hand |
 | **No anti-framing header** — the app sends neither `X-Frame-Options` nor a CSP `frame-ancestors`, so another site can frame it (clickjacking). Found in Phase 28 while measuring the canvas in a same-origin iframe | **Phase 42** (launch polish), with the CSP D123 already anticipates. `frame-ancestors 'self'` keeps the same-origin measurement working |
@@ -199,6 +205,8 @@ below, are in the archive → *Known Issues*.**
 | **A DOM node's React fiber can be the stale alternate** | Reading a component's props through `__reactFiber$…` returned the props from a render ago, and showed Phase 29 an inspector "stuck" on the wrong node that the page itself had updated correctly. Read what the page *rendered* — the inspector prints the node id — before trusting a fiber |
 | **A phone width in a signed-in browser** | Chrome's window cannot go below ~500 px, and the automated browser cannot be signed in. Load the page in a **same-origin `<iframe>`** of the width you need inside the signed-in tab and measure its `contentDocument` — Phase 28's toolbar figures came from this. **In Phase 33 `resize_window` to 1024 px did not take at all** (the page still read 1512); the iframe is the reliable way for every width |
 | **A long page script drops the extension** | 36: one `javascript_tool` call that clicked, waited ~15 s for a model and then read the answer failed with "the Chrome extension disconnected mid-operation", and nothing it did had happened. Keep each page script to a few seconds — click in one call, `computer` `wait` for the model, read in the next |
+| **Finish animations before measuring geometry, not only before contrast** | 38: the inbox panel's buttons measured 23 px in a phone-width frame — under WCAG 2.5.8 — because its `animate-pop` scale-in was caught mid-way; finished, they were 27.9 px. `document.getAnimations().forEach(a => a.finish())` before any `getBoundingClientRect` |
+| **A same-page fragment change does not reload the page** | 38: `page.goto('/approve#x')` from `/approve` only changed the hash, so the page kept its first state. To load a page fresh, go through `about:blank` |
 | **Smooth scrolling stops short in a hidden tab** | 33: a node click on a run's page focused and opened its step, but `scrollIntoView({behavior: "smooth"})` stalled after ~80 px because the tab read `visibilityState: hidden`. Read the state the page reached (focus, `open`), not the scroll position |
 
 ### Engineering rules learned the hard way
@@ -363,29 +371,32 @@ npm run build && cp -r .next/static .next/standalone/.next/static && cp -r publi
 
 ## Notes for whoever comes next
 
-- **Start Phase 38 — human in the loop.** Phase 37 is closed and deployed. What it leaves:
-  - **the inbox is built for a second kind** — `inbox_item.kind` is `run_failed` today; an approval is
-    the next one (`lib/inbox/kinds.ts`). The collapse rule (one unread row a reader per workflow and
-    kind, by the partial unique index) is right for failures and **wrong for approvals** — two pending
-    approvals are two decisions, not one with a count. Decide it in a decision; the index is
-    `inbox_item_unread_idx`. Who may decide is narrower than who may see (editors, or named members)
-  - **writing to everybody who may see a workflow is one statement** — `recordFailureSql`
-    (`lib/inbox/inbox-sql.ts`), `canSeeWorkflow`'s rule read from the row. Reuse its shape; it was
-    planned with `EXPLAIN` against the real database before it shipped
-  - **`announceFailure` is the one place a failed run is told about** (`engine/run.ts`) — every path
-    that fails a run calls it. An approval that times out with `fail` is a failure like any other, and
-    an approval run is `waiting` until decided: the failure rules (D176: unattended only) already
-    cover it if its trigger was a webhook or a schedule
-  - **a new trigger kind or step status has a checklist now**: `TRIGGER_KINDS` (`TRIGGER_WORDS`, the run
-    filter, `alertsFor` — `failure.test.ts` asserts every kind is decided), and the six places a status
-    touches plus `evidence.ts` `FINISHED_STEPS`, `retry.ts` `carried` and `test-run.ts`. `handled` (37)
-    followed `reused` (33) through all of them
-  - **an approval's `approved` and `rejected` outputs are static** (D23-friendly) — ordinary registry
-    outputs, not the Error output's policy trick (`outputsOf`, D174). An approval with `onError: route`
-    still gets Error after them
-  - **the shell header is full.** Phase 37 measured it from 320 to 1440 px to fit the bell and had to
-    take room from the wordmark and the keycap. Anything else added to it gets the same measurement —
-    same-origin frames, `scrollWidth - clientWidth` and the gap to the workspace switcher
+- **Start Phase 39 — composition.** Phase 38 is closed and deployed. What it leaves for a child run:
+  - **a run can wait for one thing at a time** (D179): a long delay or a second approval while an
+    approval is outstanding fails its step. A parent waiting on a durable child is a third kind of
+    wait — decide whether it joins this rule, or the cursor gains a field like `wait` and `approval`
+    did (`engine/cursor.ts`; the engine reads them at the top of `executeWorkflow`)
+  - **a decision wakes a run by `wakeAt = now()` and a delivery** (`approvals/store.ts` → `wake`), and
+    a run not yet `waiting` is caught by the suspend write reading the request in the same statement
+    (`lease.ts` → `suspendRun`). A child finishing and waking its parent is the same shape — reuse it
+    rather than inventing a second way to resume (and `engine/recover.ts` for starting one)
+  - **the recorder is how the engine reaches the database for a node** — `requestApproval` and
+    `reissueApproval` (D178) keep the engine testable with no database; a child-run request belongs
+    there too, not in a node's `execute`
+  - **a run's secrets stay in memory** (`engine/redact.ts`): anything a parent hands a child, or a child
+    hands back, that came from an Ask path is already `[removed]` in the rows — the in-memory value is
+    the only working one. A child's output is run data reaching another run: scrub it (D168) or say in a
+    decision why not
+  - **the retry replay knows a step that takes two exits** (`retry.ts` → `decidedApproval`): Ask at
+    once, the decision when its queue runs dry. A merge that waits for its branches changes when a node
+    runs, so the replay must mirror it exactly — the engine-against-replay tests are the guard
+  - **`"agent"` is still reserved in `TRIGGER_KINDS` and unused** — and `alertsFor` must decide what a
+    failed child tells (`failure.test.ts` asserts every kind is decided)
+  - **two more registry nodes**: each owes the five obligations, a `PUBLISHABLE` entry, an icon of its
+    own (a new node drawn with its category's mark is a walk finding), a label `select.test.ts` can
+    select, an eval case recorded with `--live --case <id> --record after-deterministic-flash-lite`,
+    and the registry count moved in **six** places — `registry.test.ts`, `integration.test.ts` and the
+    four verify scripts that pin it
 - **An error workflow is live the moment it is saved active** — the walk's had to be deleted, or every
   verify run's failing webhooks would have posted to Discord. **Delete or switch off any error workflow a
   walk makes**; `select id, name from workflow where graph @> '{"nodes":[{"type":"core.error_trigger"}]}'`
@@ -427,8 +438,9 @@ npm run build && cp -r .next/static .next/standalone/.next/static && cp -r publi
 - **The extension's `find` tool is rate-limited** and failed mid-walk in Phase 31; clicking a page's own
   buttons by their text through `javascript_tool` works and costs nothing. **The first click after a
   reload often does not register** — check the selection before trusting it
-- **`verify-api` deletes the owner's Discord connection and does not put it back** — re-add it through
-  `PUT /api/integrations/discord` with a minted session, as Phase 31 did, or `smoke.mjs` loses a beat
+- **`verify-api` puts the owner's Discord connection back** since Phase 38 (it deleted it and left it
+  gone until then) — when `VERIFY_DISCORD_WEBHOOK` is set. Without it the Phase 9 section skips and
+  touches nothing
 - **`rollback_0011.sql` and `rollback_0012.sql` do not remove their ledger rows**, though `DEPLOYMENT.md`
   says each rollback does; `rollback_0013.sql` does. Found in Phase 31 and left — those are closed phases'
   files; fix them when a migration next needs rehearsing
@@ -466,7 +478,9 @@ npm run build && cp -r .next/static .next/standalone/.next/static && cp -r publi
   then needs its own keys, or every model check fails. Clean up after yourself
 - **M14 is due on or after 2026-10-13** — ask the user for the Neon reading; it is non-blocking.
   Phase 37 added nothing that wakes an idle database: the inbox is written by a failed run and read by
-  a page view, both of which have already woken it
+  a page view, both of which have already woken it. **Phase 38 adds one wake per undecided approval**,
+  at its timeout — a timer due, exactly as a delay's; a decision is a person's request, and the inbox's
+  read rides on the page load
 - **Ask the user to bring the Chrome window forward early, and not to click in it.** It drifted to the
   background three times in Phase 29, and a click to bring it forward once landed on the palette and
   added a node mid-test
@@ -488,6 +502,22 @@ npm run build && cp -r .next/static .next/standalone/.next/static && cp -r publi
 ---
 
 ## Recent Changes
+
+**2026-10-09 — Phase 38 closed: a workflow can ask a person.** Migration `0017` — `approval`.
+**`core.approval`** sends its decision link down **Ask** at once, through a step the workspace already
+has, finishes what else it can and puts the run down `waiting` — no container — until a decision or its
+timeout; it carries on down **Approved** or **Rejected** with who decided and their comment (D179). The
+link is `/approve#<token>`: 256 bits, **stored only as a hash, in the URL's fragment, and removed from
+everything a run writes** — a link preview fetches a page that knows nothing, and neither link route has
+a GET (D178). Named members (any role) or editors decide in the inbox, the run panel or the run page;
+whoever holds the link decides once, signed out; a timeout rejects, approves or fails (D181). Requests
+are read live into the inbox, never written to it (D180), and a stream follows a run about to wake
+(D182). Measured: the eval case passed first attempt. On the deployed service a real Discord message
+carried the link; opened in a **signed-out** browser it approved, and the run resumed through Cloud
+Tasks down Approved. Three deploys, `00095-xgf` to `00097-xwf`: the walk found the Run toast calling an
+approval a delay, the inbox saying "1 waiting on you · all read", a truncated row title and a link
+pasted into an open tab ignored; `verify-a11y` found the page's loading state headingless. All fixed
+with tests or a failing run first. `verify-api` now puts the Discord connection it deletes back.
 
 **2026-10-09 — Phase 37 closed: when things go wrong.** Migration `0016` — `inbox_item` and
 `run.handled`. A node's **on-error policy** is `stop`, `continue` or `route` (D173): a handled failure is a
@@ -697,7 +727,6 @@ Phase 4" after `postgres` was added in 23C.
 
 ## Last Updated
 
-**2026-10-09** — **Phase 37 complete**, deployed as `agentforge-00094-w55` and verified on the deployed
-service and in a real browser in Light and Night. **M14** (Neon reading, from 2026-10-13) is pending and
-non-blocking. **Next: Phase 38 — Workflows II: human in the loop.** (This section said Phase 35 through
-Phase 36; corrected here.)
+**2026-10-09** — **Phase 38 complete**, deployed as `agentforge-00097-xwf` and verified on the deployed
+service and in a real browser in Light and Night, signed in and signed out. **M14** (Neon reading, from
+2026-10-13) is pending and non-blocking. **Next: Phase 39 — Workflows III: composition.**

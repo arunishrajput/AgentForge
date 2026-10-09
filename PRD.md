@@ -155,7 +155,7 @@ external publishing; real-time multiplayer editing; mobile apps.
 
 ## Chapter 3 scope — planned
 
-**Planned with the user on 2026-10-06; phases 26–37 are done.** `BUILD_PLAN.md` → *Chapter 3* is
+**Planned with the user on 2026-10-06; phases 26–38 are done.** `BUILD_PLAN.md` → *Chapter 3* is
 the contract; this is the index. Numbered `C3-n` so the Chapter 1 and Chapter 2 `C` numbers above
 keep their meaning.
 
@@ -172,7 +172,7 @@ keep their meaning.
 | C3-9 | **A copilot that edits a workflow by conversation**, shown as a diff the user accepts | 35 — **DONE** |
 | C3-10 | The copilot explains a workflow and diagnoses a failed run with a proposed fix | 36 — **DONE** |
 | C3-11 | Per-node error handling, an error-trigger workflow, an in-app notification inbox | 37 — **DONE** |
-| C3-12 | **Human approval steps** — decided in the app or by a signed single-use link | 38 |
+| C3-12 | **Human approval steps** — decided in the app or by a signed single-use link | 38 — **DONE** |
 | C3-13 | Sub-workflows, workflows as agent tools, a merge/join node | 39 |
 | C3-14 | A hosted form trigger; custom webhook responses | 40 |
 | C3-15 | **A public API** with personal access tokens | 41 |
@@ -198,6 +198,15 @@ nobody was watching (a webhook's, a schedule's), reaches **every member who may 
 an in-app inbox and starts the workspace's **error workflows**, which is how it reaches Slack, Discord
 or Gmail. A run somebody pressed Run on is told on the canvas instead; a test is told to nobody. No
 mail provider and no poll — the inbox is read when a page loads.
+
+**What C3-12 means, precisely** (Phase 38, D178–D182). A workflow can stop and **ask a person**, then
+carry on with their answer — hours or days later. The approval step sends its link down its **Ask**
+path through a Discord, Slack or Gmail step the workspace already has, and waits; the run holds no
+container while it does. The people it names — or, naming nobody, any editor — decide in their inbox,
+on the canvas or on the run's page; **whoever holds the link decides without signing in**, once. If
+nobody does before the timeout, the step's own rule decides: reject (the default), approve, or fail the
+run. The run then carries on down **Approved** or **Rejected**, with who decided and their comment.
+A link cannot be decided by opening it — only by pressing a button — and is stored only as a hash.
 
 ---
 
@@ -324,6 +333,12 @@ the same rule.
 
 **Triggers.** Each webhook trigger has an unguessable URL that validates its payload. Schedule
 triggers fire on a cron expression.
+
+**Approvals** (Phase 38). A step can ask a person to approve or reject, with a message built from the
+run's data, and wait up to 30 days. It is decided by a member it allows — named people, or any editor
+— in the inbox, on the canvas or on the run's page; or by anybody holding its single-use link, signed
+out; or by its timeout. The decision, the decider and a comment are what the next step reads. The
+link is never stored in a usable form and never decided by a GET.
 
 ---
 

@@ -286,7 +286,8 @@ a handful of requests per page, not thirty per workflow run.
 | **Observability** | Phase 22. `src/lib/logging/` — the event catalogue, the `AsyncLocalStorage` correlation context, error fingerprinting and the JSON-line writer; `src/lib/analytics/` — the three aggregate queries and the pure arithmetic over their rows; `/analytics` and `GET /api/analytics`. **No client library, no exporter, no agent** |
 | **Credential vault** | Phase 21. `src/lib/crypto/` — AES-256-GCM (`aes.ts`), the versioned root key (`root-key.ts`) and the two-layer envelope (`envelope.ts`); `src/lib/credentials/` — the store, the rotation registry, the re-key loop, the audit log and the vault's read model; `src/lib/gcp/` — the metadata server and Secret Manager over `fetch` |
 | **Failure alerts and the inbox** | Phase 37. `src/lib/triggers/failure.ts` — who is told about a failed run and what an error workflow is handed (pure); `engine/run.ts` → `announceFailure` — the two writes, in the failed run's own request; `src/lib/inbox/` — the inbox's statements and store; the bell in the shell header. **No mail provider and no poll**: the inbox is written by a failure and read by a page render, both of which have already woken the database |
-| **Persistence** | Neon Postgres. Workspaces and memberships, users, credentials, **credential events**, workflows, workflow versions, runs, run steps, **inbox entries** (Phase 37) |
+| **Approvals** | Phase 38. `src/lib/nodes/core/approval.ts` says what to ask; the engine asks — the request recorded and its link minted through the recorder, the link kept only in memory and removed from everything written (`engine/redact.ts`); `src/lib/approvals/` — the rules (pure), the token, the table's statements; a static public page, `/approve`, that reads the link's fragment. **No mail provider**: the link goes out through a Discord, Slack or Gmail step the workspace already has |
+| **Persistence** | Neon Postgres. Workspaces and memberships, users, credentials, **credential events**, workflows, workflow versions, runs, run steps, **inbox entries** (Phase 37), **approval requests** (Phase 38) |
 | **Cloud Scheduler** | Managed cron, calls `/api/cron/tick` to fire due schedule triggers |
 
 ---
@@ -469,7 +470,10 @@ Sequential, resumable, and indifferent to which process is running it.
 9. The run ends `succeeded`, `failed`, or `cancelled` — or the engine **stops without writing a
    status**, because it lost the lease and the run is somebody else's now — or (Phase 26) a long
    `core.delay` **suspends** it as `waiting`, cursor written and lease released, until a Cloud Tasks
-   delivery wakes it. See *Queue* → *Timers*
+   delivery wakes it. See *Queue* → *Timers*. **Phase 38**: `core.approval` suspends it too, but
+   only after its **Ask** path — the steps that send the decision link — and everything else the run
+   can do without the answer; a decision wakes it at once, the timeout otherwise (`CONTRACT.md` →
+   *Approvals*)
 
 ### Two modes, and the only thing that separates them
 
@@ -929,7 +933,7 @@ nothing wakes Neon until something is due. Two things use one:
 | Timer | Armed when | Delivered to | Carries |
 |---|---|---|---|
 | **A schedule's next slot** | the workflow is created or saved with a new due time, switched on, or fires | `POST /api/cron/fire` | workflow id, the slot, an HMAC token for that slot |
-| **A waiting run's wake** | a `core.delay` longer than 10 s suspends the run | `POST /api/runs/dispatch` — an ordinary delivery | run id, its dispatch token |
+| **A waiting run's wake** | a `core.delay` longer than 10 s suspends the run; **or a `core.approval` does (Phase 38), armed for its timeout — and armed again for now when somebody decides** | `POST /api/runs/dispatch` — an ordinary delivery | run id, its dispatch token |
 
 **The timer is never the correctness mechanism — the compare-and-set is.** A schedule fires only by
 claiming its slot with D42's `UPDATE … WHERE scheduleNextAt = <the slot this timer was armed for>`,
