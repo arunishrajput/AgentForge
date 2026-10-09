@@ -18,7 +18,7 @@ somebody keeps in sync — the same objects, filtered.
 
 ```
                   ┌──────────────────────┐
-                  │   the node registry  │   30 nodes, one object each
+                  │   the node registry  │   31 nodes, one object each
                   └──────────┬───────────┘
             ┌────────────────┼────────────────┐
             ▼                ▼                ▼
@@ -88,7 +88,8 @@ correct, not an oracle.
 
 ### Measured, not eyeballed — the eval set
 
-[`src/lib/generate/eval/`](../src/lib/generate/eval) holds 24 requests a stranger might type, each
+[`src/lib/generate/eval/`](../src/lib/generate/eval) holds 25 requests a stranger might type (the 25th,
+Phase 37's `failure-alert`, needs the error trigger), each
 with what a correct answer must contain: the trigger the request implies, the nodes it needs, none
 it forbids, `unsupported` used honestly — and **every `{{ }}` reference resolving**
 ([`references.ts`](../src/lib/generate/references.ts)), which is the check that sees a valid graph
@@ -136,6 +137,10 @@ What is new is about the graph that already exists:
   wrote, and it is not sent. Only a *diagnosis* reads a run — below. `SECURITY.md` → *The copilot*
 - **It cannot rename the workflow itself** — the name is outside the graph and outside undo — and
   says so, pointing at the toolbar
+- **It does not set what a step does when it fails** (Phase 37). A step's on-error policy is yours,
+  in the inspector; the copilot keeps an existing edge out of a step's **Error** output, and a request
+  that needs a new one is built as far as it can be, with "send *step*'s failures to its Error path"
+  listed as the part it could not do
 
 The conversation lives in the page for as long as the canvas does; there is no table behind it.
 
@@ -202,6 +207,11 @@ a webhook body, an API's answer, a model's output. Any of it can contain instruc
   anything inside it
 - **The worst outcome is a proposal**: the edit that drafts a fix never sees the run, and a fix is a
   diff you read before you accept it
+
+The same scrubbing guards one more place run data goes (Phase 37): **a failure alert**. An error
+workflow — one whose trigger is the *Error trigger* — is handed the failed workflow's name, the step
+it stopped at and its error, scrubbed of every credential shape before it is cut, because that text is
+headed for a chat message. No model reads it there unless the error workflow itself calls one
 
 ### Measured too
 

@@ -155,7 +155,7 @@ external publishing; real-time multiplayer editing; mobile apps.
 
 ## Chapter 3 scope — planned
 
-**Planned with the user on 2026-10-06; phases 26–35 are done.** `BUILD_PLAN.md` → *Chapter 3* is
+**Planned with the user on 2026-10-06; phases 26–37 are done.** `BUILD_PLAN.md` → *Chapter 3* is
 the contract; this is the index. Numbered `C3-n` so the Chapter 1 and Chapter 2 `C` numbers above
 keep their meaning.
 
@@ -171,7 +171,7 @@ keep their meaning.
 | C3-8 | Generation that scales past 30 nodes, measured by an eval set | 34 — **DONE** |
 | C3-9 | **A copilot that edits a workflow by conversation**, shown as a diff the user accepts | 35 — **DONE** |
 | C3-10 | The copilot explains a workflow and diagnoses a failed run with a proposed fix | 36 — **DONE** |
-| C3-11 | Per-node error handling, an error-trigger workflow, an in-app notification inbox | 37 |
+| C3-11 | Per-node error handling, an error-trigger workflow, an in-app notification inbox | 37 — **DONE** |
 | C3-12 | **Human approval steps** — decided in the app or by a signed single-use link | 38 |
 | C3-13 | Sub-workflows, workflows as agent tools, a merge/join node | 39 |
 | C3-14 | A hosted form trigger; custom webhook responses | 40 |
@@ -188,7 +188,16 @@ keep their meaning.
 
 **The copilot, forms and API tokens add no code execution.** The copilot proposes registry nodes
 only, as a diff a person must accept. A form submits data to a run. A token calls the same routes a
-browser does.
+browser does. **An error workflow is an ordinary workflow** (Phase 37): it is started by another's
+failure and handed that failure as data, and it can reach only the registry, like any other.
+
+**What C3-11 means, precisely** (Phase 37, D173–D177). A step's failure can be planned for — stop
+the run, carry on with the error as its output, or take an Error path — and a run that planned for
+every failure it met **succeeded**, saying how many it handled. A failure nobody planned for, in a run
+nobody was watching (a webhook's, a schedule's), reaches **every member who may see the workflow** in
+an in-app inbox and starts the workspace's **error workflows**, which is how it reaches Slack, Discord
+or Gmail. A run somebody pressed Run on is told on the canvas instead; a test is told to nobody. No
+mail provider and no poll — the inbox is read when a page loads.
 
 ---
 

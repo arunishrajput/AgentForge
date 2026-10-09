@@ -469,6 +469,27 @@ workflow is edited, exactly as the rest of its config is. The vault is where a s
 
 ---
 
+## Failure alerts and the inbox — Phase 37
+
+Phase 37 adds **no unauthenticated surface**: the inbox's two routes require a session (and
+`verify-security.mjs` found and checked both — 86 checks, from 84), and an error workflow is started
+by the server, never by a request. What it adds is two new places a failed run's words travel to,
+each bounded by the rules it already lived under:
+
+- **The inbox reaches only the people who may see the workflow** (D101), decided twice: in the
+  statement that writes the entries, from the workflow row, and again in the statement that reads
+  them — so a workflow made private after it failed stops being shown. An entry holds one line of the
+  error, at most 500 characters, never a payload. `verify-api.mjs` proves a viewer is told about a
+  shared workflow's failure and not about a private one's
+- **An error workflow is told only about workflows its author may see**, because what it is handed
+  usually ends up in a chat message — a colleague's error workflow must not learn the name and error
+  of a private workflow. And the payload is **scrubbed of every stored credential's shape before it is
+  cut**, the diagnosis's rule (D168), because `{{trigger.error}}` goes straight into Slack
+- **It cannot loop.** A run an error trigger started never starts another (D176); at most five error
+  workflows hear one failure
+
+---
+
 ## Secrets in the deployment
 
 | Rule | How |
@@ -527,6 +548,10 @@ The honest limits. Each one is a real gap, not a hedge.
    header written into its config is part of the workflow, and an export carries the workflow.
    Secrets belong in Settings → Integrations, where they are encrypted and never leave; the API
    docs say so beside the export.
+12. **Failure alerts are not rate-limited.** A webhook a script hammers with failing calls starts
+   one error-workflow run per failure, and a Slack or Discord channel will see every one — bounded
+   by the queue's three concurrent deliveries, not by a throttle. The inbox, unlike the channel,
+   collapses them into one entry a reader.
 
 ---
 

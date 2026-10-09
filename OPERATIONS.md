@@ -89,14 +89,15 @@ would otherwise leave a metric reporting zero forever, which looks exactly like 
 |---|---|---|---|
 | `run.started` | INFO | A run row was created | `trigger`, `mode`, `workflowVersion` |
 | `run.finished` | INFO / ERROR | A run reached a terminal status | `status`, `durationMs`, `attempt`, `resumed` |
-| `node.finished` | INFO / ERROR | One node finished | `nodeId`, `nodeType`, `status`, `durationMs` |
+| `node.finished` | INFO / WARNING / ERROR | One node finished — WARNING with `status: "handled"` when it failed and its on-error policy carried the run on (Phase 37), so `severity>=ERROR` still finds only what nobody planned for | `nodeId`, `nodeType`, `status`, `branch`, `durationMs` |
 | `model.call` | INFO / WARNING / ERROR | A `generate` resolved | `requested`, `answered`, `fallback`, `attempts` |
 | `generation.finished` | INFO / WARNING | A workflow generation ended (Phase 34), or a copilot edit (35), explanation or diagnosis (36) — WARNING when neither attempt produced a valid answer | `mode` (`create` · `edit` · `explain` · `diagnose`), `outcome` (`first` · `second` · `failed`), `attempts`, `model`, `selector`, `selected`, `selectorFellBack`, `promptChars`, `unsupported`, `issues`, `durationMs`; `uncited`, and a diagnosis's `fix` |
 | `queue.degraded` | **ERROR** | A durable run could not be enqueued | `reason` |
 | `queue.delivered` | INFO | A Cloud Tasks delivery was handled | `handled`, `status`, `retryCount` |
 | `run.waiting` | INFO | A run paused at a long delay (Phase 26) | `wakeAt`, `trigger` |
+| `run.alerted` | INFO / ERROR | A run nobody was watching failed, and was announced (Phase 37) — ERROR when the announcing itself failed, which never fails the run | `failedRunId`, `trigger`, `inboxes`, `errorWorkflows`, `errorWorkflowsNotStarted` |
 | `schedule.delivered` | INFO | A schedule timer arrived (Phase 26) | `workflowId`, `scheduledFor`, `outcome`, `reason`, `runId` |
-| `cron.tick` | INFO | The daily sweep ran | `due`, `fired`, `skipped`, `cleared`, `armed`, `woken`, `swept` |
+| `cron.tick` | INFO | The daily sweep ran | `due`, `fired`, `skipped`, `cleared`, `armed`, `woken`, `swept`, `pruned`, `prunedRuns`, `prunedInbox` |
 | `api.error` | ERROR | A request threw unexpectedly | `errorGroup`, `errorName` |
 | `system.warning` | WARNING / ERROR | A refusal or repair nobody asked for | varies |
 
@@ -336,6 +337,23 @@ to `/api/runs/dispatch` scheduled for `wakeAt`. If `wakeAt` is in the past:
 
 Stop on the canvas cancels a waiting run at once.
 
+### A failure did not reach anybody
+
+Phase 37 tells a failure only when nobody was watching it — a `webhook` or `schedule` run, or an
+error workflow's own run — never a manual run or a test (D176). If one of those failed and nobody
+heard:
+
+- **Was it announced?** Every announcement writes one `run.alerted` line naming the failed run, with
+  how many inboxes it reached and how many error workflows it started:
+  `gcloud logging read 'jsonPayload.event="run.alerted"' --limit 10 --freshness 1d --format='value(timestamp,severity,jsonPayload.failedRunId,jsonPayload.inboxes,jsonPayload.errorWorkflows,jsonPayload.message)'`.
+  At ERROR, the announcing failed and the line says why — the run's own outcome stands
+- **`inboxes: 0`** — nobody may see the workflow: it is private and its author has left the workspace
+- **`errorWorkflows: 0`** — no error workflow is **active**, or its author may not see the failed
+  workflow (a private one), or it *is* the failed workflow. An error workflow's run is an ordinary
+  queued run with trigger *Failure* — look for it in `/runs`, filtered by that trigger
+- **An error workflow alerting too often** is switched off from its canvas like any automatic
+  trigger; there is no throttle (`SECURITY.md` → *What we do not claim*)
+
 ### A deploy went wrong
 
 Traffic shift is about fifteen seconds and has been tested.
@@ -416,6 +434,10 @@ gcloud logging read 'resource.type=cloud_run_revision AND jsonPayload.event="cro
 # rule itself proved against a throwaway workspace.
 node --import ./scripts/test-register.mjs --env-file=.env scripts/verify-retention.mjs
 ```
+
+**The inbox** (`inbox_item`, Phase 37) is bounded by construction: one row per reader per failing
+workflow while unread — a second failure updates it — each holding one line of at most 500
+characters. Entries go with their run, and the sweep removes any older than 30 days (`prunedInbox`).
 
 If storage climbs faster than this predicts, the cause is large step bodies, not run count: one
 workflow posting 256 KB HTTP responses fills its 200 runs fifty times faster than a log. Neon's

@@ -411,7 +411,7 @@ offset shadow, a fat radius, on `elevated`.
 | Name | The node's own label, and the largest type on the card — at 0.4 zoom it is the only thing still readable, so it is what the card is *for* |
 | Type | `ai.agent`, in mono, muted |
 | Status | The chip, when the node has run |
-| Outputs | One labelled row per declared output, each with its handle centred on it |
+| Outputs | One labelled row per declared output, each with its handle centred on it — plus an **Error** row, its handle in the warning hue, while the node's on-error policy is *Take the Error path* (Phase 37) |
 
 **Selection and status are different channels.** Status owns the outline and the surface; selection
 owns the lift. A selected *failed* node therefore still shows that it failed.
@@ -431,10 +431,24 @@ not make two statuses look alike.
 | disabled | "Switched off" | `⊘` | **dotted** | **sunken, flatter shadow** | — |
 | pinned | "Pinned" | `◆`, in the accent tone | ink | raised | — |
 | reused | "Reused" | `↺`, muted | ink | raised | — |
+| handled | "Handled" | `↪`, in the warning hue | **amber** | raised | — |
 
 A greyscale screenshot of a run still reads: dashed and recessed was skipped, dotted and recessed is
 switched off, bobbing is working, ticked finished, a diamond stood in with its pin, a turning arrow
-was carried over from the run a retry retried.
+was carried over from the run a retry retried, and an arrow turning aside failed and was handled.
+
+**Handled** (Phase 37) is a node that failed and whose on-error policy carried the run on — out of
+its default output, or down its Error output. Raised, because it handed a value on: its error. The
+warning hue rather than the failure's red, on the outline, the word and **the error text under it**,
+because the run did not stop here — red words under an amber outline said two things at once, which
+the deployed walk found (`stepErrorTone`). Still, with no wiggle: the wiggle means *this stopped the
+run*. The run that holds one is *Succeeded*, with a **↪ 1 error handled** chip beside it on the run
+panel, the run page and the history list.
+
+**The Error output** is the last row of the card, labelled *Error*, its handle filled in the warning
+hue so it is told apart from *Out* by label and by fill. It exists only while the policy routes
+(`outputsOf`, D174); choosing another policy in the inspector takes the edges that left by it away
+too, as one step of undo.
 
 **Reused** (Phase 33) is a step a retry carried over from the run it retries — it ran there, not
 here. Raised, because it handed a real value on, and lit through on the path like *succeeded*; still
@@ -748,6 +762,27 @@ the user typing to narrow the list, which is the entire interaction. Closing it 
 button, not to the body — `<dialog>` restores focus to whatever had it before `showModal()`, and for
 a keyboard shortcut that is nothing.
 
+### The inbox — Phase 37
+
+A **bell** in the shell header, between the nav and Search, with a count badge — a `bad-pop` fill
+with an ink outline and the fill's label, as every fill is drawn — when there is anything unread.
+**The badge is never the only place the number is**: the bell's name says it ("Inbox, 2 unread").
+It opens a **panel** (a disclosure: a heading, links and a button — not a menu), anchored to the bell
+from `sm` and at 16 px gutters across a phone. An unread entry is a dot *and* bold type *and* the
+word "Unread" for a screen reader; a read one sits in muted ink. Each says which workflow failed, how
+many times while unread, the step and its error on one line, and when — and opens the run.
+
+**It reads nothing on its own.** The page renders it with the inbox it read; the only requests it
+makes are the ones a person causes, so a failure during a page view is in the bell on the next
+navigation. **Not on the canvas** — that header is full, and the inbox is about the workflows a person
+is not looking at (D177).
+
+**Fitting it took two things from the bar, both measured from 320 to 1440 px.** Below `sm` the
+wordmark's name yields to the mark alone (`Wordmark shrinks`), so the workspace switcher — the one
+item that shrinks — has 70–155 px rather than a 32 px caret; and the ⌘K keycap, which Phase 29 meant
+to hide on phones and never did (the trap below), is hidden. From 640 to 767 px the account's address
+yields to its letter, as Phase 23A's reasoning already said it should.
+
 ### The utilities are equally first-class
 
 `btn`, `field`, `card`, `card-raised`, `chip`, `chip-pop`, `eyebrow`, `squish`, `dotted`, `sweep-bar`
@@ -822,6 +857,7 @@ wrong within a phase.
 | **A `<select>` given a value no option has shows its first option, silently** | Phase 32's tag filter matched `?tag=BILLING` to the tag "billing" ignoring case, filtered the list correctly — and handed the `<select>` the raw "BILLING", which no option carried, so it read *Any tag* over a filtered list. Give a select the value of the option you matched (`tagSelectValue`), never the input you matched it from |
 | **An error inside a field's label moves the buttons beside it** | `Labelled` puts its error inside the `<label>` so it is part of the field's name. In a row of field-plus-buttons aligned to the bottom, that error pushed *Add* below the field. Where buttons sit beside a field, the error goes under the row, tied to the field by `aria-describedby` (`TagNameForm`) |
 | **An `sr-only` label can stretch the page from inside a scroller** | `.sr-only` is `position: absolute`, and an absolute element is clipped by an `overflow: auto` ancestor only if that ancestor is positioned. The copilot's conversation list was not, so a long conversation put a "You:" label 200 px below the viewport: the document grew a scrollbar and every control on the canvas shifted 9 px left. No gate could see it. Every scroll container is positioned now, and `scroll-containment.test.ts` refuses one that is not (D166) |
+| **A display class handed to a primitive loses to the primitive's own** | `Keys` sets `inline-flex` on its root; the command palette passed `className="hidden sm:inline-flex"` to hide the ⌘K cap on phones. `cn` only joins strings, so the element carried `inline-flex … hidden`, and **the stylesheet's order — not the class attribute's — chose `inline-flex`**: the cap showed on every phone from Phase 29 until Phase 37 measured the header to fit the inbox bell. A caller that needs to show or hide a primitive wraps it; `primitives.test.ts` refuses a display class handed to one that sets its own |
 | **A lint rule can be wrong about a native element** | `role="switch"` on `input[type=checkbox]` is explicitly allowed by ARIA in HTML and its `checked` maps to `aria-checked`; adding `aria-checked` would create a second source of truth. Suppressed inline, with the reason, per the project convention |
 
 ---

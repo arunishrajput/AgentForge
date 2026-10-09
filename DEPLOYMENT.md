@@ -16,12 +16,12 @@ Every step is labelled **`AUTOMATED BY CLAUDE CODE`** or **`MANUAL HUMAN ACTION`
 | Field | Value |
 |---|---|
 | Service | `agentforge`, Cloud Run, `asia-southeast1` |
-| Revision | **`agentforge-00089-t45`** — 100% of traffic, **Phase 36** (2026-10-09; `00088-b2x` shipped the phase, `00089-t45` the browser walk's fixes). No migration and nothing stored: **rolling back past `00088-b2x` removes explain and diagnose and loses nothing** — neither writes anything (the copilot route's two new `kind`s). Past `00089-t45` a diagnosis can withhold a fix it could work out, a stale highlight can return and every sentence press zooms the canvas. Past `00085-cff` the copilot goes entirely (D164 — nothing of it was stored). Past `00084-4hb`, "an empty agent `tools` list means every callable node" returns (D160). **Rollback targets are the revisions behind the five kept images (D120)** — after the next prune `00089-t45`, `00088-b2x` (Phase 36), `00087-544`, `00086-wnj` and `00085-cff` (Phase 35); list them with the commands in *Rollback*. Rolling back past `00081-trs` hides run history and stops pruning it (*Rollback*); never roll back past `00072-n8v` while a workflow uses a note or a switched-off node. Cold start measured **6.38 s** on `00061-lwl`, warm 0.58–0.76 s |
+| Revision | **`agentforge-00094-w55`** — 100% of traffic, **Phase 37** (2026-10-09). Five deploys: `00090-kvr` shipped the phase, `00091-wbz` the error trigger's icon and a handled step's error colour, `00092-579` to `00094-w55` the shell header fitting the inbox bell from 320 to 1440 px. **Migration `0016` is additive**, so a rollback is a traffic shift — but read *Rollback* → Phase 37 first: an older revision does not know `onError`, the Error output or the `handled` status. **Rollback targets are the revisions behind the five kept images (D120)** — after the next prune only Phase 37's own: `00094-w55` to `00090-kvr`. Phase 36's `00089-t45` drops out of the window with that prune; rolling back past `00090-kvr` would then need a rebuild from `8bc710a`. Rolling back past `00081-trs` hides run history and stops pruning it (*Rollback*); never roll back past `00072-n8v` while a workflow uses a note or a switched-off node. Cold start measured **6.38 s** on `00061-lwl`, warm 0.58–0.76 s |
 | Scaling | **`min-instances 0`** (M12, 2026-10-01 — was 1 through the hackathon window), `max-instances 3`, 1 vCPU / 1 GiB, 3600 s timeout |
 | Root key | **Secret Manager `agentforge-root-key`, version `1`.** Every credential's data key is wrapped by it; `GET /api/health` reports `rootKey.provider` so a deployment silently on `ENCRYPTION_KEY` cannot hide |
-| Database | Neon `super-mountain-39872886`, `aws-ap-southeast-1` — **16 tables**, migrations `0000`–`0015` applied. **Phase 33 added `0015`**: one nullable column, `run.origin` — applied 2026-10-08 ahead of the deploy. **Phase 32 added `0014`**: three new tables, `tag`, `workflow_tag` and `workflow_star`, nothing existing altered — applied 2026-10-08 ahead of the deploy. **Phase 31 added `0013`**: one nullable column, `run.test`. **Phase 26 added `0012`**, all additive: `workflow.active` (default `true`), `workflow.scheduleArmedFor`, `run.wakeAt` and the partial index `run_wake_idx`. ~12 MB of 0.5 GB, run history ~1.2 MB of it and **pruned by retention since Phase 33** (30 days, or a workflow's newest 200). Each earlier migration's story is in *Migrations* below |
+| Database | Neon `super-mountain-39872886`, `aws-ap-southeast-1` — **17 tables**, migrations `0000`–`0016` applied. **Phase 37 added `0016`**: one new table, `inbox_item`, and `run.handled` (`integer`, default 0) — applied 2026-10-09 ahead of the deploy, `verify-schema.mjs` 6/6 after. **Phase 33 added `0015`**: one nullable column, `run.origin` — applied 2026-10-08 ahead of the deploy. **Phase 32 added `0014`**: three new tables, `tag`, `workflow_tag` and `workflow_star`, nothing existing altered — applied 2026-10-08 ahead of the deploy. **Phase 31 added `0013`**: one nullable column, `run.test`. **Phase 26 added `0012`**, all additive: `workflow.active` (default `true`), `workflow.scheduleArmedFor`, `run.wakeAt` and the partial index `run_wake_idx`. ~12 MB of 0.5 GB, run history ~1.2 MB of it and **pruned by retention since Phase 33** (30 days, or a workflow's newest 200). Each earlier migration's story is in *Migrations* below |
 | Observability | **Structured JSON logging on stdout, five log-based metrics (`agentforge_generations` added in Phase 34, and given a `mode` label — `create` or `edit` — in Phase 35; Phase 36's `explain` and `diagnose` arrive as new values of the same label, no metric change), and `/api/health` reporting five dependency checks.** `OPERATIONS.md` is the runbook |
-| Last verified | **2026-10-09, Phase 36** — acting as the owner (`scripts/verify-user.mjs`), on `agentforge-00089-t45`: `verify-api` **534 passed / 0 failed / 4 skipped** (by environment: no `VERIFY_GEMINI_KEY` or `VERIFY_DISCORD_WEBHOOK`), including a run diagnosed, its fix proposed, saved and retried to `succeeded` through the API; `verify-security` 84, `verify-a11y` 118, `verify-templates` 47, `verify-integrations` 60 / 2 skipped (M10), `verify-postgres` 65, `verify-providers` 55, `verify-vault` passed, `verify-observability` passed / 1 structural skip, `verify-timers` 34, `verify-retention` passed, `verify-durable.mjs all` passed, `smoke.mjs` **clean, all eight beats, first walk**. In a real browser in Light and Night: three induced failures diagnosed, fixed and run again to `succeeded`; explain with highlighting; contrast audit clean in both. Local `npm run check`: **1541 passing**, coverage 90.67 / 92.49 / 86.02 |
+| Last verified | **2026-10-09, Phase 37** — acting as the owner (`scripts/verify-user.mjs`), on `agentforge-00090-kvr` for the battery and `00094-w55` for what changed after it: `verify-api` **561 passed / 0 failed / 3 skipped** (by environment), including `continue` and `route` end to end, a webhook failure reaching the inbox and an error workflow through Cloud Tasks, the depth-one bound, the active switch, and inbox visibility for a viewer; `verify-security` **86**, `verify-a11y` 118 (both re-run on `00094-w55`), `verify-templates` 47, `verify-integrations` 60 / 2 skipped (M10), `verify-postgres` 65, `verify-providers` 55, `verify-vault` passed, `verify-observability` passed / 1 structural skip, `verify-timers` 34, `verify-retention` passed, `verify-durable.mjs all` passed, `smoke.mjs` **clean, all eight beats, first walk** on `00094-w55`. In a real browser in Light and Night: a routed failure painted `↪ Handled` with the lit path down Error, the policy changed and undone in one step, a failing webhook's error workflow **posting two real Discord messages**, the inbox opened, read and marked read, **no request in 40 idle seconds**, the header measured from 320 to 1440 px; contrast audit clean on every new state in both themes. Local `npm run check`: **1583 passing**, coverage 90.61 / 92.53 / 85.41 |
 
 The service also answers on a legacy hashed URL. Do not use it — see *Deploy*.
 
@@ -714,7 +714,8 @@ example, and the pattern to copy:
 `drizzle/rollback_0012.sql` — **safe only once no run is `waiting`**, because a pre-26 revision can
 neither resume nor sweep one (the file says how to check, and how to close them). Phase 31's is
 `drizzle/rollback_0013.sql`, Phase 32's `drizzle/rollback_0014.sql`, and Phase 33's
-`drizzle/rollback_0015.sql` — let any retry still queued or waiting finish first, as that file says.
+`drizzle/rollback_0015.sql` — let any retry still queued or waiting finish first, as that file says —
+and Phase 37's `drizzle/rollback_0016.sql`, which says what to count in the graphs first.
 Each is applied with a SQL
 client and each also removes its ledger row, so a later `db:migrate` re-applies rather than believing
 the work is already done.
@@ -1525,6 +1526,19 @@ finish:
 
 ```sql
 select count(*) from run where origin is not null and status in ('queued', 'running', 'waiting');
+```
+
+**Rolling back past `agentforge-00090-kvr` (Phase 37) keeps the data and changes what runs.**
+Migration `0016` only added `inbox_item` and `run.handled`, which an older revision never reads, so
+the inbox simply stops — no entry is written, no error workflow starts. But **an on-error policy and
+an Error edge live inside the graph's `jsonb`**, like a note (D134): an older revision ignores
+`onError`, so a failure the policy handled **fails the run** instead; it refuses an edge out of Error
+as an unknown output, so **such a workflow will not run** until the edge is removed; it strips
+`onError` from a graph it saves; and it draws a `handled` step, and a run with trigger `error`, with no
+look of its own. Count first:
+
+```sql
+select count(*) from workflow where graph::text like '%"onError"%';
 ```
 
 **Caveat:** a rollback does **not** revert migrations. Prefer additive migrations so an older

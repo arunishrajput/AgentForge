@@ -51,7 +51,7 @@ sync by hand — the *same* objects. One registry entry feeds three consumers:
 
 ```
                   ┌──────────────────────┐
-                  │   the node registry  │   30 nodes, one object each
+                  │   the node registry  │   31 nodes, one object each
                   └──────────┬───────────┘
             ┌────────────────┼────────────────┐
             ▼                ▼                ▼
@@ -265,7 +265,7 @@ schedules that fire from exact-time timers, a dark theme, Toybox Night, on every
 canvas that edits like a serious tool: undo, copy and paste, multi-select, the keyboard, sticky
 notes, steps that switch off, and a test loop — pinned outputs and partial runs — then a library of
 tags, stars, export and import, and run history you can retry from the step that failed. Generation
-is now measured rather than eyeballed — an eval set of 24 requests, scored live and replayed in CI —
+is now measured rather than eyeballed — an eval set of 25 requests, scored live and replayed in CI —
 and shows the model full definitions only for the nodes a request needs, so the catalogue can grow.
 And a workflow can now be changed by asking: a copilot proposes the change as a diff you accept,
 explains what a workflow does, and says why a run failed and how to fix it — each measured by its own

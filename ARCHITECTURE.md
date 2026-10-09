@@ -285,7 +285,8 @@ a handful of requests per page, not thirty per workflow run.
 | **Tenancy** | Phases 19A–19B. `src/lib/workspace/` — the `WorkspaceScope` every store function takes, the one query that resolves it per request, invitations, and **the role check every mutating route now passes through**. **No query in the product reads across a workspace** |
 | **Observability** | Phase 22. `src/lib/logging/` — the event catalogue, the `AsyncLocalStorage` correlation context, error fingerprinting and the JSON-line writer; `src/lib/analytics/` — the three aggregate queries and the pure arithmetic over their rows; `/analytics` and `GET /api/analytics`. **No client library, no exporter, no agent** |
 | **Credential vault** | Phase 21. `src/lib/crypto/` — AES-256-GCM (`aes.ts`), the versioned root key (`root-key.ts`) and the two-layer envelope (`envelope.ts`); `src/lib/credentials/` — the store, the rotation registry, the re-key loop, the audit log and the vault's read model; `src/lib/gcp/` — the metadata server and Secret Manager over `fetch` |
-| **Persistence** | Neon Postgres. Workspaces and memberships, users, credentials, **credential events**, workflows, workflow versions, runs, run steps |
+| **Failure alerts and the inbox** | Phase 37. `src/lib/triggers/failure.ts` — who is told about a failed run and what an error workflow is handed (pure); `engine/run.ts` → `announceFailure` — the two writes, in the failed run's own request; `src/lib/inbox/` — the inbox's statements and store; the bell in the shell header. **No mail provider and no poll**: the inbox is written by a failure and read by a page render, both of which have already woken the database |
+| **Persistence** | Neon Postgres. Workspaces and memberships, users, credentials, **credential events**, workflows, workflow versions, runs, run steps, **inbox entries** (Phase 37) |
 | **Cloud Scheduler** | Managed cron, calls `/api/cron/tick` to fire due schedule triggers |
 
 ---
@@ -538,6 +539,13 @@ Still deliberately simplified, and what each costs:
 | Bounded loops only | No unbounded `while`. Deliberate — it is also a safety property |
 
 
+**What a run does with a failure is a node's choice since Phase 37** — stop, carry on with the error,
+or take an Error path (`CONTRACT.md` → *On-error policy*). It is decided in the engine's one `catch`,
+after the node's retries, and a handled failure is a step status of its own, so nothing that reads a
+`failed` step as *where the run stopped* — the retry's replay, the diagnosis — had to learn an
+exception. When a run nobody was watching fails anyway, `announceFailure` tells the inbox and the
+workspace's error workflows, which are ordinary queued runs (D176).
+
 State machine, bounds and record shapes: `CONTRACT.md` → *Execution state machine*.
 
 ---
@@ -606,7 +614,7 @@ nodes are selected, and the retry hands the model the full definition of any ind
 answer used. `registry.test.ts` budgets the prompt in the two parts that grow differently — the
 selection, bounded by its cap, and the index, ~116 characters a node.
 
-**Generation is measured** (`src/lib/generate/eval/`, `npm run eval:generate`): 24 requests with
+**Generation is measured** (`src/lib/generate/eval/`, `npm run eval:generate`): 25 requests with
 expectations, scored live against a real model and replayed offline from recordings in CI. The
 scorer reads the graph's `{{ }}` references against what each node declares it outputs, because a
 valid graph doing the wrong thing is the failure validation cannot see — and since the eval set caught

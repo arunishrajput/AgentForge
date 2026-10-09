@@ -52,8 +52,8 @@ is the file it means.
 34  Generator at scale — catalogue selection and evals      ✅
 35  Copilot I — edit a workflow by conversation             ✅
 36  Copilot II — explain and repair                         ✅
-37  Workflows I — when things go wrong                      ← START HERE
-38  Workflows II — human in the loop
+37  Workflows I — when things go wrong                      ✅
+38  Workflows II — human in the loop                        ← START HERE
 39  Workflows III — composition: sub-workflows, workflow tools, merge
 40  Workflows IV — public entry points: forms and webhook responses
 41  Public API — personal access tokens
@@ -1581,6 +1581,80 @@ both themes.
 (the inbox, the error handle), `PRD.md`, `PROGRESS.md`.
 
 **Commit.** `feat: complete phase 37 error handling and failure alerts`
+
+**Status: COMPLETE, 2026-10-09 — deployed as `00094-w55` and verified there, on the API and in a real
+browser in Light and Toybox Night.** Migration `0016` (one table, `inbox_item`; one column,
+`run.handled`), applied before the first deploy with `verify-schema.mjs` before and after. Five
+deploys, `00090-kvr` to `00094-w55` — the first shipped the phase, the rest what the browser walk
+found. What was built:
+
+- **The on-error policy** (D173) — `policy.onError`: `stop` (and absent), `continue`, `route`,
+  answered after the node's retries and never when the run itself was stopped. A handled failure is a
+  **step status of its own, `handled`**, and a run whose failures were all handled **succeeded**,
+  counting them in `run.handled` — "1 error handled" on the run panel, the run page, the history and
+  the toast (D175). The six places a status touches, plus the diagnosis evidence, the test toast and
+  the run shapes; analytics count it as the node's failure, never the run's
+- **The Error output** (D174) — the registry's outputs plus one reserved key, added by `outputsOf`
+  while the policy routes, and read by the card, validation, the engine and a retry's replay alike, so
+  D21 and D23 stand unchanged. Leaving `route` takes the Error edges with it, as one step of undo. The
+  copilot keeps an Error edge and says when a request needs one
+- **`core.error_trigger`** (D176) — the first node since D112 was lifted, with all five registry
+  obligations, `select.test.ts`, and a new eval case, `failure-alert`, **passed first attempt** on
+  `gemini-3.5-flash-lite`. It fires for a `webhook` or `schedule` run's failure, never a manual run's
+  or a test's; its runs carry the new trigger kind `error` and **never start another** — the cascade
+  is impossible by construction. Visibility decides which error workflows hear (the author's), at most
+  five, queued through Cloud Tasks; the payload is scrubbed before it is cut (D168). Its model-facing
+  definition was cut from 757 to 540 characters to stay inside D156's budget rather than raise it
+- **The inbox** (D177) — a row per reader, written by one statement in the failed run's own path,
+  collapsed per workflow while unread, read by the shell header when a page renders and **never
+  polled**; visibility applied at write and at read; pruned by the daily sweep. `GET /api/inbox`,
+  `POST /api/inbox/read`
+
+**Validated on the deployed URL.** `continue` and `route` behaved as `CONTRACT.md` says, by
+`verify-api` and in the browser. A webhook workflow whose check failed put an entry in the inbox in
+the step's own words, and its **error workflow posted real Discord messages** — `1558106526214783099`
+and `1558107487184617544` in `#agentforge-demo` — naming the workflow, the step, the error and the run's
+link, from a run with trigger `error` queued through Cloud Tasks. The inbox was opened, an entry
+followed to its run — marked read before that page rendered — and *Mark all read* cleared the badge.
+**The network panel showed no request in 40 idle seconds** beyond the page load. In Light and Night:
+the routed run painted `↪ Handled → error` with the lit path down Error and the default path skipped;
+the policy switched to *Stop* removed the Error edge and one ⌘Z brought both back; the contrast audit
+was clean on every new state in both themes (Handled 5.12:1 Light, 10.33:1 Night; the badge 6.71:1
+and 4.95:1).
+
+**Found by the walk, fixed, re-walked:**
+
+- **The Error trigger drew its category's circled play** — a second Manual trigger in the palette. It
+  has its own warning sign now
+- **A handled step's error was red under an amber outline** — two statements at once. The warning hue
+  now, on the card, the run panel, the run page and the test panel (`stepErrorTone`, tested)
+- **The bell overlapped the workspace switcher** — by 24 px at 375 and 7 px at 640, measured in
+  same-origin frames. Two causes: below 640 the ⌘K keycap Phase 29 meant to hide on phones had shown
+  all along, because `Keys` sets `inline-flex` and the caller's `hidden` lost on stylesheet order —
+  wrapped now, and `primitives.test.ts` refuses a display class handed to a primitive that sets its
+  own (fails without the fix); from 640 to 767 the account's address now yields. **At 320 it still
+  scrolled sideways by 9 px**, so below `sm` the wordmark's name yields to the mark — a first cut-off at
+  360 px left 9 px of overlap at 360 itself. Measured clean at 320, 360, 375, 414, 600, 640, 768, 1024
+  and 1440; the switcher went from a 39 px caret to 125 px at 375
+
+**Found by the deployed battery:** `verify-postgres.mjs` pins the registry count too — a fifth script,
+where `PROGRESS.md` said four.
+
+**Verified on the deployed service.** `verify-api` **561 passed, 0 failed, 3 skipped** (by
+environment); `verify-security` 86, `verify-a11y` 118, `verify-templates` 47, `verify-integrations` 60
+/ 2 skipped (Notion, Airtable), `verify-postgres` 65, `verify-providers` 55, `verify-vault` passed,
+`verify-observability` passed / 1 structural skip, `verify-timers` 34, `verify-retention` passed,
+`verify-durable all` passed, and **`smoke.mjs` clean, all eight beats, first walk**.
+
+1583 tests (24 script tests); coverage 90.61 / 92.53 / 85.41.
+
+**Not done, said plainly:** failure alerts are not rate-limited — a webhook hammered with failing
+calls starts one error-workflow run per failure, bounded only by the queue's concurrency (the inbox
+collapses them; a channel does not) — `SECURITY.md` says so. The generator and the copilot cannot set
+an on-error policy (D81, D163), so "if the API call fails, post to Slack" builds everything but the
+routing. A viewer's inbox is proved by `verify-api` through a probe member, not in a browser (no real
+viewer exists, *Known Issues*). Five deploys spent the rollback window: after the next image prune
+Phase 36's `00089-t45` cannot take traffic without a rebuild.
 
 ---
 
