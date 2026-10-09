@@ -1,3 +1,4 @@
+import { APPROVAL_TYPE, APPROVED_HANDLE, ASK_HANDLE, REJECTED_HANDLE } from "@/lib/approvals/rules";
 import { describeNodes, type NodeSummary } from "@/lib/nodes";
 import type { WorkflowGraph } from "@/lib/workflow/graph";
 import { referencesIn } from "@/lib/workflow/template";
@@ -137,11 +138,22 @@ export function checkReferences(
     return union;
   }
 
-  /** The loop is the one node whose two outputs carry different shapes, so the handle decides. */
+  /**
+   * The nodes whose outputs carry different shapes, so the handle decides: the loop's, and since
+   * Phase 38 the approval's — Ask hands on the link, Approved and Rejected the decision. A step after
+   * the decision reading `{{input.url}}` reads a link that is dead by then, so it is a problem.
+   */
   function edgeFields(source: string, handle: string | null, visiting: Set<string>): Fields {
-    if (byId.get(source)?.type === "core.loop") {
+    const type = byId.get(source)?.type;
+    if (type === "core.loop") {
       if (handle === "loop") return new Set(["index", "item", "total"]);
       if (handle === "done") return new Set(["done", "iterations", "items"]);
+    }
+    if (type === APPROVAL_TYPE) {
+      if (handle === ASK_HANDLE) return new Set(["approvalId", "message", "url", "expiresAt"]);
+      if (handle === APPROVED_HANDLE || handle === REJECTED_HANDLE) {
+        return new Set(["approvalId", "decision", "via", "decidedBy", "comment", "decidedAt", "message"]);
+      }
     }
     return outputFields(source, visiting);
   }

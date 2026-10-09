@@ -154,6 +154,21 @@ test("Set with merge keeps what came in underneath its own fields", () => {
   assert.deepEqual(problemsOf(g), []);
 });
 
+test("an approval's outputs carry different shapes: Ask the link, Approved and Rejected the decision", () => {
+  // Phase 38. The link is dead once anybody decides, so a step after the decision reading it is
+  // reading nothing — and the decision is not there yet on Ask's path.
+  const g = graph(
+    [
+      { id: "trigger", type: "core.webhook_trigger" },
+      { id: "approve", type: "core.approval", config: { message: "Refund {{trigger.amount}}?" } },
+      { id: "send", type: "integration.discord", config: { content: "{{input.message}} {{input.url}} {{input.decision}}" } },
+      { id: "yes", type: "integration.slack", config: { text: "{{input.decision}} by {{input.decidedBy.name}}: {{input.comment}} {{input.url}}" } },
+    ],
+    [["trigger", "approve"], ["approve", "send", "ask"], ["approve", "yes", "approved"]],
+  );
+  assert.deepEqual(problemsOf(g).sort(), ["send: input.decision", "yes: input.url"]);
+});
+
 test("a loop's two outputs carry different shapes, and the edge's handle decides which", () => {
   const g = graph(
     [

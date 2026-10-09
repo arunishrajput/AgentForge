@@ -137,6 +137,24 @@ const PUBLIC = {
     expect: [302, 307],
     note: "a callback with no session redirects home — asserted by verify-api.mjs",
   },
+
+  /* ---------------------------------------------------------------- *
+   * Phase 38 — the approval link, added in the phase that added it, as
+   * BUILD_PLAN.md's Chapter 3 rules require. The token rides in the POST
+   * body, never a URL, so a probe with no token is a 400 for the missing
+   * field — and neither route has a GET for a link preview to call.
+   * ---------------------------------------------------------------- */
+
+  "/api/approve/describe": {
+    guard: "256-bit token in the body, stored only as sha256",
+    expect: [400],
+    note: "no token is a malformed request; an unknown one is a 404 (verify-api.mjs)",
+  },
+  "/api/approve/decide": {
+    guard: "256-bit token in the body, single use, dead with its run",
+    expect: [400],
+    note: "no token is a malformed request; a used one is a 409 (verify-api.mjs)",
+  },
 };
 
 /**
@@ -257,11 +275,12 @@ for (const [path, spec] of Object.entries(PUBLIC)) {
 
 /**
  * The count itself is an assertion, so a route added to the table without a thought about
- * `SECURITY.md` fails here. Eleven entries: the four `SECURITY.md` always named, the
+ * `SECURITY.md` fails here. Thirteen entries: the four `SECURITY.md` always named, the
  * invitation preview and its non-public `accept` sibling, Auth.js's own catch-all, the
- * three Phase 25 found missing — `/api/health` and the two Google OAuth legs — and Phase
- * 26's `/api/cron/fire`. `SECURITY.md` says "ten routes" because it counts what answers
- * without a session, and `accept` does not; this counts the table, which lists it.
+ * three Phase 25 found missing — `/api/health` and the two Google OAuth legs — Phase
+ * 26's `/api/cron/fire`, and Phase 38's two approval-link routes. `SECURITY.md` says
+ * "twelve routes" because it counts what answers without a session, and `accept` does
+ * not; this counts the table, which lists it.
  */
 console.log("\nThe shape of the exception table");
 check(
@@ -272,18 +291,36 @@ check(
 
 const publicRoutes = Object.keys(PUBLIC).length;
 check(
-  publicRoutes === 11,
+  publicRoutes === 13,
   `the exception table holds ${publicRoutes} routes, matching SECURITY.md`,
   `the exception table holds ${publicRoutes} routes — update SECURITY.md and this count together`,
 );
 
-console.log("\nThe two public pages");
-for (const path of ["/", "/design"]) {
+console.log("\nThe three public pages");
+// Phase 38 added `/approve`: the approval link's page, the same static shell for everybody — its
+// token is in the URL's fragment, which a browser never sends, so a GET of it knows nothing.
+for (const path of ["/", "/design", "/approve"]) {
   const response = await fetch(`${BASE}${path}`, { redirect: "manual" });
   check(
     response.status === 200,
     `${path} → 200 with no session (static, nothing belonging to any account)`,
     `${path} → ${response.status} with no session`,
+  );
+}
+
+/**
+ * **A link preview decides nothing — Phase 38.** A chat app fetches a link it is shown, with a GET.
+ * The approval link's routes have no GET at all, and its page is a static shell: asserted here in
+ * both directions, so a GET handler added to either route — the one way a preview could decide —
+ * fails this script.
+ */
+console.log("\nAn approval link cannot be decided by a GET");
+for (const path of ["/api/approve/describe", "/api/approve/decide"]) {
+  const response = await fetch(`${BASE}${path}`, { redirect: "manual" });
+  check(
+    response.status === 405,
+    `GET ${path} → 405: there is nothing a link preview can call`,
+    `GET ${path} → ${response.status}, expected 405`,
   );
 }
 

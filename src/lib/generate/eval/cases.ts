@@ -1,7 +1,7 @@
 /**
  * **The generation eval set — Phase 34.**
  *
- * Twenty-four requests a stranger might type, each with what a correct answer must contain.
+ * Twenty-six requests a stranger might type, each with what a correct answer must contain.
  * They exist for two jobs, and the second is the one that justified building them:
  *
  *  1. **Measure generation** rather than eyeball it. A live run (`npm run eval:generate --
@@ -247,6 +247,17 @@ export const EVAL_CASES: EvalCase[] = [
     trigger: "core.error_trigger",
     requires: ["integration.discord"],
     forbids: ["core.webhook_trigger", "core.schedule_trigger"],
+    unsupported: false,
+  },
+  {
+    // Phase 38: a person in the loop. The request never says "approval node" — it says what a person
+    // would — and the link has to go somewhere the workspace already sends to, which is the Ask path.
+    id: "refund-approval",
+    prompt:
+      "When a refund request comes in to my webhook, ask my manager on Discord to approve it. " +
+      "If they approve, post 'Refund approved' to Slack; if they reject it, post 'Refund rejected' to Slack.",
+    trigger: "core.webhook_trigger",
+    requires: ["core.approval", "integration.discord", "integration.slack"],
     unsupported: false,
   },
 ];

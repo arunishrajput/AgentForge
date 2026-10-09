@@ -914,6 +914,43 @@
       "promptChars": 18062,
       "verdict": "pass",
       "failures": []
+    },
+    "refund-approval": {
+      "calls": [
+        "{\n  \"name\": \"Refund Approval Workflow\",\n  \"description\": \"Receives a refund request via webhook, asks for manager approval on Discord, and posts the result to Slack.\",\n  \"nodes\": [\n    {\n      \"id\": \"webhook\",\n      \"type\": \"core.webhook_trigger\",\n      \"label\": \"Refund Webhook\",\n      \"config\": {\n        \"requiredFields\": [\"amount\", \"reason\"]\n      }\n    },\n    {\n      \"id\": \"approval\",\n      \"type\": \"core.approval\",\n      \"label\": \"Manager Approval\",\n      \"config\": {\n        \"message\": \"Refund request received for {{trigger.amount}} with reason: {{trigger.reason}}. Please approve or reject.\",\n        \"timeout\": 7,\n        \"timeoutUnit\": \"days\",\n        \"onTimeout\": \"reject\"\n      }\n    },\n    {\n      \"id\": \"discord\",\n      \"type\": \"integration.discord\",\n      \"label\": \"Ask Discord\",\n      \"config\": {\n        \"content\": \"New refund approval needed: {{steps.approval.output.url}}\"\n      }\n    },\n    {\n      \"id\": \"slack_approved\",\n      \"type\": \"integration.slack\",\n      \"label\": \"Slack Approved\",\n      \"config\": {\n        \"text\": \"Refund approved\"\n      }\n    },\n    {\n      \"id\": \"slack_rejected\",\n      \"type\": \"integration.slack\",\n      \"label\": \"Slack Rejected\",\n      \"config\": {\n        \"text\": \"Refund rejected\"\n      }\n    }\n  ],\n  \"edges\": [\n    {\n      \"source\": \"webhook\",\n      \"target\": \"approval\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"approval\",\n      \"target\": \"discord\",\n      \"sourceHandle\": \"ask\"\n    },\n    {\n      \"source\": \"approval\",\n      \"target\": \"slack_approved\",\n      \"sourceHandle\": \"approved\"\n    },\n    {\n      \"source\": \"approval\",\n      \"target\": \"slack_rejected\",\n      \"sourceHandle\": \"rejected\"\n    }\n  ],\n  \"unsupported\": []\n}"
+      ],
+      "models": [
+        "gemini-3.5-flash-lite"
+      ],
+      "ms": [
+        2140
+      ],
+      "tokens": [
+        {
+          "input": 4957,
+          "output": 513
+        }
+      ],
+      "selected": [
+        "core.manual_trigger",
+        "core.webhook_trigger",
+        "core.schedule_trigger",
+        "core.error_trigger",
+        "core.branch",
+        "core.switch",
+        "core.approval",
+        "transform.map",
+        "transform.text",
+        "ai.llm",
+        "ai.agent",
+        "integration.http",
+        "integration.discord",
+        "integration.slack",
+        "integration.postgres"
+      ],
+      "promptChars": 19088,
+      "verdict": "pass",
+      "failures": []
     }
   }
 }

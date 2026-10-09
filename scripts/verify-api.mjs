@@ -1518,6 +1518,223 @@ try {
     }
   }
 
+  // --- Phase 38: human in the loop ------------------------------------------------
+  // `CONTRACT.md` → *Approvals*, on the deployed service: a run pauses; the link goes to a **real**
+  // Discord channel and is read back from Discord; approving through it with **no session** resumes
+  // the run down Approved through Cloud Tasks; a used link is dead; a member's reject works; a
+  // timeout decides; a bare GET — what a link preview does — changes nothing; and the link's token is
+  // nowhere in the database. Needs a queue, so the deployed service only. Probe rows are `zzzz-phase38`.
+  if (!secure) {
+    skip("Phase 38 approvals", "an approval needs the run queue (TASKS_QUEUE), which only the deployed service has");
+  } else {
+    const P38 = "zzzz-phase38";
+    const at = (x, y = 0) => ({ x, y });
+    const made = [];
+    const make = async (name, nodes, edges) => {
+      const created = await api("POST", "/api/workflows", { name: `${P38} ${name}`, graph: { version: 1, nodes, edges } }, token);
+      const row = created.json?.data;
+      if (row?.id) made.push(row.id);
+      return row ?? null;
+    };
+    const approvalNodes = (config, ask) => [
+      { id: "trigger", type: "core.manual_trigger", position: at(0), config: {} },
+      { id: "approve", type: "core.approval", position: at(240), config },
+      ...(ask ? [ask] : []),
+      { id: "yes", type: "core.log", position: at(480, -120), config: { message: "approved via {{input.via}}: {{input.comment}}" } },
+      { id: "no", type: "core.log", position: at(480, 120), config: { message: "rejected via {{input.via}}" } },
+    ];
+    const approvalEdges = (ask) => [
+      { id: "e1", source: "trigger", target: "approve", sourceHandle: null },
+      ...(ask ? [{ id: "e2", source: "approve", target: ask, sourceHandle: "ask" }] : []),
+      { id: "e3", source: "approve", target: "yes", sourceHandle: "approved" },
+      { id: "e4", source: "approve", target: "no", sourceHandle: "rejected" },
+    ];
+    const start = async (id, input = {}) => (await api("POST", `/api/workflows/${id}/runs`, { input }, token)).json?.data;
+    const readRun = async (id) => (await api("GET", `/api/runs/${id}`, undefined, token)).json?.data;
+    const stepOf = (r, nodeId) => (r?.steps ?? []).find((step) => step.nodeId === nodeId);
+    /** A decided run is woken through Cloud Tasks; wait for it to finish. */
+    const finished = async (id, seconds = 60) => {
+      for (let i = 0; i < seconds; i += 1) {
+        const r = await readRun(id);
+        if (r && ["succeeded", "failed", "cancelled"].includes(r.status)) return r;
+        await sleep(1_000);
+      }
+      return readRun(id);
+    };
+    const anon = async (path, body) => {
+      const response = await fetch(`${base}${path}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      return { status: response.status, json: await response.json().catch(() => null) };
+    };
+    const approvalOf = async (id) => (await api("GET", `/api/approvals/${id}`, undefined, token)).json?.data;
+    const tokenPattern = /\/approve#([A-Za-z0-9_-]{43})/;
+
+    try {
+      // --- the link, through a real Discord channel --------------------------------
+      const discordHook = process.env.VERIFY_DISCORD_WEBHOOK ?? null;
+      if (!discordHook) {
+        skip("an approval link sent to Discord and decided through it", "VERIFY_DISCORD_WEBHOOK is not set");
+      } else {
+        // The connection a later section deletes; stored here so the Ask path has somewhere to send.
+        await api("PUT", "/api/integrations/discord", { webhookUrl: discordHook }, token);
+        const linked = await make(
+          "link",
+          approvalNodes(
+            { message: "PHASE38 refund {{input.amount}} to {{input.customer}}?", timeout: 1, timeoutUnit: "days" },
+            {
+              id: "send",
+              type: "integration.discord",
+              position: at(480, 0),
+              config: { content: "AgentForge Phase 38 verification — approval needed: {{input.message}} {{input.url}}" },
+            },
+          ),
+          approvalEdges("send"),
+        );
+        const paused = await start(linked?.id, { amount: 250, customer: "Ada" });
+        const send = stepOf(paused, "send");
+        const asked = stepOf(paused, "approve");
+        check(
+          "the run asks and waits: the approval step is open, its link sent down Ask",
+          paused?.status === "waiting" &&
+            paused?.waitingFor === "approval" &&
+            asked?.status === "running" &&
+            send?.status === "succeeded" &&
+            typeof send?.output?.messageId === "string",
+          JSON.stringify({ status: paused?.status, waitingFor: paused?.waitingFor, steps: (paused?.steps ?? []).map((s) => [s.nodeId, s.status, s.error]) }),
+        );
+        const approvalId = asked?.output?.approvalId;
+        check(
+          "what Ask handed on is kept with the link removed",
+          asked?.output?.message === "PHASE38 refund 250 to Ada?" && /\/approve#\[removed\]$/.test(asked?.output?.url ?? "") &&
+            /\/approve#\[removed\]/.test(send?.config?.content ?? ""),
+          JSON.stringify({ url: asked?.output?.url, content: send?.config?.content }),
+        );
+        const [leaked] = await sql.query(
+          `select count(*)::int as n from "run_step" where "runId" = $1
+             and (coalesce(config::text, '') ~ '/approve#[A-Za-z0-9_-]{43}' or coalesce(input::text, '') ~ '/approve#[A-Za-z0-9_-]{43}'
+               or coalesce(output::text, '') ~ '/approve#[A-Za-z0-9_-]{43}' or logs::text ~ '/approve#[A-Za-z0-9_-]{43}')`,
+          [paused?.id],
+        );
+        check("no step row in the database holds a working link", leaked?.n === 0, `${leaked?.n} rows`);
+
+        // The message, as Discord has it — the only place the link exists.
+        const message = await fetch(`${discordHook}/messages/${send?.output?.messageId}`).then((r) => r.json()).catch(() => null);
+        const linkToken = message?.content?.match(tokenPattern)?.[1] ?? null;
+        const [stored] = await sql.query('select "tokenHash", "status" from "approval" where "id" = $1', [approvalId ?? ""]);
+        check(
+          "the real Discord message carries the link, and the database holds only its hash",
+          linkToken !== null && stored?.tokenHash === createHash("sha256").update(linkToken).digest("hex") && !String(stored?.tokenHash).includes(linkToken),
+          JSON.stringify({ found: linkToken !== null, content: message?.content?.slice(0, 80) }),
+        );
+
+        const inboxed = (await api("GET", "/api/inbox", undefined, token)).json?.data;
+        check(
+          "it waits in the owner's inbox — counted, with its message",
+          (inboxed?.approvals ?? []).some((a) => a.id === approvalId && a.message === "PHASE38 refund 250 to Ada?") && inboxed?.pending >= 1,
+          JSON.stringify(inboxed?.approvals ?? null).slice(0, 200),
+        );
+
+        // What a chat app's link preview does: GETs. None of them can decide anything.
+        const preview = await page("/approve");
+        check("the link's page answers a bare GET with a page that knows nothing", preview.status === 200 && !preview.html.includes("PHASE38"));
+        check("there is no page with the token in its path", (await page(`/approve/${linkToken ?? "x"}`)).status === 404);
+        const getDescribe = await fetch(`${base}/api/approve/describe`);
+        const getDecide = await fetch(`${base}/api/approve/decide`);
+        check("neither link route answers a GET", getDescribe.status === 405 && getDecide.status === 405, `${getDescribe.status} / ${getDecide.status}`);
+        const untouched = await approvalOf(approvalId);
+        check("after every GET the request is still open and undecided", untouched?.status === "pending" && untouched?.open === true, untouched?.status);
+
+        const described = await anon("/api/approve/describe", { token: linkToken });
+        check(
+          "signed out, the link describes its request — the workflow, the message, the deadline",
+          described.status === 200 && described.json?.data?.state === "open" && described.json?.data?.message === "PHASE38 refund 250 to Ada?" &&
+            described.json?.data?.workflowName === `${P38} link` && typeof described.json?.data?.expiresAt === "string",
+          JSON.stringify(described.json).slice(0, 200),
+        );
+        check("an unknown token is a 404, a malformed one a 400",
+          (await anon("/api/approve/describe", { token: "Q".repeat(43) })).status === 404 &&
+            (await anon("/api/approve/describe", { token: "short" })).status === 400);
+
+        const decided = await anon("/api/approve/decide", { token: linkToken, decision: "approve", comment: "PHASE38 via the link" });
+        check("signed out, the link approves", decided.status === 200 && decided.json?.data?.status === "approved", JSON.stringify(decided.json));
+        const resumed = await finished(paused?.id);
+        check(
+          "the run resumed through the queue, down Approved — the decision on its output",
+          resumed?.status === "succeeded" &&
+            stepOf(resumed, "approve")?.status === "succeeded" &&
+            stepOf(resumed, "approve")?.branch === "approved" &&
+            stepOf(resumed, "approve")?.output?.via === "link" &&
+            stepOf(resumed, "approve")?.output?.decidedBy === null &&
+            stepOf(resumed, "yes")?.config?.message === "approved via link: PHASE38 via the link" &&
+            stepOf(resumed, "no")?.status === "skipped",
+          JSON.stringify({ status: resumed?.status, steps: (resumed?.steps ?? []).map((s) => [s.nodeId, s.status, s.branch]) }),
+        );
+        const again = await anon("/api/approve/decide", { token: linkToken, decision: "reject" });
+        check("a used link is dead: a second decision is refused, and the page says it is closed",
+          again.status === 409 && (await anon("/api/approve/describe", { token: linkToken })).json?.data?.state === "closed",
+          `got ${again.status}`);
+        check("a decided request leaves the inbox",
+          !(((await api("GET", "/api/inbox", undefined, token)).json?.data?.approvals ?? []).some((a) => a.id === approvalId)));
+      }
+
+      // --- a member decides, and a member not named cannot -------------------------
+      const quiet = await make("member", approvalNodes({ message: "PHASE38 member decides" }), approvalEdges(null));
+      const memberRun = await start(quiet?.id);
+      const memberApproval = stepOf(memberRun, "approve")?.output?.approvalId;
+      const view = await approvalOf(memberApproval);
+      check("with nothing on Ask the run still waits, and the owner may decide",
+        memberRun?.status === "waiting" && view?.open === true && view?.canDecide === true && view?.approvers === null,
+        JSON.stringify(view ?? memberRun?.status).slice(0, 200));
+      const rejected = await api("POST", `/api/approvals/${memberApproval}`, { decision: "reject", comment: "PHASE38 not this time" }, token);
+      check("a member rejects", rejected.status === 200 && rejected.json?.data?.status === "rejected" && rejected.json?.data?.decidedBy?.email === user.email,
+        JSON.stringify(rejected.json).slice(0, 200));
+      const memberDone = await finished(memberRun?.id);
+      check("the run goes down Rejected, saying who decided",
+        memberDone?.status === "succeeded" && stepOf(memberDone, "no")?.status === "succeeded" && stepOf(memberDone, "yes")?.status === "skipped" &&
+          stepOf(memberDone, "approve")?.output?.decidedBy?.email === user.email,
+        JSON.stringify((memberDone?.steps ?? []).map((s) => [s.nodeId, s.status])));
+      check("deciding twice is a 409", (await api("POST", `/api/approvals/${memberApproval}`, { decision: "approve" }, token)).status === 409);
+
+      const named = await make("named", approvalNodes({ message: "PHASE38 only someone else", approvers: "someone-else@agentforge.invalid" }), approvalEdges(null));
+      const namedRun = await start(named?.id);
+      const namedApproval = stepOf(namedRun, "approve")?.output?.approvalId;
+      check("a request naming somebody else is not this owner's to decide — told so, and refused 403",
+        (await approvalOf(namedApproval))?.canDecide === false &&
+          (await api("POST", `/api/approvals/${namedApproval}`, { decision: "approve" }, token)).status === 403 &&
+          !(((await api("GET", "/api/inbox", undefined, token)).json?.data?.approvals ?? []).some((a) => a.id === namedApproval)));
+
+      // --- stopping a waiting run closes its request ---------------------------------
+      const stopped = await api("POST", `/api/runs/${namedRun?.id}/cancel`, {}, token);
+      const closed = await approvalOf(namedApproval);
+      check("stopping the run closes the request with it",
+        stopped.json?.data?.status === "cancelled" && closed?.status === "void" && closed?.open === false &&
+          stepOf(stopped.json?.data, "approve")?.status === "failed",
+        JSON.stringify({ run: stopped.json?.data?.status, approval: closed?.status }));
+
+      // --- the timeout decides ------------------------------------------------------
+      const approving = await make("timeout approve", approvalNodes({ message: "PHASE38 nobody", timeout: 1, timeoutUnit: "minutes", onTimeout: "approve" }), approvalEdges(null));
+      const failing = await make("timeout fail", approvalNodes({ message: "PHASE38 nobody", timeout: 1, timeoutUnit: "minutes", onTimeout: "fail" }), approvalEdges(null));
+      const [approveRun, failRun] = [await start(approving?.id), await start(failing?.id)];
+      check("a one-minute request waits until its timeout",
+        approveRun?.status === "waiting" && Math.abs(Date.parse(approveRun?.wakeAt) - Date.now() - 60_000) < 15_000,
+        JSON.stringify({ status: approveRun?.status, wakeAt: approveRun?.wakeAt }));
+      const timedOut = await finished(approveRun?.id, 120);
+      check("nobody decided, and the timeout approved: the run went down Approved",
+        timedOut?.status === "succeeded" && stepOf(timedOut, "approve")?.output?.via === "timeout" && stepOf(timedOut, "yes")?.status === "succeeded",
+        JSON.stringify({ status: timedOut?.status, via: stepOf(timedOut, "approve")?.output?.via }));
+      const expired = await finished(failRun?.id, 60);
+      check("a timeout set to fail fails the run, and the request says it expired",
+        expired?.status === "failed" && /Nobody decided before the timeout/.test(stepOf(expired, "approve")?.error ?? "") &&
+          (await approvalOf(stepOf(failRun, "approve")?.output?.approvalId))?.status === "expired",
+        JSON.stringify({ status: expired?.status, error: stepOf(expired, "approve")?.error }));
+    } finally {
+      for (const id of made.filter(Boolean)) await api("DELETE", `/api/workflows/${id}`, undefined, token);
+    }
+  }
+
   // --- run history ----------------------------------------------------------
   const history = await api("GET", `/api/workflows/${workflowId}/runs`, undefined, token);
   check("run history lists both runs of this workflow",
@@ -3513,6 +3730,10 @@ try {
         /no discord webhook is connected/i.test(afterStep?.error ?? ""),
       JSON.stringify(afterStep?.error),
     );
+    // Put it back. Until Phase 38 this suite left the workspace without its Discord connection,
+    // and the next smoke walk lost its Discord beat (`PROGRESS.md` → *Notes*).
+    const restored = await api("PUT", "/api/integrations/discord", { webhookUrl: discordWebhook }, token);
+    check("the workspace's Discord connection is put back as it was", restored.json?.data?.configured === true);
   }
 
   // Clean up Phase 9's own workflows.
@@ -4627,6 +4848,49 @@ try {
         "an entry goes with its workflow",
         !((await api("GET", "/api/inbox", undefined, matrixToken, arena)).json?.data?.entries ?? []).some((e) => e.workflowId === shared?.id),
       );
+    }
+    // Phase 38: who may decide an approval. With nobody named, a viewer may not; named, a viewer
+    // may; and a request on a private workflow reaches nobody who cannot see it (D101), named or not.
+    if (secure) {
+      const asking = (name, approvers) => ({
+        name,
+        graph: {
+          version: 1,
+          nodes: [
+            { id: "trigger", type: "core.manual_trigger", position: { x: 0, y: 0 }, config: {} },
+            { id: "approve", type: "core.approval", position: { x: 240, y: 0 }, config: { message: name, ...(approvers ? { approvers } : {}) } },
+          ],
+          edges: [{ id: "e1", source: "trigger", target: "approve", sourceHandle: null }],
+        },
+      });
+      const unnamed = (await api("POST", "/api/workflows", asking("zzzz matrix approval, nobody named"), token, arena)).json?.data;
+      const naming = (await api("POST", "/api/workflows", asking("zzzz matrix approval naming the viewer", MATRIX_EMAIL), token, arena)).json?.data;
+      const hiddenAsk = (await api("POST", "/api/workflows", asking("zzzz matrix approval, private", MATRIX_EMAIL), token, arena)).json?.data;
+      await api("PATCH", `/api/workflows/${hiddenAsk?.id}`, { visibility: "private" }, token, arena);
+      const askedOf = async (row) =>
+        ((await api("POST", `/api/workflows/${row?.id}/runs`, { input: {} }, token, arena)).json?.data?.steps ?? [])
+          .find((step) => step.nodeId === "approve")?.output?.approvalId ?? "missing";
+      const ids = { unnamed: await askedOf(unnamed), naming: await askedOf(naming), hidden: await askedOf(hiddenAsk) };
+
+      const probeView = (await api("GET", `/api/approvals/${ids.unnamed}`, undefined, matrixToken, arena)).json?.data;
+      check("a viewer may read a request with nobody named, and is told they cannot decide it",
+        probeView?.open === true && probeView?.canDecide === false, JSON.stringify(probeView ?? null).slice(0, 200));
+      check("and deciding it is refused 403",
+        (await api("POST", `/api/approvals/${ids.unnamed}`, { decision: "approve" }, matrixToken, arena)).status === 403);
+      const probeBox = (await api("GET", "/api/inbox", undefined, matrixToken, arena)).json?.data?.approvals ?? [];
+      check("a viewer's inbox holds the request naming them — not the unnamed one, nor the private one",
+        probeBox.some((a) => a.id === ids.naming) && !probeBox.some((a) => a.id === ids.unnamed) && !probeBox.some((a) => a.id === ids.hidden),
+        JSON.stringify(probeBox.map((a) => a.workflowName)));
+      check("a request on a private workflow the viewer cannot see is a 404 to them, though it names them",
+        (await api("GET", `/api/approvals/${ids.hidden}`, undefined, matrixToken, arena)).status === 404);
+      const ownerBox = (await api("GET", "/api/inbox", undefined, token, arena)).json?.data?.approvals ?? [];
+      check("the owner's inbox holds the unnamed request, and not the one naming somebody else",
+        ownerBox.some((a) => a.id === ids.unnamed) && !ownerBox.some((a) => a.id === ids.naming),
+        JSON.stringify(ownerBox.map((a) => a.workflowName)));
+      const viewerDecides = await api("POST", `/api/approvals/${ids.naming}`, { decision: "approve", comment: "the viewer says yes" }, matrixToken, arena);
+      check("named, a viewer decides", viewerDecides.status === 200 && viewerDecides.json?.data?.status === "approved",
+        JSON.stringify(viewerDecides.json).slice(0, 200));
+      for (const row of [unnamed, naming, hiddenAsk]) await api("DELETE", `/api/workflows/${row?.id}`, undefined, token, arena);
     }
     // Phase 33: a run to read a step of, re-run and retry — made by the owner, before the counts.
     const arenaRunId =
