@@ -2,6 +2,7 @@ import { and, eq, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 
 import { db } from "@/db";
 import { runs, runSteps, type Run } from "@/db/schema";
+import { closeRequests } from "@/lib/approvals/store";
 import type { WorkspaceScope } from "@/lib/workspace/scope";
 
 import type { RunCursor } from "./cursor";
@@ -256,24 +257,35 @@ export async function suspendRun(options: {
   owner: string;
   cursor: RunCursor;
   wakeAt: string;
-}): Promise<{ suspended: boolean; cancelRequested: boolean }> {
+  /**
+   * **Phase 38 — the approval the run waits on.** A person may have decided while the run was still
+   * sending the link down Ask, when there was no waiting run to wake. So this statement reads the
+   * request too, and a request already decided puts the run down to wake **now** rather than at its
+   * timeout — in the same statement, so no decision can fall between the read and the write
+   * (`approvals/store.ts` → `decide` wakes a run only once it is `waiting`).
+   */
+  approvalId?: string;
+}): Promise<{ suspended: boolean; cancelRequested: boolean; wakeAt: Date | null }> {
+  const due = new Date(options.wakeAt);
   const [row] = await db()
     .update(runs)
     .set({
       status: "waiting",
       mode: "durable",
       cursor: options.cursor,
-      wakeAt: new Date(options.wakeAt),
+      wakeAt: options.approvalId
+        ? (sql`case when exists (select 1 from "approval" a where a."id" = ${options.approvalId} and a."status" <> 'pending') then now() else ${due.toISOString()}::timestamptz end` as unknown as Date)
+        : due,
       attempt: 0,
       heartbeatAt: sql`now()` as unknown as Date,
       leaseOwner: null,
       leaseExpiresAt: null,
     })
     .where(and(eq(runs.id, options.runId), eq(runs.leaseOwner, options.owner)))
-    .returning({ cancelRequestedAt: runs.cancelRequestedAt });
+    .returning({ cancelRequestedAt: runs.cancelRequestedAt, wakeAt: runs.wakeAt });
 
-  if (!row) return { suspended: false, cancelRequested: false };
-  return { suspended: true, cancelRequested: row.cancelRequestedAt !== null };
+  if (!row) return { suspended: false, cancelRequested: false, wakeAt: null };
+  return { suspended: true, cancelRequested: row.cancelRequestedAt !== null, wakeAt: row.wakeAt };
 }
 
 /**
@@ -309,6 +321,8 @@ export async function finishWaitingRun(options: {
   if (!row) return false;
 
   await closePausedStep(options.runId, options.error);
+  // Phase 38: a run that was waiting for a decision takes its request with it.
+  await closeRequests(options.runId);
   return true;
 }
 

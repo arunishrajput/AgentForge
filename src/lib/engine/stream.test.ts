@@ -7,6 +7,8 @@ import {
   formatComment,
   formatEvent,
   reconcile,
+  waking,
+  WAKING_WINDOW_MS,
   type StreamRun,
   type StreamRunPatch,
   type StreamStep,
@@ -52,6 +54,7 @@ function run(overrides: Partial<StreamRun> = {}): StreamRun {
     test: null,
     origin: null,
     wakeAt: null,
+    waitingFor: null,
     workflowVersion: 1,
     input: null,
     output: null,
@@ -289,6 +292,35 @@ test("a run that enters waiting rests the stream without being called terminal",
   const patch = paused.events.find((event) => event.event === "run")?.data as StreamRunPatch;
   assert.equal(patch.status, "waiting");
   assert.equal(patch.wakeAt, "2026-10-08T09:00:00.000Z");
+});
+
+/* --- a waiting run about to wake (Phase 38) -------------------------------- */
+
+test("a waiting run whose wake time has just come is about to resume — for a minute, and no longer", () => {
+  const now = Date.parse("2026-10-09T12:00:00.000Z");
+  const at = (offset: number) => new Date(now + offset).toISOString();
+  assert.equal(waking({ status: "waiting", wakeAt: at(0) }, now), true, "a decision sets wakeAt to now");
+  assert.equal(waking({ status: "waiting", wakeAt: at(-30_000) }, now), true);
+  assert.equal(waking({ status: "waiting", wakeAt: at(500) }, now), true, "a second of slack for two clocks");
+  assert.equal(waking({ status: "waiting", wakeAt: at(-WAKING_WINDOW_MS) }, now), false, "a lost wake rests again");
+  assert.equal(waking({ status: "waiting", wakeAt: at(3_600_000) }, now), false, "a timeout an hour away");
+  assert.equal(waking({ status: "waiting", wakeAt: null }, now), false);
+  assert.equal(waking({ status: "running", wakeAt: at(0) }, now), false);
+  assert.equal(waking({ status: "waiting", wakeAt: new Date(now) }, now), true, "a row's Date reads the same");
+});
+
+test("a run just decided is followed into its resumption, not closed on as waiting", () => {
+  // The canvas and the run page watch after a person decides; the run is still `waiting` for the
+  // second it takes the queue to claim it. Resting there would close the stream on the one moment
+  // the person is watching for.
+  const due = run({ status: "waiting", wakeAt: new Date().toISOString() });
+  assert.equal(reconcile(emptyStreamState(), due).resting, false);
+  assert.equal(followDecision({ id: due.id, status: "waiting", wakeAt: due.wakeAt }, { baselineRunId: null, firstPoll: true }).follow, true);
+  // The same run with its wake time days away is history at the first poll, as before.
+  assert.equal(
+    followDecision({ id: due.id, status: "waiting", wakeAt: "2099-01-01T00:00:00.000Z" }, { baselineRunId: null, firstPoll: true }).follow,
+    false,
+  );
 });
 
 test("a run that appears after the stream opened is followed even if it is already over", () => {

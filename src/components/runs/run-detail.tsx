@@ -5,10 +5,12 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { NodeIcon } from "@/components/canvas/node-icon";
+import { ApprovalCard } from "@/components/runs/approval-card";
 import { Badge } from "@/components/ui/badge";
 import { Button, Spinner } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { Notice } from "@/components/ui/notice";
+import { APPROVAL_TYPE, askingOf } from "@/lib/approvals/rules";
 import {
   api,
   ApiRequestError,
@@ -146,6 +148,8 @@ export function RunDetail({
   const partialTest = run.test !== null && run.test.scope !== "workflow";
   const unfinished = run.status === "queued" || run.status === "running" || run.status === "waiting";
   const tally = run.origin?.kind === "retry" ? retryTally(steps) : null;
+  // Phase 38: what a waiting run waits on — a person, when one of its steps is an approval still asking.
+  const awaitsDecision = steps.some((step) => step.nodeType === APPROVAL_TYPE && step.status === "running");
 
   const [busy, setBusy] = useState<"rerun" | "retry" | "stop" | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
@@ -291,12 +295,18 @@ export function RunDetail({
 
       <div className="mb-4 space-y-2" aria-live="polite">
         {failure && <Notice tone="bad" title={failure} />}
-        {run.status === "waiting" && run.wakeAt && (
+        {run.status === "waiting" && run.wakeAt && (awaitsDecision ? (
+          // Phase 38. Paused on a person; the clock is only the timeout.
+          <Notice tone="info" title="Waiting for a decision">
+            The run asked a person and is paused until they decide, or until {formatUtc(run.wakeAt)}, when its
+            timeout decides. Nothing is running or held open in the meantime.
+          </Notice>
+        ) : (
           <Notice tone="info" title={`Waiting until ${formatUtc(run.wakeAt)}`}>
             The run is paused at a delay and resumes on its own then. Nothing is running or held open
             in the meantime.
           </Notice>
-        )}
+        ))}
         {run.error &&
           (run.status === "cancelled" ? (
             <Notice tone="warn" title="The run was cancelled">{run.error}</Notice>
@@ -343,6 +353,8 @@ export function RunDetail({
                 definition={lookup.get(step.nodeType)}
                 paused={run.status === "waiting" && step.status === "running"}
                 opened={opened?.seq === step.seq ? opened.at : null}
+                // Phase 38: a decision made here wakes the run — follow it as it resumes.
+                onDecided={() => watch({ runId: run.id, once: true })}
               />
             ))}
           </ol>
@@ -399,6 +411,7 @@ function StepCard({
   definition,
   paused,
   opened,
+  onDecided,
 }: {
   runId: string;
   step: DetailStep;
@@ -407,6 +420,7 @@ function StepCard({
   paused: boolean;
   /** When a click on the canvas opened this step — a new value scrolls to it again. */
   opened: number | null;
+  onDecided?: () => void;
 }) {
   const look = nodeStatusLook(step.status, definition?.category === "agent", paused);
   const duration = elapsedMs(step.startedAt, step.finishedAt);
@@ -432,6 +446,16 @@ function StepCard({
       setLoading(false);
     }
   }, [loading, runId, shown, step.seq]);
+
+  // Phase 38: an approval still waiting needs its request's id, which is on its output — read it now,
+  // once, rather than when somebody opens the step's details.
+  const waitingApproval = step.nodeType === APPROVAL_TYPE && step.status === "running";
+  useEffect(() => {
+    if (waitingApproval) void load();
+    // `load` changes identity as it loads; the step's own waiting state is what this follows.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+  }, [waitingApproval]);
+  const asking = waitingApproval && shown ? askingOf({ nodeType: step.nodeType, status: step.status, output: shown.output }) : null;
 
   useEffect(() => {
     if (opened === null || !item.current) return;
@@ -474,6 +498,8 @@ function StepCard({
       {step.error && (
         <p className={cn(stepErrorTone(step.status), "border-line-soft border-t px-3 py-2 text-2xs leading-relaxed break-words")}>{step.error}</p>
       )}
+
+      {asking && <ApprovalCard approvalId={asking.approvalId} asked={asking} onDecided={onDecided} />}
 
       {logs.length > 0 && (
         <ul className="bg-sunken border-line-soft space-y-1 border-t px-3 py-2">

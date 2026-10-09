@@ -4,10 +4,11 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
 
+import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
-import { api, type Inbox, type InboxEntry } from "@/lib/canvas/client";
+import { api, ApiRequestError, type Inbox, type InboxEntry, type PendingApproval } from "@/lib/canvas/client";
 import { formatUtcShort } from "@/lib/format/date";
-import { badgeCount, bellLabel, entryTitle } from "@/lib/inbox/words";
+import { approvalTitle, badgeCount, bellLabel, entryTitle } from "@/lib/inbox/words";
 
 /**
  * **The inbox — Phase 37** (D177, `DESIGN.md` → *The inbox*).
@@ -19,7 +20,12 @@ import { badgeCount, bellLabel, entryTitle } from "@/lib/inbox/words";
  * answer is the inbox as the server now has it. A failure that happens while somebody is reading a
  * page is in the bell on their next navigation; that is the zero-cost rule, said out loud.
  *
- * **A disclosure, not a menu**: the panel holds a heading, links and a button, and a person Tabs
+ * **Phase 38 — requests waiting on the reader come first** (D180): an approval somebody may decide,
+ * with Approve and Reject right here and its run one link away for a comment. They are counted in the
+ * badge with the unread failures, and they leave the list the moment anybody decides them — they are
+ * read live, never marked read.
+ *
+ * **A disclosure, not a menu**: the panel holds a heading, links and buttons, and a person Tabs
  * through it. Escape closes it and returns focus to the bell, as do a click outside and following an
  * entry. The badge is never the only place the number is: the bell's name says it in words.
  */
@@ -30,6 +36,9 @@ export function InboxBell({ initial }: { initial: Inbox }) {
   const [inbox, setInbox] = useState(initial);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  /** The request being decided, and what refused one — per request, so one failure blames one row. */
+  const [deciding, setDeciding] = useState<string | null>(null);
+  const [refused, setRefused] = useState<{ id: string; message: string } | null>(null);
   const wrap = useRef<HTMLDivElement>(null);
   const bell = useRef<HTMLButtonElement>(null);
 
@@ -83,7 +92,33 @@ export function InboxBell({ initial }: { initial: Inbox }) {
     router.push(hrefOf(entry));
   };
 
-  const badge = badgeCount(inbox.unread);
+  /**
+   * Decide from the inbox, then take the inbox as the server now has it — the decided request is gone
+   * from it, and so is anybody else's copy. A refusal (decided a moment ago, or not this reader's to
+   * decide) is said on the row, and the fresh inbox drops a request that is no longer open.
+   */
+  const decide = async (approval: PendingApproval, decision: "approve" | "reject") => {
+    setDeciding(approval.id);
+    setRefused(null);
+    try {
+      await api.decideApproval(approval.id, decision);
+    } catch (failure) {
+      setRefused({
+        id: approval.id,
+        message: failure instanceof ApiRequestError ? failure.message : "The decision could not be sent. Try again.",
+      });
+    }
+    try {
+      setInbox(await api.inbox());
+    } catch {
+      // The decision stands; the bell catches up on the next page.
+    }
+    setDeciding(null);
+  };
+
+  const waiting = inbox.approvals ?? [];
+  const pending = inbox.pending ?? 0;
+  const badge = badgeCount(inbox.unread + pending);
 
   return (
     <div ref={wrap} className="relative inline-flex">
@@ -92,7 +127,7 @@ export function InboxBell({ initial }: { initial: Inbox }) {
         type="button"
         aria-expanded={open}
         aria-controls={open ? panelId : undefined}
-        aria-label={bellLabel(inbox.unread)}
+        aria-label={bellLabel(inbox.unread, pending)}
         onClick={() => setOpen((value) => !value)}
         className="btn btn-quiet relative min-w-0 px-2.5"
       >
@@ -125,7 +160,9 @@ export function InboxBell({ initial }: { initial: Inbox }) {
               Inbox
             </h2>
             <span className="text-muted text-2xs">
-              {inbox.unread > 0 ? `${inbox.unread} unread` : "all read"}
+              {[pending > 0 ? `${pending} waiting on you` : null, inbox.unread > 0 ? `${inbox.unread} unread` : "all read"]
+                .filter(Boolean)
+                .join(" · ")}
             </span>
             {inbox.unread > 0 && (
               <button
@@ -143,15 +180,78 @@ export function InboxBell({ initial }: { initial: Inbox }) {
             )}
           </div>
 
-          {inbox.entries.length === 0 ? (
+          {/* Outside the list: a request decided a moment ago by somebody else leaves the list with
+              the fresh inbox, and the reason must not leave with it. */}
+          {refused && (
+            <p role="alert" className="text-bad border-line-soft border-t px-2.5 py-2 text-2xs font-semibold">
+              {refused.message}
+            </p>
+          )}
+
+          {waiting.length > 0 && (
+            // Positioned, as every scroll container is (D166).
+            <section aria-labelledby={`${headingId}-waiting`} className="border-line-soft relative max-h-[min(20rem,45vh)] overflow-y-auto border-t pt-1.5">
+              <h3 id={`${headingId}-waiting`} className="eyebrow px-2.5 pb-1">
+                Waiting on you
+              </h3>
+              <ul>
+                {waiting.map((approval) => (
+                  <li key={approval.id} className="space-y-1.5 rounded-lg px-2.5 py-2">
+                    <p className="flex gap-2">
+                      <span aria-hidden="true" className="text-live mt-0.5 w-2 shrink-0 text-2xs">
+                        ◷
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-xs font-bold">{approvalTitle(approval)}</span>
+                        <span className="text-ink mt-0.5 line-clamp-3 block text-2xs break-words whitespace-pre-wrap">
+                          {approval.message}
+                        </span>
+                        <span className="text-faint mt-0.5 block font-mono text-3xs">
+                          decide by {formatUtcShort(approval.expiresAt)}
+                        </span>
+                      </span>
+                    </p>
+                    <div className="flex flex-wrap items-center gap-1.5 pl-4">
+                      <Button
+                        size="sm"
+                        tone="primary"
+                        loading={deciding === approval.id}
+                        disabled={deciding !== null && deciding !== approval.id}
+                        onClick={() => void decide(approval, "approve")}
+                      >
+                        Approve<span className="sr-only">: {approvalTitle(approval)}</span>
+                      </Button>
+                      <Button
+                        size="sm"
+                        disabled={deciding !== null}
+                        onClick={() => void decide(approval, "reject")}
+                      >
+                        Reject<span className="sr-only">: {approvalTitle(approval)}</span>
+                      </Button>
+                      <Link
+                        href={`/runs/${approval.runId}`}
+                        onClick={() => setOpen(false)}
+                        className="text-muted hover:text-ink ml-auto inline-flex min-h-6 items-center text-2xs font-semibold underline underline-offset-2"
+                      >
+                        Open the run<span aria-hidden="true">&nbsp;→</span>
+                      </Link>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {inbox.entries.length === 0 && waiting.length === 0 ? (
             <div className="border-line-soft border-t px-2.5 py-4">
               <p className="text-sm font-semibold">Nothing needs you</p>
               <p className="text-muted mt-1 text-2xs leading-relaxed text-pretty">
                 When a workflow that runs by itself — from a webhook or a schedule — fails, it lands
-                here for everybody who can see it.
+                here for everybody who can see it. When one asks for a decision you may make, it
+                waits here too.
               </p>
             </div>
-          ) : (
+          ) : inbox.entries.length === 0 ? null : (
             // Positioned, as every scroll container is (D166): an `sr-only` word inside escapes an
             // unpositioned scroller and stretches the page.
             <ul className="border-line-soft relative max-h-[min(24rem,60vh)] overflow-y-auto border-t pt-1">

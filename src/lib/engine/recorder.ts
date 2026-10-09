@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 
 import { db } from "@/db";
 import { runSteps } from "@/db/schema";
+import { recordRequest, reissueLink } from "@/lib/approvals/store";
 
 import { checkpointRun } from "./lease";
 import type { Checkpoint, RunRecorder, StepRecord } from "./types";
@@ -19,7 +20,15 @@ import type { Checkpoint, RunRecorder, StepRecord } from "./types";
  * makes the independence of each row load-bearing rather than merely convenient.
  */
 
-export function dbRecorder(runId: string, leaseOwner: string): RunRecorder {
+export function dbRecorder(
+  runId: string,
+  leaseOwner: string,
+  /**
+   * Phase 38 — where an approval request this run makes belongs. Given by every driver; without it
+   * the recorder cannot keep a request, and an approval fails its step saying so.
+   */
+  owner?: { workspaceId: string; workflowId: string },
+): RunRecorder {
   /**
    * Every write for this run goes through one chain.
    *
@@ -102,5 +111,16 @@ export function dbRecorder(runId: string, leaseOwner: string): RunRecorder {
         cancelRequested: false,
         leaseHeld: false,
       })),
+    /**
+     * Phase 38. Not on the chain: the request's row depends on no step row, and the engine awaits it
+     * before it records the step that hands its link on — so the step can never name a request that
+     * is not there. A failed write throws, and fails the approval's step with the reason.
+     */
+    ...(owner
+      ? {
+          requestApproval: (request) => recordRequest({ ...request, runId, ...owner }),
+          reissueApproval: (approvalId) => reissueLink(approvalId),
+        }
+      : {}),
   };
 }

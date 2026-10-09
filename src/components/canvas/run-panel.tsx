@@ -2,9 +2,11 @@
 
 import Link from "next/link";
 
+import { ApprovalCard } from "@/components/runs/approval-card";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { Notice } from "@/components/ui/notice";
+import { askingOf } from "@/lib/approvals/rules";
 import type { Run, RunStep } from "@/lib/canvas/client";
 import { nodeStatusLook, runStatusLook, stepErrorTone } from "@/lib/canvas/status";
 import { testLabel } from "@/lib/canvas/test-run";
@@ -51,6 +53,7 @@ export function RunPanel({
   past = null,
   restart = null,
   diagnose = null,
+  onDecided,
 }: {
   run: Run;
   /** A stream is open — the panel is watching, not showing history. */
@@ -73,6 +76,8 @@ export function RunPanel({
    * diagnosis and, where the fix is in the workflow, the fix as a proposal. Null for a viewer.
    */
   diagnose?: { onDiagnose: (runId: string) => void; disabled: boolean } | null;
+  /** **Phase 38.** A decision was made on an approval step here; the canvas follows the run as it wakes. */
+  onDecided?: () => void;
 }) {
   const look = runStatusLook(run.status);
   const test = testLabel(run.test ?? null, names);
@@ -181,12 +186,19 @@ export function RunPanel({
 
       {/* Phase 26. A run that will do its next thing in two days must say when, and
           that it is not stuck — "Running" with no movement for hours reads as a hang. */}
-      {run.status === "waiting" && run.wakeAt && (
+      {run.status === "waiting" && run.wakeAt && (run.waitingFor === "approval" ? (
+        // Phase 38. Paused on a person, not a clock — the clock is only the timeout.
+        <Notice tone="info" title="Waiting for a decision">
+          The run asked a person and is paused until they decide, or until {formatUtc(run.wakeAt)}, when its
+          timeout decides. Nothing is running or held open in the meantime. Stop cancels it and closes the
+          request.
+        </Notice>
+      ) : (
         <Notice tone="info" title={`Waiting until ${formatUtc(run.wakeAt)}`}>
           The run is paused at a delay and resumes on its own then. Nothing is running or
           held open in the meantime. Stop cancels it.
         </Notice>
-      )}
+      ))}
 
       {run.error &&
         (run.status === "cancelled" ? (
@@ -240,6 +252,7 @@ export function RunPanel({
               name={names.get(step.nodeId)}
               paused={run.status === "waiting" && step.status === "running"}
               onSelect={() => onSelectNode(step.nodeId)}
+              onDecided={onDecided}
             />
           ))}
         </ol>
@@ -262,12 +275,14 @@ function Step({
   name,
   paused,
   onSelect,
+  onDecided,
 }: {
   step: RunStep;
   name: string | undefined;
   /** The step a waiting run is paused inside (Phase 26). */
   paused: boolean;
   onSelect: () => void;
+  onDecided?: () => void;
 }) {
   const { registry } = useCanvas();
   const definition = registry.get(step.nodeType);
@@ -319,6 +334,11 @@ function Step({
         <p className={cn(stepErrorTone(step.status), "border-line-soft border-t px-2.5 py-2 text-2xs leading-relaxed")}>
           {step.error}
         </p>
+      )}
+
+      {/* Phase 38: an approval still waiting says what it asks, and lets whoever may decide do so. */}
+      {askingOf(step) && (
+        <ApprovalCard approvalId={askingOf(step)!.approvalId} asked={askingOf(step)!} onDecided={onDecided} />
       )}
 
       {logs.length > 0 && (

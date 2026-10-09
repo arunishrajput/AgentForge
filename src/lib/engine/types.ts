@@ -1,3 +1,4 @@
+import type { ApprovalRequest } from "@/lib/approvals/rules";
 import type { StepLog } from "@/lib/nodes/types";
 
 import type { RunCursor } from "./cursor";
@@ -158,6 +159,12 @@ export interface RunOutcome {
    * suspends the run until then rather than writing a status of its own.
    */
   wakeAt?: string;
+  /**
+   * **Phase 38.** The approval this run was still waiting on when it finished — failed or cancelled
+   * before anybody decided. The caller closes it (`void`), so its link and its inbox entry go with
+   * the run. Absent in every other case.
+   */
+  unsettledApproval?: string;
 }
 
 /**
@@ -207,6 +214,30 @@ export interface RunRecorder {
    * both questions above.
    */
   checkpoint: (cursor: RunCursor) => Promise<Checkpoint> | Checkpoint;
+  /**
+   * **Record an approval request and mint its link — Phase 38.** Keyed by (node, pass), so an attempt
+   * that re-executes the same approval after a crash replaces the request's token rather than making
+   * a second request. Answers the request's id, and the token and link **in plaintext, once** — the
+   * engine keeps them in memory and removes them from everything it records (`redact.ts`).
+   *
+   * Optional, so a recorder that cannot keep one — every in-memory recorder that does not care —
+   * leaves it out, and an approval there fails its step saying why.
+   */
+  requestApproval?: (request: ApprovalRequest & { nodeId: string; iteration: number; seq: number }) => Promise<IssuedApproval>;
+  /**
+   * **Mint a still-pending request a new link — Phase 38.** For a resumed attempt whose Ask path has
+   * not sent the link yet: the plaintext died with the attempt that minted it, and a hash cannot be
+   * read back, so the request gets a new token and the old one stops working. Null when the request
+   * is no longer pending.
+   */
+  reissueApproval?: (approvalId: string) => Promise<IssuedApproval | null>;
+}
+
+/** An approval request as the recorder answers it: its id, and its link's token and URL in plaintext. */
+export interface IssuedApproval {
+  id: string;
+  token: string;
+  url: string;
 }
 
 export const noopRecorder: RunRecorder = {

@@ -12,6 +12,7 @@ import {
 } from "drizzle-orm/pg-core";
 import type { AdapterAccountType } from "next-auth/adapters";
 
+import type { ApprovalStatus, DecisionVia, TimeoutOutcome } from "@/lib/approvals/rules";
 import type { RunCursor } from "@/lib/engine/cursor";
 import type { RunTest } from "@/lib/engine/partial";
 import type { RunOrigin } from "@/lib/engine/retry";
@@ -971,6 +972,77 @@ export const inboxItems = pgTable(
   ],
 );
 
+/* ------------------------------------------------------------------ *
+ * Phase 38 — approvals
+ * ------------------------------------------------------------------ */
+
+/**
+ * **One request for a person's decision — Phase 38** (`CONTRACT.md` → *Approvals*, D178–D182).
+ * Written by the engine, through the run's recorder, when `core.approval` runs; the run waits on it.
+ *
+ * **Its link is stored only as a hash** (`tokenHash`, D95's construction): the plaintext lives in the
+ * memory of the attempt that minted it and is removed from everything a run writes. A decision is a
+ * compare-and-set on `status = 'pending'` — by a member (`via` `member`), by whoever held the link
+ * (`link`), or by the clock (`timeout`) — and only while the timeout has not passed and the run is
+ * still going, so a request whose run has finished cannot be decided whatever its own row says.
+ *
+ * Keyed by `(runId, nodeId, iteration)`: an attempt that re-executes the same approval after a lost
+ * container replaces the request's token rather than making a second request. **Not inbox rows** —
+ * a pending request is read live into the inbox of everybody who may decide it (D180), so a decision
+ * takes it out of every inbox at once and there is nothing to collapse or mark read.
+ *
+ * Every foreign key cascades, so retention's prune of a run (D153) takes its requests with it.
+ */
+export const approvals = pgTable(
+  "approval",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    workspaceId: text("workspaceId")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    workflowId: text("workflowId")
+      .notNull()
+      .references(() => workflows.id, { onDelete: "cascade" }),
+    runId: text("runId")
+      .notNull()
+      .references(() => runs.id, { onDelete: "cascade" }),
+    /** The approval node, and which pass of it — a loop may ask again. */
+    nodeId: text("nodeId").notNull(),
+    iteration: integer("iteration").notNull().default(0),
+    /** Its step in the run, so a page can find the step this request belongs to. */
+    seq: integer("seq").notNull(),
+    /** What the person is asked, resolved — bounded by the node's schema. */
+    message: text("message").notNull(),
+    /** Lower-cased addresses of the members who may decide; null for any editor and above. */
+    approvers: jsonb("approvers").$type<string[]>(),
+    /** `sha256(token)`, hex. The only form of the link the database ever holds. */
+    tokenHash: text("tokenHash").notNull().unique(),
+    status: text("status").$type<ApprovalStatus>().notNull().default("pending"),
+    onTimeout: text("onTimeout").$type<TimeoutOutcome>().notNull(),
+    /** When the timeout decides — and when the link stops working. */
+    expiresAt: timestamp("expiresAt", { withTimezone: true }).notNull(),
+    via: text("via").$type<DecisionVia>(),
+    /** The member who decided. Null for a link, a timeout, and a member since removed. */
+    decidedBy: text("decidedBy").references(() => users.id, { onDelete: "set null" }),
+    comment: text("comment"),
+    decidedAt: timestamp("decidedAt", { withTimezone: true }),
+    createdAt: timestamp("createdAt", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // One request per approval node and pass of a run: the re-execution upsert's arbiter.
+    uniqueIndex("approval_run_node_idx").on(table.runId, table.nodeId, table.iteration),
+    // The inbox's read: a workspace's pending requests, newest first. Partial — a decided request
+    // is history and never in it.
+    index("approval_pending_idx")
+      .on(table.workspaceId, table.createdAt)
+      .where(sql`${table.status} = 'pending'`),
+    // The cascade from a deleted workflow, which leads with neither column above.
+    index("approval_workflow_idx").on(table.workflowId),
+  ],
+);
+
 export type Workspace = typeof workspaces.$inferSelect;
 export type WorkspaceMember = typeof workspaceMembers.$inferSelect;
 export type WorkspaceInvitation = typeof workspaceInvitations.$inferSelect;
@@ -981,3 +1053,4 @@ export type RunStep = typeof runSteps.$inferSelect;
 export type Credential = typeof credentials.$inferSelect;
 export type CredentialEvent = typeof credentialEvents.$inferSelect;
 export type InboxItem = typeof inboxItems.$inferSelect;
+export type Approval = typeof approvals.$inferSelect;

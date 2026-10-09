@@ -19,6 +19,7 @@ Three mechanisms, and nothing else.
 | **Session** | Everything a person does | Who you are — an Auth.js session cookie backed by a database row |
 | **Workspace role** | Everything a person does | What you may do *here* — `viewer` → `editor` → `admin` → `owner` |
 | **Bearer token in the path** | The five link- and machine-reached routes | One specific resource, and nothing else |
+| **Bearer token in the body** | The two approval-link routes (Phase 38) | One approval request, and nothing else — carried in a POST body so it is in no URL |
 
 A session alone is never enough. Every route a person reaches resolves the caller's
 **active workspace** and the role they hold in it, through one funnel — `requireScope()`
@@ -223,7 +224,7 @@ run's `handled` field counts them, on every summary and on the run itself. See
 
 | Method | Route | Role | What it does |
 |---|---|---|---|
-| `GET` | `/api/inbox` | viewer | Your inbox in the active workspace: `{ unread, entries }`, newest first — failed runs of workflows you can see that **nobody was watching** (a webhook's, a schedule's, an error workflow's). Each entry: `{ id, kind, workflowId, workflowName, runId, detail, count, createdAt, read }` |
+| `GET` | `/api/inbox` | viewer | Your inbox in the active workspace: `{ unread, entries, pending, approvals }`, newest first — failed runs of workflows you can see that **nobody was watching** (a webhook's, a schedule's, an error workflow's), each `{ id, kind, workflowId, workflowName, runId, detail, count, createdAt, read }`; and since Phase 38 the **approval requests waiting on you**, each `{ id, workflowId, workflowName, runId, message, expiresAt, createdAt }`, with `pending` counting them all |
 | `POST` | `/api/inbox/read` | viewer | `{ ids }` or `{ all: true }` — marks your own entries read. Answers `{ marked, unread, entries }`, the inbox as it now is. An id that is not yours matches nothing |
 
 The inbox is **written when a run fails and read when a page loads — nothing polls it**, and the
@@ -231,6 +232,26 @@ header reads it while rendering, without calling this route. An entry stands for
 its workflow since you last read it (`count`). Entries go with their run when it is pruned, and
 the daily sweep removes any older than 30 days. See [`../CONTRACT.md`](../CONTRACT.md) →
 *Failure alerts and the inbox*.
+
+## Approvals
+
+A run that reaches `core.approval` (Phase 38) asks a person and waits — hours or days — for the
+answer. The request can be decided three ways: **in the inbox** and **on the canvas or the run's page**
+(a member, below), or **through its link** (anybody holding it, signed out). Nobody deciding before the
+timeout decides by the node's `onTimeout`.
+
+| Method | Route | Guard | What it does |
+|---|---|---|---|
+| `GET` | `/api/approvals/[id]` | viewer | One request: `{ id, workflowId, workflowName, runId, nodeId, seq, message, status, open, expiresAt, onTimeout, via, decidedBy, comment, decidedAt, approvers, canDecide }`. `canDecide` is whether **you** may decide it now |
+| `POST` | `/api/approvals/[id]` | the node's rule | `{ decision: "approve" \| "reject", comment? }`. Anybody the node **names**, whatever their role; with nobody named, an editor and above. **403** to anybody else, **409** once it is no longer open. Answers the request as it now stands, and wakes the run |
+| `POST` | `/api/approve/describe` | 256-bit token, in the body | **No session.** `{ token }` → `{ state: "open", workflowName, message, expiresAt }` or `{ state: "closed" }` — nothing about who decided. **404** for a token that never existed. A POST that changes nothing, because a GET would have to carry the token in its URL |
+| `POST` | `/api/approve/decide` | 256-bit token, in the body | **No session.** `{ token, decision: "approve" \| "reject", comment? }` → `{ status }`. Once: **409** for a request already decided, timed out, or whose run stopped; **404** for a token that never existed |
+
+**The link is `/approve#<token>`**, the token in the fragment, which a browser never sends: it is in no
+request line, no server log and no `Referer`, and a chat app's link preview fetches a page that knows
+nothing. The page reads the fragment, removes it from the address bar, and POSTs it. **A GET decides
+nothing** — neither route has one. The token is stored only as a SHA-256 hash and expires with the
+request. See [`../CONTRACT.md`](../CONTRACT.md) → *Approvals* and [`../SECURITY.md`](../SECURITY.md).
 
 ## Triggers
 

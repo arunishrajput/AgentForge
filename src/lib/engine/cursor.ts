@@ -57,6 +57,21 @@ export const runCursorSchema = z.object({
       until: z.iso.datetime(),
     })
     .optional(),
+  /**
+   * **Phase 38 — the approval this run is waiting on.** Present from the moment `core.approval`
+   * records its request until the decision is applied: `seq` is its step, still `running`; `until` is
+   * when its timeout decides; `id` is the request. Unlike `wait`, its successors are **not** in the
+   * queue — which way the run goes is the decision — so a resumed engine either applies the decision
+   * it was handed and follows Approved or Rejected, or, undecided, carries on with the rest of the
+   * queue and is put down again when it runs out.
+   */
+  approval: z
+    .object({
+      seq: z.number().int().min(0),
+      until: z.iso.datetime(),
+      id: z.string().min(1).max(64),
+    })
+    .optional(),
 });
 
 export type CursorItem = z.infer<typeof cursorItemSchema>;
@@ -149,10 +164,13 @@ export function snapshotCursor(state: {
   queue: readonly CursorItem[];
   executions: ReadonlyMap<string, number>;
   seq: number;
+  /** Phase 38 — the approval outstanding, written only while there is one. */
+  approval?: RunCursor["approval"] | null;
 }): RunCursor {
   return {
     queue: [...state.queue],
     executions: Object.fromEntries(state.executions),
     seq: state.seq,
+    ...(state.approval ? { approval: state.approval } : {}),
   };
 }

@@ -63,6 +63,8 @@ export interface StreamRun {
   cancelRequested: boolean;
   /** Phase 26: when a `waiting` run resumes. Null in every other status. */
   wakeAt: string | null;
+  /** Phase 38: what a `waiting` run waits for — a decision or a delay. Null in every other status. */
+  waitingFor: "approval" | "delay" | null;
   /**
    * Phase 31: whether this run is a test, and of what. Null on a real run. Like
    * `workflowVersion` it is fixed at creation, so it is not in `StreamRunPatch`.
@@ -97,6 +99,8 @@ export interface StreamRunPatch {
   attempt: number;
   cancelRequested: boolean;
   wakeAt: string | null;
+  /** Phase 38. Changes with the status, so it rides on the patch. */
+  waitingFor: "approval" | "delay" | null;
   output: unknown;
   error: string | null;
   finishedAt: string | null;
@@ -147,6 +151,26 @@ export function isResting(status: RunStatus): boolean {
 }
 
 /**
+ * **How long a `waiting` run whose wake time has come counts as about to resume — Phase 38.**
+ * Long enough for a Cloud Tasks delivery to reach a cold container (~7 s measured) many times over;
+ * short enough that a wake that was lost — the daily sweep re-arms it — holds no stream open for long.
+ */
+export const WAKING_WINDOW_MS = 60_000;
+
+/**
+ * **A waiting run about to be claimed — Phase 38.** Its wake time has just come: a person decided its
+ * approval (which sets `wakeAt` to now), or its delay is over. A stream keeps following it instead of
+ * closing, so the canvas and the run page show it resume rather than a run that looks put down. Only
+ * within `WAKING_WINDOW_MS`, and with a second's slack for the container's clock against Postgres's —
+ * a heuristic for what to watch, never a decision about the run.
+ */
+export function waking(run: { status: RunStatus; wakeAt?: string | Date | null }, now = Date.now()): boolean {
+  if (run.status !== "waiting" || !run.wakeAt) return false;
+  const due = typeof run.wakeAt === "string" ? Date.parse(run.wakeAt) : run.wakeAt.getTime();
+  return due <= now + 1_000 && now - due < WAKING_WINDOW_MS;
+}
+
+/**
  * Which run, if any, this poll should report.
  *
  * The hard part is distinguishing "the run the client is waiting for" from "the run
@@ -174,7 +198,7 @@ export function isResting(status: RunStatus): boolean {
  * kinds of baseline apart.
  */
 export function followDecision(
-  candidate: { id: string; status: RunStatus } | null,
+  candidate: { id: string; status: RunStatus; wakeAt?: string | Date | null } | null,
   options: {
     pinnedRunId?: string | null;
     baselineRunId: string | null;
@@ -197,7 +221,8 @@ export function followDecision(
     return { follow: false, baselineRunId, baselineWaiting };
   }
 
-  if (options.firstPoll && isResting(candidate.status)) {
+  // A waiting run about to be woken (Phase 38) is not history: it is followed into its resumption.
+  if (options.firstPoll && isResting(candidate.status) && !waking(candidate)) {
     return {
       follow: false,
       baselineRunId: candidate.id,
@@ -251,6 +276,7 @@ function runFingerprint(run: StreamRun): string {
     run.attempt,
     run.cancelRequested ? "1" : "0",
     run.wakeAt ?? "",
+    run.waitingFor ?? "",
   ].join(UNIT);
 }
 
@@ -261,6 +287,7 @@ export function runPatch(run: StreamRun): StreamRunPatch {
     attempt: run.attempt,
     cancelRequested: run.cancelRequested,
     wakeAt: run.wakeAt,
+    waitingFor: run.waitingFor,
     output: run.output,
     error: run.error,
     finishedAt: run.finishedAt,
@@ -293,7 +320,8 @@ export function reconcile(
 
   const steps = run.steps ?? [];
   const terminal = isTerminal(run.status);
-  const resting = isResting(run.status);
+  // Phase 38: a waiting run whose wake time has just come is about to resume — keep following it.
+  const resting = isResting(run.status) && !waking(run);
 
   if (run.id !== state.runId) {
     return {

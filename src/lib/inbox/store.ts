@@ -2,6 +2,7 @@ import { and, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 
 import { db } from "@/db";
 import { inboxItems } from "@/db/schema";
+import { pendingFor, type PendingApproval } from "@/lib/approvals/store";
 import { RUN_RETENTION_DAYS } from "@/lib/runs/retention";
 import { atLeast } from "@/lib/workspace/roles";
 import type { WorkspaceScope } from "@/lib/workspace/scope";
@@ -43,9 +44,16 @@ export interface InboxEntry {
 export interface Inbox {
   unread: number;
   entries: InboxEntry[];
+  /**
+   * **Phase 38 — requests waiting on this reader to decide** (D180). Not entries: read live from the
+   * approval table, so they have no read or unread of their own and leave every inbox the moment
+   * anybody decides them. Newest first; `pending` counts them all, not only the ones listed.
+   */
+  pending: number;
+  approvals: PendingApproval[];
 }
 
-export const EMPTY_INBOX: Inbox = { unread: 0, entries: [] };
+export const EMPTY_INBOX: Inbox = { unread: 0, entries: [], pending: 0, approvals: [] };
 
 const iso = (value: string | Date) => (typeof value === "string" ? new Date(value) : value).toISOString();
 
@@ -88,18 +96,30 @@ export async function recordFailure(input: {
   return result.rows.length;
 }
 
-/** The reader's newest entries in their active workspace, and how many are unread. */
+/**
+ * The reader's newest entries in their active workspace, how many are unread — and, since Phase 38,
+ * the approval requests waiting on them. Two statements, side by side, on the page load that already
+ * woke the database.
+ */
 export async function readInbox(scope: WorkspaceScope, limit = INBOX_PAGE): Promise<Inbox> {
-  const result = await db().execute<InboxRow>(
-    readInboxSql({
-      userId: scope.userId,
-      workspaceId: scope.workspaceId,
-      admin: atLeast(scope.role, "admin"),
-      limit,
-    }),
-  );
+  const [result, waiting] = await Promise.all([
+    db().execute<InboxRow>(
+      readInboxSql({
+        userId: scope.userId,
+        workspaceId: scope.workspaceId,
+        admin: atLeast(scope.role, "admin"),
+        limit,
+      }),
+    ),
+    pendingFor(scope, limit),
+  ]);
   const rows = result.rows;
-  return { unread: rows[0] ? Number(rows[0].unread) : 0, entries: rows.map(describeEntry) };
+  return {
+    unread: rows[0] ? Number(rows[0].unread) : 0,
+    entries: rows.map(describeEntry),
+    pending: waiting.pending,
+    approvals: waiting.approvals,
+  };
 }
 
 /**

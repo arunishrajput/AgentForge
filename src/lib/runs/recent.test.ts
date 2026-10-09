@@ -17,6 +17,7 @@ function streamed(id: string, overrides: Partial<StreamRun> = {}): StreamRun {
     cancelRequested: false,
     handled: 0,
     wakeAt: null,
+    waitingFor: null,
     test: null,
     origin: null,
     workflowVersion: 3,

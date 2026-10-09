@@ -33,6 +33,16 @@ export const EVENTS = [
    * and how many error workflows it started. At error severity when the announcing itself failed.
    */
   "run.alerted",
+  /**
+   * A run asked a person — Phase 38: an approval request was recorded and its link minted. Carries
+   * the request's id and how many people were named, never the message, the addresses or the link.
+   */
+  "approval.requested",
+  /**
+   * An approval was decided — Phase 38: by a member, by whoever held the link, or by its timeout.
+   * Carries the request, the outcome and the route, never the comment's words.
+   */
+  "approval.decided",
   /** One node finished, succeeded or failed. **The node-latency metric.** */
   "node.finished",
   /** One `generate` call resolved. **The model-fallback metric** (`fallback: true`). */

@@ -74,6 +74,10 @@ const PUBLISHABLE: Readonly<Record<string, SharePolicy>> = {
   // closed default — which costs a reader of an old diagram one number.
   "core.delay": { values: ["amount", "unit"] },
   "core.log": { values: ["level"] },
+  // Phase 38. How long it waits and what a timeout does are shape. The message is content — it is
+  // typed, and as often as not it quotes the run's data — and `approvers` is a list of colleagues'
+  // email addresses, which a stranger reading a diagram has no business with.
+  "core.approval": { values: ["timeout", "timeoutUnit", "onTimeout"] },
   // `fields` is the clearest case for `keys`: the set of names a Set node produces is
   // most of what it means, and every value in it is something somebody typed.
   "core.set": { values: ["merge"], keys: ["fields"] },

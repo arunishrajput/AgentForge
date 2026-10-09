@@ -59,6 +59,7 @@ import { allInFrame, tweenMs } from "@/lib/canvas/motion";
 import type { AfterFix } from "@/lib/canvas/after-fix";
 import { COPILOT_PANEL, INSPECTOR_PANEL, controls, type RightPanel } from "@/lib/canvas/right-column";
 import { runStatesOf } from "@/lib/canvas/run-states";
+import { ASK_HANDLE } from "@/lib/approvals/rules";
 import { edgeRunLook } from "@/lib/canvas/status";
 import { testOutcome } from "@/lib/canvas/test-run";
 import { honouredPin, planTest, type TestScope } from "@/lib/engine/partial";
@@ -433,6 +434,7 @@ function EditorInner({
         runStates.get(edge.source)?.status,
         runStates.get(edge.target)?.status,
         running,
+        edge.sourceHandle === ASK_HANDLE,
       );
       if (look === "live") return { ...base, animated: true, className: "edge-live" };
       if (look === "traversed") return { ...base, className: "edge-traversed" };
@@ -2428,6 +2430,9 @@ function EditorInner({
               diagnose: canEdit
                 ? { onDiagnose: askWhy, disabled: copilotBusy || proposal !== null || comparing }
                 : null,
+              // Phase 38: a decision wakes the run through the queue; watch it come back. The stream
+              // follows a waiting run whose wake time has just come (`engine/stream.ts` → `waking`).
+              onDecided: () => watch(),
             }}
           />
           )}

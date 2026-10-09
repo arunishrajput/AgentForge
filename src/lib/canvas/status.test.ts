@@ -124,6 +124,18 @@ test("the lit path runs on out of a handled step, along whichever output it left
   assert.equal(edgeRunLook("handled", "skipped", false), null);
 });
 
+test("an approval's Ask path lights while the approval still waits — Approved and Rejected wait with it", () => {
+  // Phase 38. Ask handed the link on when the request was made; the approval's own step stays
+  // running for the decision. The decision's edges light only once it succeeded and went that way.
+  assert.equal(edgeRunLook("running", "succeeded", false, true), "traversed");
+  assert.equal(edgeRunLook("running", "running", true, true), "live");
+  assert.equal(edgeRunLook("running", undefined, false, true), null, "not reached yet");
+  assert.equal(edgeRunLook("running", "succeeded", false, false), null, "Approved does not light before the decision");
+  // A request closed when its run stopped still sent its link down Ask.
+  assert.equal(edgeRunLook("failed", "succeeded", false, true), "traversed");
+  assert.equal(edgeRunLook("skipped", "skipped", false, true), null);
+});
+
 test("every run status says what it is, in a word of its own", () => {
   const labels = RUN_STATUSES.map((status) => runStatusLook(status).label);
   assert.equal(new Set(labels).size, labels.length);

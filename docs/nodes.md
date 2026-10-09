@@ -3,7 +3,7 @@
 
 # Node reference
 
-**31 nodes**, of which **19 are callable by an agent node as tools**.
+**32 nodes**, of which **19 are callable by an agent node as tools**.
 
 This page is generated from the registry itself, so it cannot drift from what the product does.
 Every entry below is one object in [`src/lib/nodes/`](../src/lib/nodes) — the same object the
@@ -23,6 +23,7 @@ definition. See [`architecture.md`](./architecture.md) → *The registry is the 
 | [Switch](#coreswitch--switch) | `core.switch` | logic | no |
 | [Loop](#coreloop--loop) | `core.loop` | logic | no |
 | [Delay](#coredelay--delay) | `core.delay` | logic | no |
+| [Approval](#coreapproval--approval) | `core.approval` | logic | no |
 | [Assert](#coreassert--assert) | `core.assert` | logic | no |
 | [Set data](#coreset--set-data) | `core.set` | transform | yes |
 | [Filter list](#transformfilter--filter-list) | `transform.filter` | transform | yes |
@@ -254,6 +255,39 @@ Pauses the run for a while, then carries on with exactly what it was given. A sh
 <details><summary>What the agent reads</summary>
 
 > Waits, then passes its input through unchanged. Waits over 10 seconds pause the run and resume it later, up to 30 days. Use it to space out calls to a rate-limited service, or to wait before a follow-up.
+
+</details>
+
+### `core.approval` — Approval
+
+**branch** · **not** callable by the agent
+
+Stops the run and asks a person to approve or reject, then carries on down Approved or Rejected — hours or days later. Connect Ask to a Discord, Slack or Gmail step to send the decision link ({{input.url}}); whoever opens it can decide without signing in, once. It is also waiting in the inbox and on the canvas for the people allowed to decide. If nobody does before the timeout, On timeout decides.
+
+**Input.** anything — what it was given is what the message's {{input.…}} references read
+
+**Output.** Ask: { url, message, expiresAt, approvalId }. Approved and Rejected: { decision, via, decidedBy: { name, email } or null, comment, decidedAt, message }.
+
+**Branches.** Ask (`ask`) · Approved (`approved`) · Rejected (`rejected`)
+
+| Field | Type | Required | Default |
+|---|---|---|---|
+| `message` | string | yes | — |
+| `approvers` | string | no | — |
+| `timeout` | number | no | `1` |
+| `timeoutUnit` | `minutes` · `hours` · `days` | no | `days` |
+| `onTimeout` | `reject` · `approve` · `fail` | no | `reject` |
+
+**Examples**
+
+- *The message* — "Refund {{input.amount}} to {{input.customer}}?"
+- *Send the link to Discord, from Ask* — "Approval needed: {{input.message}} — {{input.url}}"
+- *Only named people decide* — { "approvers": "ada@example.com, grace@example.com" }
+- *On Approved, use the comment* — "Approved by {{input.decidedBy.name}}: {{input.comment}}"
+
+<details><summary>What the agent reads</summary>
+
+> Pauses the run until a person approves or rejects, for up to 30 days. Ask fires at once with {{input.url}}, the decision link: connect it to the Discord, Slack or Gmail step that sends it. Approved and Rejected continue after the decision.
 
 </details>
 
@@ -864,6 +898,7 @@ node, never a side effect of registering one — see [`agents.md`](./agents.md) 
 | `core.switch` | Flow control belongs to the graph, not to a tool call. |
 | `core.loop` | Flow control belongs to the graph, not to a tool call. |
 | `core.delay` | Flow control belongs to the graph, not to a tool call. |
+| `core.approval` | Flow control belongs to the graph, not to a tool call. |
 | `core.assert` | Flow control belongs to the graph, not to a tool call. |
 | `ai.llm` | Flow control belongs to the graph, not to a tool call. |
 | `ai.agent` | Flow control belongs to the graph, not to a tool call. |

@@ -3,6 +3,8 @@ import { and, asc, desc, eq, gt, inArray, ne, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { runs, runSteps, workflows, workspaceMembers, type Run, type RunStep, type Workflow } from "@/db/schema";
 import { ApiError } from "@/lib/api";
+import type { ApprovalDecision } from "@/lib/approvals/rules";
+import { closeRequests, decisionFor } from "@/lib/approvals/store";
 import { stoppedStep } from "@/lib/generate/evidence";
 import { recordFailure } from "@/lib/inbox/store";
 import { getNode } from "@/lib/nodes";
@@ -219,8 +221,10 @@ async function drive(options: {
   resume?: { cursor: NonNullable<ReturnType<typeof readCursor>>; steps: readonly StepRecord[] };
   /** A `node` test's seed — Phase 31. */
   seed?: NodeTestSeed;
+  /** Phase 38 — the decision on the approval the run was waiting for, read when it was resumed. */
+  decision?: ApprovalDecision;
 }): Promise<RunOutcome> {
-  const { run, workflow, owner, signal, resume, seed } = options;
+  const { run, workflow, owner, signal, resume, seed, decision } = options;
   const test = run.test ?? null;
 
   /**
@@ -263,9 +267,11 @@ async function drive(options: {
       scope: systemScope(workflow),
       graph: workflow.graph,
       input: run.input,
-      recorder: dbRecorder(run.id, owner),
+      // Phase 38: a request the run makes belongs to the run's workspace and workflow.
+      recorder: dbRecorder(run.id, owner, { workspaceId: run.workspaceId, workflowId: workflow.id }),
       signal,
       resume,
+      decision,
       // A run may pause only where something can wake it (Phase 26). Read synchronously
       // from the environment: a queue that is named but rejecting is the sweep's problem,
       // not a reason to refuse the wait. A test of part of a workflow never pauses
@@ -284,6 +290,11 @@ async function drive(options: {
           : String(error);
 
     if (await finishRun({ runId: run.id, owner, status: "failed", error: message })) {
+      // Phase 38: a run resumed while it waited for a decision, that could not carry on, closes it.
+      if (resume?.cursor.approval) {
+        await closePausedStep(run.id, "The run stopped before anybody decided.");
+        await closeRequests(run.id);
+      }
       await announceFailure({ run: { ...run, error: message }, workflow, steps: resume?.steps ?? [] });
     }
     finished("failed", message);
@@ -327,6 +338,9 @@ async function drive(options: {
     handled: outcome.steps.filter((step) => step.status === "handled").length,
   });
 
+  // Phase 38: an approval the run was still waiting on when it stopped is closed with it.
+  if (landed && outcome.unsettledApproval) await closeRequests(run.id);
+
   // Phase 37: only the worker whose finish landed tells anybody — one that lost its lease at the
   // last moment would announce a failure another worker is about to overwrite.
   if (landed && outcome.status === "failed") {
@@ -363,14 +377,18 @@ async function suspend(options: {
   startedAt: number;
 }): Promise<void> {
   const { run, owner, outcome, startedAt } = options;
-  const wakeAt = outcome.wakeAt!;
+  const approvalId = outcome.cursor?.approval?.id;
 
-  const { suspended, cancelRequested } = await suspendRun({
+  const suspension = await suspendRun({
     runId: run.id,
     owner,
     cursor: outcome.cursor!,
-    wakeAt,
+    wakeAt: outcome.wakeAt!,
+    approvalId,
   });
+  const { suspended, cancelRequested } = suspension;
+  // What the database wrote — for an approval decided while the run was still sending its link, now.
+  const wakeAt = suspension.wakeAt?.toISOString() ?? outcome.wakeAt!;
 
   if (!suspended) {
     logWarn("system.warning", `Run ${run.id} was preempted before it could be suspended.`, {
@@ -397,6 +415,8 @@ async function suspend(options: {
   logInfo("run.waiting", `Run ${run.id} is waiting until ${wakeAt}.`, {
     trigger: run.trigger,
     wakeAt,
+    // Phase 38: what it waits for — a decision, or the end of a delay.
+    for: approvalId ? "approval" : "delay",
     durationMs: Date.now() - startedAt,
   });
 
@@ -633,16 +653,23 @@ export async function resumeRun(options: {
       error: "The run was cancelled.",
     });
     // A wake can claim a waiting run between a Stop's two writes — the cancel request and
-    // the finish — and land here. Its delay step is still `running`; close it (Phase 26).
-    if (readCursor(claimed.cursor)?.wait) {
+    // the finish — and land here. Its delay step is still `running`; close it (Phase 26). An
+    // approval's step likewise, and its request with it (Phase 38).
+    const paused = readCursor(claimed.cursor);
+    if (paused?.wait || paused?.approval) {
       await closePausedStep(claimed.id, "The run was cancelled while it was waiting.");
     }
+    if (paused?.approval) await closeRequests(claimed.id);
     return { handled: false, reason: "cancelled" };
   }
 
   if (claimed.attempt > MAX_DELIVERIES) {
     const error = `The run was retried ${MAX_DELIVERIES} times without finishing and has been given up on.`;
     if (await finishRun({ runId: claimed.id, owner, status: "failed", error })) {
+      if (readCursor(claimed.cursor)?.approval) {
+        await closePausedStep(claimed.id, "The run stopped before anybody decided.");
+        await closeRequests(claimed.id);
+      }
       await announceFailure({ run: { ...claimed, error } });
     }
     return { handled: false, reason: "deliveries_exhausted" };
@@ -690,6 +717,14 @@ export async function resumeRun(options: {
     ? { cursor, steps: (await readSteps(claimed.id)).map(toStepRecord) }
     : undefined;
 
+  /**
+   * **A run that asked a person — Phase 38.** Its decision, if it has one: a person's, or — the run
+   * claimed at its timeout — the timeout's, decided here by the request's `onTimeout` unless a person
+   * got there first. None yet means a redelivery mid-way through the Ask path: the engine carries on
+   * and puts the run down again.
+   */
+  const decision = cursor?.approval ? await decisionFor(cursor.approval.id) : undefined;
+
   try {
     const outcome = await drive({
       run: claimed,
@@ -697,6 +732,7 @@ export async function resumeRun(options: {
       owner,
       signal: options.signal,
       resume,
+      decision,
     });
     return {
       handled: true,
@@ -1082,6 +1118,11 @@ export function describeRun(run: Run, steps?: RunStep[]) {
     cancelRequested: run.cancelRequestedAt !== null,
     /** Phase 26: when a `waiting` run resumes. Null in every other status. */
     wakeAt: run.wakeAt?.toISOString() ?? null,
+    /**
+     * Phase 38: what a `waiting` run is waiting for — a person's decision, or the end of a delay —
+     * read off its cursor. Null in every other status.
+     */
+    waitingFor: run.status === "waiting" ? (readCursor(run.cursor)?.approval ? ("approval" as const) : ("delay" as const)) : null,
     /** Phase 31: whether this run is a test, and of what. Null on a real run. */
     test: run.test ?? null,
     /** Phase 33: the run this one was re-run or retried from. Null on an ordinary run. */

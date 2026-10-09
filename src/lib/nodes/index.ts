@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { agentNode } from "./ai/agent";
 import { llmNode } from "./ai/llm";
+import { approvalNode } from "./core/approval";
 import { assertNode } from "./core/assert";
 import { branchNode } from "./core/branch";
 import { delayNode } from "./core/delay";
@@ -67,6 +68,7 @@ const definitions: RegisteredNode[] = [
   switchNode,
   loopNode,
   delayNode,
+  approvalNode,
   assertNode,
   filterNode,
   mapNode,

@@ -10,6 +10,7 @@ import { useTheme } from "@/components/ui/theme";
 import { CANVAS_NODE_TYPE, CANVAS_NOTE_TYPE, toFlow, type CanvasEdge, type CanvasNode, type CanvasNote } from "@/lib/canvas/bridge";
 import type { NodeSummary } from "@/lib/canvas/client";
 import { runStatesOf } from "@/lib/canvas/run-states";
+import { ASK_HANDLE } from "@/lib/approvals/rules";
 import { edgeRunLook } from "@/lib/canvas/status";
 import type { RunStatus, StepStatus } from "@/lib/engine/types";
 import type { WorkflowGraph } from "@/lib/workflow/graph";
@@ -73,7 +74,12 @@ export function RunCanvas({
     const running = run.status === "running";
     return flow.edges.map((edge) => {
       const base = { ...edge, type: "smoothstep" as const, markerEnd: EDGE_MARKER };
-      const look = edgeRunLook(runStates.get(edge.source)?.status, runStates.get(edge.target)?.status, running);
+      const look = edgeRunLook(
+        runStates.get(edge.source)?.status,
+        runStates.get(edge.target)?.status,
+        running,
+        edge.sourceHandle === ASK_HANDLE,
+      );
       if (look === "live") return { ...base, animated: true, className: "edge-live" };
       if (look === "traversed") return { ...base, className: "edge-traversed" };
       return base;

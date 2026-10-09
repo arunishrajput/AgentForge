@@ -1,3 +1,4 @@
+import { APPROVAL_TYPE, APPROVED_HANDLE, ASK_HANDLE, REJECTED_HANDLE } from "@/lib/approvals/rules";
 import { edgesFrom, type WorkflowGraph } from "@/lib/workflow/graph";
 
 import type { CursorItem, RunCursor } from "./cursor";
@@ -69,6 +70,10 @@ export type RetryRefusal =
  *  - a `failed` step — or a `running` one, which is what a run the sweeper closed mid-step
  *    leaves — is where the run stopped; its queue entry goes back on the front
  *  - `skipped` steps are appended after the loop and never took an entry, so they are ignored
+ *  - an **approval** that was decided (Phase 38) followed Ask the moment it asked, and its decision —
+ *    Approved or Rejected — only once the run had nothing else to do, which is when the engine put
+ *    it down to wait. So the replay follows Ask at once and holds the decision back until its queue
+ *    runs dry, exactly as the run did
  *
  * A run that stopped *between* steps — out of time, or at a cap — has no failed step; its
  * frontier is whatever the replay leaves queued, and retrying it carries on from there.
@@ -114,10 +119,23 @@ export function planRetry(options: {
   const ordered = [...steps].filter((step) => step.status !== "skipped").sort((a, b) => a.seq - b.seq);
   let stopped: CursorItem | null = null;
   let stoppedSeq = 0;
+  /** A decided approval whose decision the run applied when it had nothing else to do (Phase 38). */
+  let awaiting: { nodeId: string; branch: string; seq: number } | null = null;
+
+  /** The next entry the engine took, after the ones it dropped — releasing a held decision first. */
+  const take = (): CursorItem | undefined => {
+    for (;;) {
+      if (queue.length === 0 && awaiting) {
+        follow(awaiting.nodeId, awaiting.branch, awaiting.seq);
+        awaiting = null;
+      }
+      const item = queue.shift();
+      if (!item || inGraph.has(item.nodeId)) return item;
+    }
+  };
 
   for (const step of ordered) {
-    let item = queue.shift();
-    while (item && !inGraph.has(item.nodeId)) item = queue.shift();
+    const item = take();
     if (!item || item.nodeId !== step.nodeId) return mismatch();
     if (step.seq !== next || step.iteration !== (executions.get(step.nodeId) ?? 0)) return mismatch();
 
@@ -133,9 +151,19 @@ export function planRetry(options: {
 
     if (step.status === "disabled") {
       if (passesThrough(step.nodeType)) follow(step.nodeId, null, step.seq);
+    } else if (decidedApproval(step)) {
+      follow(step.nodeId, ASK_HANDLE, step.seq);
+      awaiting = { nodeId: step.nodeId, branch: step.branch!, seq: step.seq };
     } else {
       follow(step.nodeId, step.branch, step.seq);
     }
+  }
+
+  // A decision the replay is still holding was applied by the run all the same — it is why the step
+  // succeeded — so what it queued is part of the frontier, behind whatever was still ahead of it.
+  if (awaiting) {
+    const { nodeId, branch, seq } = awaiting as { nodeId: string; branch: string; seq: number };
+    follow(nodeId, branch, seq);
   }
 
   const frontier = stopped ? [stopped, ...queue] : queue;
@@ -189,6 +217,16 @@ function carried(step: StepRecord): StepRecord {
     startedAt: null,
     finishedAt: null,
   };
+}
+
+/**
+ * An approval that was decided — its branch is the decision (Phase 38). One that failed or was
+ * closed is where a run stopped and never gets here; one that failed *before* asking (its config, no
+ * queue) and was handled by its on-error policy left by Error or its path stopped, never by a
+ * decision, and replays like any handled step.
+ */
+function decidedApproval(step: StepRecord): boolean {
+  return step.nodeType === APPROVAL_TYPE && (step.branch === APPROVED_HANDLE || step.branch === REJECTED_HANDLE);
 }
 
 /** Whether a run in this state may be re-run. Anything finished may; a run still going may not. */

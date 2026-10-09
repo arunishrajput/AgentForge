@@ -1,5 +1,6 @@
 import type { z } from "zod";
 
+import type { ApprovalRequest } from "@/lib/approvals/rules";
 import type { WorkspaceScope } from "@/lib/workspace/scope";
 
 /**
@@ -102,6 +103,14 @@ export interface NodeOutcome {
    * bounds `until` itself rather than trusting the node (`MAX_WAIT_MS`).
    */
   wait?: { until: string };
+  /**
+   * **Phase 38 — ask a person, and wait for the answer.** Only `core.approval` returns this. The
+   * engine records the request through the recorder, which mints the link; the step's output becomes
+   * what Ask hands on (`{ approvalId, message, url, expiresAt }`) and the step stays `running` until
+   * the decision, when it leaves by Approved or Rejected (`CONTRACT.md` → *Approvals*). Refused, like
+   * `wait`, where nothing could resume the run.
+   */
+  approval?: ApprovalRequest;
 }
 
 /**

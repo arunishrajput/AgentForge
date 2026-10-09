@@ -354,8 +354,17 @@ export function edgeRunLook(
   source: StepStatus | undefined,
   target: StepStatus | undefined,
   running: boolean,
+  /**
+   * **Phase 38 — the edge leaves an approval by Ask.** Ask hands the link on the moment the request
+   * is made, while the approval's step is still `running` for the decision — and stays so after a run
+   * that stopped closed it — so whether the run went this way is the target's to say, whatever the
+   * approval's own status. Only a step that never ran (skipped, switched off) handed nothing on.
+   */
+  fromAsk = false,
 ): "live" | "traversed" | null {
-  if (source === undefined || !HANDED_ON.has(source)) return null;
+  if (source === undefined) return null;
+  const handedOn = HANDED_ON.has(source) || (fromAsk && source !== "skipped" && source !== "disabled");
+  if (!handedOn) return null;
   if (running && target === "running") return "live";
   if (target !== undefined && target !== "skipped") return "traversed";
   return null;

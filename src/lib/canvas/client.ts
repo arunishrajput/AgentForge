@@ -15,6 +15,7 @@ import type { Vault, VaultEntry } from "@/lib/credentials/vault";
 import type { StreamRun } from "@/lib/engine/stream";
 import type { RunSummary, StepBodies, StepHeader } from "@/lib/runs/history";
 import type { GraphProblem } from "@/lib/engine/validate";
+import type { MemberApprovalView, PendingApproval } from "@/lib/approvals/store";
 import type { Inbox, InboxEntry } from "@/lib/inbox/store";
 import type {
   DiscordStatus,
@@ -153,7 +154,7 @@ export interface GenerationErrorDetails {
  */
 export type { StreamRun as Run, StreamStep as RunStep } from "@/lib/engine/stream";
 export type { RunSummary, StepBodies, StepHeader };
-export type { Inbox, InboxEntry };
+export type { Inbox, InboxEntry, MemberApprovalView, PendingApproval };
 export type { RunMode, RunStatus, StepStatus } from "@/lib/engine/types";
 export type { NodePolicy } from "@/lib/engine/policy";
 export type { RunTest, TestScope } from "@/lib/engine/partial";
@@ -315,6 +316,21 @@ export const api = {
    */
   markInboxRead: (which: { ids: string[] } | { all: true }) =>
     request<Inbox & { marked: number }>("/api/inbox/read", { method: "POST", body: JSON.stringify(which) }),
+
+  /** Phase 37: the reader's inbox as the server has it now — after a decision changed it. */
+  inbox: () => request<Inbox>("/api/inbox"),
+
+  /* ---------------- approvals — Phase 38 ---------------- */
+
+  /** One request, and whether this member may decide it. Read when a page shows it, never polled. */
+  approval: (id: string) => request<MemberApprovalView>(`/api/approvals/${encodeURIComponent(id)}`),
+
+  /** Decide it as a member: 403 when the node does not name them, 409 once it is no longer open. */
+  decideApproval: (id: string, decision: "approve" | "reject", comment?: string) =>
+    request<MemberApprovalView>(`/api/approvals/${encodeURIComponent(id)}`, {
+      method: "POST",
+      body: JSON.stringify({ decision, ...(comment?.trim() ? { comment: comment.trim() } : {}) }),
+    }),
 
   /** A 409 when the workspace already has a tag of that name, ignoring case. */
   createTag: (name: string) =>

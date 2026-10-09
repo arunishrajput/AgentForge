@@ -271,6 +271,8 @@ export interface RunHistory {
   restart: { onRestart: (kind: "rerun" | "retry") => void; busy: boolean } | null;
   /** Phase 36: ask the copilot why the run on the canvas failed. Null for a viewer. */
   diagnose: { onDiagnose: (runId: string) => void; disabled: boolean } | null;
+  /** Phase 38: an approval was decided in the run panel — follow the run as it wakes. */
+  onDecided?: () => void;
 }
 
 /**
@@ -663,6 +665,7 @@ function WorkflowInspector({
           past={history.past}
           restart={history.restart}
           diagnose={history.diagnose}
+          onDecided={history.onDecided}
         />
       ) : (
         problems.length === 0 &&

@@ -74,6 +74,14 @@ const BY_TYPE: Record<string, ReactNode> = {
     </>
   ),
   "core.delay": <path d="M7 3.4h10M7 20.6h10M17 3.4v3.2l-5 5.4 5 5.4v3.2M7 3.4v3.2l5 5.4-5 5.4v3.2" {...STROKE} />,
+  // Phase 38. A person and a tick: it waits on somebody's yes. Without it the approval would draw the
+  // logic category's mark beside Branch and Assert — three guards that look alike.
+  "core.approval": (
+    <>
+      <circle cx="9" cy="7.8" r="3.4" {...STROKE} />
+      <path d="M2.8 20.4c0-3.6 2.8-6.2 6.2-6.2s6.2 2.6 6.2 6.2M15.6 9.4l2.2 2.2 4-4.4" {...STROKE} />
+    </>
+  ),
   "core.assert": (
     <>
       <path d="M12 2.8 20 5.8v5.9c0 4.5-3.3 7.7-8 9.5-4.7-1.8-8-5-8-9.5V5.8z" {...STROKE} />

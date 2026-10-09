@@ -1,3 +1,10 @@
+import {
+  ASK_HANDLE,
+  decidedOutput,
+  decisionWords,
+  type ApprovalDecision,
+  type AskOutput,
+} from "@/lib/approvals/rules";
 import { logError, logInfo, logWarn } from "@/lib/logging";
 import { getNode } from "@/lib/nodes";
 import { describeDuration, MAX_WAIT_MS } from "@/lib/nodes/core/delay";
@@ -23,6 +30,7 @@ import {
   retryable,
   type NodePolicy,
 } from "./policy";
+import { redactLog, redactStep, redactText, redactValue } from "./redact";
 import { validateGraph, type GraphProblem } from "./validate";
 import {
   CHECKPOINT_OK,
@@ -115,6 +123,12 @@ export interface ExecuteOptions {
     /** Lines for the target's log saying where its input came from. */
     notes?: readonly string[];
   };
+  /**
+   * **Phase 38 — the decision on the approval this run is waiting for**, read by the caller from the
+   * approval's row when it resumed the run (`run.ts`). Absent when nobody has decided yet: the engine
+   * then carries on with whatever else is queued and is put down again when it runs out.
+   */
+  decision?: ApprovalDecision;
 }
 
 /**
@@ -233,6 +247,22 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
 
   const test = options.test ?? null;
   const seed = options.seed;
+
+  /**
+   * **What this attempt must never write down — Phase 38** (D178). An approval's link is minted here
+   * and lives only in this memory; every step, log line and outcome passes through `store` on its way
+   * to the recorder, and leaves without it (`redact.ts`). Empty in every run without an approval, and
+   * then `store` hands on exactly what it is given.
+   */
+  const secrets = new Set<string>();
+  const store: RunRecorder = {
+    stepStarted: (step) => recorder.stepStarted(redactStep(step, secrets)),
+    stepFinished: (step) => recorder.stepFinished(redactStep(step, secrets)),
+    ...(recorder.stepLogged
+      ? { stepLogged: (step: StepRecord, entry: StepLog) => recorder.stepLogged!(redactStep(step, secrets), redactLog(entry, secrets)) }
+      : {}),
+    checkpoint: (next) => recorder.checkpoint(next),
+  };
   /** Phase 31: the nodes this run may reach — null for all of them. */
   const reach = scopeOf(graph, test);
   /** The node a `node` or `path` test is aimed at. It executes, and nothing after it does. */
@@ -308,8 +338,15 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
   let interrupted: "cancelled" | "preempted" | null = null;
   /** Set when a node paused the run (Phase 26): the step it paused in, and until when. */
   let paused: { seq: number; until: string } | null = null;
+  /**
+   * **The approval this run is waiting for — Phase 38.** Set when `core.approval` records its request,
+   * cleared when its decision is applied. While it is set the run carries on with everything else it
+   * can do, and nothing else in it may wait; when the queue runs out the run is put down until the
+   * decision, or the timeout, arrives.
+   */
+  let pending: NonNullable<RunCursor["approval"]> | null = null;
 
-  const cursor = (): RunCursor => snapshotCursor({ queue, executions, seq });
+  const cursor = (): RunCursor => snapshotCursor({ queue, executions, seq, approval: pending });
 
   /**
    * Queue what follows a node, out of the output it left through. A test never goes past the
@@ -330,7 +367,7 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
    * statement answers "was this cancelled" and "do I still own this run". `true` means stop.
    */
   const checkpointed = async (): Promise<boolean> => {
-    const checkpoint = (await recorder.checkpoint(cursor())) ?? CHECKPOINT_OK;
+    const checkpoint = (await store.checkpoint(cursor())) ?? CHECKPOINT_OK;
     if (!checkpoint.leaseHeld) {
       interrupted = "preempted";
       return true;
@@ -362,7 +399,7 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
       outputs.set(step.nodeId, step.output);
       bySeq.set(step.seq, step.output);
       lastOutput = step.output;
-      await recorder.stepFinished(step);
+      await store.stepFinished(step);
       logInfo("node.finished", `Node ${step.nodeId} succeeded.`, {
         nodeId: step.nodeId,
         nodeType: step.nodeType,
@@ -374,7 +411,101 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
     }
   }
 
-  while (queue.length > 0) {
+  /**
+   * **Resuming a run that asked a person — Phase 38** (`CONTRACT.md` → *Approvals*). The approval's
+   * step is still `running`, and which way the run goes from it is the decision:
+   *
+   *  - **decided** — the caller read it off the approval's row: the step finishes now, so its duration
+   *    is the wait, and the run carries on out of Approved or Rejected. A timeout set to fail fails it.
+   *  - **not yet** — this is a redelivery after a lost container, mid-way through the Ask path. The
+   *    step's output goes back where its successors read it, and if one of them has not taken it yet
+   *    the request is given a new link: the old one's plaintext died with the attempt that minted it,
+   *    and the row holds only its hash. The run carries on and is put down again when it runs out.
+   *
+   * Guarded on the step still being `running`, as the delay's wake is, for an attempt that applied
+   * the decision and lost its container before the next checkpoint.
+   */
+  const awaited = resume?.cursor.approval;
+  if (awaited) {
+    const step = steps.find((candidate) => candidate.seq === awaited.seq);
+    if (step && step.status === "running") {
+      if (options.decision) {
+        const decided = await settleApproval(step, options.decision);
+        if (decided) follow(step.nodeId, decided, step.seq);
+      } else {
+        pending = awaited;
+        let asked = step.output;
+        if (queue.some((item) => item.fromSeq === step.seq) && recorder.reissueApproval) {
+          try {
+            const issued = await recorder.reissueApproval(awaited.id);
+            if (issued) {
+              secrets.add(issued.token);
+              asked = { ...(asked as AskOutput), url: issued.url };
+            }
+          } catch (error) {
+            // The steps after Ask read the link as removed and say so; the request is still decided
+            // in the inbox and on the canvas. Not worth failing a run that is otherwise fine.
+            logWarn("system.warning", `Approval ${awaited.id} could not be given a new link on resume.`, {
+              detail: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }
+        outputs.set(step.nodeId, asked);
+        bySeq.set(step.seq, asked);
+      }
+    }
+  }
+
+  /**
+   * Apply a decision to the approval step it is for. Answers the output to leave by, or null when
+   * the decision was the timeout failing the run — then `failure` is set and the loop does not start.
+   */
+  async function settleApproval(step: StepRecord, decision: ApprovalDecision): Promise<string | null> {
+    step.finishedAt = new Date().toISOString();
+    const durationMs = Date.parse(step.finishedAt) - Date.parse(step.startedAt ?? step.finishedAt);
+
+    if (decision.outcome === "expired") {
+      step.status = "failed";
+      step.error = "Nobody decided before the timeout, and its timeout fails the run.";
+      await store.stepFinished(step);
+      failure = `Node "${step.nodeId}" (${step.nodeType}) failed: ${step.error}`;
+      logError("node.finished", `Node ${step.nodeId} failed.`, step.error, {
+        nodeId: step.nodeId,
+        nodeType: step.nodeType,
+        status: "failed",
+        iteration: step.iteration,
+        durationMs,
+      });
+      return null;
+    }
+
+    const output = decidedOutput(step.output as AskOutput, decision);
+    step.status = "succeeded";
+    step.output = output;
+    step.branch = decision.outcome;
+    step.logs.push({
+      at: step.finishedAt,
+      level: "info",
+      message: `${decisionWords({ status: decision.outcome, via: decision.via, decidedBy: decision.decidedBy })}.${
+        decision.comment ? ` “${decision.comment}”` : ""
+      }`,
+    });
+    outputs.set(step.nodeId, output);
+    bySeq.set(step.seq, output);
+    lastOutput = output;
+    await store.stepFinished(step);
+    logInfo("node.finished", `Node ${step.nodeId} succeeded.`, {
+      nodeId: step.nodeId,
+      nodeType: step.nodeType,
+      status: "succeeded",
+      iteration: step.iteration,
+      branch: step.branch,
+      durationMs,
+    });
+    return decision.outcome;
+  }
+
+  while (failure === null && queue.length > 0) {
     const item = queue.shift()!;
 
     if (signal.aborted) {
@@ -455,7 +586,7 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
       bySeq.set(mySeq, output);
       executions.set(node.id, iteration + 1);
       lastOutput = output;
-      await recorder.stepFinished(step);
+      await store.stepFinished(step);
 
       if (passes) follow(node.id, null, mySeq);
 
@@ -501,7 +632,7 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
       bySeq.set(mySeq, pin.output);
       executions.set(node.id, iteration + 1);
       lastOutput = pin.output;
-      await recorder.stepFinished(step);
+      await store.stepFinished(step);
       follow(node.id, null, mySeq);
 
       if (await checkpointed()) break;
@@ -541,14 +672,14 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
     const mySeq = seq;
     steps.push(step);
     seq += 1;
-    await recorder.stepStarted(step);
+    await store.stepStarted(step);
 
     const log = (text: string, level: LogLevel = "info") => {
       const entry: StepLog = { at: new Date().toISOString(), level, message: text };
       logs.push(entry);
       // Persisted as it is written, not when the node returns, so a slow node
       // streams its reasoning instead of dumping it at the end.
-      recorder.stepLogged?.(step, entry);
+      store.stepLogged?.(step, entry);
     };
 
     // A node tested alone says where what it was handed came from (Phase 31), because the
@@ -593,7 +724,66 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
        * whether anything can resume this run, and bounded here rather than trusted,
        * because a bound is a property of the engine (D16).
        */
+      /**
+       * **A node asked a person — Phase 38** (`CONTRACT.md` → *Approvals*). The request is recorded and
+       * its link minted through the recorder; the step's output becomes what Ask hands on, the link in
+       * plaintext for this attempt only (`secrets`), and the step stays `running`. Ask's successors are
+       * queued and the run **carries on** — that is how the link gets sent — and is put down when there
+       * is nothing left it can do without the answer (after this loop).
+       *
+       * Refused where the run could not be resumed, exactly as a long delay is; and refused while
+       * another approval is outstanding, because a run waits for one thing at a time.
+       */
+      if (outcome.approval) {
+        if (!allowWait) {
+          throw new NodeError(
+            test && test.scope !== "workflow"
+              ? "A test of part of a workflow does not pause, and this step asks a person to decide. " +
+                  "Pin this step's output to test what comes after it, or run the whole workflow."
+              : "This step asks a person to decide, which needs the run queue to resume the run once they have — " +
+                  "and no queue is configured here (TASKS_QUEUE).",
+          );
+        }
+        if (pending) throw new NodeError(alreadyWaiting());
+        if (!recorder.requestApproval) throw new NodeError("Nothing here can record an approval request.");
+        const expires = Date.parse(outcome.approval.expiresAt);
+        if (!Number.isFinite(expires) || expires - Date.now() > MAX_WAIT_MS + WAIT_SLACK_MS) {
+          throw new NodeError("A run can wait at most 30 days.");
+        }
+
+        const issued = await recorder.requestApproval({
+          ...outcome.approval,
+          expiresAt: new Date(expires).toISOString(),
+          nodeId: node.id,
+          iteration,
+          seq: mySeq,
+        });
+        secrets.add(issued.token);
+        const asked: AskOutput = {
+          approvalId: issued.id,
+          message: outcome.approval.message,
+          url: issued.url,
+          expiresAt: new Date(expires).toISOString(),
+        };
+        step.output = asked;
+        executions.set(node.id, iteration + 1);
+        outputs.set(node.id, asked);
+        bySeq.set(mySeq, asked);
+        log(
+          edgesFrom(graph, node.id, ASK_HANDLE).length > 0
+            ? "Waiting for a decision. Ask sends the link."
+            : "Waiting for a decision in the inbox and on the canvas. Nothing is connected to Ask, so no link is sent.",
+        );
+        await store.stepFinished(step);
+
+        follow(node.id, ASK_HANDLE, mySeq);
+        pending = { seq: mySeq, until: asked.expiresAt, id: issued.id };
+        if (await checkpointed()) break;
+        continue;
+      }
+
       if (outcome.wait) {
+        if (pending) throw new NodeError(alreadyWaiting());
         const until = Date.parse(outcome.wait.until);
         if (!allowWait) {
           const duration = describeDuration(Math.max(0, until - Date.now()));
@@ -613,7 +803,7 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
         step.output = outcome.output ?? null;
         step.branch = outcome.branch ?? null;
         executions.set(node.id, iteration + 1);
-        await recorder.stepFinished(step);
+        await store.stepFinished(step);
 
         follow(node.id, step.branch, mySeq);
         paused = { seq: mySeq, until: new Date(until).toISOString() };
@@ -649,11 +839,12 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
       executions.set(node.id, iteration + 1);
       lastOutput = step.output;
 
-      await recorder.stepFinished(step);
+      await store.stepFinished(step);
 
       follow(node.id, step.branch, mySeq);
     } catch (error) {
-      step.error = message(error);
+      // Without an approval's link, whatever a failing node said about it (Phase 38).
+      step.error = redactText(message(error), secrets);
       executions.set(node.id, iteration + 1);
 
       /**
@@ -688,7 +879,7 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
         outputs.set(node.id, step.output);
         bySeq.set(mySeq, step.output);
         lastOutput = step.output;
-        await recorder.stepFinished(step);
+        await store.stepFinished(step);
         // A warning, not an error: the author planned for this, and `severity>=ERROR` is the
         // filter that finds what nobody planned for (`OPERATIONS.md`).
         logWarn("node.finished", `Node ${node.id} failed and its error was handled.`, {
@@ -712,12 +903,12 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
 
       step.status = "failed";
       step.finishedAt = new Date().toISOString();
-      await recorder.stepFinished(step);
+      await store.stepFinished(step);
       failure = `Node "${node.id}" (${node.type}) failed: ${step.error}`;
       // Severity ERROR, so this is the entry a `severity>=ERROR` filter finds and Error
       // Reporting groups. The message carries the node's own words, which is what makes
       // the group in the logs and the group on the analytics page the same group.
-      logError("node.finished", `Node ${node.id} failed.`, error, {
+      logError("node.finished", `Node ${node.id} failed.`, secrets.size > 0 ? step.error : error, {
         nodeId: node.id,
         nodeType: node.type,
         status: "failed",
@@ -733,7 +924,15 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
   if (interrupted === "preempted") {
     // Deliberately no cursor and no status: another worker holds this run and has
     // been writing its own frontier. Returning one here would overwrite theirs.
-    return { status: null, stop: "interrupted", reason: "preempted", error: null, output: null, steps, cursor: null };
+    return {
+      status: null,
+      stop: "interrupted",
+      reason: "preempted",
+      error: null,
+      output: null,
+      steps: steps.map((step) => redactStep(step, secrets)),
+      cursor: null,
+    };
   }
 
   if (paused) {
@@ -743,11 +942,47 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
       reason: null,
       error: null,
       output: null,
-      steps,
+      steps: steps.map((step) => redactStep(step, secrets)),
       cursor: { ...cursor(), wait: paused },
       wakeAt: paused.until,
     };
   }
+
+  /**
+   * **An approval still outstanding — Phase 38.** A run that ran out of work is put down until the
+   * decision: its cursor carries the request, and the caller sets `waiting` with the timeout as its
+   * wake time. A run that stopped instead — failed, cancelled — will never apply a decision, so the
+   * approval's step is closed rather than left `running` on a finished run, and the caller closes the
+   * request (`unsettledApproval`), which kills its link.
+   */
+  let unsettled: string | null = null;
+  if (pending) {
+    if (failure === null && interrupted === null) {
+      return {
+        status: null,
+        stop: "waiting",
+        reason: null,
+        error: null,
+        output: null,
+        steps: steps.map((step) => redactStep(step, secrets)),
+        cursor: cursor(),
+        wakeAt: pending.until,
+      };
+    }
+    const open = steps.find((step) => step.seq === pending!.seq);
+    if (open && open.status === "running") {
+      open.status = "failed";
+      open.error =
+        interrupted === "cancelled"
+          ? "The run was cancelled before anybody decided."
+          : "The run stopped before anybody decided.";
+      open.finishedAt = new Date().toISOString();
+      await store.stepFinished(open);
+    }
+    unsettled = pending.id;
+    pending = null;
+  }
+  const closing = unsettled ? { unsettledApproval: unsettled } : {};
 
   if (interrupted === "cancelled") {
     return {
@@ -756,8 +991,9 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
       reason: "cancelled",
       error: "The run was cancelled.",
       output: null,
-      steps,
+      steps: steps.map((step) => redactStep(step, secrets)),
       cursor: cursor(),
+      ...closing,
     };
   }
 
@@ -784,7 +1020,7 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
       finishedAt: null,
     };
     steps.push(skipped);
-    await recorder.stepFinished(skipped);
+    await store.stepFinished(skipped);
   }
 
   return {
@@ -792,8 +1028,17 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
     stop: "finished",
     reason: null,
     error: failure,
-    output: failure ? null : lastOutput,
-    steps,
+    output: failure ? null : redactValue(lastOutput, secrets),
+    steps: steps.map((step) => redactStep(step, secrets)),
     cursor: cursor(),
+    ...closing,
   };
+
+  /** Why a second wait was refused: the run is already waiting on an approval (Phase 38). */
+  function alreadyWaiting(): string {
+    const asking = steps.find((step) => step.seq === pending?.seq);
+    const named = asking ? `"${graph.nodes.find((node) => node.id === asking.nodeId)?.label || asking.nodeId}"` : "an approval";
+    return `This run is already waiting for a decision at ${named}, and a run waits for one thing at a time. ` +
+      "Put this step after the approval's Approved or Rejected output instead.";
+  }
 }
