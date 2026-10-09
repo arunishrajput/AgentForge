@@ -1,7 +1,6 @@
 import { z } from "zod";
 
-import { sweepAbandonedRuns } from "@/lib/engine/lease";
-import { describeRun, startDurableRun, startRun } from "@/lib/engine/run";
+import { describeRun, startDurableRun, startRun, sweepRuns } from "@/lib/engine/run";
 import { RUN_MODES } from "@/lib/engine/types";
 import { ApiError, handle, ok, okPage, requireScope } from "@/lib/api";
 import { listRunPage } from "@/lib/runs/history";
@@ -117,7 +116,7 @@ export async function GET(request: Request, { params }: Context) {
     const { id } = await params;
     await getWorkflow(scope, id);
     const { query, limit } = readRunRequest(new URL(request.url), { workflowId: id });
-    await sweepAbandonedRuns(scope);
+    await sweepRuns(scope);
     const page = await listRunPage(scope, query, { limit });
     return okPage(page.runs, pageCursors(page));
   });

@@ -61,7 +61,9 @@ export type RetryRefusal =
  * The replay mirrors `execute.ts` rule for rule:
  *
  *  - a queue entry whose node is not in the graph is dropped without a step
- *  - a `succeeded`, `pinned` or `reused` step follows its own branch
+ *  - a `succeeded`, `pinned`, `reused` or `handled` step follows its own branch — for a handled
+ *    one (Phase 37) that is Error when its policy routed it and the default output when it
+ *    continued, which is exactly what `branch` recorded
  *  - a `disabled` step follows its default output when it has one, and stops its path when it
  *    does not (`passesThrough`)
  *  - a `failed` step — or a `running` one, which is what a run the sweeper closed mid-step
@@ -179,7 +181,9 @@ export function planRetry(options: {
 function carried(step: StepRecord): StepRecord {
   return {
     ...step,
-    status: step.status === "succeeded" ? "reused" : step.status,
+    // A handled step ran there too (Phase 37): what it handed on was its error, and that is what
+    // the retry carries — the node is not run again, so it cannot fail differently this time.
+    status: step.status === "succeeded" || step.status === "handled" ? "reused" : step.status,
     logs: [...step.logs],
     error: null,
     startedAt: null,

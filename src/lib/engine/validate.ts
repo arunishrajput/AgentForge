@@ -1,6 +1,8 @@
 import { getNode } from "@/lib/nodes";
 import type { WorkflowGraph } from "@/lib/workflow/graph";
 
+import { ERROR_HANDLE, outputsOf } from "./policy";
+
 /**
  * Structural checks a graph must pass before it can run. Kept separate from
  * execution so the canvas (Phase 4) and the generator (Phase 7) can reject a bad
@@ -170,10 +172,16 @@ export function validateGraph(graph: WorkflowGraph): ValidationResult {
     const definition = getNode(source.type);
     if (definition) {
       const handle = edge.sourceHandle ?? null;
-      if (!definition.outputs.some((output) => output.key === handle)) {
+      // The node's outputs as this canvas has them: its registry entry's, plus Error while its
+      // on-error policy routes (Phase 37, D174). An edge left on Error after the policy changed
+      // is told what to do about it, rather than that the node type lacks an output.
+      if (!outputsOf(definition, source.policy).some((output) => output.key === handle)) {
         problems.push({
           code: "unknown_output_handle",
-          message: `Edge "${edge.id}" leaves node "${source.id}" through output "${handle ?? "default"}", which "${definition.type}" does not have.`,
+          message:
+            handle === ERROR_HANDLE && definition.kind !== "trigger"
+              ? `Edge "${edge.id}" leaves node "${source.id}" through its Error output, which it has only while its on-error policy is "route". Set the policy back to route, or remove the edge.`
+              : `Edge "${edge.id}" leaves node "${source.id}" through output "${handle ?? "default"}", which "${definition.type}" does not have.`,
           edgeId: edge.id,
         });
       }

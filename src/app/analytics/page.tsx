@@ -54,6 +54,7 @@ export default async function AnalyticsPage({
         email={email}
         workspace={workspace}
         workspaces={memberships.map((m) => describeWorkspace(m, scope.userId))}
+        scope={scope}
         active="analytics"
       />
 

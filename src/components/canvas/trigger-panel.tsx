@@ -5,6 +5,7 @@ import { useState } from "react";
 import type { CanvasNode } from "@/lib/canvas/bridge";
 import type { Workflow } from "@/lib/canvas/client";
 import { formatUtc } from "@/lib/triggers/cron";
+import { ERROR_TRIGGER_TYPE } from "@/lib/triggers/failure";
 
 /**
  * What a trigger node needs that its config form cannot show: the URL an external
@@ -47,7 +48,44 @@ export function TriggerPanel({
   if (node.data.nodeType === "core.schedule_trigger") {
     return <SchedulePanel workflow={workflow} dirty={dirty} />;
   }
+  if (node.data.nodeType === ERROR_TRIGGER_TYPE) {
+    return <ErrorTriggerPanel workflow={workflow} dirty={dirty} />;
+  }
   return null;
+}
+
+/**
+ * **When an error workflow fires — Phase 37** (D176). It has no config, so what a person needs is
+ * the rule it fires by, said once: which failures reach it, and which do not — the one that
+ * surprises people is that a run somebody pressed Run on and watched fail does not.
+ */
+function ErrorTriggerPanel({ workflow, dirty }: { workflow: Workflow; dirty: boolean }) {
+  return (
+    <Section title="When it fires">
+      {!workflow.active && (
+        <p className="border-line bg-sunken rounded-lg border-2 p-2 text-2xs leading-relaxed">
+          <strong className="font-bold">Switched off.</strong> Failures are not sent here until the
+          workflow is switched back on.
+        </p>
+      )}
+      <p className="text-muted text-2xs leading-relaxed">
+        When another workflow in this workspace fails while running by itself — from its webhook or
+        its schedule — this one runs, with the failure as this node&apos;s output:{" "}
+        <code>{"{{trigger.workflow.name}}"}</code>, <code>{"{{trigger.error}}"}</code>,{" "}
+        <code>{"{{trigger.run.url}}"}</code>.
+      </p>
+      <p className="text-muted text-2xs leading-relaxed">
+        Not for a run somebody started by hand or a test, and never for a failure of this workflow or
+        another one started this way — so an alert that fails cannot alert about itself. Press Run to
+        try it with a sample failure.
+      </p>
+      {dirty && (
+        <p className="text-2xs text-warn">
+          There are unsaved changes. A failure runs the workflow as it is <em>stored</em>.
+        </p>
+      )}
+    </Section>
+  );
 }
 
 function WebhookPanel({

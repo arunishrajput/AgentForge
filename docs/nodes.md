@@ -3,7 +3,7 @@
 
 # Node reference
 
-**30 nodes**, of which **19 are callable by an agent node as tools**.
+**31 nodes**, of which **19 are callable by an agent node as tools**.
 
 This page is generated from the registry itself, so it cannot drift from what the product does.
 Every entry below is one object in [`src/lib/nodes/`](../src/lib/nodes) — the same object the
@@ -17,6 +17,7 @@ definition. See [`architecture.md`](./architecture.md) → *The registry is the 
 | [Manual trigger](#coremanual_trigger--manual-trigger) | `core.manual_trigger` | trigger | no |
 | [Webhook trigger](#corewebhook_trigger--webhook-trigger) | `core.webhook_trigger` | trigger | no |
 | [Schedule trigger](#coreschedule_trigger--schedule-trigger) | `core.schedule_trigger` | trigger | no |
+| [Error trigger](#coreerror_trigger--error-trigger) | `core.error_trigger` | trigger | no |
 | [Log message](#corelog--log-message) | `core.log` | logic | yes |
 | [Branch](#corebranch--branch) | `core.branch` | logic | no |
 | [Switch](#coreswitch--switch) | `core.switch` | logic | no |
@@ -108,6 +109,29 @@ Starts the workflow on a repeating schedule, given as a 5-field cron expression 
 <details><summary>What the agent reads</summary>
 
 > Starts the workflow on a repeating schedule, given as a 5-field cron expression in UTC (minute hour day-of-month month day-of-week). Examples: "0 9 * * 1-5" is 09:00 UTC on weekdays, "*/30 * * * *" is every 30 minutes, "@daily" is midnight UTC. Use it when the request says the workflow runs every day, every hour, on a timetable, or at a particular time.
+
+</details>
+
+### `core.error_trigger` — Error trigger
+
+**trigger** · **not** callable by the agent
+
+Runs this workflow whenever another workflow in this workspace fails with nobody watching — a webhook or schedule run, not one somebody pressed Run on. Put a Slack, Discord or Gmail step after it and you have a failure alert. Press Run here to try it with a sample failure.
+
+**Input.** nothing to configure — it fires for every workflow in the workspace you can see
+
+**Output.** { workflow: { id, name }, run: { id, trigger, startedAt, url }, failedStep: { id, label, type } or null, error }, e.g. {{trigger.workflow.name}}, {{trigger.error}}, {{trigger.run.url}}.
+
+_No configuration._
+
+**Examples**
+
+- *Post failures to Discord* — "{{trigger.workflow.name}} failed at {{trigger.failedStep.label}}: {{trigger.error}} — {{trigger.run.url}}"
+- *Only one workflow* — Follow it with a Branch: {{trigger.workflow.name}} equals Invoice sync
+
+<details><summary>What the agent reads</summary>
+
+> Starts the workflow when another workflow here fails while running by itself (from a webhook or a schedule). Use it to alert on failures: follow it with a Slack, Discord or Gmail node.
 
 </details>
 
@@ -835,6 +859,7 @@ node, never a side effect of registering one — see [`agents.md`](./agents.md) 
 | `core.manual_trigger` | A trigger starts a run; an agent runs inside one. |
 | `core.webhook_trigger` | A trigger starts a run; an agent runs inside one. |
 | `core.schedule_trigger` | A trigger starts a run; an agent runs inside one. |
+| `core.error_trigger` | A trigger starts a run; an agent runs inside one. |
 | `core.branch` | Flow control belongs to the graph, not to a tool call. |
 | `core.switch` | Flow control belongs to the graph, not to a tool call. |
 | `core.loop` | Flow control belongs to the graph, not to a tool call. |

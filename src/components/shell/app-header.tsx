@@ -4,9 +4,13 @@ import { signOut } from "@/auth";
 import { cn } from "@/components/ui/cn";
 
 import type { WorkspaceSummary } from "@/lib/canvas/client";
+import { EMPTY_INBOX, readInbox, type Inbox } from "@/lib/inbox/store";
+import { logError } from "@/lib/logging";
+import type { WorkspaceScope } from "@/lib/workspace/scope";
 
 import { AccountMenu } from "./account-menu";
 import { CommandPalette } from "./command-palette";
+import { InboxBell } from "./inbox-bell";
 import { Wordmark } from "./logo";
 import { WorkspaceSwitcher } from "./workspace-switcher";
 
@@ -23,21 +27,37 @@ import { WorkspaceSwitcher } from "./workspace-switcher";
  * stacking a second bar above a viewport-height graph would cost the canvas the
  * space it is shortest of.
  */
-export function AppHeader({
+export async function AppHeader({
   email,
   workspace,
   workspaces,
+  scope,
   active,
 }: {
   email: string;
   workspace: WorkspaceSummary;
   /** Every workspace this account is in — the switcher's list (Phase 19B). */
   workspaces: WorkspaceSummary[];
+  /** Whose inbox the bell reads (Phase 37) — the page's own scope, already resolved. */
+  scope: WorkspaceScope;
   active?: "workflows" | "runs" | "templates" | "analytics" | "settings";
 }) {
   async function signOutAction() {
     "use server";
     await signOut({ redirectTo: "/" });
+  }
+
+  /**
+   * **The inbox, read as the page renders — Phase 37 (D177).** One indexed statement on a request
+   * that has already woken the database, and the only time the bell learns anything: it never polls.
+   * A failed read costs the bell its number, never the page — a header that took the page down
+   * because a count could not be read would be the wrong way round.
+   */
+  let inbox: Inbox = EMPTY_INBOX;
+  try {
+    inbox = await readInbox(scope);
+  } catch (error) {
+    logError("api.error", "The inbox could not be read for the header.", error);
   }
 
   return (
@@ -87,6 +107,7 @@ export function AppHeader({
         </nav>
 
         <div className="ml-auto flex items-center gap-2">
+          <InboxBell initial={inbox} />
           <CommandPalette />
           <AccountMenu email={email} signOutAction={signOutAction} />
         </div>

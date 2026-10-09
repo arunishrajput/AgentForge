@@ -73,6 +73,8 @@ export interface StreamRun {
    * creation like `test`, so it is not in `StreamRunPatch` either.
    */
   origin: RunOrigin | null;
+  /** Phase 37: failures its on-error policies handled. Written when the run finishes. */
+  handled: number;
   /**
    * The workflow version this run executed (Phase 18). Null for a run from before
    * versioning existed. It is **not** in `StreamRunPatch` below and must not be: it is
@@ -99,6 +101,8 @@ export interface StreamRunPatch {
   error: string | null;
   finishedAt: string | null;
   durationMs: number | null;
+  /** Phase 37. It changes with the status, when the run finishes, so it rides on the patch. */
+  handled: number;
 }
 
 /**
@@ -261,6 +265,7 @@ export function runPatch(run: StreamRun): StreamRunPatch {
     error: run.error,
     finishedAt: run.finishedAt,
     durationMs: run.durationMs,
+    handled: run.handled,
   };
 }
 

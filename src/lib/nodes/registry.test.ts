@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import { agentToolSet } from "@/lib/ai/tools";
 import { GUIDANCE, indexLine, renderCatalogue, renderIndex, systemPrompt } from "@/lib/generate/prompt";
+import { ERROR_HANDLE } from "@/lib/engine/policy";
 import { ALWAYS, MAX_SELECTED } from "@/lib/generate/select";
 
 import { describeNodes, getNode, listAgentTools, listNodes } from "./index";
@@ -31,9 +32,18 @@ import { describeNodes, getNode, listAgentTools, listNodes } from "./index";
 
 const nodes = listNodes();
 
-test("the registry is 30 nodes and every type is unique", () => {
-  assert.equal(nodes.length, 30);
-  assert.equal(new Set(nodes.map((node) => node.type)).size, 30);
+test("the registry is 31 nodes and every type is unique", () => {
+  // 31 since Phase 37 added `core.error_trigger`.
+  assert.equal(nodes.length, 31);
+  assert.equal(new Set(nodes.map((node) => node.type)).size, 31);
+});
+
+test("no node declares an output keyed \"error\" — the on-error policy reserves it (D174)", () => {
+  // The engine adds an Error output to a node whose policy routes; a node that already had one
+  // would have two exits with one name, and an edge could not say which it meant.
+  for (const node of nodes) {
+    assert.ok(!node.outputs.some((output) => output.key === ERROR_HANDLE), `${node.type} declares "${ERROR_HANDLE}"`);
+  }
 });
 
 test("every node type is namespaced, and its namespace exists", () => {

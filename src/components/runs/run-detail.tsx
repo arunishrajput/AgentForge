@@ -24,7 +24,7 @@ import { testLabel } from "@/lib/canvas/test-run";
 import { rerunnable } from "@/lib/engine/retry";
 import { elapsedMs, formatDuration, formatOffset } from "@/lib/format/duration";
 import { formatUtc } from "@/lib/format/date";
-import { originWords, retryTally, shortRunId, TRIGGER_WORDS } from "@/lib/runs/words";
+import { handledWords, originWords, retryTally, shortRunId, TRIGGER_WORDS } from "@/lib/runs/words";
 import type { WorkflowGraph } from "@/lib/workflow/graph";
 
 import { RunCanvas } from "./run-canvas";
@@ -62,6 +62,7 @@ function fromStream(run: Run, workflowName: string): { run: RunSummary; steps: D
       wakeAt: run.wakeAt,
       test: run.test,
       origin: run.origin,
+      handled: run.handled,
       workflowVersion: run.workflowVersion,
       error: run.error,
       startedAt: run.startedAt,
@@ -277,6 +278,13 @@ export function RunDetail({
         )}
         {run.attempt > 1 && (
           <Badge icon={<span aria-hidden="true">↻</span>}>Resumed {run.attempt - 1}×</Badge>
+        )}
+        {/* Phase 37 (D175): what its on-error policies handled on the way. */}
+        {handledWords(run.handled) && (
+          <span className="chip text-warn">
+            <span aria-hidden="true">↪</span>
+            {handledWords(run.handled)}
+          </span>
         )}
         {stream.live && <span className="text-live text-2xs font-semibold">Live</span>}
       </div>

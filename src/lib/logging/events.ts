@@ -28,6 +28,11 @@ export const EVENTS = [
    * and counting it there would put one run in the volume metric twice.
    */
   "run.waiting",
+  /**
+   * A run nobody was watching failed, and it was announced — Phase 37: how many inboxes it reached
+   * and how many error workflows it started. At error severity when the announcing itself failed.
+   */
+  "run.alerted",
   /** One node finished, succeeded or failed. **The node-latency metric.** */
   "node.finished",
   /** One `generate` call resolved. **The model-fallback metric** (`fallback: true`). */

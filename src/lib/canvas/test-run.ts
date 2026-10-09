@@ -45,6 +45,19 @@ export function testOutcome(
   }
 
   const reached = steps.find((step) => step.nodeId === target);
+  /**
+   * Phase 37. The node under test failed and its on-error policy handled it, so the run succeeded —
+   * but what was being tested is the node, and the node failed. Said so, with its error, in the
+   * warning tone: green here would be the misleading answer.
+   */
+  const handled = steps.find((step) => step.status === "handled" && step.nodeId === target);
+  if (handled) {
+    return {
+      tone: "warn",
+      title: `${name} failed — its error was handled`,
+      detail: handled.error ?? "No reason was recorded.",
+    };
+  }
   if (!reached || reached.status === "skipped") {
     return {
       tone: "warn",

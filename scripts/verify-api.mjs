@@ -1291,6 +1291,233 @@ try {
     }
   }
 
+  // --- Phase 37: when things go wrong --------------------------------------------
+  // `CONTRACT.md` → *On-error policy* and *Failure alerts and the inbox*, on the deployed service.
+  // The phase's validation: `continue` and `route` behave as the contract says; a webhook run that
+  // fails reaches the inbox and starts the workspace's error workflows — a real alert is the browser
+  // walk's, with Discord — and the bounds hold: a manual run tells nobody, an error workflow that
+  // fails sets off no other, and a switched-off one hears nothing. Probe rows are `zzzz-phase37`.
+  {
+    const P37 = "zzzz-phase37";
+    const at = (x) => ({ x, y: 0 });
+    const failingAssert = (id, message, policy) => ({
+      id,
+      type: "core.assert",
+      position: at(240),
+      config: { left: "{{input.missing}}", operator: "is_not_empty", message },
+      ...(policy ? { policy } : {}),
+    });
+    const made = [];
+    const make = async (name, g) => {
+      const created = await api("POST", "/api/workflows", { name: `${P37} ${name}`, graph: g }, token);
+      const row = created.json?.data;
+      if (row?.id) made.push(row.id);
+      return row ?? null;
+    };
+    const run = async (id, input = {}) => (await api("POST", `/api/workflows/${id}/runs`, { input }, token)).json?.data;
+    const stepOf = (r, nodeId) => (r?.steps ?? []).find((step) => step.nodeId === nodeId);
+    const inbox = async () => (await api("GET", "/api/inbox", undefined, token)).json?.data;
+    const entryFor = (box, wfId) => (box?.entries ?? []).find((entry) => entry.workflowId === wfId && !entry.read);
+    const runsOf = async (id) => (await api("GET", `/api/workflows/${id}/runs`, undefined, token)).json?.data ?? [];
+    /** Error workflows are queued on the deployed service (Cloud Tasks); wait for the runs to land. */
+    const settle = async (id, count) => {
+      for (let i = 0; i < 30; i += 1) {
+        const runs = await runsOf(id);
+        if (runs.length >= count && runs.every((r) => !["queued", "running"].includes(r.status))) return runs;
+        await new Promise((resolve) => setTimeout(resolve, 2_000));
+      }
+      return runsOf(id);
+    };
+    const hook = async (row) => {
+      const url = row?.webhookUrl ?? "";
+      const response = await fetch(`${base}/api/webhook/${url.split("/api/webhook/")[1] ?? "none"}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ from: P37 }),
+      });
+      return { status: response.status, json: await response.json().catch(() => null) };
+    };
+
+    try {
+      // --- the policy -------------------------------------------------------------
+      const cont = await make("continue", {
+        version: 1,
+        nodes: [
+          { id: "trigger", type: "core.manual_trigger", position: at(0), config: {} },
+          failingAssert("guard", "PHASE37: no total on the order.", { retries: 0, backoffMs: 500, onError: "continue" }),
+          { id: "after", type: "core.log", position: at(480), config: { message: "after: {{input.error}}" } },
+        ],
+        edges: [
+          { id: "e1", source: "trigger", target: "guard", sourceHandle: null },
+          { id: "e2", source: "guard", target: "after", sourceHandle: null },
+        ],
+      });
+      const continued = await run(cont?.id);
+      check(
+        "continue: the run succeeds, the step is handled, and the next step reads the error",
+        continued?.status === "succeeded" &&
+          continued?.handled === 1 &&
+          stepOf(continued, "guard")?.status === "handled" &&
+          stepOf(continued, "guard")?.output?.error === "PHASE37: no total on the order." &&
+          stepOf(continued, "after")?.status === "succeeded" &&
+          stepOf(continued, "after")?.config?.message === "after: PHASE37: no total on the order.",
+        JSON.stringify({ status: continued?.status, handled: continued?.handled, guard: stepOf(continued, "guard")?.status }),
+      );
+
+      const routedGraph = (withErrorEdge, policy) => ({
+        version: 1,
+        nodes: [
+          { id: "trigger", type: "core.manual_trigger", position: at(0), config: {} },
+          failingAssert("guard", "PHASE37: routed.", policy),
+          { id: "after", type: "core.log", position: at(480), config: { message: "the happy path" } },
+          { id: "alert", type: "core.log", position: { x: 480, y: 160 }, config: { message: "caught: {{steps.guard.output.error}}" } },
+        ],
+        edges: [
+          { id: "e1", source: "trigger", target: "guard", sourceHandle: null },
+          { id: "e2", source: "guard", target: "after", sourceHandle: null },
+          ...(withErrorEdge ? [{ id: "e3", source: "guard", target: "alert", sourceHandle: "error" }] : []),
+        ],
+      });
+      const route = await make("route", routedGraph(true, { retries: 0, backoffMs: 500, onError: "route" }));
+      const routed = await run(route?.id);
+      check(
+        "route: the failure leaves by Error, the default path is skipped, and the run succeeds",
+        routed?.status === "succeeded" &&
+          stepOf(routed, "guard")?.status === "handled" &&
+          stepOf(routed, "guard")?.branch === "error" &&
+          stepOf(routed, "alert")?.status === "succeeded" &&
+          stepOf(routed, "alert")?.config?.message === "caught: PHASE37: routed." &&
+          stepOf(routed, "after")?.status === "skipped",
+        JSON.stringify((routed?.steps ?? []).map((step) => [step.nodeId, step.status, step.branch])),
+      );
+      const listed = (await api("GET", `/api/runs?workflowId=${route?.id}`, undefined, token)).json?.data?.[0];
+      check("a run's summary says how many errors it handled", listed?.handled === 1, JSON.stringify(listed?.handled));
+
+      const nowhere = await make("route nowhere", routedGraph(false, { retries: 0, backoffMs: 500, onError: "route" }));
+      const stranded = await run(nowhere?.id);
+      check(
+        "route with nothing on Error fails the run — the failure had nowhere to go",
+        stranded?.status === "failed" && stepOf(stranded, "guard")?.status === "failed",
+        stranded?.status,
+      );
+
+      const orphan = await make("orphaned error edge", routedGraph(true, undefined));
+      check(
+        "an Error edge on a node that does not route is a problem that names the policy",
+        orphan?.runnable === false &&
+          (orphan?.problems ?? []).some((problem) => problem.code === "unknown_output_handle" && /on-error policy is "route"/.test(problem.message)),
+        JSON.stringify(orphan?.problems ?? []).slice(0, 300),
+      );
+      const refused = await api("POST", `/api/workflows/${orphan?.id}/runs`, { input: {} }, token);
+      check("and it does not run", refused.status === 422 && refused.json?.error?.code === "invalid_graph", `got ${refused.status}`);
+
+      // --- the error trigger and the inbox ------------------------------------------
+      const errorGraph = (failing) => ({
+        version: 1,
+        nodes: [
+          { id: "trigger", type: "core.error_trigger", position: at(0), config: {} },
+          failing
+            ? failingAssert("broken", "PHASE37: the alert itself failed.")
+            : { id: "say", type: "core.log", position: at(240), config: { message: "{{trigger.workflow.name}} failed at {{trigger.failedStep.label}}: {{trigger.error}}" } },
+        ],
+        edges: [{ id: "e1", source: "trigger", target: failing ? "broken" : "say", sourceHandle: null }],
+      });
+      const listener = await make("alert", errorGraph(false));
+      const brokenListener = await make("broken alert", errorGraph(true));
+      const failing = await make("failing hook", {
+        version: 1,
+        nodes: [
+          { id: "trigger", type: "core.webhook_trigger", position: at(0), config: {} },
+          { ...failingAssert("guard", "PHASE37: the order had no total."), label: "Check the total" },
+        ],
+        edges: [{ id: "e1", source: "trigger", target: "guard", sourceHandle: null }],
+      });
+      check("an error workflow and a webhook workflow to fail are made", Boolean(listener?.id && brokenListener?.id && failing?.webhookUrl));
+
+      const sample = await run(listener?.id);
+      check(
+        "run by hand, the error trigger hands on a sample failure — and tells nobody",
+        sample?.status === "succeeded" && stepOf(sample, "trigger")?.output?.sample === true,
+        JSON.stringify(stepOf(sample, "trigger")?.output ?? null).slice(0, 200),
+      );
+
+      const before = await inbox();
+      check("the inbox reads, with nothing yet for the failing workflow", before !== undefined && !entryFor(before, failing?.id));
+
+      const first = await hook(failing);
+      const firstRun = first.json?.data;
+      check("a webhook run fails", first.status === 201 && firstRun?.status === "failed", `got ${first.status}`);
+      const afterFirst = await inbox();
+      const entry = entryFor(afterFirst, failing?.id);
+      check(
+        "the failure is in the inbox — unread, its run, its step's words",
+        entry?.kind === "run_failed" &&
+          entry?.runId === firstRun?.id &&
+          entry?.count === 1 &&
+          /Check the total: PHASE37: the order had no total\./.test(entry?.detail ?? "") &&
+          afterFirst.unread >= 1,
+        JSON.stringify(entry ?? afterFirst).slice(0, 300),
+      );
+
+      const heard = await settle(listener?.id, 2);
+      const alerted = heard.find((r) => r.trigger === "error");
+      const alertRun = alerted ? (await api("GET", `/api/runs/${alerted.id}`, undefined, token)).json?.data : null;
+      check(
+        "the error workflow ran, as trigger `error`, handed the workflow, the step, the error and a link",
+        alertRun?.status === "succeeded" &&
+          alertRun?.input?.workflow?.name === `${P37} failing hook` &&
+          alertRun?.input?.failedStep?.label === "Check the total" &&
+          alertRun?.input?.error === "PHASE37: the order had no total." &&
+          alertRun?.input?.run?.url?.endsWith(`/runs/${firstRun?.id}`) &&
+          stepOf(alertRun, "say")?.config?.message === `${P37} failing hook failed at Check the total: PHASE37: the order had no total.`,
+        JSON.stringify(alertRun?.input ?? heard.map((r) => [r.trigger, r.status])).slice(0, 400),
+      );
+
+      // The broken listener ran too, failed — and that failure set off nothing more.
+      const brokenRuns = await settle(brokenListener?.id, 1);
+      check("a second error workflow heard the same failure, and its own failure was recorded",
+        brokenRuns.length === 1 && brokenRuns[0]?.trigger === "error" && brokenRuns[0]?.status === "failed",
+        JSON.stringify(brokenRuns.map((r) => [r.trigger, r.status])));
+      const stillOne = (await settle(listener?.id, 2)).filter((r) => r.trigger === "error");
+      check("an error workflow that fails sets off no other — the bound is depth one", stillOne.length === 1, `${stillOne.length} error runs`);
+      check("its failure reached the inbox instead", Boolean(entryFor(await inbox(), brokenListener?.id)));
+
+      const second = await hook(failing);
+      const collapsed = entryFor(await inbox(), failing?.id);
+      check(
+        "a second failure while unread updates the entry rather than adding one",
+        collapsed?.id === entry?.id && collapsed?.count === 2 && collapsed?.runId === second.json?.data?.id,
+        JSON.stringify(collapsed ?? null).slice(0, 200),
+      );
+
+      const marked = (await api("POST", "/api/inbox/read", { ids: [collapsed?.id] }, token)).json?.data;
+      check(
+        "marking it read answers the inbox as it now is",
+        marked?.marked === 1 && !entryFor(marked, failing?.id) && (marked?.entries ?? []).some((e) => e.id === collapsed?.id && e.read),
+        JSON.stringify(marked ?? null).slice(0, 200),
+      );
+      check("someone else's entry, or nothing, marks nothing",
+        (await api("POST", "/api/inbox/read", { ids: [crypto.randomUUID()] }, token)).json?.data?.marked === 0);
+      check("a malformed body is refused",
+        (await api("POST", "/api/inbox/read", { ids: [], all: true }, token)).status === 400);
+
+      await run(failing?.id);
+      check("a run somebody pressed Run on is told to nobody", !entryFor(await inbox(), failing?.id));
+
+      const offed = await api("PATCH", `/api/workflows/${listener?.id}`, { active: false }, token);
+      check("an error workflow can be switched off", offed.status === 200 && offed.json?.data?.active === false);
+      const countBefore = (await runsOf(listener?.id)).length;
+      await hook(failing);
+      await new Promise((resolve) => setTimeout(resolve, 6_000));
+      check("switched off, it hears nothing", (await runsOf(listener?.id)).length === countBefore);
+
+      const page37 = await page("/workflows", token);
+      check("the header carries the bell, its number in words", page37.status === 200 && /aria-label="Inbox, (\d+ unread|nothing unread)"/.test(page37.html));
+    } finally {
+      for (const id of made.filter(Boolean)) await api("DELETE", `/api/workflows/${id}`, undefined, token);
+    }
+  }
+
   // --- run history ----------------------------------------------------------
   const history = await api("GET", `/api/workflows/${workflowId}/runs`, undefined, token);
   check("run history lists both runs of this workflow",
@@ -4352,6 +4579,55 @@ try {
 
     arenaWorkflowId = await makeArenaWorkflow("zzzz matrix subject");
     check("the matrix has a workflow to aim at", arenaWorkflowId !== null);
+
+    // Phase 37 (D177): a failure reaches the inboxes of the members who may see the workflow — and
+    // no one else (D101). The probe is a viewer here: told about a shared workflow's failure, never
+    // about a private one's, which its owner and the workspace's admins still hear about.
+    {
+      const failingHook = (name) => ({
+        name,
+        graph: {
+          version: 1,
+          nodes: [
+            { id: "trigger", type: "core.webhook_trigger", position: { x: 0, y: 0 }, config: {} },
+            {
+              id: "guard",
+              type: "core.assert",
+              position: { x: 240, y: 0 },
+              config: { left: "{{input.missing}}", operator: "is_not_empty", message: "PHASE37 visibility" },
+            },
+          ],
+          edges: [{ id: "e1", source: "trigger", target: "guard", sourceHandle: null }],
+        },
+      });
+      const shared = (await api("POST", "/api/workflows", failingHook("zzzz matrix shared failure"), token, arena)).json?.data;
+      const hidden = (await api("POST", "/api/workflows", failingHook("zzzz matrix private failure"), token, arena)).json?.data;
+      await api("PATCH", `/api/workflows/${hidden?.id}`, { visibility: "private" }, token, arena);
+      for (const row of [shared, hidden]) {
+        await fetch(`${base}/api/webhook/${(row?.webhookUrl ?? "").split("/api/webhook/")[1] ?? "none"}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: "{}",
+        });
+      }
+      const probeInbox = (await api("GET", "/api/inbox", undefined, matrixToken, arena)).json?.data?.entries ?? [];
+      const ownerInbox = (await api("GET", "/api/inbox", undefined, token, arena)).json?.data?.entries ?? [];
+      check(
+        "a viewer is told about a shared workflow's failure, and not a private one's",
+        probeInbox.some((e) => e.workflowId === shared?.id) && !probeInbox.some((e) => e.workflowId === hidden?.id),
+        JSON.stringify(probeInbox.map((e) => e.workflowName)),
+      );
+      check(
+        "its owner is told about both",
+        ownerInbox.some((e) => e.workflowId === shared?.id) && ownerInbox.some((e) => e.workflowId === hidden?.id),
+        JSON.stringify(ownerInbox.map((e) => e.workflowName)),
+      );
+      for (const row of [shared, hidden]) await api("DELETE", `/api/workflows/${row?.id}`, undefined, token, arena);
+      check(
+        "an entry goes with its workflow",
+        !((await api("GET", "/api/inbox", undefined, matrixToken, arena)).json?.data?.entries ?? []).some((e) => e.workflowId === shared?.id),
+      );
+    }
     // Phase 33: a run to read a step of, re-run and retry — made by the owner, before the counts.
     const arenaRunId =
       (await api("POST", `/api/workflows/${arenaWorkflowId}/runs`, { input: null, mode: "sync" }, token, arena)).json?.data?.id ??
@@ -4393,6 +4669,9 @@ try {
       // Phase 33 — a run's history is a read; starting one from it is starting a run.
       ["list runs a page at a time", "GET", `/api/runs?limit=5&status=succeeded`, undefined, "viewer"],
       ["read one step of a run", "GET", `/api/runs/${arenaRunId}/steps/0`, undefined, "viewer"],
+      // Phase 37 — the inbox is every member's own; reading it is not a change to the workspace.
+      ["read the inbox", "GET", "/api/inbox", undefined, "viewer"],
+      ["mark the inbox read", "POST", "/api/inbox/read", { all: true }, "viewer"],
 
       // editor — writes inside the workspace
       ["create a workflow", "POST", "/api/workflows", { name: "zzzz matrix created" }, "editor"],

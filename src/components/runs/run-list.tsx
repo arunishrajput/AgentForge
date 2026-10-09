@@ -8,7 +8,7 @@ import { testLabel } from "@/lib/canvas/test-run";
 import { formatDuration } from "@/lib/format/duration";
 import { formatUtc } from "@/lib/format/date";
 import type { RunSummary } from "@/lib/runs/history";
-import { originWords, TRIGGER_WORDS } from "@/lib/runs/words";
+import { handledWords, originWords, TRIGGER_WORDS } from "@/lib/runs/words";
 
 /**
  * **The run history as a list — Phase 33.** One row a run: what happened, to which workflow,
@@ -75,6 +75,12 @@ function RunRow({ run }: { run: RunSummary }) {
         {origin && (
           <Badge tone="outline" icon={<span aria-hidden="true">↺</span>}>
             {origin}
+          </Badge>
+        )}
+        {/* Phase 37 (D175). Succeeded, and said what it got past — in the handled step's hue. */}
+        {handledWords(run.handled) && (
+          <Badge className="text-warn" icon={<span aria-hidden="true">↪</span>}>
+            {handledWords(run.handled)}
           </Badge>
         )}
         <span className="text-faint w-16 text-right font-mono text-2xs tabular-nums max-sm:text-left">

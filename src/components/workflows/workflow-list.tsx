@@ -18,6 +18,7 @@ import { replaceAddress } from "@/lib/ui/url";
 import {
   DEFAULT_VIEW,
   MISSING_TAG,
+  TRIGGER_NAMES,
   countTags,
   countWorkflows,
   isDefaultView,
@@ -298,6 +299,11 @@ export function WorkflowList({
               { value: "manual", label: "Manual", count: counts.manual },
               { value: "webhook", label: "Webhook", count: counts.webhook },
               { value: "schedule", label: "Schedule", count: counts.schedule },
+              // Phase 37. Offered once there is an error workflow to find, or while it is the
+              // filter — a fifth chip that always reads 0 is noise for most workspaces.
+              ...(counts.error > 0 || view.trigger === "error"
+                ? [{ value: "error" as const, label: "On failure", count: counts.error }]
+                : []),
             ]}
           />
         </div>
@@ -509,7 +515,7 @@ function Row({
             {card.nodeCount} node{card.nodeCount === 1 ? "" : "s"}
           </Badge>
           {card.triggers.map((trigger) => (
-            <Badge key={trigger}>{trigger}</Badge>
+            <Badge key={trigger}>{TRIGGER_NAMES[trigger]}</Badge>
           ))}
           {card.scheduleCron && <Badge className="font-mono">{card.scheduleCron}</Badge>}
           {/* **Both of these have to be visible from the list** (Phase 20). A workflow that

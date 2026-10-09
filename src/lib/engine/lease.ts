@@ -209,6 +209,8 @@ export async function finishRun(options: {
   output?: unknown;
   error?: string | null;
   cursor?: RunCursor | null;
+  /** Phase 37: how many failures the run's on-error policies handled (D175). */
+  handled?: number;
 }): Promise<boolean> {
   const [row] = await db()
     .update(runs)
@@ -216,6 +218,7 @@ export async function finishRun(options: {
       status: options.status,
       output: options.output ?? null,
       error: options.error ?? null,
+      ...(options.handled === undefined ? {} : { handled: options.handled }),
       finishedAt: sql`now()` as unknown as Date,
       heartbeatAt: sql`now()` as unknown as Date,
       cursor: options.cursor ?? null,
@@ -401,7 +404,10 @@ export async function requestCancel(options: {
  * zero and a timer would not fire; the cron tick calls it across every owner too, so a
  * signed-out user's abandoned run is not left pending on nobody looking at it.
  */
-export async function sweepAbandonedRuns(scope?: WorkspaceScope): Promise<number> {
+/** A run the sweeper failed — what announcing its failure needs (Phase 37). */
+export type SweptRun = Pick<Run, "id" | "workflowId" | "workspaceId" | "trigger" | "test" | "startedAt" | "error">;
+
+export async function sweepAbandonedRuns(scope?: WorkspaceScope): Promise<SweptRun[]> {
   const lapsed = or(
     isNull(runs.leaseExpiresAt),
     lt(runs.leaseExpiresAt, agoSeconds(SWEEP_GRACE_MS / 1000)),
@@ -436,7 +442,15 @@ export async function sweepAbandonedRuns(scope?: WorkspaceScope): Promise<number
         hopeless,
       ),
     )
-    .returning({ id: runs.id });
+    .returning({
+      id: runs.id,
+      workflowId: runs.workflowId,
+      workspaceId: runs.workspaceId,
+      trigger: runs.trigger,
+      test: runs.test,
+      startedAt: runs.startedAt,
+      error: runs.error,
+    });
 
-  return swept.length;
+  return swept;
 }

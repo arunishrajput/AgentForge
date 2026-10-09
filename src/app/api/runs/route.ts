@@ -1,4 +1,4 @@
-import { sweepAbandonedRuns } from "@/lib/engine/lease";
+import { sweepRuns } from "@/lib/engine/run";
 import { handle, okPage, requireScope } from "@/lib/api";
 import { listRunPage } from "@/lib/runs/history";
 import { pageCursors, readRunRequest } from "@/lib/runs/query";
@@ -18,7 +18,7 @@ export async function GET(request: Request) {
   return handle(async () => {
     const scope = await requireScope();
     const { query, limit } = readRunRequest(new URL(request.url));
-    await sweepAbandonedRuns(scope);
+    await sweepRuns(scope);
     const page = await listRunPage(scope, query, { limit });
     return okPage(page.runs, pageCursors(page));
   });

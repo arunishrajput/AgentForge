@@ -27,7 +27,7 @@ export interface EvalCase {
   id: string;
   prompt: string;
   /** The trigger the request implies, when it implies one. */
-  trigger?: "core.manual_trigger" | "core.webhook_trigger" | "core.schedule_trigger";
+  trigger?: "core.manual_trigger" | "core.webhook_trigger" | "core.schedule_trigger" | "core.error_trigger";
   /**
    * Node types the workflow must contain. A string is one type; an array is "any one of these",
    * for a need that more than one node meets.
@@ -237,5 +237,16 @@ export const EVAL_CASES: EvalCase[] = [
     trigger: "core.webhook_trigger",
     // The Postgres node only reads. Writing a row is the part that cannot be built.
     unsupported: true,
+  },
+  {
+    // Phase 37: the first node registered since D112 was lifted owes a case that needs it. The
+    // request never says "error trigger" — it says what a person would — and the alert's channel
+    // is one the workspace already has a node for.
+    id: "failure-alert",
+    prompt: "Whenever any of my workflows fails, post the workflow's name and what went wrong to our Discord channel.",
+    trigger: "core.error_trigger",
+    requires: ["integration.discord"],
+    forbids: ["core.webhook_trigger", "core.schedule_trigger"],
+    unsupported: false,
   },
 ];

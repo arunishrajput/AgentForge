@@ -26,6 +26,7 @@ export function summaryOf(run: StreamRun, workflowName: string): RunSummary {
     wakeAt: run.wakeAt,
     test: run.test,
     origin: run.origin ?? null,
+    handled: run.handled,
     workflowVersion: run.workflowVersion,
     error: run.error,
     startedAt: run.startedAt,

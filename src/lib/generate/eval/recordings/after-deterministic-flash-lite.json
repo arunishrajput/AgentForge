@@ -1,6 +1,6 @@
 {
   "label": "after-deterministic-flash-lite",
-  "description": "Phase 34 as shipped: deterministic selection. users-to-sheet was re-recorded after the reference retry was added \u2014 its first sample, without the retry, wrote {{input.name}} inside a Loop and failed",
+  "description": "Phase 34 as shipped: deterministic selection. users-to-sheet was re-recorded after the reference retry was added — its first sample, without the retry, wrote {{input.name}} inside a Loop and failed",
   "provider": "google",
   "model": "gemini-3.5-flash-lite",
   "selector": "deterministic",
@@ -8,7 +8,7 @@
   "cases": {
     "demo-triage": {
       "calls": [
-        "{\n  \"name\": \"Process Form Submissions\",\n  \"description\": \"Summarise form submissions, classify urgency, post urgent ones to Discord, and log all to Google Sheets.\",\n  \"nodes\": [\n    {\n      \"id\": \"webhook\",\n      \"type\": \"core.webhook_trigger\",\n      \"label\": \"Form Webhook\",\n      \"config\": {\n        \"requiredFields\": []\n      }\n    },\n    {\n      \"id\": \"summarise\",\n      \"type\": \"ai.llm\",\n      \"label\": \"Summarise Submission\",\n      \"config\": {\n        \"prompt\": \"Summarise this form submission in one concise sentence: {{trigger.message}}\",\n        \"system\": \"\",\n        \"temperature\": 0.3,\n        \"json\": false\n      }\n    },\n    {\n      \"id\": \"classify\",\n      \"type\": \"ai.agent\",\n      \"label\": \"Classify Urgency\",\n      \"config\": {\n        \"objective\": \"Determine if the form submission is urgent based on the content. Choose 'urgent' if it requires immediate attention, otherwise choose 'normal'.\",\n        \"choices\": [\n          \"urgent\",\n          \"normal\"\n        ],\n        \"tools\": [],\n        \"system\": \"\",\n        \"temperature\": 0\n      }\n    },\n    {\n      \"id\": \"check_urgent\",\n      \"type\": \"core.branch\",\n      \"label\": \"Is Urgent?\",\n      \"config\": {\n        \"left\": \"{{input.decision}}\",\n        \"operator\": \"equals\",\n        \"right\": \"urgent\"\n      }\n    },\n    {\n      \"id\": \"discord\",\n      \"type\": \"integration.discord\",\n      \"label\": \"Post to Discord\",\n      \"config\": {\n        \"content\": \"\ud83d\udea8 Urgent submission: {{steps.summarise.output.text}}\"\n      }\n    },\n    {\n      \"id\": \"sheets\",\n      \"type\": \"integration.sheets\",\n      \"label\": \"Log to Google Sheet\",\n      \"config\": {\n        \"spreadsheetId\": \"\",\n        \"sheet\": \"Sheet1\",\n        \"values\": [\n          \"{{trigger.name}}\",\n          \"{{steps.summarise.output.text}}\",\n          \"{{steps.classify.output.decision}}\"\n        ],\n        \"valueInputOption\": \"USER_ENTERED\"\n      }\n    }\n  ],\n  \"edges\": [\n    {\n      \"source\": \"webhook\",\n      \"target\": \"summarise\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"summarise\",\n      \"target\": \"classify\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"classify\",\n      \"target\": \"check_urgent\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"check_urgent\",\n      \"target\": \"discord\",\n      \"sourceHandle\": \"true\"\n    },\n    {\n      \"source\": \"check_urgent\",\n      \"target\": \"sheets\",\n      \"sourceHandle\": \"true\"\n    },\n    {\n      \"source\": \"check_urgent\",\n      \"target\": \"sheets\",\n      \"sourceHandle\": \"false\"\n    }\n  ],\n  \"unsupported\": []\n}"
+        "{\n  \"name\": \"Process Form Submissions\",\n  \"description\": \"Summarise form submissions, classify urgency, post urgent ones to Discord, and log all to Google Sheets.\",\n  \"nodes\": [\n    {\n      \"id\": \"webhook\",\n      \"type\": \"core.webhook_trigger\",\n      \"label\": \"Form Webhook\",\n      \"config\": {\n        \"requiredFields\": []\n      }\n    },\n    {\n      \"id\": \"summarise\",\n      \"type\": \"ai.llm\",\n      \"label\": \"Summarise Submission\",\n      \"config\": {\n        \"prompt\": \"Summarise this form submission in one concise sentence: {{trigger.message}}\",\n        \"system\": \"\",\n        \"temperature\": 0.3,\n        \"json\": false\n      }\n    },\n    {\n      \"id\": \"classify\",\n      \"type\": \"ai.agent\",\n      \"label\": \"Classify Urgency\",\n      \"config\": {\n        \"objective\": \"Determine if the form submission is urgent based on the content. Choose 'urgent' if it requires immediate attention, otherwise choose 'normal'.\",\n        \"choices\": [\n          \"urgent\",\n          \"normal\"\n        ],\n        \"tools\": [],\n        \"system\": \"\",\n        \"temperature\": 0\n      }\n    },\n    {\n      \"id\": \"check_urgent\",\n      \"type\": \"core.branch\",\n      \"label\": \"Is Urgent?\",\n      \"config\": {\n        \"left\": \"{{input.decision}}\",\n        \"operator\": \"equals\",\n        \"right\": \"urgent\"\n      }\n    },\n    {\n      \"id\": \"discord\",\n      \"type\": \"integration.discord\",\n      \"label\": \"Post to Discord\",\n      \"config\": {\n        \"content\": \"🚨 Urgent submission: {{steps.summarise.output.text}}\"\n      }\n    },\n    {\n      \"id\": \"sheets\",\n      \"type\": \"integration.sheets\",\n      \"label\": \"Log to Google Sheet\",\n      \"config\": {\n        \"spreadsheetId\": \"\",\n        \"sheet\": \"Sheet1\",\n        \"values\": [\n          \"{{trigger.name}}\",\n          \"{{steps.summarise.output.text}}\",\n          \"{{steps.classify.output.decision}}\"\n        ],\n        \"valueInputOption\": \"USER_ENTERED\"\n      }\n    }\n  ],\n  \"edges\": [\n    {\n      \"source\": \"webhook\",\n      \"target\": \"summarise\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"summarise\",\n      \"target\": \"classify\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"classify\",\n      \"target\": \"check_urgent\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"check_urgent\",\n      \"target\": \"discord\",\n      \"sourceHandle\": \"true\"\n    },\n    {\n      \"source\": \"check_urgent\",\n      \"target\": \"sheets\",\n      \"sourceHandle\": \"true\"\n    },\n    {\n      \"source\": \"check_urgent\",\n      \"target\": \"sheets\",\n      \"sourceHandle\": \"false\"\n    }\n  ],\n  \"unsupported\": []\n}"
       ],
       "models": [
         "gemini-3.5-flash-lite"
@@ -875,6 +875,43 @@
         "integration.postgres"
       ],
       "promptChars": 16924,
+      "verdict": "pass",
+      "failures": []
+    },
+    "failure-alert": {
+      "calls": [
+        "{\n  \"name\": \"Alert on Workflow Failure\",\n  \"description\": \"Posts workflow failure details to Discord whenever any workflow fails.\",\n  \"nodes\": [\n    {\n      \"id\": \"failure_trigger\",\n      \"type\": \"core.error_trigger\",\n      \"label\": \"Workflow Failed\",\n      \"config\": {}\n    },\n    {\n      \"id\": \"post_to_discord\",\n      \"type\": \"integration.discord\",\n      \"label\": \"Post to Discord\",\n      \"config\": {\n        \"content\": \"Workflow Failed: {{trigger.workflow.name}}\\nError: {{trigger.error}}\"\n      }\n    }\n  ],\n  \"edges\": [\n    {\n      \"source\": \"failure_trigger\",\n      \"target\": \"post_to_discord\",\n      \"sourceHandle\": null\n    }\n  ],\n  \"unsupported\": []\n}"
+      ],
+      "models": [
+        "gemini-3.5-flash-lite"
+      ],
+      "ms": [
+        20704
+      ],
+      "tokens": [
+        {
+          "input": 4685,
+          "output": 205
+        }
+      ],
+      "selected": [
+        "core.manual_trigger",
+        "core.webhook_trigger",
+        "core.schedule_trigger",
+        "core.error_trigger",
+        "core.assert",
+        "transform.map",
+        "transform.aggregate",
+        "transform.text",
+        "ai.llm",
+        "integration.discord",
+        "integration.slack",
+        "integration.sheets",
+        "integration.github",
+        "integration.airtable",
+        "integration.postgres"
+      ],
+      "promptChars": 18062,
       "verdict": "pass",
       "failures": []
     }

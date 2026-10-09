@@ -18,13 +18,22 @@
 
 import { findTag, sameTagName, sortTags, type TagSummary } from "./tags";
 
-/** The three ways a run can start today — CONTRACT.md → "Trigger shapes". */
-export type TriggerKind = "manual" | "webhook" | "schedule";
+/** The four ways a workflow can start — CONTRACT.md → "Trigger shapes". `error` is Phase 37's. */
+export type TriggerKind = "manual" | "webhook" | "schedule" | "error";
 
 const TRIGGER_TYPES: Record<string, TriggerKind> = {
   "core.manual_trigger": "manual",
   "core.webhook_trigger": "webhook",
   "core.schedule_trigger": "schedule",
+  "core.error_trigger": "error",
+};
+
+/** How a card and the filter name each trigger. An error workflow runs "on failure" — of another workflow. */
+export const TRIGGER_NAMES: Record<TriggerKind, string> = {
+  manual: "manual",
+  webhook: "webhook",
+  schedule: "schedule",
+  error: "on failure",
 };
 
 export type WorkflowCard = {
@@ -241,6 +250,7 @@ export function countWorkflows(cards: WorkflowCard[]) {
     manual: cards.filter((card) => card.triggers.includes("manual")).length,
     webhook: cards.filter((card) => card.triggers.includes("webhook")).length,
     schedule: cards.filter((card) => card.triggers.includes("schedule")).length,
+    error: cards.filter((card) => card.triggers.includes("error")).length,
     starred: cards.filter((card) => card.starred).length,
   };
 }
@@ -284,7 +294,7 @@ export function isDefaultView(view: ListView): boolean {
 type SearchParams = Record<string, string | string[] | undefined>;
 
 const STATUSES: readonly StatusKey[] = ["all", "runnable", "problems"];
-const TRIGGER_KEYS: readonly TriggerKey[] = ["all", "manual", "webhook", "schedule"];
+const TRIGGER_KEYS: readonly TriggerKey[] = ["all", "manual", "webhook", "schedule", "error"];
 const SORT_KEYS: readonly SortKey[] = ["recent", "created", "name"];
 
 /** The longest a pasted search or tag is taken to be. Longer is not a search anybody typed. */

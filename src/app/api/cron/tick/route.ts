@@ -56,6 +56,7 @@ export async function POST(request: Request) {
         swept: outcome.swept,
         pruned: outcome.pruned,
         prunedRuns: outcome.prunedRuns,
+        prunedInbox: outcome.prunedInbox,
       },
     );
 

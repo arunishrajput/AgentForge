@@ -28,6 +28,30 @@ export const MIN_TIMEOUT_MS = 1_000;
 /** Longest pause between attempts. */
 export const MAX_BACKOFF_MS = 10_000;
 
+/**
+ * **What a run does when this node fails — Phase 37, `CONTRACT.md` → *On-error policy*.**
+ * Applied after the node's retries are spent, never instead of them.
+ *
+ *   stop      today's behaviour, and what absent means: the step fails, and so does the run
+ *   continue  the step is recorded `handled`, and the run goes on out of the default output
+ *             with the error as the node's output (D173)
+ *   route     the step is recorded `handled`, and the run leaves by the node's **Error**
+ *             output — drawn on the card only while this is the policy (`outputsOf`, D174).
+ *             With nothing connected to Error, the failure fails the run: it had nowhere to go
+ */
+export const ON_ERROR = ["stop", "continue", "route"] as const;
+export type OnError = (typeof ON_ERROR)[number];
+
+/**
+ * **The Error output's key — reserved.** No registry node may declare an output with this key
+ * (`registry.test.ts`), because the engine adds it to a node's own outputs when its policy
+ * routes, and a node that already had one would have two exits with one name.
+ */
+export const ERROR_HANDLE = "error";
+
+/** The output a routing policy adds, drawn after the node's own. */
+export const ERROR_OUTPUT = { key: ERROR_HANDLE, label: "Error" } as const;
+
 export const nodePolicySchema = z.object({
   /** Extra attempts after the first. 0 means "run once", which is the default. */
   retries: z.number().int().min(0).max(MAX_RETRIES).default(0),
@@ -39,11 +63,52 @@ export const nodePolicySchema = z.object({
    * carries.
    */
   timeoutMs: z.number().int().min(MIN_TIMEOUT_MS).max(MAX_TIMEOUT_MS).optional(),
+  /**
+   * Phase 37. **Absent is `stop`**, and stays absent — no schema default — so every graph saved
+   * before this phase reads exactly as it was stored and shows no unsaved change.
+   */
+  onError: z.enum(ON_ERROR).optional(),
 });
 
 export type NodePolicy = z.infer<typeof nodePolicySchema>;
 
 export const DEFAULT_POLICY: NodePolicy = { retries: 0, backoffMs: 500 };
+
+/**
+ * What a node does on a failure its retries did not cure. **A trigger always stops** — a run
+ * starts there, so there is nothing before it to have handled anything, and the inspector does
+ * not offer the choice on one — whatever its stored policy says.
+ */
+export function onErrorOf(policy: NodePolicy, kind: string | undefined): OnError {
+  if (kind === "trigger") return "stop";
+  return policy.onError ?? "stop";
+}
+
+/**
+ * **A node's outputs as they are on this canvas — its registry entry's, plus Error while its
+ * policy routes** (D174). The one answer to "which handles does this node have": the card draws
+ * them, validation checks an edge's `sourceHandle` against them, and the engine and a retry's
+ * replay follow them. Handles still come from the registry (D21, D23); the policy only adds the
+ * one key the registry reserves.
+ */
+export function outputsOf<Output extends { key: string | null; label: string }>(
+  definition: { kind: string; outputs: readonly Output[] },
+  policy: unknown,
+): readonly (Output | typeof ERROR_OUTPUT)[] {
+  return onErrorOf(readPolicy(policy), definition.kind) === "route"
+    ? [...definition.outputs, ERROR_OUTPUT]
+    : definition.outputs;
+}
+
+/** The error a handled step hands on as its output — what `{{steps.x.output.error}}` reads. */
+export interface HandledError {
+  error: string;
+  nodeId: string;
+}
+
+export function handledOutput(message: string, nodeId: string): HandledError {
+  return { error: message, nodeId };
+}
 
 /**
  * Read a policy off a graph node. An unreadable or absent policy is the default —

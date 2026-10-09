@@ -1,4 +1,4 @@
-import { logError, logInfo } from "@/lib/logging";
+import { logError, logInfo, logWarn } from "@/lib/logging";
 import { getNode } from "@/lib/nodes";
 import { describeDuration, MAX_WAIT_MS } from "@/lib/nodes/core/delay";
 import { NodeError, type LogLevel, type StepLog } from "@/lib/nodes/types";
@@ -14,7 +14,15 @@ import {
   type RunCursor,
 } from "./cursor";
 import { aimedAt, honouredPin, scopeOf, type RunTest } from "./partial";
-import { attemptDelayMs, readPolicy, retryable, type NodePolicy } from "./policy";
+import {
+  attemptDelayMs,
+  ERROR_HANDLE,
+  handledOutput,
+  onErrorOf,
+  readPolicy,
+  retryable,
+  type NodePolicy,
+} from "./policy";
 import { validateGraph, type GraphProblem } from "./validate";
 import {
   CHECKPOINT_OK,
@@ -547,6 +555,10 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
     // step's input alone cannot tell a pin from an earlier run's output.
     if (node.id === entry && iteration === 0) for (const note of seed?.notes ?? []) log(note);
 
+    // Read before the attempt rather than inside it: a config the node's schema refuses at run
+    // time is a failure its on-error policy answers too (Phase 37).
+    const policy = readPolicy(node.policy);
+
     try {
       const resolved = resolveConfig(node.config ?? {}, templateScope);
       step.config = resolved;
@@ -565,7 +577,7 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
         definition,
         config: parsed.data,
         input: nodeInput,
-        policy: readPolicy(node.policy),
+        policy,
         signal,
         log,
         context: { runId, workflowId, scope, nodeId: node.id, nodeType: node.type, iteration, log },
@@ -641,10 +653,65 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
 
       follow(node.id, step.branch, mySeq);
     } catch (error) {
-      step.status = "failed";
       step.error = message(error);
-      step.finishedAt = new Date().toISOString();
       executions.set(node.id, iteration + 1);
+
+      /**
+       * **The on-error policy — Phase 37, `CONTRACT.md` → *On-error policy* (D173).** Only once
+       * the node's own retries are spent, and never when the *run* was stopped — out of time or
+       * cancelled — because then the failure is the run's, not the node's, and there is no run
+       * left to carry on.
+       *
+       * A handled step hands its error on as its output, exactly as a succeeded one hands on its
+       * result, and the run leaves it by the default output (`continue`) or by Error (`route`).
+       * `continue` on a node with no default output — a Branch, a Switch, a Loop — stops its
+       * path there, D133's rule for the same question: there is no neutral way out of a node
+       * whose job is choosing one. `route` with nothing connected to Error is a failure with
+       * nowhere to go, and fails the run as `stop` would.
+       */
+      const onError = signal.aborted ? "stop" : onErrorOf(policy, definition.kind);
+      const routed = onError === "route" && edgesFrom(graph, node.id, ERROR_HANDLE).length > 0;
+      if (onError === "continue" || routed) {
+        const passes = definition.outputs.some((output) => output.key === null);
+        log(
+          routed
+            ? `Failed: ${step.error} — its on-error policy sent the run down its Error output.`
+            : passes
+              ? `Failed: ${step.error} — its on-error policy carried the run on, with the error as its output.`
+              : `Failed: ${step.error} — its on-error policy carried the run on, but it chooses which way the run goes and has no default output, so nothing after it runs from here.`,
+          "warn",
+        );
+        step.status = "handled";
+        step.output = handledOutput(step.error, node.id);
+        step.branch = routed ? ERROR_HANDLE : null;
+        step.finishedAt = new Date().toISOString();
+        outputs.set(node.id, step.output);
+        bySeq.set(mySeq, step.output);
+        lastOutput = step.output;
+        await recorder.stepFinished(step);
+        // A warning, not an error: the author planned for this, and `severity>=ERROR` is the
+        // filter that finds what nobody planned for (`OPERATIONS.md`).
+        logWarn("node.finished", `Node ${node.id} failed and its error was handled.`, {
+          nodeId: node.id,
+          nodeType: node.type,
+          status: "handled",
+          iteration,
+          branch: step.branch,
+          durationMs: Date.parse(step.finishedAt) - Date.parse(step.startedAt!),
+        });
+
+        if (routed) follow(node.id, ERROR_HANDLE, mySeq);
+        else if (passes) follow(node.id, null, mySeq);
+
+        if (await checkpointed()) break;
+        continue;
+      }
+      if (onError === "route") {
+        log("Its on-error policy routes failures, and nothing is connected to its Error output — so the run fails.", "warn");
+      }
+
+      step.status = "failed";
+      step.finishedAt = new Date().toISOString();
       await recorder.stepFinished(step);
       failure = `Node "${node.id}" (${node.type}) failed: ${step.error}`;
       // Severity ERROR, so this is the entry a `severity>=ERROR` filter finds and Error

@@ -62,6 +62,7 @@ import { runStatesOf } from "@/lib/canvas/run-states";
 import { edgeRunLook } from "@/lib/canvas/status";
 import { testOutcome } from "@/lib/canvas/test-run";
 import { honouredPin, planTest, type TestScope } from "@/lib/engine/partial";
+import { ERROR_HANDLE, readPolicy } from "@/lib/engine/policy";
 import { checkManualInput, manualTrigger } from "@/lib/nodes/core/manual-trigger";
 import { adoptStarted, useRunStream } from "@/lib/canvas/run-stream";
 import { isNewScheduledRun, withScheduleOf } from "@/lib/canvas/schedule-sync";
@@ -71,6 +72,7 @@ import { formatDuration } from "@/lib/format/duration";
 import { mergeRecent } from "@/lib/runs/recent";
 import { layout } from "@/lib/generate/layout";
 import { formatUtc } from "@/lib/triggers/cron";
+import { ERROR_TRIGGER_TYPE } from "@/lib/triggers/failure";
 import { replaceAddress } from "@/lib/ui/url";
 import { diffGraph, type GraphDiff, type NodeDiff, type NoteDiff } from "@/lib/workflow/diff";
 import {
@@ -822,8 +824,21 @@ function EditorInner({
           node.id === id ? { ...node, data: { ...node.data, ...data } } : node,
         ),
       );
+      /**
+       * **Phase 37 (D174).** A node has an Error output only while its on-error policy routes, so a
+       * policy changed away from route takes the edges that left by Error with it — in the same
+       * step of undo, so undoing the change brings both back. Left behind, they would be edges from
+       * a handle that is not drawn, and a problem the author did not make.
+       */
+      if ("policy" in data && readPolicy(data.policy).onError !== "route") {
+        setEdges((current) =>
+          current.some((edge) => edge.source === id && edge.sourceHandle === ERROR_HANDLE)
+            ? current.filter((edge) => !(edge.source === id && edge.sourceHandle === ERROR_HANDLE))
+            : current,
+        );
+      }
     },
-    [setNodes],
+    [setEdges, setNodes],
   );
 
   /** Delete nodes and notes, and every edge touching them — one step of undo, however many. */
@@ -1202,14 +1217,24 @@ function EditorInner({
           detail: "The run reached a delay and is paused. It resumes on its own — you can close this page.",
         });
       } else if (finished.status === "succeeded") {
+        // Phase 37: a run that got past a failure says which step it got past — the run worked as
+        // planned, so the tone stays ok, and the step is named so it can be looked at.
+        const handled = finished.steps?.find((step) => step.status === "handled");
+        const handledName = handled
+          ? (names.get(handled.nodeId) ?? registry.get(handled.nodeType)?.label ?? handled.nodeType)
+          : null;
         toast({
           tone: "ok",
           // A run that used pinned outputs is a test (Phase 31), and says so where it ends.
           title: finished.test ? "Test run finished — pinned outputs used" : "Run finished",
-          detail:
+          detail: [
             finished.durationMs === null
-              ? undefined
+              ? null
               : `${finished.steps?.length ?? 0} steps in ${formatDuration(finished.durationMs)}.`,
+            handled ? `${handledName} failed and its error was handled${(finished.handled ?? 0) > 1 ? `, with ${finished.handled - 1} more` : ""}.` : null,
+          ]
+            .filter(Boolean)
+            .join(" ") || undefined,
         });
       }
     } catch (error) {
@@ -1735,11 +1760,14 @@ function EditorInner({
   }, [saved.active, saved.id, toast]);
 
   /**
-   * Whether the switch means anything here: only a stored webhook or schedule trigger runs
-   * a workflow by itself. A manual workflow has nothing to switch off, and a switch that
-   * does nothing is a question the user then has to ask.
+   * Whether the switch means anything here: only a stored webhook, schedule or — Phase 37 —
+   * error trigger runs a workflow by itself. A manual workflow has nothing to switch off, and a
+   * switch that does nothing is a question the user then has to ask.
    */
-  const automatic = saved.webhookUrl !== null || saved.scheduleCron !== null;
+  const automatic =
+    saved.webhookUrl !== null ||
+    saved.scheduleCron !== null ||
+    saved.graph.nodes.some((node) => node.type === ERROR_TRIGGER_TYPE);
 
   /**
    * The keyboard — Phase 29. Which key means what is `lib/canvas/shortcuts.ts`; an action

@@ -46,8 +46,8 @@ test("all nine integrations are registered and dispatchable by type", () => {
     assert.equal(node.kind, "action", node.type);
   }
   assert.equal(integrations.length, 9);
-  // 30 after Phase 23C added the database node to Phase 23B's 29.
-  assert.equal(listNodes().length, 30);
+  // 30 after Phase 23C added the database node to Phase 23B's 29; 31 since Phase 37's error trigger.
+  assert.equal(listNodes().length, 31);
 });
 
 test("every integration declares the shape of its output", () => {

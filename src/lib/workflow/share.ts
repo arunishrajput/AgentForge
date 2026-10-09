@@ -61,6 +61,8 @@ const PUBLISHABLE: Readonly<Record<string, SharePolicy>> = {
   "core.manual_trigger": {},
   "core.webhook_trigger": { values: ["requiredFields"] },
   "core.schedule_trigger": { values: ["cron"] },
+  // Phase 37. No config at all; what it means — "when another workflow here fails" — is its type.
+  "core.error_trigger": {},
 
   // Logic and transform. The operator is published because "is not empty" is the shape of
   // the decision; `left` and `right` are redacted because they are as often a literal the

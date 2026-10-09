@@ -97,11 +97,31 @@ test("no status expresses itself with opacity or a transform", () => {
   }
 });
 
-test("failure is the only status that recolours the card's outline", () => {
+test("only a failure recolours the card's outline — red where it stopped the run, the warning hue where it was handled", () => {
   const recoloured = NODE_STATUSES.filter(
     (status) => !nodeStatusLook(status).outline.startsWith("border-line"),
   );
-  assert.deepEqual(recoloured, ["failed"]);
+  assert.deepEqual(recoloured, ["failed", "handled"]);
+  assert.notEqual(nodeStatusLook("failed").outline, nodeStatusLook("handled").outline);
+});
+
+test("a handled failure is not a failure: its own word and shape, and it keeps still", () => {
+  // Phase 37 (D175). The wiggle means "this stopped the run", and a handled error did not; a
+  // greyscale screenshot tells the two apart by the word and the glyph, not by the hue.
+  const handled = nodeStatusLook("handled");
+  const failed = nodeStatusLook("failed");
+  assert.equal(handled.label, "Handled");
+  assert.notEqual(handled.glyph, failed.glyph);
+  assert.equal(handled.motion, "");
+  assert.equal(handled.surface, "bg-elevated", "raised: it handed a value on — its error");
+});
+
+test("the lit path runs on out of a handled step, along whichever output it left by", () => {
+  // The target says whether the run went that way: the Error path's first step ran, the default
+  // path's was skipped.
+  assert.equal(edgeRunLook("handled", "succeeded", false), "traversed");
+  assert.equal(edgeRunLook("handled", "running", true), "live");
+  assert.equal(edgeRunLook("handled", "skipped", false), null);
 });
 
 test("every run status says what it is, in a word of its own", () => {

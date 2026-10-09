@@ -8,6 +8,7 @@ import { categoryLook } from "@/lib/canvas/categories";
 import { changeLook, fieldWords } from "@/lib/canvas/changes";
 import { nodeStatusLook } from "@/lib/canvas/status";
 import { canPin } from "@/lib/engine/partial";
+import { ERROR_HANDLE, outputsOf } from "@/lib/engine/policy";
 
 import { useCanvas } from "./context";
 import { NodeIcon } from "./node-icon";
@@ -97,7 +98,9 @@ export function WorkflowNodeView({ id, data, selected }: NodeProps<CanvasNode>) 
   const pinnedLook = nodeStatusLook("pinned");
   const showPin = pinned && (change !== null || state?.status !== "pinned");
 
-  const outputs = definition?.outputs ?? [{ key: null, label: "Out" }];
+  // The registry's outputs, plus Error while the node's on-error policy routes (Phase 37, D174) —
+  // the same answer validation and the engine use, so a handle drawn here is one an edge may leave by.
+  const outputs = definition ? outputsOf(definition, data.policy) : [{ key: null, label: "Out" }];
   const isTrigger = definition?.kind === "trigger";
   // A step paused inside a waiting run (Phase 26) is not working, so it gets no live edge.
   const running = !off && state?.status === "running" && !state.paused;
@@ -307,7 +310,10 @@ export function WorkflowNodeView({ id, data, selected }: NodeProps<CanvasNode>) 
                     ? "!bg-ok-pop"
                     : output.key === "false"
                       ? "!bg-bad-pop"
-                      : "!bg-elevated",
+                      : // Phase 37: the Error exit wears the hue a handled failure does on this card.
+                        output.key === ERROR_HANDLE
+                        ? "!bg-warn-pop"
+                        : "!bg-elevated",
                 )}
               />
             </div>

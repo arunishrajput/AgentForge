@@ -467,6 +467,7 @@ function NodeInspector({
                 key={`${node.id}:${revision}`}
                 policy={node.data.policy}
                 onChange={(policy) => onChange(node.id, { policy })}
+                canContinue={definition.outputs.some((output) => output.key === null)}
               />
             </fieldset>
           </>

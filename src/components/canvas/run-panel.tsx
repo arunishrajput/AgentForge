@@ -11,7 +11,7 @@ import { testLabel } from "@/lib/canvas/test-run";
 import { elapsedMs, formatDuration, formatOffset } from "@/lib/format/duration";
 import { rerunnable } from "@/lib/engine/retry";
 import { formatUtc } from "@/lib/triggers/cron";
-import { originWords, shortRunId } from "@/lib/runs/words";
+import { handledWords, originWords, shortRunId } from "@/lib/runs/words";
 
 import { useCanvas } from "./context";
 import { NodeIcon } from "./node-icon";
@@ -146,6 +146,15 @@ export function RunPanel({
           <span className="chip text-muted shrink-0">
             <span aria-hidden="true">↻</span>
             Resumed {run.attempt - 1}×
+          </span>
+        )}
+
+        {/* Phase 37: errors its on-error policies handled. The run's status already says it
+            succeeded; this says what it got past, in the hue a handled step wears. */}
+        {handledWords(run.handled) && (
+          <span className="chip text-warn shrink-0">
+            <span aria-hidden="true">↪</span>
+            {handledWords(run.handled)}
           </span>
         )}
 

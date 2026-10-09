@@ -92,6 +92,7 @@ export default async function SettingsPage({
         email={email}
         workspace={workspace}
         workspaces={memberships.map((m) => describeWorkspace(m, scope.userId))}
+        scope={scope}
         active="settings"
       />
 

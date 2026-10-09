@@ -8,11 +8,12 @@ import {
   MAX_TIMEOUT_MS,
   MIN_TIMEOUT_MS,
   type NodePolicy,
+  type OnError,
 } from "@/lib/engine/policy";
 
 /**
- * Retry and timeout for one node — `PRD.md` C4, the requirement Chapter 1 wrote down as
- * S6 and never built.
+ * Retry, timeout and — since Phase 37 — what a failure does, for one node. Retry and timeout
+ * are `PRD.md` C4, the requirement Chapter 1 wrote down as S6 and never built.
  *
  * **Deliberately the quiet register** (`DESIGN.md`): plain fields on paper, no fills, no
  * shadows, no mascot. This is a settings form inside a settings panel, and the design
@@ -32,33 +33,70 @@ import {
  *    at the keyboard.
  */
 
-/** "No retries and no timeout of its own" is the absence of a policy, not a policy. */
+/**
+ * "No retries, no timeout of its own, and stop on a failure" is the absence of a policy, not a
+ * policy. `stop` is never written: absent means it (Phase 37), and a written default would make
+ * every node somebody touched differ from one nobody did.
+ */
 function normalise(policy: NodePolicy): NodePolicy | undefined {
-  if (policy.retries === 0 && policy.timeoutMs === undefined) return undefined;
-  return policy;
+  const { onError, ...rest } = policy;
+  const kept: NodePolicy = onError === undefined || onError === "stop" ? rest : { ...rest, onError };
+  if (kept.retries === 0 && kept.timeoutMs === undefined && kept.onError === undefined) return undefined;
+  return kept;
 }
 
 const CURRENT = (policy: NodePolicy | undefined): NodePolicy => ({
   retries: policy?.retries ?? 0,
   backoffMs: policy?.backoffMs ?? 500,
   ...(policy?.timeoutMs === undefined ? {} : { timeoutMs: policy.timeoutMs }),
+  ...(policy?.onError === undefined ? {} : { onError: policy.onError }),
 });
+
+/**
+ * **What each on-error choice says — Phase 37** (D173). The hint is the contract in one sentence,
+ * because the three differ in what happens to the run, not only to the step.
+ */
+const ON_ERROR_CHOICES: Record<OnError, { label: string; hint: string }> = {
+  stop: {
+    label: "Stop the run",
+    hint: "The step fails, and so does the run. Nothing after it runs.",
+  },
+  continue: {
+    label: "Carry on with the error",
+    hint: "The step's error becomes its output, and the run carries on out of Out — the next step reads it as {{input.error}}.",
+  },
+  route: {
+    label: "Take the Error path",
+    hint: "A failure leaves by an Error output on the card. Connect it to what should happen instead — with nothing connected, the run still fails.",
+  },
+};
 
 export function PolicyForm({
   policy,
   onChange,
+  canContinue,
 }: {
   policy: NodePolicy | undefined;
   onChange: (policy: NodePolicy | undefined) => void;
+  /**
+   * Whether the node has a default output to carry on out of. A Branch, a Switch or a Loop does not
+   * — its job is choosing a way — so it is offered Stop and the Error path only, and a stored
+   * `continue` on one (imported, written by hand) is still shown for what it is.
+   */
+  canContinue: boolean;
 }) {
   const current = CURRENT(policy);
   const set = (patch: Partial<NodePolicy>) =>
     onChange(normalise({ ...current, ...patch }));
+  const onError = current.onError ?? "stop";
+  const choices = (Object.keys(ON_ERROR_CHOICES) as OnError[]).filter(
+    (choice) => choice !== "continue" || canContinue || onError === "continue",
+  );
 
   return (
     <section className="space-y-3">
       <div className="flex items-baseline gap-2">
-        <h3 className="eyebrow">Retry and timeout</h3>
+        <h3 className="eyebrow">Retry, timeout and errors</h3>
         {policy !== undefined && (
           <button
             type="button"
@@ -132,12 +170,39 @@ export function PolicyForm({
               // Rebuilt rather than patched: `{ timeoutMs: undefined }` spread over the
               // current policy leaves the key present with an undefined value, which
               // `bridge.ts` would then write into the graph as a difference.
-              onChange(normalise({ retries: current.retries, backoffMs: current.backoffMs }));
+              onChange(
+                normalise({
+                  retries: current.retries,
+                  backoffMs: current.backoffMs,
+                  ...(current.onError === undefined ? {} : { onError: current.onError }),
+                }),
+              );
               return;
             }
             set({ timeoutMs: clamp(Number(raw), MIN_TIMEOUT_MS, MAX_TIMEOUT_MS, MIN_TIMEOUT_MS) });
           }}
         />
+      </Labelled>
+
+      <Labelled
+        label="When it fails"
+        hint={
+          <>
+            {ON_ERROR_CHOICES[onError].hint}
+            {current.retries > 0 && " Its retries are tried first."}
+          </>
+        }
+      >
+        <Select
+          value={onError}
+          onChange={(event) => set({ onError: event.target.value as OnError })}
+        >
+          {choices.map((choice) => (
+            <option key={choice} value={choice}>
+              {ON_ERROR_CHOICES[choice].label}
+            </option>
+          ))}
+        </Select>
       </Labelled>
 
       {current.retries > 0 && (

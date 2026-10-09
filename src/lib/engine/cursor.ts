@@ -83,10 +83,10 @@ export function readCursor(value: unknown): RunCursor | null {
 
 /**
  * The statuses whose step handed a value on to what follows it: it ran and succeeded, passed its
- * input through switched off (Phase 30), stood in with its pin (Phase 31), or was carried over by
- * a retry (Phase 33).
+ * input through switched off (Phase 30), stood in with its pin (Phase 31), was carried over by
+ * a retry (Phase 33), or failed and handed its error on under its on-error policy (Phase 37).
  */
-const HANDED_ON: ReadonlySet<string> = new Set(["succeeded", "disabled", "pinned", "reused"]);
+const HANDED_ON: ReadonlySet<string> = new Set(["succeeded", "disabled", "pinned", "reused", "handled"]);
 
 /**
  * What a resumed engine needs in memory, rebuilt from the cursor plus the step rows.

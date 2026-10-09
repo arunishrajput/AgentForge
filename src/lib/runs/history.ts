@@ -45,6 +45,8 @@ export interface RunSummary {
   wakeAt: string | null;
   test: RunTest | null;
   origin: RunOrigin | null;
+  /** Phase 37: failures its on-error policies handled (D175). */
+  handled: number;
   workflowVersion: number | null;
   error: string | null;
   startedAt: string;
@@ -74,6 +76,7 @@ const SUMMARY = {
   wakeAt: runs.wakeAt,
   test: runs.test,
   origin: runs.origin,
+  handled: runs.handled,
   workflowVersion: runs.workflowVersion,
   error: runs.error,
   startedAt: runs.startedAt,
@@ -92,6 +95,7 @@ type SummaryRow = {
   wakeAt: Date | null;
   test: RunTest | null;
   origin: RunOrigin | null;
+  handled: number;
   workflowVersion: number | null;
   error: string | null;
   startedAt: Date;
@@ -111,6 +115,7 @@ export function describeRunSummary(row: SummaryRow): RunSummary {
     wakeAt: row.wakeAt?.toISOString() ?? null,
     test: row.test ?? null,
     origin: row.origin ?? null,
+    handled: row.handled,
     workflowVersion: row.workflowVersion,
     error: row.error,
     startedAt: row.startedAt.toISOString(),

@@ -15,6 +15,7 @@ import type { Vault, VaultEntry } from "@/lib/credentials/vault";
 import type { StreamRun } from "@/lib/engine/stream";
 import type { RunSummary, StepBodies, StepHeader } from "@/lib/runs/history";
 import type { GraphProblem } from "@/lib/engine/validate";
+import type { Inbox, InboxEntry } from "@/lib/inbox/store";
 import type {
   DiscordStatus,
   GoogleStatus,
@@ -152,6 +153,7 @@ export interface GenerationErrorDetails {
  */
 export type { StreamRun as Run, StreamStep as RunStep } from "@/lib/engine/stream";
 export type { RunSummary, StepBodies, StepHeader };
+export type { Inbox, InboxEntry };
 export type { RunMode, RunStatus, StepStatus } from "@/lib/engine/types";
 export type { NodePolicy } from "@/lib/engine/policy";
 export type { RunTest, TestScope } from "@/lib/engine/partial";
@@ -306,6 +308,13 @@ export const api = {
 
   /** The workspace's tags, by name. Every member may read them. */
   listTags: () => request<TagSummary[]>("/api/tags"),
+
+  /**
+   * Phase 37: mark the reader's inbox entries read — the ones named, or all of them. Answers the
+   * inbox as the server now has it, so the bell's count is never the client's arithmetic.
+   */
+  markInboxRead: (which: { ids: string[] } | { all: true }) =>
+    request<Inbox & { marked: number }>("/api/inbox/read", { method: "POST", body: JSON.stringify(which) }),
 
   /** A 409 when the workspace already has a tag of that name, ignoring case. */
   createTag: (name: string) =>

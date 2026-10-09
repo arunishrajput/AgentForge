@@ -8,7 +8,7 @@ import type { RunCursor } from "./cursor";
  *   run:   queued → running → succeeded | failed | cancelled     (all three terminal)
  *                      ↕
  *                   waiting                                      (Phase 26, not terminal)
- *   step:  running → succeeded | failed                          (both terminal)
+ *   step:  running → succeeded | failed | handled                (all three terminal)
  *          skipped, disabled, pinned and reused are entered directly and are terminal
  *
  * **`waiting` is Phase 26's, and it sits outside the lease family entirely.** A run that
@@ -69,11 +69,32 @@ export type RunMode = (typeof RUN_MODES)[number];
  *
  * `reused` — Phase 33 — is *a retry carried this step over from the run it retries*. It ran
  * there, not here (`CONTRACT.md` → *Re-runs and retries*), for the same reason again.
+ *
+ * `handled` — Phase 37 — is *the node failed, and its on-error policy carried the run on*: with
+ * the error as its output, out of its default output (`continue`) or its Error output (`route`).
+ * It ran and it failed, so it has timestamps and an `error`; it is not `failed`, because every
+ * reader of a `failed` step — a retry's replay, a diagnosis, the toast — takes it as *where the
+ * run stopped*, and this one is where it did not (D175).
  */
-export const STEP_STATUSES = ["running", "succeeded", "failed", "skipped", "disabled", "pinned", "reused"] as const;
+export const STEP_STATUSES = [
+  "running",
+  "succeeded",
+  "failed",
+  "skipped",
+  "disabled",
+  "pinned",
+  "reused",
+  "handled",
+] as const;
 export type StepStatus = (typeof STEP_STATUSES)[number];
 
-export const TRIGGER_KINDS = ["manual", "webhook", "schedule", "agent"] as const;
+/**
+ * What started a run. **`error` is Phase 37's**: a run of a workflow whose trigger is
+ * `core.error_trigger`, started because another workflow's run failed with nobody watching. A
+ * run started that way never starts another — that is the bound that keeps an error workflow
+ * that fails from alerting about itself (D176).
+ */
+export const TRIGGER_KINDS = ["manual", "webhook", "schedule", "agent", "error"] as const;
 export type TriggerKind = (typeof TRIGGER_KINDS)[number];
 
 export const TERMINAL_RUN_STATUSES: readonly RunStatus[] = ["succeeded", "failed", "cancelled"];

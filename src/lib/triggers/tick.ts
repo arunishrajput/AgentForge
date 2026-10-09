@@ -3,9 +3,10 @@ import { and, eq, gt, isNotNull, lt, lte, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { runs, workflows } from "@/db/schema";
 import { pruneCredentialEvents } from "@/lib/credentials/audit";
-import { sweepAbandonedRuns } from "@/lib/engine/lease";
+import { sweepRuns } from "@/lib/engine/run";
 import { enqueueRun } from "@/lib/engine/queue";
 import { required } from "@/lib/env";
+import { pruneInbox } from "@/lib/inbox/store";
 import { pruneRuns } from "@/lib/runs/retention";
 
 import { cronSecretMatches } from "./secret";
@@ -28,8 +29,9 @@ import { armSchedule, fireDue } from "./timer";
  *            asking is cheaper and safer than asking Cloud Tasks what exists.
  *   wake     a `waiting` run whose wake time passed a while ago — its wake task was lost.
  *   sweep    abandoned runs, across every workspace (the sweeper's only scheduled caller).
- *   prune    credential audit events past retention (Phase 21), and runs past theirs (Phase 33:
- *            finished, and over 30 days old or past their workflow's newest 200 — `runs/retention.ts`).
+ *   prune    credential audit events past retention (Phase 21), runs past theirs (Phase 33:
+ *            finished, and over 30 days old or past their workflow's newest 200 — `runs/retention.ts`),
+ *            and inbox entries as old (Phase 37 — `inbox/store.ts`).
  *
  * The route is the transport; the rules are here so they can be reasoned about without a
  * cron job.
@@ -100,6 +102,11 @@ export interface TickOutcome {
    * a queued, running or waiting run is never touched (`lib/runs/retention.ts`).
    */
   prunedRuns: number;
+  /**
+   * Inbox entries dropped past the run-retention age — Phase 37, D177. Most go sooner, with the
+   * run they point at; this catches the rest.
+   */
+  prunedInbox: number;
 }
 
 export async function runDueSchedules(options: { now?: Date; signal?: AbortSignal } = {}): Promise<TickOutcome> {
@@ -129,7 +136,7 @@ export async function runDueSchedules(options: { now?: Date; signal?: AbortSigna
     // Across every owner, which no other caller does: the run list sweeps only the workspace
     // asking, so a run abandoned by a user who never comes back would otherwise stay
     // `running` for ever on nobody looking at it.
-    swept: await sweepAbandonedRuns(),
+    swept: await sweepRuns(),
     /**
      * Every tick rather than on a slower clock of its own. The statement is one indexed
      * delete that matches nothing on almost every tick, the database is already awake for
@@ -142,6 +149,8 @@ export async function runDueSchedules(options: { now?: Date; signal?: AbortSigna
      * schedule of its own (`BUILD_PLAN.md` → *The zero-cost problem*).
      */
     prunedRuns: (await pruneRuns({ now })).runs,
+    /** Phase 37. The same reasoning: awake already, and nothing else prunes it. */
+    prunedInbox: await pruneInbox(now),
   };
 
   for (const workflow of due) {

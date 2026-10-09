@@ -42,6 +42,7 @@ export default async function TemplatesPage() {
         email={email}
         workspace={workspace}
         workspaces={memberships.map((m) => describeWorkspace(m, scope.userId))}
+        scope={scope}
         active="templates"
       />
 

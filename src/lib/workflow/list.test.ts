@@ -247,6 +247,7 @@ test("countWorkflows counts each axis independently", () => {
     manual: 1,
     webhook: 1,
     schedule: 1,
+    error: 0,
     starred: 0,
   });
 });

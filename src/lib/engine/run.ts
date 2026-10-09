@@ -1,12 +1,20 @@
-import { and, asc, desc, eq, gt, inArray, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, ne, or, sql } from "drizzle-orm";
 
 import { db } from "@/db";
-import { runs, runSteps, workflows, type Run, type RunStep, type Workflow } from "@/db/schema";
+import { runs, runSteps, workflows, workspaceMembers, type Run, type RunStep, type Workflow } from "@/db/schema";
 import { ApiError } from "@/lib/api";
+import { stoppedStep } from "@/lib/generate/evidence";
+import { recordFailure } from "@/lib/inbox/store";
 import { getNode } from "@/lib/nodes";
 import { required } from "@/lib/env";
 import { addLogContext, logError, logInfo, logWarn } from "@/lib/logging";
-import { visibleWorkflows } from "@/lib/workflow/visibility";
+import {
+  alertsFor,
+  ERROR_TRIGGER_TYPE,
+  failurePayload,
+  MAX_ERROR_WORKFLOWS,
+} from "@/lib/triggers/failure";
+import { canSeeWorkflow, visibleWorkflows } from "@/lib/workflow/visibility";
 import { versionGraph } from "@/lib/workflow/versions";
 import { systemScope, type WorkspaceScope } from "@/lib/workspace/scope";
 
@@ -24,6 +32,7 @@ import {
   MAX_DELIVERIES,
   suspendRun,
   sweepAbandonedRuns,
+  type SweptRun,
 } from "./lease";
 import { honouredPin, seedNode, upstreamOf, type RunTest } from "./partial";
 import { enqueueRun, queueNamed } from "./queue";
@@ -274,7 +283,9 @@ async function drive(options: {
           ? error.message
           : String(error);
 
-    await finishRun({ runId: run.id, owner, status: "failed", error: message });
+    if (await finishRun({ runId: run.id, owner, status: "failed", error: message })) {
+      await announceFailure({ run: { ...run, error: message }, workflow, steps: resume?.steps ?? [] });
+    }
     finished("failed", message);
     throw error;
   }
@@ -304,14 +315,23 @@ async function drive(options: {
     return outcome;
   }
 
-  await finishRun({
+  const landed = await finishRun({
     runId: run.id,
     owner,
     status: outcome.status!,
     output: outcome.output,
     error: outcome.error,
     cursor: outcome.cursor,
+    // Across every delivery: a resumed engine's steps include the ones before it. A retry's
+    // carried-over steps are `reused`, not `handled` — this run did not handle them.
+    handled: outcome.steps.filter((step) => step.status === "handled").length,
   });
+
+  // Phase 37: only the worker whose finish landed tells anybody — one that lost its lease at the
+  // last moment would announce a failure another worker is about to overwrite.
+  if (landed && outcome.status === "failed") {
+    await announceFailure({ run: { ...run, error: outcome.error }, workflow, steps: outcome.steps });
+  }
 
   finished(outcome.status!, outcome.error);
   return outcome;
@@ -405,7 +425,7 @@ async function suspend(options: {
 export async function startRun(
   options: StartOptions,
 ): Promise<{ run: Run; steps: RunStep[] }> {
-  await sweepAbandonedRuns(options.scope);
+  await sweepRuns(options.scope);
 
   const test = options.test !== undefined ? options.test : testFor(options);
   // A node test is fed before its run exists, so a test that has nothing to feed it is
@@ -483,7 +503,7 @@ export async function startDurableRun(options: StartOptions): Promise<EnqueueOut
       "A test of part of a workflow runs straight away and cannot be queued. Leave out mode, or use \"sync\".",
     );
   }
-  await sweepAbandonedRuns(options.scope);
+  await sweepRuns(options.scope);
 
   // A manual run of a graph holding pins is a test here too, and survives a redeploy as one:
   // the resumed delivery reads `run.test` off the row, so it honours the same pins.
@@ -621,12 +641,10 @@ export async function resumeRun(options: {
   }
 
   if (claimed.attempt > MAX_DELIVERIES) {
-    await finishRun({
-      runId: claimed.id,
-      owner,
-      status: "failed",
-      error: `The run was retried ${MAX_DELIVERIES} times without finishing and has been given up on.`,
-    });
+    const error = `The run was retried ${MAX_DELIVERIES} times without finishing and has been given up on.`;
+    if (await finishRun({ runId: claimed.id, owner, status: "failed", error })) {
+      await announceFailure({ run: { ...claimed, error } });
+    }
     return { handled: false, reason: "deliveries_exhausted" };
   }
 
@@ -689,6 +707,137 @@ export async function resumeRun(options: {
     // next delivery, so this is answered as handled rather than retried.
     return { handled: true, status: "failed" };
   }
+}
+
+/**
+ * **When a run nobody was watching fails, tell somebody — Phase 37** (D176, D177,
+ * `CONTRACT.md` → *Failure alerts*).
+ *
+ * Called after the statement that finished the run `failed` landed, from every path that fails
+ * one: a step that failed (`drive`), a graph that cannot run, a queue that gave up
+ * (`resumeRun`), and the sweeper (`sweepRuns`). Which failures count, and what is handed on, are
+ * `triggers/failure.ts`'s rules; this does the two writes:
+ *
+ *  1. **An inbox entry** for each member who may see the workflow — one statement
+ *  2. **A queued run of each error workflow** in the workspace whose author may see the failed
+ *     workflow (D101 — an error workflow must not be told what its author could not read), with
+ *     the trigger kind `error`, which is what stops one from ever setting off another
+ *
+ * The database is awake already — the run's own finish just wrote to it — so neither is a new
+ * reason to wake Neon. Error workflows are **queued**, never run in this request: the request may
+ * be a webhook's caller waiting for its answer.
+ *
+ * **It never throws.** An alert that could not be sent is logged at error severity and the run's
+ * own outcome stands — failing the request that recorded a failure would lose the record.
+ */
+export async function announceFailure(input: {
+  run: Pick<Run, "id" | "workflowId" | "workspaceId" | "trigger" | "test" | "startedAt" | "error">;
+  /** The workflow, when the caller already holds it. */
+  workflow?: Workflow;
+  /** The run's steps, when the caller already holds them. Read otherwise. */
+  steps?: readonly Pick<StepRecord, "seq" | "nodeId" | "nodeType" | "status" | "error">[];
+}): Promise<void> {
+  const { run } = input;
+  const alerts = alertsFor(run);
+  if (!alerts.inbox && !alerts.errorWorkflows) return;
+
+  try {
+    const workflow =
+      input.workflow ??
+      (await db().select().from(workflows).where(eq(workflows.id, run.workflowId)).limit(1))[0];
+    if (!workflow) return;
+
+    // The step it stopped at, read the way a diagnosis reads it (`generate/evidence.ts`).
+    const steps = input.steps ?? (await readSteps(run.id)).map(toStepRecord);
+    const stopped = stoppedStep([...steps].sort((a, b) => a.seq - b.seq));
+    const graphNode = stopped && workflow.graph.nodes.find((node) => node.id === stopped.nodeId);
+    const label = stopped ? graphNode?.label || getNode(stopped.nodeType)?.label || stopped.nodeId : null;
+
+    const told = alerts.inbox
+      ? await recordFailure({
+          workspaceId: run.workspaceId,
+          workflowId: workflow.id,
+          runId: run.id,
+          error: stopped?.error ? `${label}: ${stopped.error}` : run.error,
+        })
+      : 0;
+
+    let started = 0;
+    let beyond = 0;
+    if (alerts.errorWorkflows) {
+      const payload = failurePayload({
+        baseUrl: required("APP_BASE_URL"),
+        workflow,
+        run,
+        step: stopped && { nodeId: stopped.nodeId, nodeType: stopped.nodeType, label: label!, error: stopped.error },
+      });
+      const targets = await errorWorkflowsFor(workflow);
+      beyond = Math.max(0, targets.length - MAX_ERROR_WORKFLOWS);
+      for (const target of targets.slice(0, MAX_ERROR_WORKFLOWS)) {
+        try {
+          await startDurableRun({ scope: systemScope(target), workflow: target, trigger: "error", input: payload });
+          started += 1;
+        } catch (error) {
+          logError("run.alerted", `Error workflow ${target.id} could not be started for run ${run.id}.`, error, {
+            errorWorkflowId: target.id,
+          });
+        }
+      }
+    }
+
+    logInfo("run.alerted", `Run ${run.id} failed with nobody watching; ${told} told, ${started} error workflow(s) started.`, {
+      failedRunId: run.id,
+      trigger: run.trigger,
+      inboxes: told,
+      errorWorkflows: started,
+      ...(beyond > 0 ? { errorWorkflowsNotStarted: beyond } : {}),
+    });
+  } catch (error) {
+    logError("run.alerted", `Run ${run.id} failed and could not be announced.`, error, { failedRunId: run.id });
+  }
+}
+
+/**
+ * The workspace's error workflows that may hear about `failed`: active, holding the error trigger,
+ * not `failed` itself, and authored by somebody who is still a member and may see `failed` (D101).
+ * Oldest first, one past the cap so the caller can say how many it left out.
+ *
+ * The graph test is `jsonb` containment — a workspace has tens of workflows, and the statement opens
+ * on `workflow_workspace_idx` — written as literal SQL because the column sits beside a join.
+ */
+async function errorWorkflowsFor(failed: Workflow): Promise<Workflow[]> {
+  const rows = await db()
+    .select({ workflow: workflows, role: workspaceMembers.role })
+    .from(workflows)
+    .innerJoin(
+      workspaceMembers,
+      and(eq(workspaceMembers.workspaceId, workflows.workspaceId), eq(workspaceMembers.userId, workflows.ownerId)),
+    )
+    .where(
+      and(
+        eq(workflows.workspaceId, failed.workspaceId),
+        eq(workflows.active, true),
+        ne(workflows.id, failed.id),
+        sql`"workflow"."graph" @> ${JSON.stringify({ nodes: [{ type: ERROR_TRIGGER_TYPE }] })}::jsonb`,
+      ),
+    )
+    .orderBy(asc(workflows.createdAt))
+    .limit(MAX_ERROR_WORKFLOWS + 1);
+
+  return rows
+    .filter((row) => canSeeWorkflow({ role: row.role, userId: row.workflow.ownerId }, failed))
+    .map((row) => row.workflow);
+}
+
+/**
+ * Fail the runs nothing is coming back for (`lease.ts` → `sweepAbandonedRuns`), and announce each
+ * failure as any other is announced — an interrupted webhook run is still a failure nobody saw.
+ * Every caller sweeps through here. Answers how many it failed.
+ */
+export async function sweepRuns(scope?: WorkspaceScope): Promise<number> {
+  const swept: SweptRun[] = await sweepAbandonedRuns(scope);
+  for (const run of swept) await announceFailure({ run });
+  return swept.length;
 }
 
 /** What a `node` test's target is fed, with a line for its log saying where it came from. */
@@ -937,6 +1086,8 @@ export function describeRun(run: Run, steps?: RunStep[]) {
     test: run.test ?? null,
     /** Phase 33: the run this one was re-run or retried from. Null on an ordinary run. */
     origin: run.origin ?? null,
+    /** Phase 37: how many failures its on-error policies handled. 0 on almost every run. */
+    handled: run.handled,
     /**
      * The workflow version this run executed (Phase 18). Null for a run recorded
      * before versioning existed — it is not claimed to be v1, because it is unknown.

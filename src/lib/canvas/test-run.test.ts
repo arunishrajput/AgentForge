@@ -64,3 +64,23 @@ test("a test whose target was never reached says so instead of claiming success"
     assert.equal(outcome.title, "Shape them was not reached");
   }
 });
+
+test("a tested node whose error was handled says it failed — the run succeeding is not the node passing", () => {
+  // Phase 37. The node's on-error policy carried the run on, so the run is `succeeded`; what was
+  // being tested is the node, and it failed.
+  const outcome = testOutcome(
+    {
+      status: "succeeded",
+      error: null,
+      durationMs: 5,
+      steps: [step("fetch", "succeeded"), step("shape", "handled", { error: "Invalid config: fields" })],
+    },
+    "shape",
+    names,
+  );
+  assert.deepEqual(outcome, {
+    tone: "warn",
+    title: "Shape them failed — its error was handled",
+    detail: "Invalid config: fields",
+  });
+});

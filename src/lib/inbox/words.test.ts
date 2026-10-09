@@ -1,0 +1,20 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+
+import { badgeCount, bellLabel, entryTitle } from "./words";
+
+test("an entry names its workflow, and how many failures it stands for", () => {
+  assert.equal(entryTitle({ workflowName: "Invoice sync", count: 1 }), "Invoice sync failed");
+  assert.equal(entryTitle({ workflowName: "Invoice sync", count: 3 }), "Invoice sync failed 3 times");
+});
+
+test("the bell says its number in words — the badge is never the only place it is", () => {
+  assert.equal(bellLabel(0), "Inbox, nothing unread");
+  assert.equal(bellLabel(2), "Inbox, 2 unread");
+});
+
+test("the badge shows nothing at zero and stops counting at 99", () => {
+  assert.equal(badgeCount(0), null);
+  assert.equal(badgeCount(7), "7");
+  assert.equal(badgeCount(140), "99+");
+});

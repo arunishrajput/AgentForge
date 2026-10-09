@@ -141,10 +141,14 @@ const TEST_WORDS: Record<RunTest["scope"], string> = {
  * Steps whose result stands in the run — what came before the failure. A retry carries exactly these
  * over without running them again (D152), which is why `runFacts` reads the same set.
  */
-export const FINISHED_STEPS: ReadonlySet<StepStatus> = new Set(["succeeded", "reused", "pinned", "disabled"]);
+export const FINISHED_STEPS: ReadonlySet<StepStatus> = new Set(["succeeded", "reused", "pinned", "disabled", "handled"]);
 
-/** The step a run stopped at: the last that failed, or one a sweeper closed mid-step. Null between steps. */
-function stoppedStep<T extends Pick<StepRecord, "seq" | "status">>(ordered: readonly T[]): T | null {
+/**
+ * The step a run stopped at: the last that failed, or one a sweeper closed mid-step. Null between
+ * steps. A `handled` step is not one (Phase 37): the run went on past it. Exported so a failure
+ * alert names the same step a diagnosis does (`engine/run.ts` → `announceFailure`).
+ */
+export function stoppedStep<T extends Pick<StepRecord, "seq" | "status">>(ordered: readonly T[]): T | null {
   return ordered.findLast((step) => step.status === "failed" || step.status === "running") ?? null;
 }
 

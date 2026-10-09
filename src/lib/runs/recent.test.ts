@@ -15,6 +15,7 @@ function streamed(id: string, overrides: Partial<StreamRun> = {}): StreamRun {
     mode: "sync",
     attempt: 1,
     cancelRequested: false,
+    handled: 0,
     wakeAt: null,
     test: null,
     origin: null,

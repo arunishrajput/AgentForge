@@ -59,6 +59,7 @@ export default async function RunPage({ params }: { params: Promise<{ id: string
       email={email}
       workspace={workspace}
       workspaces={memberships.map((m) => describeWorkspace(m, scope.userId))}
+      scope={scope}
       active="runs"
     />
   );

@@ -20,6 +20,7 @@ import type { StepLog } from "@/lib/nodes/types";
 import type { WorkflowGraph } from "@/lib/workflow/graph";
 import type { WorkflowVisibility } from "@/lib/workflow/visibility";
 import type { CredentialEventName } from "@/lib/credentials/audit";
+import type { InboxKind } from "@/lib/inbox/kinds";
 import type { WorkspaceRole } from "@/lib/workspace/roles";
 
 /**
@@ -543,6 +544,14 @@ export const runs = pgTable(
      * nothing it needs to execute or resume lives in the run this names.
      */
     origin: jsonb("origin").$type<RunOrigin>(),
+    /**
+     * **How many failures this run's on-error policies handled — Phase 37** (D175). A step that
+     * failed and carried the run on is `handled`, and a run that handled errors and then finished
+     * `succeeded` did what its author planned — so its status says so, and this says what it
+     * survived on the way. Written by the same statement that finishes the run, so a list reads
+     * it with the row and never counts steps; 0 for every run before this phase, which is true.
+     */
+    handled: integer("handled").notNull().default(0),
   },
   (table) => [
     index("run_owner_idx").on(table.ownerId, table.startedAt),
@@ -902,6 +911,66 @@ export const credentialEvents = pgTable(
   ],
 );
 
+/* ------------------------------------------------------------------ *
+ * Phase 37 — the inbox
+ * ------------------------------------------------------------------ */
+
+/**
+ * **One entry in one person's inbox — Phase 37** (D177). Written in the path of the failure it
+ * reports — the run has already woken the database — and read when a page loads, never polled.
+ *
+ * **A row per reader**, not per failure, because *read* is per person: one INSERT … SELECT over
+ * the workspace's members who may see the workflow (D101) writes them all at once, and reading
+ * one's own unread entries is one indexed range. **Collapsed per workflow while unread**: the
+ * partial unique index lets a second failure of the same workflow update the entry — `count`
+ * up, the newest run and error in — so a webhook failing every second fills one row a reader,
+ * not a table.
+ *
+ * `kind` is `run_failed` today. Phase 38 adds approvals, which is why it is a column.
+ * `runId` cascades: a run pruned by retention takes its entry with it, and the daily sweep
+ * prunes what is older than that.
+ */
+export const inboxItems = pgTable(
+  "inbox_item",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    workspaceId: text("workspaceId")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    /** Whose entry this is. */
+    userId: text("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<InboxKind>().notNull(),
+    workflowId: text("workflowId")
+      .notNull()
+      .references(() => workflows.id, { onDelete: "cascade" }),
+    /** The newest run this entry is about. */
+    runId: text("runId").references(() => runs.id, { onDelete: "cascade" }),
+    /** What went wrong, in the run's own words — bounded where it is written. */
+    detail: text("detail"),
+    /** How many failures this unread entry stands for. */
+    count: integer("count").notNull().default(1),
+    /** When the newest of them arrived. */
+    createdAt: timestamp("createdAt", { withTimezone: true }).notNull().defaultNow(),
+    readAt: timestamp("readAt", { withTimezone: true }),
+  },
+  (table) => [
+    // The header's read: one person's entries in one workspace, newest first.
+    index("inbox_item_reader_idx").on(table.userId, table.workspaceId, table.createdAt),
+    // The collapse: at most one unread entry per person, workflow and kind. Partial, so a read
+    // entry stays as history and the next failure starts a new one.
+    uniqueIndex("inbox_item_unread_idx")
+      .on(table.userId, table.workflowId, table.kind)
+      .where(sql`${table.readAt} is null`),
+    // The cascades from a pruned run and a deleted workflow, which lead with neither column above.
+    index("inbox_item_run_idx").on(table.runId),
+    index("inbox_item_workflow_idx").on(table.workflowId),
+  ],
+);
+
 export type Workspace = typeof workspaces.$inferSelect;
 export type WorkspaceMember = typeof workspaceMembers.$inferSelect;
 export type WorkspaceInvitation = typeof workspaceInvitations.$inferSelect;
@@ -911,3 +980,4 @@ export type Run = typeof runs.$inferSelect;
 export type RunStep = typeof runSteps.$inferSelect;
 export type Credential = typeof credentials.$inferSelect;
 export type CredentialEvent = typeof credentialEvents.$inferSelect;
+export type InboxItem = typeof inboxItems.$inferSelect;

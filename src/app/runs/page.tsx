@@ -47,6 +47,7 @@ export default async function RunsPage({
         email={email}
         workspace={workspace}
         workspaces={memberships.map((m) => describeWorkspace(m, scope.userId))}
+        scope={scope}
         active="runs"
       />
 

@@ -5,6 +5,7 @@ import { llmNode } from "./ai/llm";
 import { assertNode } from "./core/assert";
 import { branchNode } from "./core/branch";
 import { delayNode } from "./core/delay";
+import { errorTrigger } from "./core/error-trigger";
 import { logNode } from "./core/log";
 import { loopNode } from "./core/loop";
 import { manualTrigger } from "./core/manual-trigger";
@@ -59,6 +60,7 @@ const definitions: RegisteredNode[] = [
   manualTrigger,
   webhookTrigger,
   scheduleTrigger,
+  errorTrigger,
   setNode,
   logNode,
   branchNode,

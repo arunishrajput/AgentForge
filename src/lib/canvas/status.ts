@@ -1,9 +1,10 @@
 import type { RunStatus, StepStatus } from "./client";
 
 /**
- * The eight things a node can be on the canvas, and how each one looks — five run states,
+ * The nine things a node can be on the canvas, and how each one looks — five run states,
  * since Phase 30 a node that is switched off, since Phase 31 a node a test run took from its
- * pinned output, and since Phase 33 a node a retry carried over from the run it retries.
+ * pinned output, since Phase 33 a node a retry carried over from the run it retries, and since
+ * Phase 37 a node that failed and whose error its on-error policy handled.
  *
  * A table rather than a chain of ternaries in the node component, because this is the
  * phase's one hard accessibility requirement and it is worth being able to assert:
@@ -94,9 +95,10 @@ export const NODE_STATUSES: NodeStatus[] = [
   "disabled",
   "pinned",
   "reused",
+  "handled",
 ];
 
-/** What a card that is not recessed looks like. Six of the eight share it. */
+/** What a card that is not recessed looks like. Seven of the nine share it. */
 const RAISED = { surface: "bg-elevated", shadow: "shadow-node" } as const;
 
 const LOOK: Record<NodeStatus, StatusLook> = {
@@ -194,6 +196,22 @@ const LOOK: Record<NodeStatus, StatusLook> = {
     glyph: "↺",
     tone: "text-muted",
     outline: "border-line",
+    ...RAISED,
+    motion: "",
+    dots: false,
+  },
+  /**
+   * Phase 37. The node failed and its on-error policy carried the run on (D175). Raised, because
+   * it handed a value on — its error. The warning hue on the word and the outline rather than the
+   * failure's red, because the run did not stop here; told apart from *failed* in greyscale by its
+   * word and its glyph — an arrow turning aside, the run going another way — and by keeping still:
+   * the wiggle means *look here, this stopped the run*, and this did not.
+   */
+  handled: {
+    label: "Handled",
+    glyph: "↪",
+    tone: "text-warn",
+    outline: "border-warn",
     ...RAISED,
     motion: "",
     dots: false,
@@ -318,14 +336,17 @@ export function runStatusLook(status: RunStatus): StatusLook {
  * passed its input through (Phase 30), or stood in with its pinned output (Phase 31) — and the
  * run reached its target. A pinned node was the one Phase 31's browser walk found the path
  * going dark after, because this rule named only the first two — and a step a retry carried over
- * (Phase 33) handed its value on too.
+ * (Phase 33) handed its value on too, as does one whose error was handled (Phase 37): an edge out of
+ * its Error output lights when the run went that way, because the target says it was reached.
  */
+const HANDED_ON: ReadonlySet<StepStatus> = new Set(["succeeded", "disabled", "pinned", "reused", "handled"]);
+
 export function edgeRunLook(
   source: StepStatus | undefined,
   target: StepStatus | undefined,
   running: boolean,
 ): "live" | "traversed" | null {
-  if (source !== "succeeded" && source !== "disabled" && source !== "pinned" && source !== "reused") return null;
+  if (source === undefined || !HANDED_ON.has(source)) return null;
   if (running && target === "running") return "live";
   if (target !== undefined && target !== "skipped") return "traversed";
   return null;

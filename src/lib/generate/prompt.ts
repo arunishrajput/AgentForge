@@ -200,6 +200,7 @@ const EDIT_RULES = `Editing rules — this is a change to a workflow somebody al
   - Never change an existing node's id. Other nodes read it as {{steps.<id>…}} and its run history is filed under it. A node you add gets a new id, by the same rule as any other.
   - To remove a node, leave it out together with every edge to or from it, and fix any {{steps.<id>…}} that read it.
   - "Rename" a step means its "label". Keep "name" and "description" exactly as they are: the workflow's own name is not yours to change. If you are asked to rename the workflow itself, list "rename the workflow — type the new name in the toolbar" in "unsupported".
+  - An edge with "sourceHandle": "error" leaves a node's Error output, which carries that node's failures; keep it unless the request is about it. Whether a node sends its failures there is a setting only the person can change, in the step's inspector — if a request needs it, build the rest and list "send <step>'s failures to its Error path" in "unsupported".
   - "unsupported" lists the parts of this change you could not make. An empty list means you made all of it.
 
 `;

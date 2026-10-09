@@ -214,6 +214,24 @@ precisely because a reconnecting client must be able to rejoin mid-run.
 Run history is kept **30 days, and each workflow's newest 200 runs whatever their age** — pruned
 by the daily sweep, finished runs only. See [`../CONTRACT.md`](../CONTRACT.md) → *Run retention*.
 
+**A run whose errors were handled succeeded** (Phase 37). A node whose on-error policy is
+`continue` or `route` records a failure as a step of status `handled` and the run carries on; the
+run's `handled` field counts them, on every summary and on the run itself. See
+[`../CONTRACT.md`](../CONTRACT.md) → *On-error policy*.
+
+## The inbox
+
+| Method | Route | Role | What it does |
+|---|---|---|---|
+| `GET` | `/api/inbox` | viewer | Your inbox in the active workspace: `{ unread, entries }`, newest first — failed runs of workflows you can see that **nobody was watching** (a webhook's, a schedule's, an error workflow's). Each entry: `{ id, kind, workflowId, workflowName, runId, detail, count, createdAt, read }` |
+| `POST` | `/api/inbox/read` | viewer | `{ ids }` or `{ all: true }` — marks your own entries read. Answers `{ marked, unread, entries }`, the inbox as it now is. An id that is not yours matches nothing |
+
+The inbox is **written when a run fails and read when a page loads — nothing polls it**, and the
+header reads it while rendering, without calling this route. An entry stands for every failure of
+its workflow since you last read it (`count`). Entries go with their run when it is pruned, and
+the daily sweep removes any older than 30 days. See [`../CONTRACT.md`](../CONTRACT.md) →
+*Failure alerts and the inbox*.
+
 ## Triggers
 
 | Method | Route | Guard | What it does |
@@ -221,12 +239,17 @@ by the daily sweep, finished runs only. See [`../CONTRACT.md`](../CONTRACT.md) �
 | `POST` | `/api/webhook/[token]` | 192-bit token | **No session.** Runs one workflow. Body capped at 64 KB and pattern-checked before the database is touched. A workflow that is switched off answers **409** and starts nothing |
 | `POST` | `/api/workflows/[id]/webhook/rotate` | admin | Issues a new webhook token and refuses the old one immediately |
 | `POST` | `/api/cron/fire` | `CRON_SECRET` **and** an HMAC token for one slot of one workflow | **No session.** A schedule timer's delivery: fires that slot, or arms it again if it is not yet due. A stale or duplicate timer starts nothing — the slot is claimed by compare-and-set. Cloud Tasks calls this |
-| `POST` | `/api/cron/tick` | `CRON_SECRET`, compared in constant time | **No session.** The **daily** safety sweep: fires overdue schedules, re-arms timers, wakes lost waiting runs, and prunes run history past retention (Phase 33). Idempotent by compare-and-set. Cloud Scheduler calls this |
+| `POST` | `/api/cron/tick` | `CRON_SECRET`, compared in constant time | **No session.** The **daily** safety sweep: fires overdue schedules, re-arms timers, wakes lost waiting runs, and prunes run history and inbox entries past retention (Phases 33, 37). Idempotent by compare-and-set. Cloud Scheduler calls this |
 | `POST` | `/api/runs/dispatch` | `CRON_SECRET` **and** the run's own 192-bit dispatch token | **No session.** Resumes one run its owner already started — including a `waiting` run at its wake time. A duplicate delivery is harmless — the lease makes it so |
 
 A workflow's automatic triggers have an **active switch**: `PATCH /api/workflows/[id]` with
 `{ "active": false }` (editor) makes its webhook refuse and stops its schedule; manual runs
 still work. Switching it back on schedules from now — missed slots are not caught up.
+
+**The error trigger** (`core.error_trigger`, Phase 37) has no route of its own: when a webhook or
+schedule run fails, every active workflow in the workspace whose trigger it is — and whose author
+may see the failed workflow — is queued as a run with `trigger: "error"`, the failure as its input.
+A run started that way never starts another. The switch above stops an error workflow too.
 
 ## Sharing
 

@@ -13,6 +13,8 @@ export const TRIGGER_WORDS: Record<TriggerKind, string> = {
   webhook: "Webhook",
   schedule: "Schedule",
   agent: "Agent",
+  // Phase 37: started because another workflow's run failed (`core.error_trigger`).
+  error: "Failure",
 };
 
 /** A run's id, short enough to read and long enough to tell apart in one workspace. */
@@ -39,4 +41,14 @@ export function retryTally(steps: readonly { status: StepStatus }[]): { reused: 
     else if (step.status === "succeeded" || step.status === "failed" || step.status === "running") ran += 1;
   }
   return { reused, ran };
+}
+
+/**
+ * "1 error handled" — Phase 37 (D175). A run that handled errors and succeeded did what its author
+ * planned, and its status says so; this is the line beside it that says what it survived. Null for
+ * the great majority of runs, which handled nothing.
+ */
+export function handledWords(handled: number | undefined): string | null {
+  if (!handled || handled < 1) return null;
+  return `${handled} error${handled === 1 ? "" : "s"} handled`;
 }

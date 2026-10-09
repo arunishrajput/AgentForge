@@ -139,7 +139,9 @@ async function readNodeStats(scope: WorkspaceScope, from: Date): Promise<NodeSta
     .select({
       nodeType: runSteps.nodeType,
       runs: sql<number>`count(*)::int`,
-      failures: sql<number>`count(*) filter (where ${runSteps.status} = 'failed')::int`,
+      // Phase 37: a `handled` step failed too — its policy carried the run on, which is the run's
+      // success, not the node's. So it counts here, where the question is how often a node fails.
+      failures: sql<number>`count(*) filter (where ${runSteps.status} in ('failed', 'handled'))::int`,
       totalMs: sql<number>`coalesce(sum(extract(epoch from (${runSteps.finishedAt} - ${runSteps.startedAt})) * 1000), 0)::bigint`,
       /**
        * **`jsonb_agg`, not `array_agg`.** The HTTP driver returns a Postgres array as its
@@ -158,7 +160,7 @@ async function readNodeStats(scope: WorkspaceScope, from: Date): Promise<NodeSta
         gte(runs.startedAt, from),
         visibleWorkflows(scope),
         isNull(runs.test),
-        inArray(runSteps.status, ["succeeded", "failed"]),
+        inArray(runSteps.status, ["succeeded", "failed", "handled"]),
         sql`${runSteps.finishedAt} is not null and ${runSteps.startedAt} is not null`,
       ),
     )
