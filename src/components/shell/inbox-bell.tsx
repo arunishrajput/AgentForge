@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { api, ApiRequestError, type Inbox, type InboxEntry, type PendingApproval } from "@/lib/canvas/client";
 import { formatUtcShort } from "@/lib/format/date";
-import { approvalTitle, badgeCount, bellLabel, entryTitle } from "@/lib/inbox/words";
+import { approvalTitle, badgeCount, bellLabel, entryTitle, panelSummary } from "@/lib/inbox/words";
 
 /**
  * **The inbox — Phase 37** (D177, `DESIGN.md` → *The inbox*).
@@ -159,11 +159,7 @@ export function InboxBell({ initial }: { initial: Inbox }) {
             <h2 id={headingId} className="text-sm font-bold">
               Inbox
             </h2>
-            <span className="text-muted text-2xs">
-              {[pending > 0 ? `${pending} waiting on you` : null, inbox.unread > 0 ? `${inbox.unread} unread` : "all read"]
-                .filter(Boolean)
-                .join(" · ")}
-            </span>
+            <span className="text-muted text-2xs">{panelSummary(inbox.unread, pending)}</span>
             {inbox.unread > 0 && (
               <button
                 type="button"
@@ -202,7 +198,9 @@ export function InboxBell({ initial }: { initial: Inbox }) {
                         ◷
                       </span>
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-xs font-bold">{approvalTitle(approval)}</span>
+                        {/* The workflow's name alone: the heading above already says it asks for a
+                            decision, and a long name truncated the words that said so. */}
+                        <span className="block truncate text-xs font-bold">{approval.workflowName}</span>
                         <span className="text-ink mt-0.5 line-clamp-3 block text-2xs break-words whitespace-pre-wrap">
                           {approval.message}
                         </span>

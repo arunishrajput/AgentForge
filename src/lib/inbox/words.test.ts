@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { approvalTitle, badgeCount, bellLabel, entryTitle } from "./words";
+import { approvalTitle, badgeCount, bellLabel, entryTitle, panelSummary } from "./words";
 
 test("an entry names its workflow, and how many failures it stands for", () => {
   assert.equal(entryTitle({ workflowName: "Invoice sync", count: 1 }), "Invoice sync failed");
@@ -24,4 +24,11 @@ test("the bell names requests waiting on the reader, and unread failures, in wor
   assert.equal(bellLabel(2, 3), "Inbox, 3 approvals waiting on you, 2 unread");
   assert.equal(bellLabel(0, 0), "Inbox, nothing unread");
   assert.equal(approvalTitle({ workflowName: "Refunds" }), "Refunds asks for a decision");
+});
+
+test("the panel's summary never says 'all read' beside something waiting — found by the Phase 38 walk", () => {
+  assert.equal(panelSummary(0, 1), "1 waiting on you");
+  assert.equal(panelSummary(2, 1), "1 waiting on you · 2 unread");
+  assert.equal(panelSummary(2, 0), "2 unread");
+  assert.equal(panelSummary(0, 0), "all read");
 });

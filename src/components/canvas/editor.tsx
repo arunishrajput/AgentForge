@@ -1210,6 +1210,16 @@ function EditorInner({
           detail: failed?.error ?? finished.error ?? "No reason was recorded.",
           duration: null,
         });
+      } else if (finished.status === "waiting" && finished.waitingFor === "approval") {
+        // Phase 38. It asked a person: the run panel shows the request, and whoever may decide can
+        // do so there, in the inbox, or through the link its Ask path sent.
+        toast({
+          tone: "ok",
+          title: "Waiting for a decision",
+          detail: finished.wakeAt
+            ? `The run asked a person and is paused until they decide, or until ${formatUtc(finished.wakeAt)}. You can close this page.`
+            : "The run asked a person and is paused until they decide. You can close this page.",
+        });
       } else if (finished.status === "waiting") {
         // Phase 26. The request came back, the run did not finish, and that is correct:
         // it reached a long delay and was put down until its wake time.

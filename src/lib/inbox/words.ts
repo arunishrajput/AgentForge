@@ -30,3 +30,12 @@ export function badgeCount(unread: number): string | null {
   if (unread <= 0) return null;
   return unread > 99 ? "99+" : String(unread);
 }
+
+/**
+ * The line beside the panel's heading — what is waiting, and what is unread; "all read" only when
+ * nothing is waiting either. Phase 38's walk read "1 waiting on you · all read", which said two things.
+ */
+export function panelSummary(unread: number, pending: number): string {
+  const parts = [pending > 0 ? `${pending} waiting on you` : null, unread > 0 ? `${unread} unread` : null].filter(Boolean);
+  return parts.length > 0 ? parts.join(" · ") : "all read";
+}

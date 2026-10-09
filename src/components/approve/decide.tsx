@@ -53,18 +53,10 @@ export function DecideApproval() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Once, even under Strict Mode's second effect: the ref survives it, the fragment does not.
-    if (token.current === null) {
-      token.current = window.location.hash.slice(1);
-      if (window.location.hash) window.history.replaceState(null, "", window.location.pathname);
-    }
-    const held = token.current;
-    if (!held) {
-      setState({ kind: "missing" });
-      return;
-    }
     let live = true;
-    const read = async () => {
+
+    /** Read the request the held token is for, and say what it is. */
+    const read = async (held: string) => {
       let next: State;
       try {
         const answer = await post<{ state: "open" | "closed"; workflowName?: string; message?: string; expiresAt?: string }>(
@@ -83,9 +75,39 @@ export function DecideApproval() {
       }
       if (live) setState(next);
     };
-    void read();
+
+    /**
+     * Take the token out of the fragment, and out of the address bar. On load, and again on a
+     * `hashchange`: a second link opened in a tab already on this page changes only the fragment, so
+     * the page does not load again — found by Phase 38's walk, where it kept showing the first request.
+     */
+    const take = () => {
+      const fragment = window.location.hash.slice(1);
+      if (!fragment) return false;
+      token.current = fragment;
+      window.history.replaceState(null, "", window.location.pathname);
+      return true;
+    };
+
+    // Once, even under Strict Mode's second effect: the ref survives it, the fragment does not.
+    if (token.current === null) {
+      take();
+      token.current ??= "";
+    }
+    if (token.current) void read(token.current);
+    else setState({ kind: "missing" });
+
+    const onHashChange = () => {
+      if (!take() || !token.current) return;
+      setComment("");
+      setError(null);
+      setState({ kind: "reading" });
+      void read(token.current);
+    };
+    window.addEventListener("hashchange", onHashChange);
     return () => {
       live = false;
+      window.removeEventListener("hashchange", onHashChange);
     };
   }, []);
 
