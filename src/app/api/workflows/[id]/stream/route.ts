@@ -1,4 +1,4 @@
-import { ApiError, fail, requireScope } from "@/lib/api";
+import { ApiError, fail, requireApiScope } from "@/lib/api";
 import type { WorkspaceScope } from "@/lib/workspace/scope";
 import { describeRun, getRun, latestRun, readSteps } from "@/lib/engine/run";
 import {
@@ -67,7 +67,7 @@ async function openStream(request: Request, { params }: Context) {
   // is an ordinary JSON error response. An `EventSource` given a non-200 fails without
   // retrying, which is the behaviour we want for 401 and 404.
   try {
-    scope = await requireScope();
+    scope = await requireApiScope();
     const { id } = await params;
     await getWorkflow(scope, id);
     workflowId = id;

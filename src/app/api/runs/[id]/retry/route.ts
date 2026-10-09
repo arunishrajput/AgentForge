@@ -1,4 +1,4 @@
-import { handle, requireScope } from "@/lib/api";
+import { handle, requireApiScope } from "@/lib/api";
 import { retryRun } from "@/lib/engine/recover";
 import { readRestartMode, restartResponse } from "@/lib/runs/restart-route";
 
@@ -14,7 +14,7 @@ type Context = { params: Promise<{ id: string }> };
  */
 export async function POST(request: Request, { params }: Context) {
   return handle(async () => {
-    const scope = await requireScope("editor");
+    const scope = await requireApiScope("editor");
     const { id } = await params;
     const mode = await readRestartMode(request);
     // A graph that cannot run answers 422 from `startRun`, as `POST /runs` does.

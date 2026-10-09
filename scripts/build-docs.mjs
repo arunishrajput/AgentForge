@@ -282,6 +282,25 @@ function checkApiDoc() {
     if (!text.includes(`\`${route}\``)) problems.push(`undocumented route: ${route}`);
   }
 
+  // Phase 41: the routes that accept a personal access token are a fact about the source — the ones
+  // that call `requireApiScope` — so the list in the doc is checked against it, both ways.
+  const accepting = listRouteFiles(join(root, "src/app/api"))
+    .filter((file) => /\brequireApiScope\(/.test(readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\//g, "")))
+    .map(routePath)
+    .sort();
+  const block = /<!-- token-routes:start -->([\s\S]*?)<!-- token-routes:end -->/.exec(text);
+  if (!block) {
+    problems.push("docs/api.md has no <!-- token-routes:start --> … <!-- token-routes:end --> block");
+  } else {
+    const listed = new Set([...block[1].matchAll(/`(\/api\/[^`\s]*)`/g)].map((m) => m[1]));
+    for (const route of accepting) {
+      if (!listed.has(route)) problems.push(`accepts a token but is not in the token-routes block: ${route}`);
+    }
+    for (const route of listed) {
+      if (!accepting.includes(route)) problems.push(`listed as accepting a token but does not: ${route}`);
+    }
+  }
+
   // Anything in the doc that looks like an api path must actually exist.
   const known = new Set(routes);
   for (const match of text.matchAll(/`(\/api\/[^`\s]*)`/g)) {

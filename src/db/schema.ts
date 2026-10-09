@@ -282,6 +282,50 @@ export const workspaceInvitations = pgTable(
   ],
 );
 
+/**
+ * A personal access token — Phase 41, D192. What a script presents as `Authorization: Bearer` in
+ * place of a session cookie.
+ *
+ * **Only `sha256(token)` is stored** (D95's argument, restated: 256 bits of CSPRNG need no slow
+ * hash, and a leaked backup must yield no usable token). The plaintext exists once, in the
+ * response that creates it. `hint` is the first eight characters (`afp_` and four more) so a person
+ * can tell their tokens apart in a list — 24 of 256 bits, which names a token without helping to
+ * guess one.
+ *
+ * `role` is a **ceiling**, never a grant: the power a request carries is the lower of it and what
+ * the creator holds in the workspace *at that moment* (`effectiveRole`), so a demoted or removed
+ * member's tokens lose power with them. Rows are never deleted by a revoke — `revokedAt` is the
+ * record that it happened — and go with the workspace or the person (cascade).
+ */
+export const accessTokens = pgTable(
+  "access_token",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    workspaceId: text("workspaceId")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    /** The person the token acts as. Runs it starts are owned by them. */
+    userId: text("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    role: text("role").$type<WorkspaceRole>().notNull(),
+    tokenHash: text("tokenHash").notNull().unique(),
+    hint: text("hint").notNull(),
+    expiresAt: timestamp("expiresAt", { withTimezone: true }).notNull(),
+    /** Written at most once per few minutes per token (`tokens/token.ts`), not once per request. */
+    lastUsedAt: timestamp("lastUsedAt", { withTimezone: true }),
+    revokedAt: timestamp("revokedAt", { withTimezone: true }),
+    createdAt: timestamp("createdAt", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // The settings list: one person's tokens in one workspace, newest first.
+    index("access_token_owner_idx").on(table.workspaceId, table.userId, table.createdAt),
+  ],
+);
+
 /* ------------------------------------------------------------------ *
  * Phase 3 — workflows, runs, steps, credentials
  * ------------------------------------------------------------------ */

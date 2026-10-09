@@ -7,6 +7,9 @@ import { addLogContext, logError, traceFromHeaders, withLogContext } from "@/lib
 import { readActiveWorkspaceId } from "@/lib/workspace/active";
 import { assertRole, type WorkspaceRole } from "@/lib/workspace/roles";
 import { listMemberships, resolveScope } from "@/lib/workspace/store";
+import { clientAddress, createRateLimiter } from "@/lib/ratelimit";
+import { authenticateToken } from "@/lib/tokens/store";
+import { readBearer, TOKEN_LIMIT, TOKEN_LIMIT_WINDOW_MS, hashAccessToken } from "@/lib/tokens/token";
 import type { WorkspaceScope } from "@/lib/workspace/scope";
 
 /**
@@ -80,6 +83,73 @@ export async function requireScope(minimumRole: WorkspaceRole = "viewer"): Promi
   // names its user and its workspace without the route saying so.
   addLogContext({ userId: scope.userId, workspaceId: scope.workspaceId });
   return scope;
+}
+
+const perToken = createRateLimiter({ limit: TOKEN_LIMIT, windowMs: TOKEN_LIMIT_WINDOW_MS });
+// **Failures only, by where they came from.** A client that keeps presenting tokens nobody holds is
+// stopped before the database is asked again, so a scan costs a few lookups and no more — and a
+// client with good tokens is never counted here, so two tokens behind one address (a CI runner) do
+// not share a limit.
+const perMiss = createRateLimiter({ limit: TOKEN_LIMIT, windowMs: TOKEN_LIMIT_WINDOW_MS });
+
+/**
+ * **`requireScope`, for the routes that also accept a personal access token — Phase 41, D192.**
+ *
+ * The allowlist is *this function*: a route accepts `Authorization: Bearer` if and only if it calls
+ * it, and `requireScope` — which every other route uses, token management, the vault, credentials
+ * and members among them — never reads the header. `token-routes.test.ts` pins the set of files
+ * that call it, so adding a route to it is a change a reviewer sees. A route that forgets which to
+ * call falls on the safe side: it accepts no token.
+ *
+ * **A bearer header decides the request on its own.** If one is present it is the only credential
+ * considered — a bad token is a 401 and never falls back to a cookie that happens to ride along, so
+ * a token request has no ambient authority and no CSRF surface.
+ *
+ * The role it hands back is the **lower of the token's ceiling and what its creator holds in the
+ * workspace now**, so a demoted member's token loses power with them, and a removed member's
+ * stops working (`tokens/store.ts` → `authenticateToken`). Every refusal for a token that is
+ * unknown, malformed or orphaned is the same 401 in the same words, so the answer to "is this a
+ * real token" is only ever "no".
+ *
+ * Rate limiting is per token, and per address for tokens that do not exist; in memory and per
+ * instance (`lib/ratelimit.ts`). The token itself is never logged: only its row id reaches the log
+ * context.
+ */
+export async function requireApiScope(minimumRole: WorkspaceRole = "viewer"): Promise<WorkspaceScope> {
+  const incoming = await headers();
+  const read = readBearer(incoming.get("authorization"));
+  if (read.kind === "none") return requireScope(minimumRole);
+
+  const address = clientAddress({ headers: incoming });
+  const miss = (message: string): ApiError => {
+    const counted = perMiss.take(address);
+    return counted.allowed ? new ApiError("unauthenticated", message) : rateLimited(counted.retryAfterSeconds);
+  };
+
+  const blocked = perMiss.peek(address);
+  if (!blocked.allowed) throw rateLimited(blocked.retryAfterSeconds);
+  if (read.kind === "malformed") throw miss("That is not an AgentForge access token.");
+
+  const allowance = perToken.take(hashAccessToken(read.token));
+  if (!allowance.allowed) throw rateLimited(allowance.retryAfterSeconds);
+
+  const result = await authenticateToken(read.token);
+  if (!result.ok) {
+    throw miss(
+      result.reason === "unknown" || result.reason === "member_gone"
+        ? "This access token is not valid."
+        : `This access token has ${result.reason === "expired" ? "expired" : "been revoked"}.`,
+    );
+  }
+  assertRole(result.scope.role, minimumRole);
+  addLogContext({ userId: result.scope.userId, workspaceId: result.scope.workspaceId, tokenId: result.tokenId });
+  return result.scope;
+}
+
+function rateLimited(retryAfterSeconds: number): ApiError {
+  return new ApiError("rate_limited", "Too many requests with this access token. Slow down.", {
+    retryAfterSeconds,
+  });
 }
 
 /**
@@ -196,7 +266,13 @@ export async function handle(run: () => Promise<Response>): Promise<Response> {
       // 404 for another workspace's workflow is the authorisation layer working. Logging
       // them at ERROR would bury the faults among thousands of correct refusals, so they
       // are not logged at all — the response says everything there is to say.
-      if (error instanceof ApiError) return fail(error.code, error.message, error.details);
+      if (error instanceof ApiError) {
+        const response = fail(error.code, error.message, error.details);
+        // A rate limit says when to come back (Phase 40 for forms, Phase 41 for tokens).
+        const wait = (error.details as { retryAfterSeconds?: unknown } | undefined)?.retryAfterSeconds;
+        if (error.code === "rate_limited" && typeof wait === "number") response.headers.set("retry-after", String(wait));
+        return response;
+      }
       logError("api.error", "An API request failed unexpectedly.", error);
       return fail("internal", "Something went wrong handling this request.");
     }

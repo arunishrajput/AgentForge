@@ -1,4 +1,4 @@
-import { handle, ok, readJson, requireScope } from "@/lib/api";
+import { handle, ok, readJson, requireApiScope } from "@/lib/api";
 import {
   createWorkflow,
   createWorkflowSchema,
@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   return handle(async () => {
-    const scope = await requireScope();
+    const scope = await requireApiScope();
     const workflows = await listWorkflows(scope);
     // Phase 32: each listed workflow carries its tags and the asker's star.
     return ok(workflows.map(describeListedWorkflow));
@@ -20,7 +20,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   return handle(async () => {
-    const scope = await requireScope("editor");
+    const scope = await requireApiScope("editor");
     const body = await readJson(request, createWorkflowSchema);
     const workflow = await createWorkflow(scope, body);
     return ok(describeWorkflow(workflow), 201);

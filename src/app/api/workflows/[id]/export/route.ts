@@ -1,4 +1,4 @@
-import { handle, ok, requireScope } from "@/lib/api";
+import { handle, ok, requireApiScope } from "@/lib/api";
 import { getWorkflow } from "@/lib/workflow/store";
 import { exportWorkflow } from "@/lib/workflow/transfer";
 
@@ -19,7 +19,7 @@ type Context = { params: Promise<{ id: string }> };
  */
 export async function GET(request: Request, { params }: Context) {
   return handle(async () => {
-    const scope = await requireScope();
+    const scope = await requireApiScope();
     const { id } = await params;
     const includePinned = new URL(request.url).searchParams.get("pinned") === "include";
     return ok(exportWorkflow(await getWorkflow(scope, id), { includePinned }));

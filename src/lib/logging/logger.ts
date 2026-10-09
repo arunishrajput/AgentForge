@@ -73,6 +73,7 @@ export function buildEntry(
     "logging.googleapis.com/labels": { event },
     ...(context.userId ? { userId: context.userId } : {}),
     ...(context.workspaceId ? { workspaceId: context.workspaceId } : {}),
+    ...(context.tokenId ? { tokenId: context.tokenId } : {}),
     ...(context.runId ? { runId: context.runId } : {}),
     ...(context.workflowId ? { workflowId: context.workflowId } : {}),
   };

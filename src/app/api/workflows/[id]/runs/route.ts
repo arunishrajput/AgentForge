@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { describeRun, startDurableRun, startRun, sweepRuns } from "@/lib/engine/run";
 import { RUN_MODES } from "@/lib/engine/types";
-import { ApiError, handle, ok, okPage, requireScope } from "@/lib/api";
+import { ApiError, handle, ok, okPage, requireApiScope } from "@/lib/api";
 import { listRunPage } from "@/lib/runs/history";
 import { pageCursors, readRunRequest } from "@/lib/runs/query";
 import { getWorkflow } from "@/lib/workflow/store";
@@ -68,7 +68,7 @@ async function readTrigger(request: Request): Promise<z.infer<typeof triggerSche
 
 export async function POST(request: Request, { params }: Context) {
   return handle(async () => {
-    const scope = await requireScope("editor");
+    const scope = await requireApiScope("editor");
     const { id } = await params;
     const workflow = await getWorkflow(scope, id);
 
@@ -112,7 +112,7 @@ export async function POST(request: Request, { params }: Context) {
  */
 export async function GET(request: Request, { params }: Context) {
   return handle(async () => {
-    const scope = await requireScope();
+    const scope = await requireApiScope();
     const { id } = await params;
     await getWorkflow(scope, id);
     const { query, limit } = readRunRequest(new URL(request.url), { workflowId: id });

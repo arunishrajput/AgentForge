@@ -1,4 +1,4 @@
-import { handle, ok, requireScope } from "@/lib/api";
+import { handle, ok, requireApiScope } from "@/lib/api";
 import { finishUnclaimedRun, finishWaitingRun, requestCancel } from "@/lib/engine/lease";
 import { describeRun, getRun } from "@/lib/engine/run";
 
@@ -36,7 +36,7 @@ type Context = { params: Promise<{ id: string }> };
  */
 export async function POST(_request: Request, { params }: Context) {
   return handle(async () => {
-    const scope = await requireScope("editor");
+    const scope = await requireApiScope("editor");
     const { id } = await params;
 
     const asked = await requestCancel({ runId: id, scope });

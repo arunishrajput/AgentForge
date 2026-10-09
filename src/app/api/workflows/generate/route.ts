@@ -1,6 +1,6 @@
 import { NoProviderKeyError, PROVIDER_KEY_RECOVERY, resolveProvider } from "@/lib/ai/provider";
 import { ProviderError } from "@/lib/ai/types";
-import { ApiError, handle, ok, readJson, requireScope } from "@/lib/api";
+import { ApiError, handle, ok, readJson, requireApiScope } from "@/lib/api";
 import type { WorkspaceScope } from "@/lib/workspace/scope";
 import { generateWorkflow, generationLogFields } from "@/lib/generate/generate";
 import { logInfo, logWarn } from "@/lib/logging";
@@ -22,7 +22,7 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(request: Request) {
   return handle(async () => {
-    const scope = await requireScope("editor");
+    const scope = await requireApiScope("editor");
     const body = await readJson(request, generateRequestSchema);
 
     const provider = await resolveProviderOr422(scope);

@@ -1,5 +1,5 @@
 import { sweepRuns } from "@/lib/engine/run";
-import { handle, okPage, requireScope } from "@/lib/api";
+import { handle, okPage, requireApiScope } from "@/lib/api";
 import { listRunPage } from "@/lib/runs/history";
 import { pageCursors, readRunRequest } from "@/lib/runs/query";
 
@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(request: Request) {
   return handle(async () => {
-    const scope = await requireScope();
+    const scope = await requireApiScope();
     const { query, limit } = readRunRequest(new URL(request.url));
     await sweepRuns(scope);
     const page = await listRunPage(scope, query, { limit });

@@ -29,6 +29,7 @@ import type { WorkflowVisibility } from "@/lib/workflow/visibility";
 import type { InvitableRole, InvitationSummary } from "@/lib/workspace/invitations";
 import type { WorkspaceRole } from "@/lib/workspace/roles";
 import type { describeMember, describeWorkspace } from "@/lib/workspace/store";
+import type { TokenSummary } from "@/lib/tokens/store";
 import type { WorkflowGraph } from "@/lib/workflow/graph";
 import type { describeListedWorkflow, describeWorkflow } from "@/lib/workflow/store";
 import type { TagSummary } from "@/lib/workflow/tags";
@@ -582,6 +583,16 @@ export const api = {
    */
   rotateWebhookToken: (id: string) =>
     request<Workflow>(`/api/workflows/${id}/webhook/rotate`, { method: "POST" }),
+
+  /* ---------------------- access tokens (Phase 41) ---------------------- */
+
+  listTokens: () => request<TokenSummary[]>("/api/tokens"),
+
+  /** The only call that ever returns the token itself — once. */
+  createToken: (body: { name: string; role: "viewer" | "editor"; expiresInDays: number }) =>
+    request<TokenSummary & { token: string }>("/api/tokens", { method: "POST", body: JSON.stringify(body) }),
+
+  revokeToken: (id: string) => request<TokenSummary>(`/api/tokens/${id}`, { method: "DELETE" }),
 
   /* ---------------------- workspaces (Phase 19B) ---------------------- */
 

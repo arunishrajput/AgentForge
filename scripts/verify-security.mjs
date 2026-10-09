@@ -348,6 +348,36 @@ console.log("\nA form's page and submission");
   check(get.status === 405, `GET /api/form/[token] → 405: nothing a link preview can call`, `GET /api/form/[token] → ${get.status}`);
 }
 
+/**
+ * **An access token is not a way in by itself — Phase 41.** Every route that needs a session answers a
+ * well-formed token nobody holds exactly as it answers nobody: 401 `unauthenticated`. The routes that
+ * accept a token do so by asking the database, so a token that is not there gets the same word as no
+ * token; the routes that never accept one do not look at the header at all. (That a *real* token is
+ * accepted on the allowlist and refused everywhere else needs a real token — `verify-tokens.mjs`.)
+ */
+console.log("\nA token nobody holds is no credential");
+{
+  const unknown = `afp_${"B".repeat(43)}`;
+  let refusedWithToken = 0;
+  let total = 0;
+  for (const { file, path } of routes) {
+    if (PUBLIC[path]) continue;
+    for (const method of await methodsOf(file)) {
+      total += 1;
+      const response = await fetch(`${BASE}${concrete(path)}`, {
+        method,
+        redirect: "manual",
+        headers: { authorization: `Bearer ${unknown}`, ...(method === "GET" ? {} : { "content-type": "application/json" }) },
+        ...(method === "GET" || method === "DELETE" ? {} : { body: "{}" }),
+      });
+      const body = await response.json().catch(() => null);
+      if (response.status === 401 && body?.error?.code === "unauthenticated") refusedWithToken += 1;
+      else fail(`${method} ${path} with an unknown token → ${response.status}, expected 401 unauthenticated`);
+    }
+  }
+  check(refusedWithToken === total, `all ${total} session routes → 401 unauthenticated for an unknown token`, `${refusedWithToken} of ${total} refused`);
+}
+
 /** A signed-in page must send an anonymous visitor to the landing page, not to an error. */
 console.log("\nSigned-in pages redirect rather than failing");
 // `/runs` and a run's page are Phase 33's: the history is a signed-in page like the others.

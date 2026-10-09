@@ -54,3 +54,15 @@ test("the address is the last entry of X-Forwarded-For, which the client cannot 
   assert.equal(clientAddress(request("203.0.113.9")), "203.0.113.9");
   assert.equal(clientAddress(request(null)), "unknown");
 });
+
+test("peek reports a refusal without counting, and does not open or extend a window", () => {
+  const limiter = createRateLimiter({ limit: 2, windowMs: 1_000 });
+  assert.equal(limiter.peek("k", 0).allowed, true);
+  assert.equal(limiter.size(), 0, "peeking a key opens nothing");
+  limiter.take("k", 0);
+  limiter.take("k", 1);
+  for (let i = 0; i < 10; i += 1) limiter.peek("k", 2);
+  assert.equal(limiter.peek("k", 2).allowed, false, "the window is full");
+  assert.ok(limiter.peek("k", 2).retryAfterSeconds >= 1);
+  assert.equal(limiter.peek("k", 1_000).allowed, true, "and it closes on time, however often it was peeked");
+});

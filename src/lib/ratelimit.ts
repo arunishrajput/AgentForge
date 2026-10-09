@@ -24,6 +24,8 @@ export interface RateLimit {
 
 export interface RateLimiter {
   take: (key: string, now?: number) => RateLimit;
+  /** Whether `take` would be refused now — without counting a call. */
+  peek: (key: string, now?: number) => RateLimit;
   /** How many windows are held — for the bound's test. */
   size: () => number;
 }
@@ -43,6 +45,13 @@ export function createRateLimiter(options: { limit: number; windowMs: number; ma
   };
 
   return {
+    peek(key, now = Date.now()) {
+      const window = windows.get(key);
+      if (!window || now - window.start >= windowMs || window.count < limit) {
+        return { allowed: true, retryAfterSeconds: 0 };
+      }
+      return { allowed: false, retryAfterSeconds: Math.max(1, Math.ceil((window.start + windowMs - now) / 1000)) };
+    },
     take(key, now = Date.now()) {
       let window = windows.get(key);
       if (!window || now - window.start >= windowMs) {
@@ -67,7 +76,7 @@ export function createRateLimiter(options: { limit: number; windowMs: number; ma
  * it is whatever the client claimed — taken from the right, a caller cannot choose which bucket they
  * fall in. `unknown` when the header is absent (a local run), which is one shared bucket.
  */
-export function clientAddress(request: Request): string {
+export function clientAddress(request: { headers: Headers }): string {
   const forwarded = request.headers.get("x-forwarded-for");
   if (!forwarded) return "unknown";
   const entries = forwarded.split(",").map((entry) => entry.trim()).filter(Boolean);

@@ -1,4 +1,4 @@
-import { ApiError, handle, ok, requireScope } from "@/lib/api";
+import { ApiError, handle, ok, requireApiScope } from "@/lib/api";
 import { importWorkflow } from "@/lib/workflow/library";
 import { describeWorkflow } from "@/lib/workflow/store";
 import { IMPORT_MAX_BYTES, readImport } from "@/lib/workflow/transfer";
@@ -21,7 +21,7 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(request: Request) {
   return handle(async () => {
-    const scope = await requireScope("editor");
+    const scope = await requireApiScope("editor");
 
     const text = await request.text();
     if (new TextEncoder().encode(text).length > IMPORT_MAX_BYTES) {

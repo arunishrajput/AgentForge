@@ -12,11 +12,12 @@ under `src/app/api` and is not named here, or if this page names one that does n
 
 ## How a request is authorised
 
-Three mechanisms, and nothing else.
+Four mechanisms, and nothing else.
 
 | Mechanism | Used by | What it establishes |
 |---|---|---|
 | **Session** | Everything a person does | Who you are — an Auth.js session cookie backed by a database row |
+| **Personal access token** | A script, on the [thirteen routes listed below](#access-tokens) | The same person, in one workspace, at no higher role than the token was given — `Authorization: Bearer afp_…` |
 | **Workspace role** | Everything a person does | What you may do *here* — `viewer` → `editor` → `admin` → `owner` |
 | **Bearer token in the path** | The five link- and machine-reached routes | One specific resource, and nothing else |
 | **Bearer token in the body** | The two approval-link routes (Phase 38) | One approval request, and nothing else — carried in a POST body so it is in no URL |
@@ -56,7 +57,7 @@ optionally with `details`.
 | `invalid_request` | 400 | The body failed its schema, or a parameter is malformed |
 | `invalid_graph` | 422 | The workflow is syntactically fine and not a runnable graph |
 | `conflict` | 409 | The resource changed underneath you, or the action is not legal in this state |
-| `rate_limited` | 429 | Too many submissions to a public form (Phase 40). Carries `Retry-After`. In memory and per instance |
+| `rate_limited` | 429 | Too many submissions to a public form (Phase 40), or too many requests with one access token (Phase 41). Carries `Retry-After`. In memory and per instance |
 | `internal` | 500 | A fault. The message is generic; the detail is in the logs under the request's trace |
 
 An unexpected throw never reaches the client as a stack. It is logged with the request's
@@ -87,6 +88,70 @@ at does not need a link to the field you are looking at. `href` is always a path
 `/`; a client should discard anything else rather than navigate to it.
 
 ---
+
+## Access tokens
+
+Phase 41. Everything a person can do with workflows and runs in the browser, a script can do with a
+token — on the routes below, and **only** those. Create one in *Settings → Access tokens*.
+
+| Method | Route | Role | What it does |
+|---|---|---|---|
+| `GET` | `/api/tokens` | viewer | Your tokens in the active workspace — name, role, hint, state, expiry, last use. **Never the token** |
+| `POST` | `/api/tokens` | viewer | `{ name, role: "viewer" \| "editor", expiresInDays: 1–365 }` → 201 with the token **once**, `cache-control: no-store`. `403` for a role above your own, `409` at 20 live tokens |
+| `DELETE` | `/api/tokens/[id]` | viewer | Revokes one of yours. Idempotent; another person's is `404` |
+
+**What a token is.** `afp_` and 43 characters of CSPRNG. Only its SHA-256 is stored, so a lost token
+is replaced, not recovered. It always expires (at most a year) and can be revoked at any moment.
+
+**What it can do** is the lower of the role it was given and the role its creator holds in that
+workspace *at the moment of the request* — demote the creator and the token's writes are refused
+at once; remove them and the token is `401`. It is scoped to one workspace: another workspace's
+resource is `404`, as for a session (D20). Runs it starts belong to its creator.
+
+**Where it goes.** A route accepts a token if and only if it calls `requireApiScope`; this list is
+checked against the source by `npm run docs:check`, so it cannot drift:
+
+<!-- token-routes:start -->
+- `/api/workflows` — list, create
+- `/api/workflows/[id]` — read, rename or edit, delete
+- `/api/workflows/[id]/runs` — list a workflow's runs, **start one**
+- `/api/workflows/[id]/stream` — follow a run live (SSE)
+- `/api/workflows/[id]/export` — the export envelope
+- `/api/workflows/import` — import one
+- `/api/workflows/generate` — natural language to a workflow
+- `/api/runs` — list runs
+- `/api/runs/[id]` — one run
+- `/api/runs/[id]/steps/[seq]` — one step's input and output
+- `/api/runs/[id]/cancel`, `/api/runs/[id]/rerun`, `/api/runs/[id]/retry`
+<!-- token-routes:end -->
+
+Every other route answers a token `401`, because it never looks at the header — **token management,
+credentials, the vault, members, invitations, integrations, sharing, the copilot and the webhook
+rotation among them**. A request with a `Bearer` header is judged by the token alone: a bad one is
+`401` even with a valid cookie beside it. Every dead token — unknown, malformed, expired, revoked, its
+creator gone — gets the same `401` code.
+
+**Rate limit.** 120 requests a minute per token, and 120 *failed* presentations a minute per client
+address — **per instance** (the service has no shared store, and a second instance has its own count).
+Over it: `429`, `rate_limited`, `Retry-After`.
+
+```bash
+export TOKEN=afp_…       # shown once, when you created it
+export URL=https://your-agentforge.example
+
+curl -fsS "$URL/api/workflows" -H "authorization: Bearer $TOKEN"
+
+# Start a run and wait for it (the response is the finished run).
+curl -fsS -X POST "$URL/api/workflows/$WORKFLOW_ID/runs" \
+  -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+  -d '{"input":{"email":"ada@example.com"}}'
+
+curl -fsS "$URL/api/runs/$RUN_ID" -H "authorization: Bearer $TOKEN"
+```
+
+There is no OpenAPI document, deliberately: the routes' schemas live in the route files and a
+hand-written spec would be a second source of truth. The coverage check above is what keeps this page
+honest.
 
 ## Workflows
 
@@ -391,10 +456,10 @@ reveals anything.
 
 ## Calling it from outside the browser
 
-Every route above authorises a *session cookie*, not an API key — there is no personal
-access token in this product yet. The two things that are callable without a browser are
-the ones designed to be: a workflow's **webhook URL**, and the machine endpoints guarded
-by `CRON_SECRET`.
+Most routes above authorise a *session cookie*. **The workflow and run routes also accept a
+[personal access token](#access-tokens)** — see there for `curl`. Besides those, the things callable
+without a browser are the ones designed to be: a workflow's **webhook URL**, a form's address, and the
+machine endpoints guarded by `CRON_SECRET`.
 
 ```bash
 # Trigger a workflow from anywhere. The URL is on the workflow's trigger node.

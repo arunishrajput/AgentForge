@@ -1670,6 +1670,30 @@ deployed system rather than assumed.
 
 ---
 
+## Access tokens — **DEFINED** (Phase 41)
+
+Table `access_token`; the rules are `src/lib/tokens/token.ts`, the queries `src/lib/tokens/store.ts`,
+the one funnel `requireApiScope` in `src/lib/api.ts`. A personal access token is what a script presents
+as `Authorization: Bearer afp_…` in place of a session cookie (D192).
+
+| Property | Value |
+|---|---|
+| Token | `afp_` + 32 bytes of CSPRNG, base64url — 47 characters. Shape-checked before any lookup |
+| Stored as | **`sha256(token)` hex, unique**, plus `hint` (the first eight characters). The plaintext exists once, in the `201` that creates it (`cache-control: no-store`) |
+| Role | A **ceiling**: `viewer` or `editor` — never `admin`/`owner`, never above its creator at creation (`403`). The power of a request is `min(ceiling, creator's role in that workspace now)`; a creator who left the workspace makes the token `401` |
+| Expiry | Required: `expiresInDays` 1–365. An expired token is `401` and says so |
+| Revocation | `DELETE /api/tokens/[id]`, idempotent; the row stays as the record. Revoked → `401` and says so |
+| Cap | 20 live tokens per person per workspace; the 21st is `409` |
+| `lastUsedAt` | At most once per five minutes per token (in memory per instance, and in the `update … where`) |
+| Where accepted | The routes that call `requireApiScope` — thirteen workflow and run routes (`docs/api.md` → *Access tokens*, pinned by `token-routes.test.ts`). **Never** `/api/tokens`, credentials, the vault, workspaces, members, invitations, integrations, sharing, the copilot, webhook rotation, approvals or the inbox |
+| Precedence | A `Bearer` header is the only credential considered. A bad one is `401` even beside a valid cookie. A header with another scheme is ignored |
+| Errors | `401 unauthenticated` for every dead token (unknown/malformed share one message; expired and revoked name themselves); `403 forbidden` when the effective role is too low; `429 rate_limited` with `Retry-After` |
+| Rate limit | 120 requests a minute per token, and 120 failed presentations a minute per client address; in memory, **per instance** |
+| Logging | The log context carries `tokenId` (the row id). The token is never logged |
+
+Routes: `GET`/`POST /api/tokens` and `DELETE /api/tokens/[id]`, session only, any role (`viewer` is
+enough: a token never outranks its creator).
+
 ## Invitations — **DEFINED** (Phase 19B)
 
 Table `workspace_invitation`; the rules are `src/lib/workspace/invitations.ts` and the queries are

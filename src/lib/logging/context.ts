@@ -37,6 +37,8 @@ export interface LogContext {
   trace?: string;
   userId?: string;
   workspaceId?: string;
+  /** The row id of the access token a request used (Phase 41) — never the token. */
+  tokenId?: string;
   runId?: string;
   workflowId?: string;
 }

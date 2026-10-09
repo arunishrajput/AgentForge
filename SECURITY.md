@@ -250,7 +250,7 @@ in that file — a node's capability (`send-mail`, `append-row`) or a root key v
 | **Identity** | Google OAuth via `next-auth@5`, database sessions. No passwords are stored, because none are collected |
 | **Session storage** | The `session` table. Not JWTs — a database session can be revoked, and the role check below reads the membership row per request so a role change takes effect on the next request with no cache to wait out |
 | **No middleware** | Next 16 renamed `middleware` to `proxy` with no edge runtime, and a database session cannot be read from the edge. **Route protection is a server-side `auth()` check in every route** (D9) |
-| **One funnel** | `requireScope(minimumRole)` in `src/lib/api.ts` establishes every authenticated route's authority. Its default is **`viewer`** — the least privilege — so a mutating route added later that forgets the argument fails **closed** |
+| **One funnel** | `requireScope(minimumRole)` in `src/lib/api.ts` establishes every authenticated route's authority — and `requireApiScope`, which wraps it, is the one place a [personal access token](#access-tokens--phase-41) is accepted. Its default is **`viewer`** — the least privilege — so a mutating route added later that forgets the argument fails **closed** |
 | **Tenancy** | Every query filters on `scope.workspaceId`. There is no code path that reads a workflow by id alone |
 | **404 versus 403** | Another workspace's resource is **404**, because 403 would confirm the id exists (D20). Insufficient role inside a workspace you *are* in is **403** — you already know it exists, and hiding behind a 404 would make a real permission boundary look like a bug |
 | **Private workflows, and everything that reaches one** | A colleague's private workflow is filtered in the `where`, never checked after the read (D101) — and so is every way to reach it through a run: the run lists, a run by id, one step's bodies, a run's page, a re-run and a retry (Phase 33). **The offer to switch workspaces** that a workflow or run link shows a member looking at another workspace names that workspace only when they could open the thing there; until Phase 33 it confirmed a private workflow existed |
@@ -491,6 +491,47 @@ each bounded by the rules it already lived under:
 - **It cannot loop.** A run an error trigger started never starts another (D176); at most five error
   workflows hear one failure
 
+## Access tokens — Phase 41
+
+**A personal access token is a credential for a script, and it is the first way into the API that
+carries no cookie** (D192). It is authenticated, not public — no new unauthenticated surface — but it
+is the most portable authority the product issues, so it is bounded on every side:
+
+- **Only a hash is stored.** `afp_` and 256 bits of CSPRNG; the database holds `sha256(token)` and a
+  four-character hint. The plaintext is in one response (`cache-control: no-store`) and then nowhere:
+  not the list, not the logs (the request log context carries the token's **row id**, never the token),
+  not the audit trail. A lost token is replaced, not recovered. The prefix makes a leaked one findable
+  by a secret scanner or a `grep`.
+- **The allowlist is a function.** A route accepts a token if and only if it calls `requireApiScope`
+  (`src/lib/api.ts`); every other route calls `requireScope`, which does not read the header. The
+  thirteen workflow and run routes are pinned by `token-routes.test.ts` and listed in `docs/api.md`
+  (checked by `docs:check`). **Never** token management — a leaked token cannot make itself immortal —
+  credentials, the vault, members, invitations, integrations, sharing, the copilot or webhook rotation.
+  `verify-tokens.mjs` drives a real token at all of those on the deployed service and expects 401.
+- **The role is re-checked on every request**: the lower of the token's ceiling (`viewer` or `editor`,
+  never above its creator at creation) and what its creator holds in that workspace *now*, joined in
+  the same statement that finds the token. Demote the creator and the token's writes are refused on the
+  next request; remove them and it is 401. There is no cache to wait out.
+- **A bearer header decides the request alone.** A bad token is 401 even with a valid cookie beside it, so
+  a token request has no ambient authority and no CSRF surface, and a browser's cookie cannot rescue or
+  poison it. Every dead token — unknown, malformed, expired, revoked — is the same 401 code.
+- **Expiry is required** (1 to 365 days), at most 20 live tokens a person per workspace, and a revoke is
+  immediate and keeps its row as the record.
+- **Workspace scope**: a token names one workspace. Another workspace's resource is 404 (D20); the runs a
+  token starts are owned by its creator.
+- **Rate limiting**: 120 requests a minute per token, and 120 *failed* presentations a minute per client
+  address (unknown, malformed, expired or revoked tokens), **in memory and per instance** — with the
+  caveat of item 3 below: three instances allow three times as many, and a fresh one starts empty. An
+  address over its failure limit is refused before the database is asked, so a scan for tokens costs a
+  few lookups and no more; an address with good tokens is never counted, so two tokens behind one CI
+  runner do not share a limit.
+- **`lastUsedAt`** is written at most once per five minutes per token — a figure for a person, and not a
+  new reason to wake Neon.
+
+A token is as powerful as the access it was given, and **a token on a developer's laptop is a
+credential on a developer's laptop**. Use `viewer` for anything that only reads, short expiries for
+anything that does not, and revoke what you stop using.
+
 ## Forms and answers — Phase 40
 
 **`/f/<token>` and `POST /api/form/<token>` are the first public surface that takes content from a
@@ -602,8 +643,9 @@ The honest limits. Each one is a real gap, not a hedge.
    against code execution inside the app.
 3. **Rate limiting is partial, in memory and per instance.** Since Phase 40 the **form** submission
    route is limited (12 an address and 120 a form per ten minutes, per instance — up to three times
-   that across instances, and a fresh instance starts empty). **The webhook, share and approval-link
-   endpoints are still unthrottled**: a 256-bit or 192-bit token is not guessed by retrying, but a
+   that across instances, and a fresh instance starts empty), and since Phase 41 **a request carrying
+   an access token** is limited (120 a minute a token, and the same per address, per instance). **The
+   webhook, share and approval-link endpoints are still unthrottled**: a 256-bit or 192-bit token is not guessed by retrying, but a
    holder of a webhook URL can start runs as fast as the service answers. Cloud Run's
    `max-instances 3` is a cost ceiling, not a security control. A form is also **not protected by a
    CAPTCHA**: a determined human or a script that does not fill the honeypot gets through, and each

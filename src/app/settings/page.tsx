@@ -5,6 +5,7 @@ import { AccountPanel } from "@/components/settings/account-panel";
 import { IntegrationsForm } from "@/components/settings/integrations-form";
 import { ProviderForm } from "@/components/settings/provider-form";
 import { VaultPanel } from "@/components/settings/vault-panel";
+import { TokensPanel } from "@/components/settings/tokens-panel";
 import { WorkspacePanel } from "@/components/settings/workspace-panel";
 import { Tabs } from "@/components/ui/tabs";
 import { readSettings } from "@/lib/ai/settings";
@@ -15,6 +16,7 @@ import {
   googleStatus,
   tokenIntegrationStatuses,
 } from "@/lib/integrations/store";
+import { listTokens } from "@/lib/tokens/store";
 import { requirePageSession } from "@/lib/workspace/page";
 import { atLeast } from "@/lib/workspace/roles";
 import { describeMember, describeWorkspace, listInvitations, listMembers } from "@/lib/workspace/store";
@@ -29,7 +31,8 @@ const TAB_INDEX: Record<string, number> = {
   integrations: 1,
   vault: 2,
   workspace: 3,
-  account: 4,
+  tokens: 4,
+  account: 5,
 };
 
 /**
@@ -67,7 +70,7 @@ export default async function SettingsPage({
   const { name, email, scope, membership, memberships } = await requirePageSession();
   const canAdminister = atLeast(scope.role, "admin");
   const workspace = describeWorkspace(membership, scope.userId);
-  const [settings, discord, google, tokens, members, invitations, vault, retention, params] =
+  const [settings, discord, google, tokens, members, invitations, vault, retention, accessTokens, params] =
     await Promise.all([
       readSettings(scope),
       discordStatus(scope),
@@ -83,6 +86,8 @@ export default async function SettingsPage({
       readVault(scope),
       // Phase 33: how much run history the workspace holds — one count on `run_workspace_idx`.
       readRetention(scope),
+      // Phase 41: the caller's own access tokens in this workspace — hashes never leave the server.
+      listTokens(scope),
       searchParams,
     ]);
 
@@ -145,6 +150,17 @@ export default async function SettingsPage({
                   canAdminister={canAdminister}
                   viewerUserId={scope.userId}
                   retention={retention}
+                />
+              ),
+            },
+            {
+              id: "tokens",
+              label: "Access tokens",
+              content: (
+                <TokensPanel
+                  initial={accessTokens}
+                  workspaceName={membership.workspace.name}
+                  viewerRole={scope.role}
                 />
               ),
             },

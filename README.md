@@ -97,6 +97,7 @@ pretending otherwise.
 | **When things go wrong** | A step can stop the run, carry on with its error, or take an Error path. A failure nobody was watching reaches an in-app inbox and starts the workspace's error workflows — which is how it reaches Slack or Discord. Nothing polls |
 | **Asks a person** | An approval step stops the run and asks — hours or days later it carries on down Approved or Rejected. Its link goes out through a Discord, Slack or Gmail step you already have, and whoever holds it decides once, without signing in; the people it names decide in their inbox or on the canvas; a timeout decides if nobody does. The link is stored only as a hash and a link preview cannot decide it |
 | **Opens to strangers** | A form trigger is a page anyone with the link can fill in — no sign-in, validated on the server, behind a honeypot and a rate limit, at a link you can replace. A Respond step decides what a webhook's caller or a form's visitor is told: a status, a few allowed headers, a JSON body made from your data |
+| **A public API** | Personal access tokens from Settings — shown once, stored only as a hash, scoped to one workspace, always expiring, and never more powerful than the person who made them *at the moment of each request*. A token lists and edits workflows, starts runs and reads results; it can never touch tokens, credentials, members or the vault. `curl` examples in [the API reference](./docs/api.md#access-tokens) |
 | **34 nodes** | Triggers, logic, nine transforms, two AI nodes, and nine integrations. [Full reference](./docs/nodes.md) — generated from the registry |
 | **Durable runs** | Handed to a queue, survives a redeploy or a crash, resumes from the last finished step |
 | **Versioning and diffing** | Every save is a version. Name one, restore one, compare two visually. Every run records which version it executed |
@@ -242,7 +243,7 @@ The language is written down in [`DESIGN.md`](./DESIGN.md).
 |---|---|
 | [**Self-hosting**](./docs/self-hosting.md) | Local, Docker, and Cloud Run — and how to keep it free |
 | [**Node reference**](./docs/nodes.md) | All 34 nodes. **Generated from the registry**, so it cannot drift |
-| [**API reference**](./docs/api.md) | Every route, its role, and how a request is authorised |
+| [**API reference**](./docs/api.md) | Every route, its role, how a request is authorised, and `curl` with an access token |
 | [**How the agents work**](./docs/agents.md) | Generation, the bounded loop, and what the agent cannot reach |
 | [**Architecture**](./docs/architecture.md) | The orientation, and the one idea the rest follows from |
 | [**Decision records**](./adr/) | Why there is no LLM SDK, no queue (and then a queue), one registry |
@@ -281,8 +282,7 @@ what is unfinished.
 
 **What comes next** is Chapter 3, planned phase by phase in [`BUILD_PLAN.md`](./BUILD_PLAN.md):
 
-- sub-workflows, workflows as agent tools, and a merge node
-- forms, and a public API
+- launch polish: a pass over everything Chapter 3 added, in both themes
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="./docs/assets/landing-dark.png" />

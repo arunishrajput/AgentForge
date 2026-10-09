@@ -1,4 +1,4 @@
-import { handle, ok, readJson, requireScope } from "@/lib/api";
+import { handle, ok, readJson, requireApiScope } from "@/lib/api";
 import {
   deleteWorkflow,
   describeWorkflow,
@@ -13,7 +13,7 @@ type Context = { params: Promise<{ id: string }> };
 
 export async function GET(_request: Request, { params }: Context) {
   return handle(async () => {
-    const scope = await requireScope();
+    const scope = await requireApiScope();
     const { id } = await params;
     return ok(describeWorkflow(await getWorkflow(scope, id)));
   });
@@ -21,7 +21,7 @@ export async function GET(_request: Request, { params }: Context) {
 
 export async function PATCH(request: Request, { params }: Context) {
   return handle(async () => {
-    const scope = await requireScope("editor");
+    const scope = await requireApiScope("editor");
     const { id } = await params;
     const body = await readJson(request, updateWorkflowSchema);
     return ok(describeWorkflow(await updateWorkflow(scope, id, body)));
@@ -30,7 +30,7 @@ export async function PATCH(request: Request, { params }: Context) {
 
 export async function DELETE(_request: Request, { params }: Context) {
   return handle(async () => {
-    const scope = await requireScope("editor");
+    const scope = await requireApiScope("editor");
     const { id } = await params;
     await deleteWorkflow(scope, id);
     return ok({ deleted: id });

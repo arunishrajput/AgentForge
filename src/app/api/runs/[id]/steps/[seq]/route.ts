@@ -1,4 +1,4 @@
-import { ApiError, handle, ok, requireScope } from "@/lib/api";
+import { ApiError, handle, ok, requireApiScope } from "@/lib/api";
 import { getStepBodies } from "@/lib/runs/history";
 
 export const dynamic = "force-dynamic";
@@ -15,7 +15,7 @@ type Context = { params: Promise<{ id: string; seq: string }> };
  */
 export async function GET(_request: Request, { params }: Context) {
   return handle(async () => {
-    const scope = await requireScope();
+    const scope = await requireApiScope();
     const { id, seq } = await params;
     const number = Number(seq);
     if (!/^\d{1,6}$/.test(seq) || !Number.isSafeInteger(number)) {
