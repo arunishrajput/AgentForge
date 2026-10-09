@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/cn";
 import { Notice } from "@/components/ui/notice";
 import type { Run, RunStep } from "@/lib/canvas/client";
-import { nodeStatusLook, runStatusLook } from "@/lib/canvas/status";
+import { nodeStatusLook, runStatusLook, stepErrorTone } from "@/lib/canvas/status";
 import { testLabel } from "@/lib/canvas/test-run";
 import { elapsedMs, formatDuration, formatOffset } from "@/lib/format/duration";
 import { rerunnable } from "@/lib/engine/retry";
@@ -316,7 +316,7 @@ function Step({
       </button>
 
       {step.error && (
-        <p className="text-bad border-line-soft border-t px-2.5 py-2 text-2xs leading-relaxed">
+        <p className={cn(stepErrorTone(step.status), "border-line-soft border-t px-2.5 py-2 text-2xs leading-relaxed")}>
           {step.error}
         </p>
       )}

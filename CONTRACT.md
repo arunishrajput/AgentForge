@@ -102,7 +102,7 @@ workflows".
       "label": "Build the payload",   // optional display override
       "position": { "x": 240, "y": 0 },
       "config": { "fields": { "subject": "{{input.topic}}" } },
-      "policy": { "retries": 2, "backoffMs": 500, "timeoutMs": 20000 },  // optional, Phase 17
+      "policy": { "retries": 2, "backoffMs": 500, "timeoutMs": 20000, "onError": "route" },  // optional, Phase 17; onError Phase 37
       "disabled": true,               // optional, Phase 30. `true` or absent — never `false`
       "pinned": { "output": { "status": 200 } }  // optional, Phase 31. A test run's stand-in output
     }
@@ -130,7 +130,8 @@ workflows".
 - **Positions are contract.** A workflow that reloads with a scrambled layout is a broken
   round-trip, not a cosmetic bug
 - **`sourceHandle` is how conditional routing is expressed** — `"true"`/`"false"` on a branch,
-  `"loop"`/`"done"` on a loop. It must name one of the source node's declared outputs
+  `"loop"`/`"done"` on a loop. It must name one of the source node's outputs — its declared ones,
+  plus `"error"` while its on-error policy is `route` (Phase 37, D174)
 - **`config` is opaque here.** Each node definition owns its own config schema and parses it at
   execution time
 - **`policy` is retry and timeout** (Phase 17, `PRD.md` C4) — a *sibling* of `config`, because it is
@@ -138,7 +139,9 @@ workflows".
   absent**: every graph saved before Phase 17 has no `policy` on any node, and a schema default
   here would make a freshly loaded graph structurally different from the stored one. Bounds are
   enforced by the schema and are safety properties, not preferences — `retries` 0–3, `backoffMs`
-  0–10 000, `timeoutMs` 1 000–60 000 — because a *model* writes these graphs too
+  0–10 000, `timeoutMs` 1 000–60 000 — because a *model* writes these graphs too. **`onError`**
+  (Phase 37) is `stop`, `continue` or `route` — *On-error policy*, below. Absent means `stop`, and
+  `stop` is never written
 - **`disabled` switches a node off without deleting it** (Phase 30) — what a run does with one is
   *Disabled nodes* below. It is `true` or absent, never `false`: a node that is on carries no key, so
   a graph that never used the feature is exactly what it was, and the dirty check and the version
@@ -359,6 +362,39 @@ a required field that is missing or blank, or a value of the wrong type, fails t
 with a message naming it, before anything after it runs. A pinned trigger in a test is not
 executed, so it checks nothing. No fields declared means any input, exactly as before.
 
+## On-error policy — **DEFINED** (Phase 37)
+
+`src/lib/engine/{policy,execute}.ts`, D173–D175. What a run does when a node fails, set per node in
+`policy.onError`. It answers **only once the node's own retries are spent**, and **never when the run
+itself was stopped** — out of time, or cancelled — because then the failure is the run's.
+
+| `onError` | The step | The run |
+|---|---|---|
+| `stop` — and absent | `failed` | Fails, as every failure did before Phase 37. What follows is `skipped` |
+| `continue` | **`handled`** | Carries on out of the node's **default output**, with `{ error, nodeId }` as the node's output. A node with no default output — Branch, Switch, Loop — **stops its path there** (D133's rule); the run goes on along any other path |
+| `route` | **`handled`**, `branch: "error"` | Leaves by the node's **Error output**. **With nothing connected to Error, the failure fails the run** as `stop` would, and the step's log says why |
+
+- **The Error output** (D174) is `{ key: "error", label: "Error" }`, added to a node's registry outputs
+  while — and only while — its policy is `route`, by `outputsOf(definition, policy)`: the card draws
+  it, validation accepts an edge from it, the engine and a retry's replay follow it. **No registry
+  node may declare an output keyed `error`** (`registry.test.ts`). An edge left on Error when the
+  policy is not `route` is `unknown_output_handle`, and the message says to set the policy back or
+  remove the edge; the canvas removes such edges itself when the policy is changed, as one step of
+  undo
+- **A trigger always stops**, whatever its stored policy — nothing before it could have handled
+  anything — and the inspector does not offer the choice on one
+- **A handled step** ran and failed: it has its timestamps, its `error`, and `output: { error, nodeId }`,
+  so the next step reads `{{input.error}}` and any later one `{{steps.<id>.output.error}}`. It is
+  handed on like a succeeded step — a resumed run rehydrates it, the lit path runs through it, a retry
+  carries it over as `reused` along the output it left by
+- **A run whose failures were all handled finishes `succeeded`**, and `run.handled` counts them. It is
+  told to nobody — no inbox entry, no error trigger — and a diagnosis of it is the ordinary 409 for a
+  run that did not fail
+- **A config the node's schema refuses at run time** — a `{{ }}` that resolved to nothing — is a
+  failure the policy answers too. A graph that is invalid before it runs is still refused whole
+- **The generator and the copilot never set a policy** (D81, D163); the copilot keeps an existing Error
+  edge and lists a request that needs one as unsupported
+
 ## Node definition interface — **DEFINED**
 
 Source of truth: `src/lib/nodes/types.ts`. Registry: `src/lib/nodes/index.ts`.
@@ -442,6 +478,10 @@ milliseconds and passes its input through, which is both a real workflow need an
 slow enough to make "status and logs arrive *incrementally*" something that can be asserted rather
 than assumed.
 
+**Phase 37 added `core.error_trigger`** — the 31st entry and the first since D112 was lifted: a
+trigger with no config that starts a run when another workflow's unattended run fails (*Failure
+alerts and the inbox*, below).
+
 **Phase 8 added** `core.webhook_trigger` and `core.schedule_trigger`; **Phase 9 added**
 `integration.http`, `integration.discord`, `integration.sheets` and `integration.gmail` — **15
 entries in one table.** Neither phase built a second registry and neither touched the palette, the
@@ -498,7 +538,7 @@ Tables in `src/db/schema.ts`; wire shapes from `describeRun` in `src/lib/engine/
 | `id` | uuid |
 | `workflowId`, `workspaceId`, `ownerId` | **`workspaceId` is the scoping column** (Phase 19A) — every run query filters on it, denormalised from the workflow so it needs no join. `ownerId` is kept and still means *who triggered this run*, which the workspace cannot answer |
 | `status` | the run state machine below — `waiting` since Phase 26 |
-| `trigger` | `manual` \| `webhook` \| `schedule` \| `agent` |
+| `trigger` | `manual` \| `webhook` \| `schedule` \| `agent` \| `error` — `error` since Phase 37: started by another run's failure, through an error trigger. A run with this trigger never starts another (D176) |
 | `input`, `output`, `error` | trigger payload, last node's output, failure message |
 | `startedAt`, `finishedAt` | `finishedAt` is null until terminal |
 | `heartbeatAt` | bumped at every checkpoint. **This is what makes an interrupted run observable** |
@@ -511,6 +551,7 @@ Tables in `src/db/schema.ts`; wire shapes from `describeRun` in `src/lib/engine/
 | `workflowVersion` | which version of the workflow this run executed (Phase 18). An integer, not a foreign key — see *Workflow versions*. Null for a run recorded before versioning, and **that is not claimed to be v1** |
 | `wakeAt` | **Phase 26.** When a `waiting` run resumes; null in every other status. The claim compares it against the database's `now()`, so an early delivery claims nothing. Returned by `describeRun` as `wakeAt` |
 | `test` | **Phase 31.** Null on a real run; `{ scope, nodeId }` on a test — *Partial runs and test runs*. The only thing that lets the engine honour a pin. Returned by `describeRun` as `test` |
+| `handled` | **Phase 37.** How many failures the run's on-error policies handled — the count of its `handled` steps, written by the statement that finishes the run. 0 for every earlier run. Returned by `describeRun`, every summary and the stream's run patch |
 | `origin` | **Phase 33.** Null on an ordinary run; `{ runId, kind: "rerun" \| "retry" }` on a run started from another one — *Run history, re-runs and retries*. **An id inside a value, not a foreign key** (D86's reason): retention deletes the original long before the retry, and the record must stay true. Fixed at creation; returned by `describeRun` and every summary as `origin` |
 
 ### `run_step`
@@ -648,13 +689,19 @@ run:   queued ──▶ running ──▶ succeeded          all three terminal
                     ▼
                  waiting ──▶ cancelled           Phase 26. Not terminal
 
-step:  running ──▶ succeeded                     both terminal
-               └──▶ failed
+step:  running ──▶ succeeded                     all three terminal
+               ├──▶ failed
+               └──▶ handled                       Phase 37. Failed, and its on-error policy carried the run on
        skipped                                   entered directly, terminal
        disabled                                  Phase 30. Entered directly, terminal
        pinned                                    Phase 31. Entered directly, terminal
        reused                                    Phase 33. Entered directly, terminal
 ```
+
+- **`handled` — Phase 37.** The node failed and its on-error policy (`continue` or `route`) carried the
+  run on, with the error as its output — *On-error policy* above. It ran, so it has timestamps and an
+  `error`. Not `failed`, because every reader of a `failed` step takes it as where the run stopped
+  (D175). Analytics count it as the node's failure, never the run's
 
 - **`reused` — Phase 33.** A retry carried this step over from the run it retries: it ran there, and
   is not executed again here. Its config, input, output, branch and logs are the original's; its
@@ -692,8 +739,9 @@ step:  running ──▶ succeeded                     both terminal
   failing it would be the bug. Still called before listing runs rather than on a timer, because
   Cloud Run scales to zero; the cron tick also calls it across every owner
 - **A node failure fails the run and stops execution** — but a node may now be **retried** first,
-  under its own `policy`. A config failure is never retried: it is a property of the graph and
-  cannot change between attempts
+  under its own `policy`, and since Phase 37 its **on-error policy** may carry the run on instead
+  (*On-error policy*). A config failure is never retried: it is a property of the graph and cannot
+  change between attempts
 - **A run can be resumed.** A durable run whose lease lapsed is redelivered, claims the lapsed
   lease, and carries on from its `cursor`. Completed steps are not re-executed
 - **Cancellation lands at a step boundary.** `POST /api/runs/:id/cancel` records the request; the
@@ -814,6 +862,78 @@ be (an HTTP step's body is capped at 256 KB) ~51 MB, a tenth of Neon's 0.5 GB.
 - **A retry survives its original's deletion**: it copied what it reused, and `origin` is an id,
   not a reference. A link to a deleted run is the 404 page
 - Stated in *Settings → Workspace* and under `/runs`. It is a rule, not a setting
+
+## Failure alerts and the inbox — **DEFINED** (Phase 37)
+
+`src/lib/triggers/failure.ts` (the rules and the payload, pure), `src/lib/engine/run.ts` →
+`announceFailure` (the writes), `src/lib/inbox/` (the inbox), D176–D177.
+
+### Which failures are told, and to what
+
+When a run finishes `failed`, `announceFailure` runs **in the same request, after the statement that
+finished the run landed** — so the database is awake already. Every path that fails a run calls it: a
+step that failed, a graph that cannot run, a queue that gave up, the sweeper.
+
+| The failed run | Inbox | Error workflows |
+|---|---|---|
+| `webhook` or `schedule`, not a test | **yes** | **yes** |
+| `error` — an error workflow's own run | **yes** | **no** — the cascade bound: depth one |
+| `manual`, any test, `agent` | no — somebody was watching, or Phase 39 will decide | no |
+
+It **never throws**: an alert that could not be written is logged (`run.alerted`, at error severity)
+and the run's outcome stands. `run.alerted` at info says how many inboxes and error workflows it reached.
+
+### `core.error_trigger`
+
+- **Who hears**: every workflow in the failed run's workspace that is **active**, holds
+  `core.error_trigger`, is not the failed workflow, and whose **author is still a member and may see the
+  failed workflow** (D101's `canSeeWorkflow` with the author's role) — oldest first, **at most five**
+- **How**: `startDurableRun` with `trigger: "error"` — queued through Cloud Tasks, never executed in the
+  request that failed (it may be a webhook's caller waiting for an answer)
+- **What it is handed** — its trigger's output:
+
+```jsonc
+{
+  "workflow":   { "id": "…", "name": "Invoice sync" },
+  "run":        { "id": "…", "trigger": "webhook", "startedAt": "…", "url": "https://…/runs/…" },
+  "failedStep": { "id": "post", "label": "Post to Slack", "type": "integration.slack" },  // null between steps
+  "error":      "Slack refused the message (403)."   // the step's own words, or the run's
+}
+```
+
+  Every string is **scrubbed of anything shaped like a stored credential before it is cut** (D168's
+  order) — names and labels to 200 characters, the error to 2,000. The step is the one a diagnosis
+  names (`evidence.ts` → `stoppedStep`)
+- **Run by hand** it hands on a sample of the same shape with `"sample": true`, so the alert after it
+  can be tried
+- **No config.** The active switch stops it like any automatic trigger, and a duplicate or import of an
+  error workflow arrives switched off (D147)
+
+### The inbox — `inbox_item`
+
+| Column | Notes |
+|---|---|
+| `id`, `workspaceId`, `userId` | **One row per reader.** The workspace and person it belongs to |
+| `kind` | `run_failed`. Phase 38 adds approvals |
+| `workflowId`, `runId` | Both cascade: a deleted workflow or a pruned run takes its entries with it |
+| `detail` | One line, at most 500 characters: the failed step's label and error, or the run's error |
+| `count` | How many failures the entry stands for |
+| `createdAt`, `readAt` | When the newest arrived; when the reader read it, null while unread |
+
+- **Written** by one INSERT … SELECT over the workspace's members who may see the workflow — everybody
+  for `workspace`, the creator and admins and owners for `private` — read from the workflow row in the
+  statement. **Collapsed while unread**: the partial unique index `(userId, workflowId, kind) where
+  readAt is null` turns a second failure into an update — `count + 1`, the newest `runId`, `detail`
+  and `createdAt`
+- **Read** when a page renders, by the shell header, in one statement on `inbox_item_reader_idx` —
+  the newest 12 entries and the unread count — **applying visibility again**, so an entry for a
+  workflow made private since is not shown. **Nothing polls it**
+- **Pruned** by the daily sweep past 30 days (`prunedInbox`), and before that with its run
+
+| Route | Body | Returns |
+|---|---|---|
+| `GET /api/inbox` | — | `{ unread, entries: [{ id, kind, workflowId, workflowName, runId, detail, count, createdAt, read }] }`. **`viewer`** |
+| `POST /api/inbox/read` | `{ ids: string[] }` (1–100) or `{ all: true }` | `{ marked, unread, entries }` — the inbox as it now is. **`viewer`**. An id that is not the reader's marks nothing |
 
 ## API request/response shapes — **DEFINED** for Phase 3's routes
 
@@ -1956,7 +2076,7 @@ with `mode: "explain"` or `"diagnose"`.
 
 ## Trigger shapes — **DEFINED** (Phase 8)
 
-Source of truth: `src/lib/triggers/`. Three trigger types are registered, and validation still
+Source of truth: `src/lib/triggers/`. Four trigger types are registered, and validation still
 allows **exactly one per workflow**.
 
 | Type | Starts a run when | Output |
@@ -1964,8 +2084,9 @@ allows **exactly one per workflow**.
 | `core.manual_trigger` | a person presses Run, or `POST /api/workflows/:id/runs` | the JSON the run was started with |
 | `core.webhook_trigger` | something POSTs to the workflow's webhook URL | the posted JSON body |
 | `core.schedule_trigger` | a cron slot comes due and its timer is delivered (Phase 26; the daily sweep catches a lost one) | `{ firedAt, cron, scheduledFor }` |
+| `core.error_trigger` | **Phase 37.** another workflow in the workspace fails with nobody watching — *Failure alerts and the inbox* | `{ workflow, run, failedStep, error }`, or a sample marked `sample: true` when run by hand |
 
-Neither new trigger is `agentCallable` (D19). Starting a run is not a capability to hand a model in
+No trigger is `agentCallable` (D19). Starting a run is not a capability to hand a model in
 the middle of one.
 
 ### The webhook token lives on the workflow row, not in the graph — **D41**
@@ -2109,7 +2230,7 @@ whose `scheduleNextAt` is due, ordered by due time, then for each one:
    slot instead of re-firing for ever.
 
 Response: `{ checkedAt, due, fired: [{ workflowId, runId, status, scheduledFor, queued }], skipped,
-cleared, armed, woken, swept, pruned, prunedRuns }` — `prunedRuns` since Phase 33, *Run retention*. Runs are attributed `trigger: "schedule"` and receive
+cleared, armed, woken, swept, pruned, prunedRuns, prunedInbox }` — `prunedRuns` since Phase 33, *Run retention*; `prunedInbox` since Phase 37. Runs are attributed `trigger: "schedule"` and receive
 `{ scheduledFor, firedAt, cron }` as input.
 
 **Since Phase 26 this is a daily safety sweep, not the clock.** On top of firing what is due (now

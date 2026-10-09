@@ -43,6 +43,14 @@ const BY_TYPE: Record<string, ReactNode> = {
       <path d="M12 6.8V12l3.6 2.6" {...STROKE} />
     </>
   ),
+  // Phase 37. A warning sign: it starts when something somewhere else went wrong. The category's
+  // circled play — what it drew before — read as a second Manual trigger in the palette.
+  "core.error_trigger": (
+    <>
+      <path d="M12 3.4 21.2 19.6H2.8Z" {...STROKE} />
+      <path d="M12 9.4v4.6M12 16.9v.1" {...STROKE} />
+    </>
+  ),
 
   "ai.llm": (
     <>

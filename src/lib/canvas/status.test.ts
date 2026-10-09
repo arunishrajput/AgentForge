@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { NODE_STATUSES, RUN_STATUSES, edgeRunLook, nodeStatusLook, runStatusLook } from "./status";
+import { NODE_STATUSES, RUN_STATUSES, edgeRunLook, nodeStatusLook, runStatusLook, stepErrorTone } from "./status";
 
 /**
  * These assert the *distinctness* the phase asks for, not the specific glyphs.
@@ -213,4 +213,11 @@ test("an edge stays plain where the run did not cross it", () => {
   assert.equal(edgeRunLook("failed", "skipped", false), null);
   assert.equal(edgeRunLook("skipped", "skipped", false), null);
   assert.equal(edgeRunLook(undefined, undefined, false), null);
+});
+
+test("a handled step's error is in the warning hue, a failure's in red", () => {
+  // Phase 37's browser walk: red words under an amber outline said two things at once.
+  assert.equal(stepErrorTone("handled"), "text-warn");
+  assert.equal(stepErrorTone("failed"), "text-bad");
+  assert.equal(stepErrorTone(undefined), "text-bad");
 });

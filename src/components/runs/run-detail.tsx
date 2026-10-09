@@ -19,7 +19,7 @@ import {
   type StepHeader,
 } from "@/lib/canvas/client";
 import { useRunStream } from "@/lib/canvas/run-stream";
-import { nodeStatusLook, runStatusLook } from "@/lib/canvas/status";
+import { nodeStatusLook, runStatusLook, stepErrorTone } from "@/lib/canvas/status";
 import { testLabel } from "@/lib/canvas/test-run";
 import { rerunnable } from "@/lib/engine/retry";
 import { elapsedMs, formatDuration, formatOffset } from "@/lib/format/duration";
@@ -472,7 +472,7 @@ function StepCard({
       </div>
 
       {step.error && (
-        <p className="text-bad border-line-soft border-t px-3 py-2 text-2xs leading-relaxed break-words">{step.error}</p>
+        <p className={cn(stepErrorTone(step.status), "border-line-soft border-t px-3 py-2 text-2xs leading-relaxed break-words")}>{step.error}</p>
       )}
 
       {logs.length > 0 && (

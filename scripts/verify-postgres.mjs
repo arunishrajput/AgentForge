@@ -150,7 +150,8 @@ async function main() {
   console.log("\n2. The deployed registry");
 
   const health = data(await api("/api/health"));
-  check(health?.registry === 30, `the deployed registry serves 30 nodes (${health?.registry})`);
+  // 31 since Phase 37. The fifth script that pins the count — it moves with the other four.
+  check(health?.registry === 31, `the deployed registry serves 31 nodes (${health?.registry})`);
   console.log(`   revision: ${health?.revision}`);
 
   const nodes = data(await api("/api/nodes"));

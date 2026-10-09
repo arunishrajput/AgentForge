@@ -322,6 +322,15 @@ const RUN_LOOK: Record<RunStatus, StatusLook> = {
 
 export const RUN_STATUSES = Object.keys(RUN_LOOK) as RunStatus[];
 
+/**
+ * **The tone of a step's error message — Phase 37.** A failure's words are red; a handled one's
+ * take the warning hue its card wears, because the run went on past it — red under an amber outline
+ * would say two things at once. Found by the browser walk, on the card and in every step list.
+ */
+export function stepErrorTone(status: StepStatus | undefined): "text-bad" | "text-warn" {
+  return status === "handled" ? "text-warn" : "text-bad";
+}
+
 export function runStatusLook(status: RunStatus): StatusLook {
   return RUN_LOOK[status];
 }

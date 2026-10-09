@@ -7,7 +7,7 @@ import { Notice } from "@/components/ui/notice";
 import { cn } from "@/components/ui/cn";
 import type { CanvasNode } from "@/lib/canvas/bridge";
 import type { NodeSummary, Run, TestScope } from "@/lib/canvas/client";
-import { nodeStatusLook } from "@/lib/canvas/status";
+import { nodeStatusLook, stepErrorTone } from "@/lib/canvas/status";
 import { canPin } from "@/lib/engine/partial";
 import type { ManualField } from "@/lib/nodes/core/manual-trigger";
 import { jsonBytes, PIN_MAX_BYTES, valuesEqual } from "@/lib/workflow/graph";
@@ -178,7 +178,7 @@ function StepOutput({
       </div>
 
       {step.error ? (
-        <p className="text-bad text-2xs leading-relaxed">{step.error}</p>
+        <p className={cn(stepErrorTone(step.status), "text-2xs leading-relaxed")}>{step.error}</p>
       ) : step.status === "running" ? (
         <p className="text-muted text-2xs">Still running.</p>
       ) : (

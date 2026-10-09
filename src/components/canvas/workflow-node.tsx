@@ -6,7 +6,7 @@ import { cn } from "@/components/ui/cn";
 import type { CanvasNode } from "@/lib/canvas/bridge";
 import { categoryLook } from "@/lib/canvas/categories";
 import { changeLook, fieldWords } from "@/lib/canvas/changes";
-import { nodeStatusLook } from "@/lib/canvas/status";
+import { nodeStatusLook, stepErrorTone } from "@/lib/canvas/status";
 import { canPin } from "@/lib/engine/partial";
 import { ERROR_HANDLE, outputsOf } from "@/lib/engine/policy";
 
@@ -278,7 +278,7 @@ export function WorkflowNodeView({ id, data, selected }: NodeProps<CanvasNode>) 
           {/* A failure from a run that reached this node while it was on describes a node
               that is not there any more. */}
           {state?.error && !change && !off && (
-            <p className="text-bad line-clamp-3 text-2xs leading-snug">{state.error}</p>
+            <p className={cn(stepErrorTone(state.status), "line-clamp-3 text-2xs leading-snug")}>{state.error}</p>
           )}
         </div>
 
