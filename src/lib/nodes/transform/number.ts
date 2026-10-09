@@ -86,14 +86,17 @@ export const numberNode = defineNode({
         }
         result = (left / right) * 100;
         break;
+      // At `precision` decimal places when one is given — "round to two decimals" — and to a
+      // whole number otherwise. Until Phase 34 these went to a whole number first and applied
+      // `precision` to the integer, so 294.9882 rounded "to 2 places" was 295.
       case "round":
-        result = Math.round(left);
+        result = atPrecision(Math.round, left, config.precision);
         break;
       case "floor":
-        result = Math.floor(left);
+        result = atPrecision(Math.floor, left, config.precision);
         break;
       case "ceil":
-        result = Math.ceil(left);
+        result = atPrecision(Math.ceil, left, config.precision);
         break;
       case "absolute":
         result = Math.abs(left);
@@ -110,6 +113,13 @@ export const numberNode = defineNode({
     return { output: { value: result, operation: config.operation } };
   },
 });
+
+/** `Math.round` and friends at `places` decimal places; `toFixed` below cleans the float error. */
+function atPrecision(step: (value: number) => number, value: number, places: number | undefined): number {
+  if (places === undefined || places === 0) return step(value);
+  const factor = 10 ** places;
+  return step(value * factor) / factor;
+}
 
 /**
  * Strict on purpose. `Number(null)` is 0 and `Number("")` is 0, so a missing field

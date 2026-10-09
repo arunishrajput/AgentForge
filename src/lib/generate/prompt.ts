@@ -136,7 +136,7 @@ export const GUIDANCE: { section: "ai" | "integration"; type: string; text: stri
   {
     section: "ai",
     type: "ai.agent",
-    text: '"ai.agent" decides at runtime and can call other nodes as tools. Give it an "objective", and list the node types it may call in "tools" — only types from the list of node types above.',
+    text: '"ai.agent" decides at runtime and can call other nodes as tools. Give it an "objective", and list the node types it may call in "tools" — only types from the list of node types above. It can call only what it lists: an agent that only decides needs no "tools".',
   },
   {
     section: "ai",

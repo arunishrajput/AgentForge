@@ -9,6 +9,7 @@ import { branchNode, evaluate } from "./branch";
 import { z } from "zod";
 
 import { delayMs, delayNode, describeDuration, MAX_DELAY_MS, MAX_WAIT_MS } from "./delay";
+import { logNode } from "./log";
 import { HARD_MAX_ITERATIONS, loopNode } from "./loop";
 import { setNode } from "./set";
 import { SWITCH_CASES, switchNode } from "./switch";
@@ -450,4 +451,43 @@ test("switch is not agent-callable, for the same reason branch is not", () => {
   // D19: the node's whole output is the edge taken, and a tool call has no edge.
   assert.equal(switchNode.agentCallable, false);
   assert.equal(branchNode.agentCallable, false);
+});
+
+// --- log: a message that is only a reference ------------------------------------------
+
+/**
+ * **Phase 34, found in its browser walk.** A config value that is *only* a `{{ }}` reference keeps
+ * the type of what it reaches (`template.ts`), so a generated "log the result" —
+ * `message: "{{steps.sort.output.items}}"` — handed the Log node a list, and the run failed at its
+ * last step with "expected string, received array". Logging a list is exactly what was asked for.
+ */
+/** A registered node's config type is erased (`RegisteredNode`); the Log node's is this. */
+const logConfig = (config: unknown) => logNode.configSchema.parse(config) as { message: string; level: LogLevel };
+
+test("a log message that resolved to a list or an object is logged as JSON, not refused", async () => {
+  const context = fakeContext();
+  const items = [{ name: "Mug", price: 12 }, { name: "Book", price: 35 }];
+  const config = logNode.configSchema.parse({ message: items });
+  await run(logNode, { config, input: "x", context });
+  assert.equal(context.lines[0]?.message, JSON.stringify(items));
+
+  assert.equal(logConfig({ message: { ok: true } }).message, '{"ok":true}');
+  assert.equal(logConfig({ message: 7 }).message, "7");
+});
+
+test("a long resolved value is cut to the message limit rather than failing the run", () => {
+  const long = Array.from({ length: 500 }, (_, index) => `item-${index}`);
+  const message = logConfig({ message: long }).message;
+  assert.equal(message.length, 2000);
+  assert.ok(message.endsWith("…"));
+});
+
+test("text is still text, absent is still empty, and a reference to nothing still fails loudly", () => {
+  assert.equal(logConfig({ message: "hi" }).message, "hi");
+  assert.equal(logConfig({}).message, "");
+  // A whole-string reference that reached nothing resolves to `null` — that is a mistake to see,
+  // not an empty line to log.
+  assert.equal(logNode.configSchema.safeParse({ message: null }).success, false);
+  // A person's own text keeps its limit.
+  assert.equal(logNode.configSchema.safeParse({ message: "x".repeat(2001) }).success, false);
 });

@@ -1170,7 +1170,8 @@ only for a turn that never came from that provider (a test fake, another provide
 
 **The tool set is exactly `agentCallable: true` (D19).** There is no second list. `allow` on an
 agent node can only narrow it: a type listed there that is not callable is reported in `rejected`
-and never granted. The agent reaches these entries and nothing else — no shell, no filesystem, no
+and never granted. **An agent may call exactly the types its `tools` lists, and an empty list is no
+tools at all** (D160, Phase 34 — until then it meant every callable node). The agent reaches these entries and nothing else — no shell, no filesystem, no
 arbitrary network.
 
 **Gemini's `parameters` is not JSON Schema.** It is a narrow OpenAPI 3.0 subset where an unknown

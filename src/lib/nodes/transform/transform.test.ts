@@ -426,6 +426,18 @@ test("number precision rounds without reintroducing float error", async () => {
   assert.equal(vat.value, 23.99);
 });
 
+test("round, floor and ceil honour precision instead of going to a whole number first", async () => {
+  // Phase 34's browser walk: "add 18% tax and round to two decimal places" generated exactly the
+  // right graph — multiply by 1.18, then round with precision 2 — and 249.99 came out 295, because
+  // `round` went to a whole number before `precision` was applied. Since Phase 23A.
+  assert.equal((await run(numberNode, { value: 294.9882, operation: "round", precision: 2 })).value, 294.99);
+  assert.equal((await run(numberNode, { value: 294.9882, operation: "floor", precision: 2 })).value, 294.98);
+  assert.equal((await run(numberNode, { value: 294.9812, operation: "ceil", precision: 2 })).value, 294.99);
+  assert.equal((await run(numberNode, { value: 2.5, operation: "round", precision: 0 })).value, 3);
+  // No precision is still a whole number, as it always was.
+  assert.equal((await run(numberNode, { value: 294.9882, operation: "round" })).value, 295);
+});
+
 test("number falls back to the incoming input", async () => {
   assert.equal((await run(numberNode, { operation: "add", operand: 1 }, 41)).value, 42);
 });

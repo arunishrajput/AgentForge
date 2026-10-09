@@ -270,7 +270,8 @@ function brokenAfter(): WorkflowGraph {
   const source = fourNodes();
   return {
     ...source,
-    nodes: source.nodes.map((node) => (node.id === "after" ? { ...node, config: { message: 42 } } : node)),
+    // An unknown level. (It was `message: 42` until Phase 34 taught the Log node to log a number.)
+    nodes: source.nodes.map((node) => (node.id === "after" ? { ...node, config: { level: "shout" } } : node)),
   };
 }
 

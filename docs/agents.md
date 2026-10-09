@@ -158,8 +158,10 @@ the canvas and reviewable in a diff, instead of hiding inside a prompt.
 
 ### Narrowing what one agent may reach
 
-`tools` on the agent node lists registry types this particular agent may call. Empty means every
-agent-callable node.
+`tools` on the agent node lists registry types this particular agent may call — **exactly those,
+and an empty list means none.** An agent that only decides needs no tools. (Until Phase 34 an
+empty list meant every agent-callable node, so a decision-only agent could post to Slack; least
+privilege is the rule now, D160.)
 
 **It can only ever narrow.** A type listed there that is not `agentCallable` is reported, never
 granted — the allowlist cannot widen the boundary, only tighten it inside it.

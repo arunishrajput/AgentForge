@@ -46,6 +46,8 @@ export const agentNode = defineNode({
   // An agent that could call an agent would recurse past every cap, since each nested
   // run carries its own fresh iteration budget.
   agentCallable: false,
+  // Exact since D160: an agent can call only what it lists, so an empty `tools` cannot post. (Before
+  // Phase 34 an empty list meant every callable node, and this confirmation missed exactly that.)
   effect: {
     does: "let an agent call the nodes it lists as tools, and some of those post or write",
     when: { field: "tools" },
@@ -55,9 +57,9 @@ export const agentNode = defineNode({
     system: z.string().max(4000).optional(),
     model: z.string().max(120).optional(),
     /**
-     * Registry types this agent may call. Empty means every `agentCallable` node. It can
-     * only ever narrow the set — a type listed here that is not callable is reported,
-     * never granted (`agentToolSet`).
+     * Registry types this agent may call — exactly these, and **empty means none** (D160, Phase
+     * 34; until then empty meant every `agentCallable` node). It can only ever narrow the set — a
+     * type listed here that is not callable is reported, never granted (`agentToolSet`).
      */
     tools: z.array(z.string().max(120)).max(50).default([]),
     /**

@@ -46,9 +46,17 @@ export interface AgentToolSet {
 }
 
 /**
- * `allow` is an optional per-node narrowing: a workflow may give one agent node a
- * subset of the callable registry. It can only ever *reduce* the set — a type listed
- * in `allow` that is not `agentCallable` is reported in `rejected`, never granted.
+ * `allow` is what one agent node may call: **exactly the types it lists, and an empty list is
+ * none** (D160, Phase 34 — least privilege). It can only ever *reduce* the callable registry — a
+ * type listed in `allow` that is not `agentCallable` is reported in `rejected`, never granted.
+ *
+ * Until Phase 34 an empty list meant every callable node. A generated decision-only agent then
+ * held Slack, Discord, Sheets, GitHub and HTTP without anyone asking, Phase 31's "this will post"
+ * confirmation (keyed on a non-empty `tools`) never fired for it, and every node registered later
+ * widened it silently — D19's own reason for opting nodes in one by one.
+ *
+ * Called with no `allow` at all it describes the whole callable surface — what the provider tests
+ * and the budget measurement read. An agent node always passes its own list.
  */
 export function agentToolSet(options: { allow?: string[] } = {}): AgentToolSet {
   const callable = listAgentTools();
@@ -57,10 +65,7 @@ export function agentToolSet(options: { allow?: string[] } = {}): AgentToolSet {
   const allow = options.allow?.filter((type) => type.length > 0);
   const rejected = allow?.filter((type) => !callableTypes.has(type)) ?? [];
 
-  const chosen =
-    allow && allow.length > 0
-      ? callable.filter((definition) => allow.includes(definition.type))
-      : callable;
+  const chosen = allow ? callable.filter((definition) => allow.includes(definition.type)) : callable;
 
   const byName = new Map<string, RegisteredNode>();
   for (const definition of chosen) {

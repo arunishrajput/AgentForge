@@ -41,8 +41,17 @@ test("allow narrows to a subset", () => {
   assert.deepEqual(set.rejected, []);
 });
 
-test("an empty allow list means the full callable set, not nothing", () => {
-  assert.equal(agentToolSet({ allow: [] }).specs.length, agentToolSet().specs.length);
+test("an empty allow list means no tools — least privilege (D160)", () => {
+  // Until Phase 34 an empty list meant every callable node, so a decision-only agent the generator
+  // built with no `tools` could post to Slack, and every newly registered tool silently widened it.
+  // Phase 34's browser walk watched one probe Postgres three times, unasked.
+  const none = agentToolSet({ allow: [] });
+  assert.equal(none.specs.length, 0);
+  assert.equal(none.byName.size, 0);
+  assert.deepEqual(none.rejected, []);
+  // Asked for without an allow list at all, it is still the whole callable surface — what the
+  // provider tests and the budget measurement read, never what an agent node is handed.
+  assert.ok(agentToolSet().specs.length > 0);
 });
 
 test("no agent tool is a trigger, a loop, or an agent", () => {

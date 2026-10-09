@@ -1184,6 +1184,75 @@ offline, and D112 is marked lifted.
 
 **Commit.** `feat: complete phase 34 generator catalogue selection and evals`
 
+**Status: COMPLETE, 2026-10-09 — deployed as `00083-645` and verified there.** One deploy. No
+migration. What was built:
+
+- **Per-request catalogue selection** (D156, `generate/select.ts`) — every node as one **index** line
+  (type, label, first sentence of its description), full **definitions** only for the selection:
+  every trigger and `ai.llm` always, the agent's Branch with the agent, and up to ten more matched
+  deterministically by the request's words against each node's own description and docs, through
+  a synonym table that is about language, not nodes. The prompt's per-node advice ("Designing
+  with…") follows the selection. **A miss is recoverable**: the model may use any indexed node, and
+  a retry hands it the full definition of one it reached from the index. **The prompt fell from
+  25,081 characters to 16,757 on average** (11,663–18,425), and a new node now costs every request
+  one ~116-character index line instead of a ~820-character definition
+- **The budget test, re-based** (`registry.test.ts`) — the selected part at its worst case under
+  17,500, the index under 140 characters a node, every definition under 1,300 and index line under
+  220, and the worst case under 85% of the whole catalogue. **D112 is lifted.** The agent's tool
+  list is measured and pinned too: 19 tools, 13,297 characters, Postgres the largest at 1,856
+- **An eval set** (D157, `generate/eval/`) — 24 requests with expectations of necessity, six held out
+  of selector tuning; a scorer that also reads every `{{ }}` reference against what its source
+  declares (`references.ts`); `npm run eval:generate` replays recordings offline (CI), `--live`
+  scores a real model and `--record` keeps it, `--recall` measures a selector alone, `--rescore`
+  re-judges after a deliberate change. **CI asserts the selector gives every case every node it
+  requires, and that all three recordings replay to their verdicts**
+- **A valid graph whose references reach nothing earns the retry** (D158) — added because the eval
+  set caught one; soft, so a valid graph is never refused or lost over a reference
+- **Which attempt produced the graph** (D159) — `generation.finished` on every generation, counted
+  by a fifth log-based metric, `agentforge_generations`, labelled `outcome` and `selector`
+
+**Measured** — `gemini-3.5-flash-lite`, fallbacks off, all 24 cases. The production default,
+`gemini-3-flash`, was not usable for it: **its free tier is 20 requests a day** (the 429 said so),
+spent before the session began.
+
+| Arm | Passed | Prompt (avg) | Tokens a case | Requests | Median |
+|---|---|---|---|---|---|
+| Before — the whole catalogue | 23/24 | 25,081 | 6,927 | 24 | 22.0 s |
+| Deterministic selection | 23/24 | 16,757 | ~4,960 | 25 | — |
+| Model-call selection | 23/24 | 11,662 | 4,794 incl. its own call | 49 | 34.2 s |
+| **Deterministic + reference retry — shipped** | **24/24** | 16,757 | 5,192 | 26 | 22.7 s |
+
+Both selectors chose every required node (48/48; the deterministic one 37/37 tuned and **11/11 held
+out**). Selection alone neither raised nor lowered the pass rate; the reference retry added the 24th.
+Deterministic ships: the model selector's smaller prompt bought no quality, cost a second request per
+generation and 55% more latency, and fell back once.
+
+**Found by the evals, fixed, tested:**
+
+- **A Loop body reading `{{input.name}}`** (`users-to-sheet`, held out) — the input inside a Loop is
+  `{ index, item, total }`, so the Sheets row would be blank. Twice, on two samples. The reference
+  retry fixed the recorded failing answer on its first live call (`{{steps.loop_users.output.item.name}}`)
+- **The test fixture that models "the demo graph" wrote `{{input.reason}}` after a Branch** — whose
+  output is `{ matched, input }`, so the log line was empty; corrected, and the demo test now asserts
+  clean references. All 11 templates were checked: clean, and now pinned by a test
+- **The smoke walk's payload never carried a body field the graph read as `{{input.x}}` or
+  `{{steps.<trigger>.output.x}}`** — only `{{trigger.x}}` was fitted (D58). A plausible cause of the
+  flaky beat 7 (*Known Issues*); `adaptPayload` reads all three now, with a test that failed first.
+  **Not proved to be the cause**: the one failing run still in the database (2026-09-26) had been
+  started with an empty body, and the Phase 28 walks' runs are gone
+- **Two expectations were unfair** — `refund-decision` and `order-tax` expected a manual trigger the
+  request never implied; the first baseline failed a webhook for it. Removed, and said so (D157)
+- **The baseline caught an honesty failure**: asked to insert into Postgres, the model used the
+  read-only Postgres node and claimed it built everything. The shipped arm named it `unsupported`;
+  it is a model behaviour, not something this phase changed
+
+**Not done, said plainly:** the comparison is one run per arm on one model — a difference of one
+case is noise, which is why the choice rests on cost and recall rather than pass rate. The model the
+product defaults to was not evaluated live (its 20-a-day quota); `--live --model gemini-3-flash-preview`
+is the command when a day's quota can be spent on it.
+
+<!-- DEPLOYED VERIFICATION -->
+
 ---
 
 ## Phase 35 — Copilot I — edit a workflow by conversation
