@@ -103,14 +103,14 @@ async function mint(cookie, body) {
   return call("/api/tokens", { method: "POST", cookie, body });
 }
 
-async function cleanUp() {
+async function cleanUp({ sessionsToo = false } = {}) {
   await sql.query('delete from "access_token" where "name" like $1', [`${PREFIX}%`]).catch(() => {});
   for (const id of workflows) await sql.query('delete from "workflow" where "id" = $1', [id]).catch(() => {});
   await sql.query('delete from "workflow" where "name" like $1', [`${PREFIX}%`]).catch(() => {});
   await sql.query('delete from "session" where "userId" = $1', [PROBE_ID]).catch(() => {});
   await sql.query('delete from "workspace" where "createdBy" = $1', [PROBE_ID]).catch(() => {});
   await sql.query('delete from "user" where "id" = $1', [PROBE_ID]).catch(() => {});
-  for (const value of sessions) await sql.query('delete from "session" where "sessionToken" = $1', [value]).catch(() => {});
+  if (sessionsToo) for (const value of sessions) await sql.query('delete from "session" where "sessionToken" = $1', [value]).catch(() => {});
 }
 
 try {
@@ -314,7 +314,7 @@ try {
   }
   check(capped !== null, "the twenty-first live token → 409", "no cap reached");
 } finally {
-  await cleanUp();
+  await cleanUp({ sessionsToo: true });
 }
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

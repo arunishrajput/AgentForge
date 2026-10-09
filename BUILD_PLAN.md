@@ -56,8 +56,8 @@ is the file it means.
 38  Workflows II — human in the loop                        ✅
 39  Workflows III — composition: sub-workflows, workflow tools, merge  ✅
 40  Workflows IV — public entry points: forms and webhook responses  ✅
-41  Public API — personal access tokens  ← START HERE
-42  Chapter 3 launch polish
+41  Public API — personal access tokens                  ✅
+42  Chapter 3 launch polish  ← START HERE
 ```
 
 **Move the `← START HERE` marker when a phase closes.** Chapter 2 forgot to, and the marker sat on
@@ -1968,6 +1968,34 @@ the creator and the token's writes are refused. Grep Cloud Logging for the token
 **Documentation updates.** `docs/api.md`, `SECURITY.md`, `CONTRACT.md`, `README.md`, `PROGRESS.md`.
 
 **Commit.** `feat: complete phase 41 public api and personal access tokens`
+
+**Status: COMPLETE, 2026-10-10 — deployed as `agentforge-00100-kh5` and verified there.** Migration `0019`
+(one table, `access_token`, additive).
+
+- **Tokens** (D192): `afp_` + 256 bits, only SHA-256 stored (a four-character hint beside it), shown once in
+  a `no-store` 201, `viewer` or `editor` ceiling, expiry required (1–365 days), 20 live per person per
+  workspace, revoke keeps the row. Created in *Settings → Access tokens*.
+- **One funnel, an allowlist that is a function**: `requireApiScope` wraps `requireScope`; thirteen workflow
+  and run routes call it. `token-routes.test.ts` pins that set; `docs:check` compares it to `docs/api.md`.
+  The effective role is `min(ceiling, creator's role now)` from one joined statement, so a demotion bites on
+  the next request and a removal is a 401. A bearer header decides alone — no cookie fallback.
+- **Rate limits** from `lib/ratelimit.ts` (gained `peek`): 120 a minute per token, and 120 *failed*
+  presentations a minute per address checked before the lookup — per instance, said so. `lastUsedAt` once per
+  five minutes. The log context gained `tokenId`; the token is never logged (searched Cloud Logging: absent).
+- **No OpenAPI document**, by decision (D192).
+- **Evidence**: new `verify-tokens.mjs` **68 passed** on the deployed service — create/list/hash at rest,
+  every route listed in the plan's validation (create, list workflows, start a run, revoke → 401, expired,
+  viewer cannot write, workspace A cannot see B, demote the creator → writes 403, remove → 401), a token
+  refused on fourteen routes it must never reach, six requests inside the interval writing nothing, 429 +
+  `Retry-After` after 120, the cap at 21. `verify-security` **104 passed** (new: all 74 session routes answer
+  an unknown token 401), `verify-a11y`, `verify-templates`, `verify-integrations`, `verify-postgres` passed,
+  `smoke.mjs` clean on its second walk (the first met the known null-cell flake). In a real browser, Light and
+  Night: a token created from the panel, shown once, listed — **contrast audit empty in both**. Local check:
+  **1728 tests**, coverage 90.79 / 92.78 / 85.29. Mutations caught: `requireScope`→`requireApiScope` on the
+  credentials route fails `token-routes.test.ts` and `docs:check`; dropping a route from the doc fails `docs:check`.
+- **`verify-api` 595 passed, 3 failed** — all three are the HTTP node's checks against unauthenticated
+  `api.github.com`, which answered 403 "rate limit exceeded" for Cloud Run's shared address. Nothing in this
+  phase touches that node. See PROGRESS.md → Known Issues.
 
 ---
 
