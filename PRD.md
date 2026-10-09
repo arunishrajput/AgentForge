@@ -155,20 +155,21 @@ external publishing; real-time multiplayer editing; mobile apps.
 
 ## Chapter 3 scope — planned
 
-**Planned with the user on 2026-10-06.** `BUILD_PLAN.md` → *Chapter 3* is the contract; this is the
-index. Numbered `C3-n` so the Chapter 1 and Chapter 2 `C` numbers above keep their meaning.
+**Planned with the user on 2026-10-06; phases 26–35 are done.** `BUILD_PLAN.md` → *Chapter 3* is
+the contract; this is the index. Numbered `C3-n` so the Chapter 1 and Chapter 2 `C` numbers above
+keep their meaning.
 
 | # | Capability | Phase |
 |---|---|---|
-| C3-1 | **Schedules that fire** without a frequent cron; durable long waits; a per-workflow on/off switch | 26 |
-| C3-2 | **Themes: Light (default), Dark ("Toybox Night") and System**, every contrast gate held per theme | 27–28 |
-| C3-3 | Undo/redo, copy/paste/duplicate, bulk actions, auto-arrange, keyboard shortcuts with a help dialog, find on canvas | 29 |
-| C3-4 | Sticky notes and disabled nodes | 30 |
-| C3-5 | Pinned output data, run one node, run up to here, a manual-trigger input form | 31 |
-| C3-6 | Tags, favourites, duplicate, import/export JSON, linkable list views | 32 |
-| C3-7 | **Run history**, a run detail page, re-run, retry from the failed step, retention | 33 |
-| C3-8 | Generation that scales past 30 nodes, measured by an eval set | 34 |
-| C3-9 | **A copilot that edits a workflow by conversation**, shown as a diff the user accepts | 35 |
+| C3-1 | **Schedules that fire** without a frequent cron; durable long waits; a per-workflow on/off switch | 26 — **DONE** |
+| C3-2 | **Themes: Light (default), Dark ("Toybox Night") and System**, every contrast gate held per theme | 27–28 — **DONE** |
+| C3-3 | Undo/redo, copy/paste/duplicate, bulk actions, auto-arrange, keyboard shortcuts with a help dialog, find on canvas | 29 — **DONE** |
+| C3-4 | Sticky notes and disabled nodes | 30 — **DONE** |
+| C3-5 | Pinned output data, run one node, run up to here, a manual-trigger input form | 31 — **DONE** |
+| C3-6 | Tags, favourites, duplicate, import/export JSON, linkable list views | 32 — **DONE** |
+| C3-7 | **Run history**, a run detail page, re-run, retry from the failed step, retention | 33 — **DONE** |
+| C3-8 | Generation that scales past 30 nodes, measured by an eval set | 34 — **DONE** |
+| C3-9 | **A copilot that edits a workflow by conversation**, shown as a diff the user accepts | 35 — **DONE** |
 | C3-10 | The copilot explains a workflow and diagnoses a failed run with a proposed fix | 36 |
 | C3-11 | Per-node error handling, an error-trigger workflow, an in-app notification inbox | 37 |
 | C3-12 | **Human approval steps** — decided in the app or by a signed single-use link | 38 |
@@ -292,6 +293,13 @@ registered nodes.
 
 **Generation.** A natural-language request produces a valid, persisted, executable workflow that
 appears on the canvas. Invalid model output is rejected and reported rather than saved broken.
+
+**The copilot** (Phase 35). An editor can ask for a change to the workflow on the canvas in plain
+language. The answer is a **proposal**: validated exactly as a generated workflow is, shown as a diff
+with every value it sets, and applied only when the person presses Accept — as one step of undo,
+unsaved until they save. It can be refined in the same conversation, rejected without a trace, and
+it says what it could not do. Unchanged steps keep their place and settings; run data is never sent
+to the model; a viewer cannot use it.
 
 **Configuration.** Model and provider selection in-app. The user supplies their own API key, which
 is encrypted at rest and never returned to the client in plaintext. Integration credentials follow

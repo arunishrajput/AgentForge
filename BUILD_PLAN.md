@@ -50,8 +50,8 @@ is the file it means.
 32  Library — organising workflows                         ✅
 33  Runs — history and recovery                            ✅
 34  Generator at scale — catalogue selection and evals      ✅
-35  Copilot I — edit a workflow by conversation             ← START HERE
-36  Copilot II — explain and repair
+35  Copilot I — edit a workflow by conversation             ✅
+36  Copilot II — explain and repair                          ← START HERE
 37  Workflows I — when things go wrong
 38  Workflows II — human in the loop
 39  Workflows III — composition: sub-workflows, workflow tools, merge
@@ -1343,6 +1343,83 @@ requests: add a node, change a config value, remove a branch, rename, and someth
 `PROGRESS.md`.
 
 **Commit.** `feat: complete phase 35 copilot edits by conversation`
+
+**Status: COMPLETE, 2026-10-09 — deployed as `00087-544` and verified there, on the API and in a
+real browser in Light and Toybox Night.** Three deploys: `00085-cff` shipped the phase, `00086-wnj` what
+the browser walk found, `00087-544` what `verify-a11y` found. No migration, no new table. What was
+built:
+
+- **`POST /api/workflows/[id]/copilot`** (`edit.ts`) — the canvas's graph and an instruction in, a
+  validated **proposed** graph out; `editor`, a viewer refused with the role named; **writes nothing**.
+  Generation's pipeline was extracted as `converse` and both call it — the same prompt with an edit
+  opening and editing rules, the same parse, validation, reference check and single retry. `unsupported`
+  reported honestly, and the workflow's own name is not the copilot's (D164)
+- **What the model owns, and what is carried** (D163) — nodes, type, label, config and edges are the
+  model's; position, retry policy, pin, off switch, notes and surviving edge ids are carried by id; only
+  an added node is placed, at `layout()`'s offset from a neighbour as it actually sits. The model never
+  sees positions, pins (run data), policy, the off switch or notes. **Measured**: an added step diffed as
+  *+1 added, 1 connection, 5 unchanged, 0 moved*, and saving it wrote exactly that version
+- **Not blamed for what the canvas already had** (D162) — a proposal may not add a validation problem
+  or unresolved reference; one the starting graph had is carried, costs no retry
+- **The copilot panel** (D161) — in the inspector's column, not a third. Measured on the deployed
+  canvas: **880 px of canvas at 1440 px with either in the column**, 560 if it had been a third; at 375 px
+  the toolbar is still two rows (104 px) and the copilot a 338 px drawer. ✦ Copilot in the toolbar and
+  ⌘K open it; *Details* or selecting a node gives the column back; the conversation survives both
+- **The proposal in Phase 18's diff mode** — the same pop bar with *The copilot's proposal — not applied
+  yet*, Reject and Accept; the panel lists every change with the values it sets (an agent's `tools`
+  included). **Accept is one step of undo and unsaved**; **refine** edits the proposal and stays one diff
+  from the canvas; an answer to a canvas that changed meanwhile, or that a restore replaced, is set aside
+  with a sentence saying so (D164). Client state only — no table, no Neon cost
+- **Measured like generation** (D165) — nine edit cases (`eval/edit-cases.ts`) scored also on what they
+  kept, removed, renamed and set: **9/9 on `gemini-3.5-flash-lite`, every one first-attempt**, recorded and
+  replayed offline in CI. `generation.finished` carries `mode`, and `agentforge_generations` gained a
+  `mode` label
+
+**Validated on the deployed URL, in a browser, on a generated workflow — the five requests.** In Light:
+**add a node** ("also log the messages that aren't urgent" → *+1 added* on the false branch), **change a
+config value** (the urgent message to start with URGENT:, then *refined* — "and the info one with
+ROUTINE:" — to *2 changed*), **remove a branch** (*1 removed*, drawn dashed and recessed). In Night:
+**rename** (*1 changed — name*) and **something impossible** ("SSH into the support server" → *No change
+to propose*, named under *Not done*), the latter asked against an unsaved canvas, which it left alone.
+Accept → ⌘Z returned the canvas to the stored graph exactly (*Saved · v1*) → ⇧⌘Z → Save wrote **v2**
+with exactly the diff; a later save wrote v3. **Reject left the stored workflow byte-for-byte as it
+was.** The contrast audit was clean with a proposal open in both themes.
+
+**Found by the walk, fixed with tests that failed first, re-walked on `00086-wnj`:**
+
+- **A proposal's added node landed half under the minimap** — entering a version comparison refits the
+  canvas, opening a proposal did not. `opened` (tested) now tells the editor when a proposal opens or a
+  refine replaces it; re-walked in Night, every node ended inside the canvas
+- **A long conversation stretched the whole page by 200 px** and shifted every control 9 px: the
+  `sr-only` "You:" label is absolutely positioned, and the scrolling list was not, so it escaped. All
+  eighteen scroll containers in the product had the trap; all are positioned now, held by
+  `scroll-containment.test.ts` (D166). Re-walked: the list scrolls inside itself, the page overflows by 0
+
+**Found by the deployed battery, fixed with a test that failed first:** `verify-a11y` — the toolbar's
+Copilot button carried `aria-controls="copilot-panel"` while the column held the inspector, an ARIA
+reference to nothing (and on a phone, *Details* the mirror of it). Only one panel is ever in the
+document; each control now names its panel only while it is there (`right-column.ts`). Re-run on
+`00087-544`: 118 / 0, and in a browser no `aria-controls` on the canvas points at nothing.
+
+**Verified on the deployed service.** On `00086-wnj`: `verify-api` **532 passed, 1 failed, 2 skipped** —
+the failure was the new live copilot check meeting every model in the fallback chain unavailable at once
+(`gemini-3.5-flash-lite` timed out, `gemini-3-flash` at its free tier's 5-a-minute limit, spent by the
+generation checks just before, `gemini-3.6-flash` at capacity), answered 422 with the provider's words as
+designed; **the same two checks run on their own a few minutes later both passed** (a real proposal kept
+all three nodes at their exact positions and added one; nothing stored moved). `verify-security` 84 (the
+new route enumerated and refused without a session), `verify-a11y` 117 / 1 (above), `verify-templates`
+47, `verify-integrations` 60 / 2 skipped (Notion, Airtable), `verify-postgres` 65, `verify-providers` 55,
+`verify-vault` passed, `verify-observability` passed / 1 structural skip, `verify-timers` 34,
+`verify-durable all` passed, `verify-retention` passed. On `00087-544`: `verify-a11y` **118 / 0**,
+`verify-security` **84 / 0**, and **`smoke.mjs` clean, all eight beats, first walk**. The
+`agentforge_generations` metric gained its `mode` label in place.
+
+1491 tests (24 script tests); coverage 90.25 / 92.40 / 85.29.
+
+**Not done, said plainly:** the eval set is nine cases on one model, one run — the five kinds the phase
+names plus a refine and an agent's tools, not a census. A viewer's 403 is proved by `verify-api`'s
+matrix, not by a viewer in a browser (none exists, *Known Issues*). The rename of the workflow itself is
+deliberately unsupported (D164).
 
 ---
 

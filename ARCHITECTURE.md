@@ -577,7 +577,8 @@ src/lib/generate/
   prompt.ts      registry -> the index and the definitions the model is given (pure, tested)
   select.ts      which nodes a request is shown in full — Phase 34 (pure, tested)
   layout.ts      nodes + edges -> positions, cycle-safe and non-overlapping (pure, tested)
-  generate.ts    the pipeline: select -> ask -> parse -> assemble -> validate -> one retry
+  generate.ts    the pipeline: select -> ask -> parse -> assemble -> validate -> one retry (`converse`)
+  edit.ts        the copilot's edit: the same pipeline, a graph attached — Phase 35
   references.ts  does every {{ }} in a graph reach something? — the retry's and the evals' check
   eval/          the eval set, its scorer, and the recorded model answers CI replays
 ```
@@ -613,6 +614,16 @@ is kept if the retry comes back worse (D158).
 **The model is asked only for what it alone knows.** Nodes and edges, plus `unsupported`. The system
 supplies `version`, layout positions and edge ids (D40) — a model cannot lay out a graph, and an
 overlapping one reads as broken on stage.
+
+**The copilot is generation with a graph attached — Phase 35** (`edit.ts`). `converse` is the one
+pipeline both call: generation hands it a request and `assembleGraph`; the copilot hands it the
+graph on the canvas, the instruction, and `assembleEdit`, which carries everything the model does not
+own from the canvas **by id** — positions, retry policy, pins, the off switch, notes, surviving edge
+ids — and places only the nodes the model added (D163). The validation is generation's, except that
+a problem the canvas already had is carried rather than counted (D162). The route writes nothing; the
+conversation and the open proposal are the canvas's state (`src/lib/canvas/copilot.ts`, D164), shown
+in the version history's diff mode and applied as one step of undo by Accept. The copilot takes the
+inspector's column rather than a third one (D161).
 
 `generateWorkflow` takes its `LanguageModel` as an argument, the same trick as the engine's recorder
 (D18): the whole pipeline is tested against a scripted model in milliseconds, with no key and no

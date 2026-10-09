@@ -520,6 +520,28 @@ card.
 panels cost the canvas — at 1440 px two open columns leave 880 px — and a third column would undo
 it. History is also read in a considered way: you open it, look, decide.
 
+### The copilot — Phase 35
+
+**A copilot proposal is diff mode**, with the canvas against what Accept would make it. Everything
+above holds — the pop bar, the inert canvas, the ribbons — and only the bar's words and its way out
+differ: *The copilot's proposal — not applied yet*, then **Reject** (quiet) and **Accept** (ink) where
+*Back to editing* sits for two versions. The words are the point: the graph on screen is not yours
+until you accept it. Save and Run are disabled while it is up, and the canvas refits to the union so
+an added node is never half under the minimap.
+
+**It takes the inspector's column, not a third** (D161) — measured at 1440 px, the canvas is 880 px
+with either in the column, and a third would leave 560. The ✦ Copilot button opens it (glyph only
+below `sm`, so the phone toolbar stays two rows); *Details* in its heading, or selecting a node, gives
+the column back. It rails and drawers exactly as the inspector does.
+
+**The conversation is the quiet register, and the proposal is a card.** A request is a small raised
+bubble, indented; an answer is a `card` that lists every change as a line — glyph, word, the node's
+name, and under it each value it sets in mono, a changed one struck through before its new value — so
+Accept is never a blind button. A closed proposal (accepted, rejected, refined) is recessed:
+`bg-sunken` and the flat shadow, like a removed node, with its outcome in words. What could not be done
+is a `warn` Notice; a failure is a `bad` Notice with its recovery link. The wait is the generation
+form's sweep and an honest clock, never a fake "thinking…" sequence.
+
 ### The run panel is the quiet register
 
 **No mascot here, and that is a rule rather than an omission.** Sparky is allowed as a small
@@ -799,6 +821,7 @@ wrong within a phase.
 | **A script React renders on the client never runs** | Phase 28's first fix for `global-error.tsx` copied the root layout's blocking theme script into it. A probe build showed Next 16 never server-renders that file — it renders it into a bare shell on the client — so the script was dead code that looked like the fix. `ThemeSync` was what actually worked, and is all the page carries now |
 | **A `<select>` given a value no option has shows its first option, silently** | Phase 32's tag filter matched `?tag=BILLING` to the tag "billing" ignoring case, filtered the list correctly — and handed the `<select>` the raw "BILLING", which no option carried, so it read *Any tag* over a filtered list. Give a select the value of the option you matched (`tagSelectValue`), never the input you matched it from |
 | **An error inside a field's label moves the buttons beside it** | `Labelled` puts its error inside the `<label>` so it is part of the field's name. In a row of field-plus-buttons aligned to the bottom, that error pushed *Add* below the field. Where buttons sit beside a field, the error goes under the row, tied to the field by `aria-describedby` (`TagNameForm`) |
+| **An `sr-only` label can stretch the page from inside a scroller** | `.sr-only` is `position: absolute`, and an absolute element is clipped by an `overflow: auto` ancestor only if that ancestor is positioned. The copilot's conversation list was not, so a long conversation put a "You:" label 200 px below the viewport: the document grew a scrollbar and every control on the canvas shifted 9 px left. No gate could see it. Every scroll container is positioned now, and `scroll-containment.test.ts` refuses one that is not (D166) |
 | **A lint rule can be wrong about a native element** | `role="switch"` on `input[type=checkbox]` is explicitly allowed by ARIA in HTML and its `checked` maps to `aria-checked`; adding `aria-checked` would create a second source of truth. Suppressed inline, with the reason, per the project convention |
 
 ---

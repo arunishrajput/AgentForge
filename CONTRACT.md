@@ -22,6 +22,7 @@ Do not pre-empt them.
 | Credential storage shape | **DEFINED** | Table Phase 3, API Phase 6, **envelope + vault Phase 21** |
 | Credential audit log | **DEFINED** | Phase 21 — `src/lib/credentials/audit.ts` |
 | Generation request/response | **DEFINED** | Phase 7 |
+| Copilot request/response | **DEFINED** | Phase 35 — `src/lib/generate/edit.ts`, `src/lib/canvas/copilot.ts` |
 | Trigger shapes | **DEFINED** | Phase 8 — `src/lib/triggers/` |
 | Design token names | **DEFINED** | Phase 14 — `src/app/globals.css`, `src/lib/design/palette.ts`; two themes since Phase 27 |
 
@@ -1855,6 +1856,56 @@ because the registry is the entire vocabulary, but silently wrong. The model now
 not build, and the UI shows it instead of navigating to a workflow that quietly does less. It is
 equally the honest answer to a request that is merely *early*: Discord and Sheets have no node until
 Phase 9.
+
+## Copilot request/response — **DEFINED** (Phase 35)
+
+`POST /api/workflows/:id/copilot`, `editor`. Source of truth: `src/lib/generate/edit.ts` (the
+proposal) and `src/lib/canvas/copilot.ts` (the conversation). **It writes nothing** — not the
+workflow, not a version, not the conversation.
+
+```jsonc
+// request
+{ "instruction": "Also post the urgent ones to Slack",   // 1–2000 chars, trimmed
+  "graph": { /* the graph on the canvas, saved or not — the Workflow graph shape */ },
+  "earlier": ["…"] }                                      // optional, ≤ 10: what a refined proposal already reflects
+
+// 200 response
+{ "data": {
+    "proposal": {
+      "graph": { /* the whole proposed graph — validated, not applied */ },
+      "unsupported": ["rename the workflow — type the new name in the toolbar"],
+      "changes": { "added": 1, "removed": 0, "changed": 0, "moved": 0, "unchanged": 5,
+                   "edgesAdded": 1, "edgesRemoved": 0, "notes": 0, "any": true },  // against `graph` sent
+      "problems": [] },     // only ever problems the sent graph already had (D162)
+    "generation": { "model": "…", "source": "user", "usage": { … }, "attempts": [ … ] } } }
+```
+
+**The pipeline is generation's** (`converse` in `generate.ts`): the same system prompt with an edit
+opening and editing rules, the same parse, the same `validateGraph`, the same reference check, at
+most one retry. Two differences, both binding:
+
+- **What the model owns** (D163): nodes, their type, label and config, and the edges — exactly as in
+  generation. The system carries the rest **by id** from `graph`: an existing node's position, and,
+  if its type is unchanged, its `policy`, `disabled` and `pinned`; `notes` unchanged; a surviving
+  edge's id. Only an added node is placed. The model is never shown positions, pins, policy, the off
+  switch or notes
+- **What a proposal is held to** (D162): it may not add a validation problem or an unresolved
+  reference. One the sent graph already had — same code and node, or same node and reference — is
+  carried, neither failing the proposal nor spending the retry
+
+A proposal of no change is `200` with `changes.any: false` and, usually, `unsupported` saying why.
+
+**Failure.** Exactly generation's: `400 invalid_request` for a blank instruction or a body whose
+`graph` is not a graph, or with `details.recovery` when no provider key is stored; `404` for a
+workflow this person cannot see (D20, D101); `403 forbidden` below `editor`, before a model is
+called; `422 invalid_graph` with `{ issues, attempts }` when neither answer was valid. **A provider
+failure** — a bad key, a spent quota — is `422 invalid_graph` with the provider's own words and
+`details.recovery` pointing at the provider settings (`/settings?tab=provider`).
+
+**The conversation, in the client** (D164). A refine sends the open proposal as `graph` and the
+instructions it reflects as `earlier`; it is still shown as one diff from the canvas it started
+from. Accept puts the proposal on the canvas as **one step of undo** and leaves it unsaved; Save makes
+it a version. Logged as `generation.finished` with `mode: "edit"` (`OPERATIONS.md`).
 
 ## Trigger shapes — **DEFINED** (Phase 8)
 

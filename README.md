@@ -84,6 +84,7 @@ pretending otherwise.
 | | |
 |---|---|
 | **Sentence → workflow** | A validated graph, or an honest `unsupported` with a reason. A broken workflow is never saved — the generator does not touch the database |
+| **A copilot that edits** | *"Also post the urgent ones to Slack"* changes the workflow on the canvas — as a **proposal**, shown as a diff with every value it sets, applied only when you press Accept, and undone with one ⌘Z. Refine it in plain words. It proposes only registry nodes, never sees your run data, and the steps it did not touch stay exactly where you put them |
 | **A real canvas** | React Flow. Move nodes, rewire edges, change any node's configuration, add a trigger, delete half of it |
 | **Edits like a serious tool** | Undo and redo, copy and paste between workflows and tabs, duplicate, multi-select with bulk actions, auto-arrange, find a node from ⌘K, and every action on a key — press `?` for the list |
 | **Explains itself, and switches off** | Sticky notes on the canvas for whoever reads the workflow next, and any step switched off without deleting it — its input passes straight on, and nothing is sent. A share link shows where the notes are, never what they say |
@@ -265,13 +266,15 @@ notes, steps that switch off, and a test loop — pinned outputs and partial run
 tags, stars, export and import, and run history you can retry from the step that failed. Generation
 is now measured rather than eyeballed — an eval set of 24 requests, scored live and replayed in CI —
 and shows the model full definitions only for the nodes a request needs, so the catalogue can grow.
+And a workflow can now be changed by asking: a copilot proposes the change as a diff you accept,
+measured by its own eval set of edits.
 
 It is live, it works, and [`PROGRESS.md`](./PROGRESS.md) is the honest status board — including
 what is unfinished.
 
 **What comes next** is Chapter 3, planned phase by phase in [`BUILD_PLAN.md`](./BUILD_PLAN.md):
 
-- a copilot that edits and repairs workflows by conversation
+- a copilot that explains a workflow and repairs a failed run
 - error paths, approval steps and sub-workflows
 - forms, and a public API
 

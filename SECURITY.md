@@ -425,6 +425,24 @@ a string naming no database, and **refuses `sslmode=disable`, `allow` and `prefe
 silently upgrading them** — a user who wrote `disable` has said something about their
 expectations, and a product that overrides it without a word has lied to them.
 
+## The copilot, and what it cannot do — Phase 35
+
+The copilot turns a plain-language request into a **proposed** change to a workflow. Its boundary is
+the same as generation's, plus one person:
+
+| Rule | Where |
+|---|---|
+| **It can propose only registry nodes** | A proposal goes through `validateGraph` exactly as a generated graph does (`src/lib/generate/edit.ts`, D162). An unknown node type is a refusal, not a node — there is no node that runs code, a shell or a query string |
+| **Nothing is applied without a person pressing Accept** | `POST /api/workflows/:id/copilot` writes nothing: not the workflow, not a version, not the conversation. The proposal reaches the canvas as a diff — every value it sets listed in words, including an agent's `tools` — and Accept puts it on the canvas *unsaved*, as one step of undo. Saving is a second, separate act |
+| **A viewer cannot use it** | `requireScope("editor")`, refused with the role named before a model is called |
+| **Run data never reaches the prompt** | A node's pinned output is a captured webhook body or an API response — text somebody else wrote — and is never sent to the model, nor are positions, retry policy or notes (`modelView` in `src/lib/generate/prompt.ts`, D163; `edit.test.ts` plants a canary and asserts it is absent). What the model reads is the graph's structure and the configuration its author wrote |
+| **It runs on the user's own key** | The workspace's provider credential, through the same `resolveProvider` generation uses; a key failure reaches the user with the provider's words and a link to the settings, never the key |
+
+**What this does not cover, said plainly:** the configuration the copilot reads is the workflow
+author's, and an author can write anything into a prompt field — including text that tries to steer
+the model. The worst it can produce is a *proposal* that same author reviews and must accept. Phase
+36's run diagnosis is where untrusted run data meets the model, and it is held to the same rule.
+
 ---
 
 ## Secrets in the deployment
@@ -502,6 +520,7 @@ The honest limits. Each one is a real gap, not a hedge.
 | Authorisation | `src/lib/api.ts`, `src/lib/workspace/roles.ts`, `src/lib/workflow/visibility.ts` |
 | What a share link publishes | `src/lib/workflow/share.ts` |
 | Outbound request guard | `src/lib/integrations/net.ts` |
+| What the copilot sends, and what it may propose | `src/lib/generate/edit.ts`, `src/lib/generate/prompt.ts` → `modelView` |
 | Trigger tokens | `src/lib/triggers/webhook.ts`, `src/lib/triggers/secret.ts` |
 | Env contract | `src/lib/env.ts`, `CONTRACT.md` → *Environment variables* |
 

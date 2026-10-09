@@ -119,7 +119,7 @@ gcloud logging metrics list --format='table(name,filter)'
 | `agentforge_node_latency` | A distribution of `durationMs`, labelled `nodeType` and `status` |
 | `agentforge_model_fallbacks` | **The important one.** Calls the requested model did not answer |
 | `agentforge_errors` | Every ERROR, labelled by `errorGroup` — repeats are one line, not a rising count |
-| `agentforge_generations` | Workflow generations, labelled `outcome` (`first`, `second`, `failed`) and `selector` — **which attempt produced the graph** (Phase 34) |
+| `agentforge_generations` | Workflow generations **and copilot edits**, labelled `outcome` (`first`, `second`, `failed`), `selector` and — since Phase 35 — `mode` (`create`, `edit`) — **which attempt produced the graph** (Phase 34) |
 
 ---
 
@@ -178,7 +178,11 @@ the log-based metric kept collecting across the change rather than needing to be
 
 **Phase 34.** Every `POST /api/workflows/generate` that got an answer from the model ends in one
 `generation.finished` line: `outcome` is `first` when the first answer was a valid graph, `second`
-when it took the retry, and `failed` when neither was (a WARNING, and a 422 to the user). A provider
+when it took the retry, and `failed` when neither was (a WARNING, and a 422 to the user). **Since
+Phase 35 every copilot proposal (`POST /api/workflows/:id/copilot`) ends in the same line with
+`mode: "edit"`, and generation's carries `mode: "create"`** — one pipeline, one quality question; the
+metric's `mode` label (added in place, so earlier points have none) separates them. A copilot
+`failed` means neither answer was a valid change, and the canvas showed the person the issues. A provider
 failure — a bad key, a quota wall — is not an outcome; nothing was produced to judge, and
 `model.call` records it.
 
@@ -186,14 +190,14 @@ failure — a bad key, a quota wall — is not an outcome; nothing was produced 
 gcloud logging read \
   'resource.type=cloud_run_revision AND jsonPayload.event="generation.finished"' \
   --limit 20 --freshness 7d \
-  --format='value(timestamp,jsonPayload.outcome,jsonPayload.model,jsonPayload.selected,jsonPayload.promptChars,jsonPayload.durationMs)'
+  --format='value(timestamp,jsonPayload.mode,jsonPayload.outcome,jsonPayload.model,jsonPayload.selected,jsonPayload.promptChars,jsonPayload.durationMs)'
 ```
 
 **A rising share of `second` or `failed` means generation is getting worse**, and the first
 question is whether the model changed — a fallback answering (`model` differs from the default), a
 preview model replaced — before the prompt. Then reproduce it offline-first: `npm run eval:generate`
 replays the recorded eval set with no key; `-- --live` runs it against a real model and says which
-cases fail and why. `selected` and `promptChars` are there to rule selection in or out: the eval set
+cases fail and why. For `mode: "edit"` it is `-- --edit --live`, the copilot's own nine cases. `selected` and `promptChars` are there to rule selection in or out: the eval set
 asserts the selector gives every case what it needs, and `selectorFellBack` is only ever true for
 the model selector, which is not shipped.
 

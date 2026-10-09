@@ -1,8 +1,9 @@
 # How the agents work
 
-This is the part of AgentForge that is not n8n. Two things here are driven by a model rather
-than by you: **generation**, which turns a sentence into a graph, and the **agent node**, which
-reasons and calls tools while a run is in flight.
+This is the part of AgentForge that is not n8n. Three things here are driven by a model rather
+than by you: **generation**, which turns a sentence into a graph; the **copilot**, which turns a
+sentence into a change to a graph you already have; and the **agent node**, which reasons and calls
+tools while a run is in flight.
 
 They share one provider adapter and one tool surface, and they fail in opposite directions —
 which is the most useful thing to understand about them.
@@ -107,6 +108,50 @@ with. The results that chose the selector are in `BUILD_PLAN.md` → *Phase 34*.
 nothing is sent back once, each reference named in the words above. The retry is the same one an
 invalid answer gets — two attempts, never more — and if it comes back worse, the valid first graph is
 kept: a workflow is never refused over a reference.
+
+## The copilot — a sentence becomes a change
+
+Open **✦ Copilot** on the canvas (or ⌘K → *Ask the copilot for a change*) and say what you want
+different: *"also post the urgent ones to Slack"*, *"remove the logging step"*, *"rename the
+summarise step"*. The copilot answers with a **proposal**, shown on the canvas in the same diff mode
+the version history uses — added, changed and removed nodes ribboned, every value it sets listed in
+words beside it — and **nothing changes until you press Accept**. Accepted, the change is one step
+of undo and unsaved; Save makes it a version. Not right yet? Say so — *"no, only the urgent ones"* —
+and the proposal is refined, still shown as one change from your canvas.
+
+It is generation with a graph attached, not a second pipeline: the same prompt (with an edit
+opening and editing rules), the same validation, the same reference check, the same single retry.
+What is new is about the graph that already exists:
+
+- **The model changes only what it owns.** Nodes, their type, label and config, and the
+  connections. Positions, retry policy, pinned outputs, the off switch and sticky notes are carried
+  over by id — so an unchanged node stays exactly where you put it, and the diff reads as the change
+  you asked for. Only a node the copilot *adds* is placed, beside what it connects to
+- **It is shown full definitions of every node type already on the canvas**, plus whatever the
+  instruction selects — a node it must copy unchanged is a node whose config it should understand
+- **It is not blamed for what the canvas already had wrong.** A node you dropped in and have not
+  configured yet stays as it is; the proposal may not *add* a problem
+- **It never sees your run data.** A pinned output is a captured webhook body somebody else wrote,
+  and it is not sent. `SECURITY.md` → *The copilot*
+- **It cannot rename the workflow itself** — the name is outside the graph and outside undo — and
+  says so, pointing at the toolbar
+
+The conversation lives in the page for as long as the canvas does; there is no table behind it.
+
+### Measured the same way
+
+[`edit-cases.ts`](../src/lib/generate/eval/edit-cases.ts) holds nine edits — add a node, change a
+value, remove a branch, rename a step, two impossible ones, an agent's tools, a refine — each scored
+on what the proposal contains **and on what it left alone**: the nodes it must not touch, the ones it
+must remove, the label or value it must set.
+
+```bash
+npm run eval:generate -- --edit --live --record <name>   # a real model; spends quota
+npm run eval:generate                                    # replays every recording, edits included
+```
+
+Measured on `gemini-3.5-flash-lite`: **9/9, every one on the first attempt.** The recording is
+replayed in CI on every push.
 
 ## The agent node — reasoning inside a run
 
@@ -232,6 +277,8 @@ because a hard-won reliability fix is exactly the kind of thing that rots in dup
 | [`src/lib/ai/chain.ts`](../src/lib/ai/chain.ts) | Retry, fallback, time budget, breaker. No provider in it |
 | [`src/lib/ai/gemini.ts`](../src/lib/ai/gemini.ts) · [`groq.ts`](../src/lib/ai/groq.ts) | The two wire formats |
 | [`src/lib/generate/`](../src/lib/generate) | The generation pipeline. Touches no database |
+| [`src/lib/generate/edit.ts`](../src/lib/generate/edit.ts) | The copilot's edit: what is carried by id, where an added node goes |
+| [`src/lib/canvas/copilot.ts`](../src/lib/canvas/copilot.ts) | The copilot's conversation — ask, refine, accept, reject. Pure |
 | [`src/lib/generate/select.ts`](../src/lib/generate/select.ts) | Which nodes a request is shown in full |
 | [`src/lib/generate/eval/`](../src/lib/generate/eval) | The eval set, its scorer, and the recordings CI replays |
 | [`src/lib/nodes/ai/agent.ts`](../src/lib/nodes/ai/agent.ts) | The agent node itself |
