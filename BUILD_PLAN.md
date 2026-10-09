@@ -55,8 +55,8 @@ is the file it means.
 37  Workflows I — when things go wrong                      ✅
 38  Workflows II — human in the loop                        ✅
 39  Workflows III — composition: sub-workflows, workflow tools, merge  ✅
-40  Workflows IV — public entry points: forms and webhook responses  ← START HERE
-41  Public API — personal access tokens
+40  Workflows IV — public entry points: forms and webhook responses  ✅
+41  Public API — personal access tokens  ← START HERE
 42  Chapter 3 launch polish
 ```
 
@@ -1892,6 +1892,41 @@ surfaces in both directions.
 `docs/api.md`, `PRD.md`, `PROGRESS.md`.
 
 **Commit.** `feat: complete phase 40 form trigger and webhook responses`
+
+**Status: COMPLETE, 2026-10-10 — deployed as `00099-xgd` and verified there, on the API and in a real
+browser in Light and Toybox Night.** **No migration** (D189: a form's address is the workflow's own token).
+**One deploy.** What was built:
+
+- **`core.form_trigger`** (D189) — a hosted page at `/f/<token>`, a route at `POST /api/form/<token>`, and
+  one module of rules (`triggers/form.ts`) that the page runs as courtesy and the route as law. Seven field
+  types; only declared fields kept, every declared field present; a honeypot answered like success; 32 KB;
+  **12 submissions an address and 120 a form per ten minutes, in memory and per instance** (`lib/ratelimit.ts`,
+  new, written to be reused by Phase 41); a message per bad field; a visitor is told the author's messages and
+  **nothing of the run**. `trigger: "form"` is a run kind (unattended for failure alerts) and a library filter.
+- **`core.respond`** (D190) — status 200–299/400–599, six allowlisted headers, a JSON body built by lookup
+  only; allowlisted **at save and again by the receiver**, the first one to succeed wins, and it answers nobody
+  when nobody is waiting. `respond_without_caller` in validation. A form shows its `message`.
+- **The generator's trigger rule changed** (D191): only manual, webhook and schedule are always sent; the
+  error and form triggers are chosen when the request *names* them. Adding the form trigger's definition to
+  every request would have broken D156's worst case (17,462 → ~18,900), whose own text says the answer is a
+  shorter definition or a smaller selection, not a bigger number. Measured: an unnamed trigger sat at rank
+  6–10 and pushed `core.log`/`core.switch` out of three cases; named-only, all 28 keep every node. **The
+  "webhook form submission…" synonym group was split** — together they scored the form trigger on every
+  "arrives by webhook" request. Two new eval cases — `contact-form` (never says "form") and `webhook-reply` —
+  **passed first attempt** on `gemini-3.5-flash-lite` and are recorded.
+- **UI**: the trigger panel shows the form's link beside the webhook's (copy, rotate with a confirm, switched
+  off said); the field list is the row editor; a form run by hand asks for its fields. Palette icons for both.
+- **Verified**: `verify-forms.mjs` (new) **55 passed** on the deployed service — page and POST signed out,
+  nothing about the workflow reaching a visitor, refusals writing no run, honeypot, 409 and a closed page for
+  an off form, rotation killing the old link, a failing workflow telling the visitor only the author's message,
+  a webhook's `curl` getting its status, headers and body, a branch not taken answering the summary, a Respond
+  refused under a manual trigger and for a redirect / cookie / line-break header, and a 429 with `Retry-After`
+  after 13 submissions. `verify-security` **100 passed** (the form route, its page and its missing GET added),
+  `verify-api` 598 passed / 0 failed / 5 skipped, `verify-a11y`, `verify-templates`, `verify-integrations`,
+  `verify-postgres` passed, `verify-observability` passed / 1 structural skip, `smoke.mjs` clean on its second
+  walk (the first met the known null-cell flake in beat 8). In a real browser: the form at 390 px in Light and
+  Night, errors and the sent state, and the canvas's trigger inspector and Respond inspector in both themes —
+  **contrast audit empty on every state**. Four deliberate mutations of the new rules were each caught.
 
 ---
 

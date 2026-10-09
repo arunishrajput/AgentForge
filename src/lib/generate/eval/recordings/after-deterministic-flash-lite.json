@@ -1026,6 +1026,78 @@
       "promptChars": 19617,
       "verdict": "pass",
       "failures": []
+    },
+    "contact-form": {
+      "calls": [
+        "{\n  \"name\": \"Contact form to Slack\",\n  \"description\": \"Receives contact form submissions and posts them to Slack.\",\n  \"nodes\": [\n    {\n      \"id\": \"form\",\n      \"type\": \"core.form_trigger\",\n      \"label\": \"Contact Form\",\n      \"config\": {\n        \"title\": \"Contact Us\",\n        \"description\": \"Please fill in your details and message.\",\n        \"fields\": [\n          {\n            \"name\": \"name\",\n            \"label\": \"Your Name\",\n            \"type\": \"text\",\n            \"required\": true\n          },\n          {\n            \"name\": \"email\",\n            \"label\": \"Your Email\",\n            \"type\": \"email\",\n            \"required\": true\n          },\n          {\n            \"name\": \"message\",\n            \"label\": \"Message\",\n            \"type\": \"longtext\",\n            \"required\": true\n          }\n        ],\n        \"submitLabel\": \"Send Message\"\n      }\n    },\n    {\n      \"id\": \"slack\",\n      \"type\": \"integration.slack\",\n      \"label\": \"Post to Slack\",\n      \"config\": {\n        \"text\": \"New contact form submission from {{trigger.name}} ({{trigger.email}}):\\n\\n{{trigger.message}}\"\n      }\n    }\n  ],\n  \"edges\": [\n    {\n      \"source\": \"form\",\n      \"target\": \"slack\",\n      \"sourceHandle\": null\n    }\n  ],\n  \"unsupported\": []\n}"
+      ],
+      "models": [
+        "gemini-3.5-flash-lite"
+      ],
+      "ms": [
+        1638
+      ],
+      "tokens": [
+        {
+          "input": 4522,
+          "output": 356
+        }
+      ],
+      "selected": [
+        "core.manual_trigger",
+        "core.webhook_trigger",
+        "core.schedule_trigger",
+        "core.form_trigger",
+        "core.log",
+        "core.approval",
+        "transform.map",
+        "ai.llm",
+        "integration.discord",
+        "integration.slack",
+        "integration.gmail",
+        "integration.notion",
+        "integration.github",
+        "integration.airtable"
+      ],
+      "promptChars": 17474,
+      "verdict": "pass",
+      "failures": []
+    },
+    "webhook-reply": {
+      "calls": [
+        "{\n  \"name\": \"Webhook Order Status\",\n  \"description\": \"Fetches an order's status from an API when triggered by a webhook and returns it to the caller.\",\n  \"nodes\": [\n    {\n      \"id\": \"webhook\",\n      \"type\": \"core.webhook_trigger\",\n      \"label\": \"Webhook Trigger\",\n      \"config\": {\n        \"requiredFields\": [\n          \"id\"\n        ]\n      }\n    },\n    {\n      \"id\": \"fetch_order\",\n      \"type\": \"integration.http\",\n      \"label\": \"Fetch Order\",\n      \"config\": {\n        \"method\": \"GET\",\n        \"url\": \"https://api.example.com/orders/{{trigger.id}}\"\n      }\n    },\n    {\n      \"id\": \"respond_status\",\n      \"type\": \"core.respond\",\n      \"label\": \"Respond with Status\",\n      \"config\": {\n        \"status\": 200,\n        \"body\": {\n          \"status\": \"{{steps.fetch_order.output.json.status}}\"\n        }\n      }\n    }\n  ],\n  \"edges\": [\n    {\n      \"source\": \"webhook\",\n      \"target\": \"fetch_order\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"fetch_order\",\n      \"target\": \"respond_status\",\n      \"sourceHandle\": null\n    }\n  ],\n  \"unsupported\": []\n}"
+      ],
+      "models": [
+        "gemini-3.5-flash-lite"
+      ],
+      "ms": [
+        1572
+      ],
+      "tokens": [
+        {
+          "input": 4751,
+          "output": 344
+        }
+      ],
+      "selected": [
+        "core.manual_trigger",
+        "core.webhook_trigger",
+        "core.schedule_trigger",
+        "core.delay",
+        "core.approval",
+        "core.respond",
+        "transform.filter",
+        "transform.map",
+        "transform.text",
+        "ai.llm",
+        "integration.http",
+        "integration.sheets",
+        "integration.github",
+        "integration.postgres"
+      ],
+      "promptChars": 18060,
+      "verdict": "pass",
+      "failures": []
     }
   }
 }

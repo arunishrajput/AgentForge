@@ -18,7 +18,7 @@ somebody keeps in sync — the same objects, filtered.
 
 ```
                   ┌──────────────────────┐
-                  │   the node registry  │   34 nodes, one object each
+                  │   the node registry  │   36 nodes, one object each
                   └──────────┬───────────┘
             ┌────────────────┼────────────────┐
             ▼                ▼                ▼

@@ -51,7 +51,7 @@ sync by hand — the *same* objects. One registry entry feeds three consumers:
 
 ```
                   ┌──────────────────────┐
-                  │   the node registry  │   34 nodes, one object each
+                  │   the node registry  │   36 nodes, one object each
                   └──────────┬───────────┘
             ┌────────────────┼────────────────┐
             ▼                ▼                ▼
@@ -96,6 +96,7 @@ pretending otherwise.
 | **A library** | Tags, stars, duplicate, and export and import as a versioned file that never carries a credential. The list's view lives in the URL |
 | **When things go wrong** | A step can stop the run, carry on with its error, or take an Error path. A failure nobody was watching reaches an in-app inbox and starts the workspace's error workflows — which is how it reaches Slack or Discord. Nothing polls |
 | **Asks a person** | An approval step stops the run and asks — hours or days later it carries on down Approved or Rejected. Its link goes out through a Discord, Slack or Gmail step you already have, and whoever holds it decides once, without signing in; the people it names decide in their inbox or on the canvas; a timeout decides if nobody does. The link is stored only as a hash and a link preview cannot decide it |
+| **Opens to strangers** | A form trigger is a page anyone with the link can fill in — no sign-in, validated on the server, behind a honeypot and a rate limit, at a link you can replace. A Respond step decides what a webhook's caller or a form's visitor is told: a status, a few allowed headers, a JSON body made from your data |
 | **34 nodes** | Triggers, logic, nine transforms, two AI nodes, and nine integrations. [Full reference](./docs/nodes.md) — generated from the registry |
 | **Durable runs** | Handed to a queue, survives a redeploy or a crash, resumes from the last finished step |
 | **Versioning and diffing** | Every save is a version. Name one, restore one, compare two visually. Every run records which version it executed |
