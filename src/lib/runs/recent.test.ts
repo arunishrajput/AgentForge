@@ -20,6 +20,7 @@ function streamed(id: string, overrides: Partial<StreamRun> = {}): StreamRun {
     waitingFor: null,
     test: null,
     origin: null,
+    parent: null,
     workflowVersion: 3,
     input: { secret: "not in a summary" },
     output: null,

@@ -108,6 +108,22 @@ const OUTPUT_SHAPE = `{
 }`;
 
 /**
+ * **Nodes the generator and the copilot are not offered — Phase 39** (D188). `core.call_workflow` names
+ * a workflow *by id*, and a model asked to build one from a sentence has no way to know the ids of the
+ * workspace's workflows — what it would write is a plausible-looking id that fails when the workflow
+ * runs. So a request that needs it is answered as `unsupported`, honestly (the eval set has a case for
+ * exactly that), and the author adds the step on the canvas, where the picker lists the real ones.
+ * A graph that already holds one keeps its definition in the catalogue for an edit (`generatable`).
+ */
+export const NOT_GENERATED: ReadonlySet<string> = new Set(["core.call_workflow"]);
+
+/** The nodes a model may be offered — all but `NOT_GENERATED`, unless the graph being edited already uses one. */
+export function generatable(nodes: NodeSummary[], alreadyUsed: Iterable<string> = []): NodeSummary[] {
+  const used = new Set(alreadyUsed);
+  return nodes.filter((node) => !NOT_GENERATED.has(node.type) || used.has(node.type));
+}
+
+/**
  * **The index — Phase 34.** One line for every node, always sent: the model knows everything that
  * exists even when only some of it is defined in full, so it can still reach an unselected node
  * and can still say honestly what does *not* exist. The line is the type, the label and the first

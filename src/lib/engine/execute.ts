@@ -8,7 +8,7 @@ import {
 import { logError, logInfo, logWarn } from "@/lib/logging";
 import { getNode } from "@/lib/nodes";
 import { describeDuration, MAX_WAIT_MS } from "@/lib/nodes/core/delay";
-import { NodeError, type LogLevel, type StepLog } from "@/lib/nodes/types";
+import { NodeError, type LogLevel, type StepLog, type WorkflowAccess } from "@/lib/nodes/types";
 import { edgesFrom, type WorkflowGraph } from "@/lib/workflow/graph";
 import { resolveConfig } from "@/lib/workflow/template";
 import type { WorkspaceScope } from "@/lib/workspace/scope";
@@ -20,6 +20,7 @@ import {
   type CursorItem,
   type RunCursor,
 } from "./cursor";
+import { Frontier, mergeInput } from "./join";
 import { aimedAt, honouredPin, scopeOf, type RunTest } from "./partial";
 import {
   attemptDelayMs,
@@ -35,6 +36,8 @@ import { validateGraph, type GraphProblem } from "./validate";
 import {
   CHECKPOINT_OK,
   noopRecorder,
+  type CallRunner,
+  type Lineage,
   type RunOutcome,
   type RunRecorder,
   type StepRecord,
@@ -71,9 +74,13 @@ import {
  * sense: the alternative is a run that can never finish because its first attempt
  * spent the clock.
  *
- * Known simplification: a node with several incoming edges runs when the first one
- * reaches it, with that edge's data. There is no join/merge semantics. Recorded in
- * ARCHITECTURE.md rather than discovered later.
+ * A node with several incoming edges runs once per arriving branch, with that branch's data —
+ * unless it is a `core.merge` (Phase 39), which the work list holds until the branches that can
+ * still reach it have arrived and then runs once (`join.ts`).
+ *
+ * **Phase 39 made the caps a tree's.** A node may call another workflow, which runs inside this
+ * attempt as a run of its own; the step budget and the clock are shared down the tree, and the
+ * depth is bounded (`Lineage`, D185).
  */
 export const MAX_NODE_EXECUTIONS = 30;
 export const MAX_STEPS = 200;
@@ -129,6 +136,14 @@ export interface ExecuteOptions {
    * then carries on with whatever else is queued and is put down again when it runs out.
    */
   decision?: ApprovalDecision;
+  /**
+   * **Phase 39 — where this run sits in a tree of calls**, and how it reaches the workflows it may
+   * call. A root run leaves both out except `calls`; a called workflow's run is given the lineage
+   * its caller worked out (`CallBudget`). Without `calls` a node that needs to call fails its step
+   * saying nothing here can.
+   */
+  lineage?: Lineage;
+  calls?: CallRunner;
 }
 
 /**
@@ -346,7 +361,71 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
    */
   let pending: NonNullable<RunCursor["approval"]> | null = null;
 
-  const cursor = (): RunCursor => snapshotCursor({ queue, executions, seq, approval: pending });
+  /**
+   * **The work list — Phase 39.** Every piece of work comes out of here, so a `core.merge` is held
+   * and fired by one rule shared with the retry's replay (`join.ts`). The approval being waited on
+   * counts as work that has not arrived yet: it has delivered nothing, and a merge below it must not
+   * fire without it.
+   */
+  const frontier = new Frontier({
+    graph,
+    queue,
+    joins: start.joins,
+    waiting: () => (pending ? (steps.find((step) => step.seq === pending!.seq)?.nodeId ?? null) : null),
+  });
+
+  const cursor = (): RunCursor => snapshotCursor({ queue, executions, seq, approval: pending, joins: frontier.joins });
+
+  /** A node's own place in the tree of calls. Without one this run is the root of its own tree. */
+  const lineage: Lineage = options.lineage ?? { depth: 0, ancestors: [workflowId], stepLimit: MAX_STEPS };
+  /** Steps used by the workflows this run called, and by everything they called. */
+  let charged = 0;
+  const attemptStart = Date.now();
+
+  /**
+   * What a node is handed to reach another workflow. The caller (`run.ts`) decides whether the call
+   * may happen — workspace, visibility, cycle, depth; the engine supplies the budget it may spend and
+   * takes the steps it used out of its own. Built per node so the call knows which node made it.
+   */
+  const workflowsFor = (nodeId: string): WorkflowAccess | undefined => {
+    const runner = options.calls;
+    if (!runner) return undefined;
+    return {
+      tools: (ids) => runner.tools(ids),
+      call: async ({ workflowId: target, input: given, via, signal: nodeSignal }) => {
+        const result = await runner.call(
+          { workflowId: target, input: given, via, nodeId },
+          {
+            depth: lineage.depth + 1,
+            ancestors: lineage.ancestors,
+            stepLimit: Math.max(0, lineage.stepLimit - seq - charged),
+            deadlineMs: Math.max(1, deadlineMs - (Date.now() - attemptStart)),
+            signal: nodeSignal,
+          },
+        );
+        charged += result.steps;
+        const { steps: _used, ...called } = result;
+        return called;
+      },
+    };
+  };
+
+  /** Why a pause is refused where nothing can resume the run — worded for a called workflow too. */
+  const cannotWait = (what: string, test: RunTest | null): string => {
+    if (test && test.scope !== "workflow") {
+      return (
+        `A test of part of a workflow does not pause, and this step ${what}. ` +
+        "Pin this step's output to test what comes after it, or run the whole workflow."
+      );
+    }
+    if (lineage.depth > 0) {
+      return (
+        `This step ${what}, and a workflow that another one calls runs inside that run and cannot pause it. ` +
+        "Run this workflow on its own, or move the pause into the workflow that calls it."
+      );
+    }
+    return "";
+  };
 
   /**
    * Queue what follows a node, out of the output it left through. A test never goes past the
@@ -505,8 +584,10 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
     return decision.outcome;
   }
 
-  while (failure === null && queue.length > 0) {
-    const item = queue.shift()!;
+  while (failure === null) {
+    const taken = frontier.next();
+    if (!taken) break;
+    const { item, merged } = taken;
 
     if (signal.aborted) {
       failure = deadline.aborted
@@ -514,8 +595,13 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
         : "Run was stopped before it finished.";
       break;
     }
-    if (seq >= MAX_STEPS) {
-      failure = `Run exceeded the maximum of ${MAX_STEPS} steps.`;
+    if (seq + charged >= lineage.stepLimit) {
+      failure =
+        lineage.depth > 0
+          ? `This workflow, with the ones it called, used up the ${MAX_STEPS} steps a call tree is allowed.`
+          : charged > 0
+            ? `Run exceeded the maximum of ${MAX_STEPS} steps, counting the workflows it called.`
+            : `Run exceeded the maximum of ${MAX_STEPS} steps.`;
       break;
     }
 
@@ -534,8 +620,15 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
     // own input — or a node tested alone, whose input was seeded (Phase 31). A resumed queue
     // entry resolves through the step rows rather than through memory, which is what lets
     // the cursor stay small (`cursor.ts`).
-    const nodeInput =
-      item.fromSeq === null ? (entry ? (seed?.input ?? null) : input) : bySeq.get(item.fromSeq);
+    const nodeInput = merged
+      ? mergeInput(
+          merged,
+          (from) => bySeq.get(from),
+          (from) => steps.find((step) => step.seq === from)?.nodeId ?? "",
+        )
+      : item.fromSeq === null
+        ? entry ? (seed?.input ?? null) : input
+        : bySeq.get(item.fromSeq);
 
     /**
      * **A switched-off node — Phase 30, `CONTRACT.md` → *Disabled nodes*.** It is never
@@ -711,7 +804,16 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
         policy,
         signal,
         log,
-        context: { runId, workflowId, scope, nodeId: node.id, nodeType: node.type, iteration, log },
+        context: {
+          runId,
+          workflowId,
+          scope,
+          nodeId: node.id,
+          nodeType: node.type,
+          iteration,
+          log,
+          workflows: workflowsFor(node.id),
+        },
       });
 
       /**
@@ -737,11 +839,9 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
       if (outcome.approval) {
         if (!allowWait) {
           throw new NodeError(
-            test && test.scope !== "workflow"
-              ? "A test of part of a workflow does not pause, and this step asks a person to decide. " +
-                  "Pin this step's output to test what comes after it, or run the whole workflow."
-              : "This step asks a person to decide, which needs the run queue to resume the run once they have — " +
-                  "and no queue is configured here (TASKS_QUEUE).",
+            cannotWait("asks a person to decide", test) ||
+              "This step asks a person to decide, which needs the run queue to resume the run once they have — " +
+                "and no queue is configured here (TASKS_QUEUE).",
           );
         }
         if (pending) throw new NodeError(alreadyWaiting());
@@ -788,12 +888,10 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
         if (!allowWait) {
           const duration = describeDuration(Math.max(0, until - Date.now()));
           throw new NodeError(
-            test && test.scope !== "workflow"
-              ? `A test of part of a workflow does not pause, and this step asks to wait ${duration}. ` +
-                  "Pin this step's output to test what comes after it, or run the whole workflow."
-              : `This step asks the run to wait ${duration}, ` +
-                  "which needs the run queue to wake it again — and no queue is configured here " +
-                  "(TASKS_QUEUE). Waits of up to 10 seconds run in place.",
+            cannotWait(`asks to wait ${duration}`, test) ||
+              `This step asks the run to wait ${duration}, ` +
+                "which needs the run queue to wake it again — and no queue is configured here " +
+                "(TASKS_QUEUE). Waits of up to 10 seconds run in place.",
           );
         }
         if (!Number.isFinite(until) || until - Date.now() > MAX_WAIT_MS + WAIT_SLACK_MS) {
@@ -993,6 +1091,7 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
       output: null,
       steps: steps.map((step) => redactStep(step, secrets)),
       cursor: cursor(),
+      ...(charged > 0 ? { charged } : {}),
       ...closing,
     };
   }
@@ -1031,6 +1130,7 @@ export async function executeWorkflow(options: ExecuteOptions): Promise<RunOutco
     output: failure ? null : redactValue(lastOutput, secrets),
     steps: steps.map((step) => redactStep(step, secrets)),
     cursor: cursor(),
+    ...(charged > 0 ? { charged } : {}),
     ...closing,
   };
 

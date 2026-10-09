@@ -74,6 +74,7 @@ function row(): Workflow {
     visibility: "private",
     shareToken: "SENTINEL-SHARE-TOKEN",
     sharedAt: new Date(),
+    agentTool: null,
     createdAt: new Date(),
     updatedAt: new Date(),
   };

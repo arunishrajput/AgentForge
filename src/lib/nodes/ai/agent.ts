@@ -6,9 +6,9 @@ import {
   runAgentLoop,
 } from "@/lib/ai/loop";
 import { agentToolSet } from "@/lib/ai/tools";
-import type { ToolCall } from "@/lib/ai/types";
+import type { ToolCall, ToolSpec } from "@/lib/ai/types";
 
-import { defineNode, NodeError, type NodeContext } from "../types";
+import { defineNode, NodeError, workflowIdOf, type AgentWorkflow, type NodeContext } from "../types";
 import { asNodeError, resolveKey } from "./llm";
 
 /**
@@ -57,9 +57,12 @@ export const agentNode = defineNode({
     system: z.string().max(4000).optional(),
     model: z.string().max(120).optional(),
     /**
-     * Registry types this agent may call — exactly these, and **empty means none** (D160, Phase
-     * 34; until then empty meant every `agentCallable` node). It can only ever narrow the set — a
-     * type listed here that is not callable is reported, never granted (`agentToolSet`).
+     * What this agent may call — exactly these, and **empty means none** (D160, Phase 34; until then
+     * empty meant every `agentCallable` node). It can only ever narrow the set — a type listed here
+     * that is not callable is reported, never granted (`agentToolSet`).
+     *
+     * An entry is a registry type (`core.log`) or, since Phase 39, `workflow:<id>` — a workflow in this
+     * workspace that has been marked callable by agents (D186). Both are opt-in, and both are named.
      */
     tools: z.array(z.string().max(120)).max(50).default([]),
     /**
@@ -84,14 +87,17 @@ export const agentNode = defineNode({
     });
     const modelId = config.model && config.model.length > 0 ? config.model : selectedModel;
 
-    const tools = agentToolSet({ allow: config.tools });
+    const registryTools = config.tools.filter((entry) => workflowIdOf(entry) === null);
+    const tools = agentToolSet({ allow: registryTools });
     for (const rejected of tools.rejected) {
       context.log(`Tool "${rejected}" is not available to agents; ignoring it.`, "warn");
     }
+    const workflowTools = await resolveWorkflowTools(config.tools, tools.byName, context);
+    const specs = [...tools.specs, ...workflowTools.specs];
 
     context.log(
-      `Agent starting on ${modelId} (key from ${source}) with ${tools.specs.length} tool(s): ` +
-        `${tools.specs.map((tool) => tool.name).join(", ") || "none"}.`,
+      `Agent starting on ${modelId} (key from ${source}) with ${specs.length} tool(s): ` +
+        `${specs.map((tool) => tool.name).join(", ") || "none"}.`,
     );
     if (config.choices.length > 0) {
       context.log(`Must choose one of: ${config.choices.join(", ")}.`);
@@ -104,12 +110,12 @@ export const agentNode = defineNode({
         modelId,
         system: buildSystemPrompt(config.system, config.choices),
         objective: buildObjective(config.objective, input),
-        tools: tools.specs,
+        tools: specs,
         maxIterations: config.maxIterations,
         temperature: config.temperature,
         signal: context.signal,
         log: (message, level) => context.log(message, level),
-        runTool: (call) => invokeTool(call, tools, context),
+        runTool: (call) => invokeTool(call, tools, context, workflowTools.byName),
       });
     } catch (error) {
       throw asNodeError(error);
@@ -234,11 +240,15 @@ export async function invokeTool(
   call: ToolCall,
   tools: ReturnType<typeof agentToolSet>,
   context: NodeContext,
+  workflowTools: ReadonlyMap<string, AgentWorkflow> = new Map(),
 ): Promise<unknown> {
+  const workflowTool = workflowTools.get(call.name);
+  if (workflowTool) return invokeWorkflowTool(call, workflowTool, context);
+
   const definition = tools.byName.get(call.name);
   if (!definition) {
     throw new Error(
-      `No tool named "${call.name}". Available: ${[...tools.byName.keys()].join(", ") || "none"}.`,
+      `No tool named "${call.name}". Available: ${[...tools.byName.keys(), ...workflowTools.keys()].join(", ") || "none"}.`,
     );
   }
 
@@ -265,4 +275,62 @@ export async function invokeTool(
   });
 
   return outcome.output ?? null;
+}
+
+/**
+ * **Workflows among the agent's tools — Phase 39** (D186). Asks the engine's door which of the listed
+ * workflows are callable right now — in this workspace, marked callable by agents, visible to the
+ * workflow running — and offers exactly those. One that is not is named in the log and left out: the
+ * model hears only about what it can use, and the author, reading the log, learns why a tool they
+ * listed is missing.
+ */
+export async function resolveWorkflowTools(
+  entries: readonly string[],
+  taken: ReadonlyMap<string, unknown>,
+  context: NodeContext,
+): Promise<{ specs: ToolSpec[]; byName: Map<string, AgentWorkflow> }> {
+  const byName = new Map<string, AgentWorkflow>();
+  const specs: ToolSpec[] = [];
+  const ids = entries.map(workflowIdOf).filter((id): id is string => id !== null);
+  if (ids.length === 0) return { specs, byName };
+
+  if (!context.workflows) {
+    context.log("Workflows are listed among this agent's tools, and nothing here can run one; ignoring them.", "warn");
+    return { specs, byName };
+  }
+
+  const available = new Map((await context.workflows.tools(ids)).map((found) => [found.id, found]));
+  for (const id of ids) {
+    const found = available.get(id);
+    if (!found) {
+      context.log(
+        `Workflow "${id}" is not available to agents — it may be gone, not marked callable by agents, or private to someone else; ignoring it.`,
+        "warn",
+      );
+      continue;
+    }
+    if (byName.has(found.name) || taken.has(found.name)) {
+      context.log(`Two tools are called "${found.name}"; the later one is ignored.`, "warn");
+      continue;
+    }
+    byName.set(found.name, found);
+    specs.push(found.spec);
+  }
+  return { specs, byName };
+}
+
+/** One tool call that is a child run: the model's arguments become the called workflow's payload. */
+async function invokeWorkflowTool(call: ToolCall, resolved: AgentWorkflow, context: NodeContext): Promise<unknown> {
+  const read = resolved.read(call.args);
+  if (!read.ok) throw new Error(read.error);
+  if (!context.workflows) throw new Error("Nothing here can run another workflow.");
+
+  const called = await context.workflows.call({
+    workflowId: resolved.id,
+    input: read.input,
+    via: "agent",
+    signal: context.signal,
+  });
+  context.log(`[${call.name}] ran “${called.workflowName}” as run ${called.runId}.`);
+  return called.output ?? null;
 }

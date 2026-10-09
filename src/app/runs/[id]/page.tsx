@@ -6,7 +6,7 @@ import { AppHeader } from "@/components/shell/app-header";
 import { WrongWorkspace } from "@/components/workflows/wrong-workspace";
 import { ApiError } from "@/lib/api";
 import { describeNodes } from "@/lib/nodes";
-import { getRunDetail } from "@/lib/runs/history";
+import { getCallLinks, getRunDetail } from "@/lib/runs/history";
 import { shortRunId } from "@/lib/runs/words";
 import { versionGraph } from "@/lib/workflow/versions";
 import { requirePageSession } from "@/lib/workspace/page";
@@ -80,7 +80,11 @@ export default async function RunPage({ params }: { params: Promise<{ id: string
   }
 
   // The graph this run executed (D86); the current one when that version is no longer kept.
-  const snapshot = await versionGraph(detail.workflow.id, detail.run.workflowVersion);
+  const [snapshot, calls] = await Promise.all([
+    versionGraph(detail.workflow.id, detail.run.workflowVersion),
+    // Phase 39: the run that called this one, and the runs it called.
+    getCallLinks(scope, detail.run),
+  ]);
   const { graph: current, ...workflow } = detail.workflow;
 
   return (
@@ -92,6 +96,7 @@ export default async function RunPage({ params }: { params: Promise<{ id: string
         graph={snapshot ?? current}
         graphSource={snapshot ? "version" : "current"}
         registry={describeNodes()}
+        calls={calls}
         // Decides what the page draws; the API refuses every action it hides (Phase 20).
         canEdit={atLeast(scope.role, "editor")}
       />

@@ -951,6 +951,81 @@
       "promptChars": 19088,
       "verdict": "pass",
       "failures": []
+    },
+    "parallel-fetch": {
+      "calls": [
+        "{\n  \"name\": \"Weather and News Discord Notification\",\n  \"description\": \"Fetches weather and news in parallel when a webhook fires, then posts both to Discord.\",\n  \"nodes\": [\n    {\n      \"id\": \"webhook\",\n      \"type\": \"core.webhook_trigger\",\n      \"label\": \"Webhook Trigger\",\n      \"config\": {}\n    },\n    {\n      \"id\": \"fetch_weather\",\n      \"type\": \"integration.http\",\n      \"label\": \"Fetch Weather\",\n      \"config\": {\n        \"method\": \"GET\",\n        \"url\": \"https://api.example.com/weather\"\n      }\n    },\n    {\n      \"id\": \"fetch_news\",\n      \"type\": \"integration.http\",\n      \"label\": \"Fetch News\",\n      \"config\": {\n        \"method\": \"GET\",\n        \"url\": \"https://api.example.com/news\"\n      }\n    },\n    {\n      \"id\": \"merge_data\",\n      \"type\": \"core.merge\",\n      \"label\": \"Merge Results\",\n      \"config\": {\n        \"mode\": \"all\"\n      }\n    },\n    {\n      \"id\": \"post_discord\",\n      \"type\": \"integration.discord\",\n      \"label\": \"Post to Discord\",\n      \"config\": {\n        \"content\": \"Weather: {{steps.fetch_weather.output.text}}\\n\\nNews: {{steps.fetch_news.output.text}}\"\n      }\n    }\n  ],\n  \"edges\": [\n    {\n      \"source\": \"webhook\",\n      \"target\": \"fetch_weather\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"webhook\",\n      \"target\": \"fetch_news\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"fetch_weather\",\n      \"target\": \"merge_data\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"fetch_news\",\n      \"target\": \"merge_data\",\n      \"sourceHandle\": null\n    },\n    {\n      \"source\": \"merge_data\",\n      \"target\": \"post_discord\",\n      \"sourceHandle\": null\n    }\n  ],\n  \"unsupported\": []\n}"
+      ],
+      "models": [
+        "gemini-3.5-flash-lite"
+      ],
+      "ms": [
+        2156
+      ],
+      "tokens": [
+        {
+          "input": 4659,
+          "output": 534
+        }
+      ],
+      "selected": [
+        "core.manual_trigger",
+        "core.webhook_trigger",
+        "core.schedule_trigger",
+        "core.error_trigger",
+        "core.approval",
+        "core.merge",
+        "transform.filter",
+        "transform.map",
+        "transform.text",
+        "transform.date",
+        "ai.llm",
+        "integration.http",
+        "integration.discord",
+        "integration.slack",
+        "integration.github"
+      ],
+      "promptChars": 17755,
+      "verdict": "pass",
+      "failures": []
+    },
+    "call-another-workflow": {
+      "calls": [
+        "{\n  \"name\": \"Webhook Billing Sync Notification\",\n  \"description\": \"Triggers on webhook, runs Billing Sync, and posts a completion message to Slack.\",\n  \"nodes\": [\n    {\n      \"id\": \"webhook\",\n      \"type\": \"core.webhook_trigger\",\n      \"label\": \"Webhook Trigger\",\n      \"config\": {}\n    },\n    {\n      \"id\": \"slack\",\n      \"type\": \"integration.slack\",\n      \"label\": \"Post to Slack\",\n      \"config\": {\n        \"text\": \"Billing Sync has finished processing order {{trigger.order_id}}.\"\n      }\n    }\n  ],\n  \"edges\": [\n    {\n      \"source\": \"webhook\",\n      \"target\": \"slack\",\n      \"sourceHandle\": null\n    }\n  ],\n  \"unsupported\": [\n    \"Run another workflow called Billing Sync\"\n  ]\n}"
+      ],
+      "models": [
+        "gemini-3.5-flash-lite"
+      ],
+      "ms": [
+        1448
+      ],
+      "tokens": [
+        {
+          "input": 5097,
+          "output": 208
+        }
+      ],
+      "selected": [
+        "core.manual_trigger",
+        "core.webhook_trigger",
+        "core.schedule_trigger",
+        "core.error_trigger",
+        "core.branch",
+        "core.switch",
+        "core.approval",
+        "core.assert",
+        "transform.filter",
+        "transform.sort",
+        "ai.llm",
+        "ai.agent",
+        "integration.discord",
+        "integration.slack",
+        "integration.airtable",
+        "integration.postgres"
+      ],
+      "promptChars": 19617,
+      "verdict": "pass",
+      "failures": []
     }
   }
 }

@@ -1,5 +1,5 @@
 import type { ApprovalRequest } from "@/lib/approvals/rules";
-import type { StepLog } from "@/lib/nodes/types";
+import type { AgentWorkflow, CalledWorkflow, StepLog } from "@/lib/nodes/types";
 
 import type { RunCursor } from "./cursor";
 
@@ -94,8 +94,14 @@ export type StepStatus = (typeof STEP_STATUSES)[number];
  * `core.error_trigger`, started because another workflow's run failed with nobody watching. A
  * run started that way never starts another — that is the bound that keeps an error workflow
  * that fails from alerting about itself (D176).
+ *
+ * **`workflow` and `agent` are Phase 39's** (D185, D186): a run that another workflow's
+ * `core.call_workflow` step started, and one that an `ai.agent`'s tool call started. Neither is
+ * unattended — the run above them is the one that answers for the failure, handing it on to its own
+ * on-error policy or failing — so a called run's failure alerts nobody by itself (`failure.ts`).
+ * `agent` was reserved in Chapter 1 for exactly this.
  */
-export const TRIGGER_KINDS = ["manual", "webhook", "schedule", "agent", "error"] as const;
+export const TRIGGER_KINDS = ["manual", "webhook", "schedule", "agent", "error", "workflow"] as const;
 export type TriggerKind = (typeof TRIGGER_KINDS)[number];
 
 export const TERMINAL_RUN_STATUSES: readonly RunStatus[] = ["succeeded", "failed", "cancelled"];
@@ -159,6 +165,12 @@ export interface RunOutcome {
    * suspends the run until then rather than writing a status of its own.
    */
   wakeAt?: string;
+  /**
+   * **Phase 39.** How many steps the workflows this run called — and the ones they called — used,
+   * which count against this run's step budget (D185). Set when the run finishes; absent when it
+   * called nothing, so every outcome that predates composition reads exactly as it did.
+   */
+  charged?: number;
   /**
    * **Phase 38.** The approval this run was still waiting on when it finished — failed or cancelled
    * before anybody decided. The caller closes it (`void`), so its link and its inbox entry go with
@@ -238,6 +250,56 @@ export interface IssuedApproval {
   id: string;
   token: string;
   url: string;
+}
+
+/**
+ * **A run's place in a tree of calls — Phase 39** (D185, extending D16). A run nothing called is
+ * the root: depth 0, itself its only ancestor, the whole `MAX_STEPS` to spend. A called workflow
+ * gets one level deeper, its caller's ancestors plus itself, and what is left of the caller's
+ * step budget — so the bounds are properties of the *tree* a run belongs to, not of each run in
+ * it, and a graph that calls itself through three workflows hits them as surely as one that loops.
+ */
+export interface Lineage {
+  depth: number;
+  /** Workflow ids from the root down to and including this run's own. */
+  ancestors: readonly string[];
+  /** The most steps this run — and everything it calls — may use. */
+  stepLimit: number;
+}
+
+/** What the engine tells the caller about a call a node asked for. */
+export interface CallRequest {
+  workflowId: string;
+  input: unknown;
+  via: "node" | "agent";
+  /** The node making the call. */
+  nodeId: string;
+}
+
+export interface CallBudget {
+  /** The depth the called run would sit at. */
+  depth: number;
+  /** The caller's lineage, caller included. */
+  ancestors: readonly string[];
+  /** What is left of the tree's steps. */
+  stepLimit: number;
+  /** What is left of this attempt's clock, in ms. */
+  deadlineMs: number;
+  signal: AbortSignal;
+}
+
+export interface CallResult extends CalledWorkflow {
+  /** Steps the called run used, and everything it called. */
+  steps: number;
+}
+
+/**
+ * How a run reaches other workflows. An interface, like the recorder, so the engine is testable
+ * with no database; `run.ts` is the only place it is implemented.
+ */
+export interface CallRunner {
+  call: (request: CallRequest, budget: CallBudget) => Promise<CallResult>;
+  tools: (ids: string[]) => Promise<AgentWorkflow[]>;
 }
 
 export const noopRecorder: RunRecorder = {

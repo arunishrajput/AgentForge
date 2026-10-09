@@ -12,7 +12,7 @@ import {
   type GenerationResult,
 } from "./generate";
 import { layout } from "./layout";
-import { editPrompt, systemPrompt, type EditSubject } from "./prompt";
+import { editPrompt, generatable, systemPrompt, type EditSubject } from "./prompt";
 import type { GeneratedWorkflow } from "./schema";
 import { withTypes, type CatalogueOption } from "./select";
 
@@ -185,8 +185,8 @@ export function assembleEdit(current: WorkflowGraph, generated: GeneratedWorkflo
  * A provider failure propagates, as it does from `generateWorkflow`.
  */
 export async function editWorkflow(options: EditWorkflowOptions): Promise<GenerationResult> {
-  const nodes = options.nodes ?? describeNodes();
   const { graph } = options.subject;
+  const nodes = options.nodes ?? generatable(describeNodes(), graph.nodes.map((node) => node.type));
   const chosen = await chooseCatalogue(options, options.instruction, nodes);
   // A replayed recording is held to exactly the selection it was made with.
   const selection =

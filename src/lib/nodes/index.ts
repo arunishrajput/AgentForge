@@ -5,10 +5,12 @@ import { llmNode } from "./ai/llm";
 import { approvalNode } from "./core/approval";
 import { assertNode } from "./core/assert";
 import { branchNode } from "./core/branch";
+import { callWorkflowNode } from "./core/call-workflow";
 import { delayNode } from "./core/delay";
 import { errorTrigger } from "./core/error-trigger";
 import { logNode } from "./core/log";
 import { loopNode } from "./core/loop";
+import { mergeNode } from "./core/merge";
 import { manualTrigger } from "./core/manual-trigger";
 import { scheduleTrigger } from "./core/schedule-trigger";
 import { setNode } from "./core/set";
@@ -69,6 +71,8 @@ const definitions: RegisteredNode[] = [
   loopNode,
   delayNode,
   approvalNode,
+  callWorkflowNode,
+  mergeNode,
   assertNode,
   filterNode,
   mapNode,

@@ -2411,6 +2411,7 @@ function EditorInner({
             canRotateWebhook={canShare && !comparing}
             readOnly={!canEdit}
             onRotateWebhook={rotateWebhook}
+            onWorkflowChanged={setSaved}
             onRunDurably={startDurable}
             onTest={(scope, nodeId) => void startTest(scope, nodeId)}
             onPin={pinOutput}

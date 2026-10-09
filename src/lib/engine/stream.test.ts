@@ -53,6 +53,7 @@ function run(overrides: Partial<StreamRun> = {}): StreamRun {
     handled: 0,
     test: null,
     origin: null,
+    parent: null,
     wakeAt: null,
     waitingFor: null,
     workflowVersion: 1,

@@ -19,6 +19,7 @@ import type { RunOrigin } from "@/lib/engine/retry";
 import type { RunMode, RunStatus, StepStatus, TriggerKind } from "@/lib/engine/types";
 import type { StepLog } from "@/lib/nodes/types";
 import type { WorkflowGraph } from "@/lib/workflow/graph";
+import type { WorkflowAgentTool } from "@/lib/workflow/tool";
 import type { WorkflowVisibility } from "@/lib/workflow/visibility";
 import type { CredentialEventName } from "@/lib/credentials/audit";
 import type { InboxKind } from "@/lib/inbox/kinds";
@@ -404,6 +405,17 @@ export const workflows = pgTable(
     shareToken: text("shareToken"),
     /** When the current link was minted. Null whenever `shareToken` is. */
     sharedAt: timestamp("sharedAt", { withTimezone: true }),
+    /**
+     * **Whether agents may call this workflow, and how it presents itself to them — Phase 39**
+     * (D186). Null is the default and means no: a workflow is a tool only when somebody with the
+     * `editor` role says so, and an agent node then has to list it by id besides (D19's rule, twice).
+     * `{ name, description, fields }` — the name and the described inputs are what the model sees.
+     *
+     * A column rather than a graph field: it is a standing property of the workflow like `active`
+     * and `visibility`, it is not undoable canvas state, and a share link and an export have no
+     * business carrying it.
+     */
+    agentTool: jsonb("agentTool").$type<WorkflowAgentTool>(),
     createdAt: timestamp("createdAt", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updatedAt", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -553,11 +565,27 @@ export const runs = pgTable(
      * it with the row and never counts steps; 0 for every run before this phase, which is true.
      */
     handled: integer("handled").notNull().default(0),
+    /**
+     * **The run that called this one — Phase 39** (D184). Null on every run nothing called; on a
+     * called workflow's run, the parent's id and the node that made the call — a `core.call_workflow`
+     * step, or the `ai.agent` step whose tool call it was. The parent finds its children by the
+     * index below, and a step's output names the child, so the link reads both ways.
+     *
+     * **An id with no foreign key**, for `origin`'s reason (D86): a run is a record of what
+     * happened and must stay true when what it points at is gone, and retention prunes the two
+     * runs on their own workflows' schedules. A child whose parent has been pruned says so.
+     */
+    parentRunId: text("parentRunId"),
+    parentNodeId: text("parentNodeId"),
   },
   (table) => [
     index("run_owner_idx").on(table.ownerId, table.startedAt),
     index("run_workspace_idx").on(table.workspaceId, table.startedAt),
     index("run_workflow_idx").on(table.workflowId, table.startedAt),
+    // A run's page lists the runs it called. Partial: nearly every run called nothing.
+    index("run_parent_idx")
+      .on(table.parentRunId)
+      .where(sql`${table.parentRunId} is not null`),
     index("run_status_idx").on(table.status, table.heartbeatAt),
     // The sweeper's query: unfinished runs whose lease has lapsed. Partial would be
     // tighter still, but Drizzle's `index()` has no `where` and the table is small.

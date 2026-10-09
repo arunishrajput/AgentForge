@@ -78,6 +78,11 @@ const PUBLISHABLE: Readonly<Record<string, SharePolicy>> = {
   // typed, and as often as not it quotes the run's data — and `approvers` is a list of colleagues'
   // email addresses, which a stranger reading a diagram has no business with.
   "core.approval": { values: ["timeout", "timeoutUnit", "onTimeout"] },
+  // Phase 39. A merge's mode is shape — whether it waits for every branch or takes the first. The
+  // call's workflow is an id from the author's workspace, meaningless to a stranger and not theirs to
+  // learn, and its `input` is typed content: both withheld, and counted.
+  "core.merge": { values: ["mode"] },
+  "core.call_workflow": {},
   // `fields` is the clearest case for `keys`: the set of names a Set node produces is
   // most of what it means, and every value in it is something somebody typed.
   "core.set": { values: ["merge"], keys: ["fields"] },

@@ -18,7 +18,7 @@ somebody keeps in sync — the same objects, filtered.
 
 ```
                   ┌──────────────────────┐
-                  │   the node registry  │   31 nodes, one object each
+                  │   the node registry  │   34 nodes, one object each
                   └──────────┬───────────┘
             ┌────────────────┼────────────────┐
             ▼                ▼                ▼
@@ -291,14 +291,35 @@ privilege is the rule now, D160.)
 **It can only ever narrow.** A type listed there that is not `agentCallable` is reported, never
 granted — the allowlist cannot widen the boundary, only tighten it inside it.
 
+### A workflow as a tool
+
+An agent can call **another workflow** the way it calls a node (Phase 39). It takes two deliberate
+acts, and neither alone does anything:
+
+1. Someone with the `editor` role **offers the workflow to agents** — select its trigger and choose
+   *Offer to agents*: a name, a sentence saying what it does and when to use it, and the inputs it takes
+   (each a string, number or yes/no). That is all the model will ever know about it.
+2. An agent **lists it by id** in its tools — the *Workflows* list in the agent's inspector.
+
+What the model sees is `workflow_<name>`, your sentence word for word, and the inputs. Its arguments
+are checked against what you declared — an input you never declared, or one of the wrong type, is
+handed back to it as an error and starts nothing. A valid call **runs the workflow as a run of its
+own**, with the arguments as its payload (`{{trigger.order_id}}`), and the workflow's output is the
+tool's result. That run has its own page, linked to the agent's step.
+
+The bounds are the same as for any call: workflows may be nested three deep, never in a circle, and
+what a tool call spends — steps and time — comes out of the agent's own run. A workflow that is
+listed but not offered, gone, or private to someone else is left out and named in the agent's log; the
+model never hears of it. The decision behind all of it is D186.
+
 ---
 
 ## What the agent cannot reach
 
 Three independent limits, and none of them is a prompt instruction.
 
-**1. `agentCallable` defaults to `false`.** Registering a node does not make it a tool. Eleven of
-the thirty are deliberately not callable — triggers (an agent runs *inside* a run), flow control
+**1. `agentCallable` defaults to `false`.** Registering a node does not make it a tool. Most of the
+thirty-four are deliberately not callable — triggers (an agent runs *inside* a run), flow control
 (that belongs to the graph), and `integration.gmail`, because a model deciding to send mail as
 you is a blast radius rather than a feature. The full table is in the
 [node reference](./nodes.md).

@@ -38,6 +38,12 @@ function skip(label, why) {
   console.log(`SKIP  ${label}\n        ${why}`);
 }
 
+/**
+ * Phase 39: the workflows its composition section leaves standing for the agent checks further
+ * down, which need a stored model key; that section removes them. Null once they are gone.
+ */
+let phase39 = null;
+
 /** For the rendered pages, where the assertion is about status and markup. */
 async function page(path, cookie) {
   const response = await fetch(`${base}${path}`, {
@@ -1735,6 +1741,217 @@ try {
     }
   }
 
+  // --- Phase 39: composition ------------------------------------------------------
+  // `CONTRACT.md` → *Calling a workflow* and *Merge*, on the deployed service: a parent calls a child
+  // and the output flows back, the two runs linked both ways; a cycle and a chain too deep are refused
+  // at save, and again at run time when a `{{ }}` reference hides them from the save; a called
+  // workflow cannot pause the run it is inside; a failed callee fails the step with its own words;
+  // a diamond joined by `core.merge` runs the join once with both inputs, a race takes the first, and
+  // a retry across a merge reuses the join. Marking a workflow as an agent tool is checked here
+  // (the agent calling it needs a model, and is checked with the others that do). Probe rows are `zzzz-phase39`.
+  {
+    const P39 = "zzzz-phase39";
+    const at = (x, y = 0) => ({ x, y });
+    const made = [];
+    const mk = (id, type, config = {}, x = 0, y = 0) => ({ id, type, position: at(x, y), config });
+    const edge = (source, target, sourceHandle = null) => ({ id: `${source}-${target}-${sourceHandle ?? "out"}`, source, target, sourceHandle });
+    const create = async (name, nodes, edges) => {
+      const created = await api("POST", "/api/workflows", { name: `${P39} ${name}`, graph: { version: 1, nodes, edges } }, token);
+      const row = created.json?.data;
+      if (row?.id) made.push(row.id);
+      return { row: row ?? null, status: created.status, json: created.json };
+    };
+    const run = async (id, input = {}) => (await api("POST", `/api/workflows/${id}/runs`, { input }, token)).json?.data;
+    const stepOf = (r, nodeId) => (r?.steps ?? []).find((step) => step.nodeId === nodeId);
+    const readRun = async (id) => (await api("GET", `/api/runs/${id}`, undefined, token)).json?.data;
+    try {
+      // --- a parent calls a child, and the output flows back --------------------------
+      const child = (await create("totals", [mk("trigger", "core.manual_trigger"), mk("shape", "core.set", { fields: { total: 42, echo: "{{input.who}}" } }, 240)], [edge("trigger", "shape")])).row;
+      const parent = (await create("parent", [
+        mk("trigger", "core.manual_trigger"),
+        mk("call", "core.call_workflow", { workflowId: child?.id, input: { who: "{{input.name}}" } }, 240),
+        mk("say", "core.log", { message: "got {{input.output.total}} for {{input.output.echo}}" }, 480),
+      ], [edge("trigger", "call"), edge("call", "say")])).row;
+
+      const called = await run(parent?.id, { name: "Ada" });
+      const callStep = stepOf(called, "call");
+      check("a parent that calls a child carries on with what the child returned",
+        called?.status === "succeeded" && callStep?.status === "succeeded" && callStep?.output?.output?.total === 42 &&
+          callStep?.output?.output?.echo === "Ada" && stepOf(called, "say")?.config?.message === "got 42 for Ada",
+        JSON.stringify({ status: called?.status, call: callStep?.output, error: called?.error }));
+
+      const childRun = await readRun(callStep?.output?.runId);
+      check("the child ran as a run of its own that names the parent — trigger `workflow`, the calling node, its own workflow",
+        childRun?.workflowId === child?.id && childRun?.trigger === "workflow" && childRun?.status === "succeeded" &&
+          childRun?.parent?.runId === called?.id && childRun?.parent?.nodeId === "call" && called?.parent === null,
+        JSON.stringify({ trigger: childRun?.trigger, parent: childRun?.parent }));
+
+      const parentPage = await page(`/runs/${called?.id}`, token);
+      const childPage = await page(`/runs/${childRun?.id}`, token);
+      check("the parent's page lists the run its step started, and the child's page says what called it",
+        parentPage.status === 200 && parentPage.html.includes("Runs this step started") && parentPage.html.includes(`${P39} totals`) &&
+          childPage.status === 200 && childPage.html.includes("Called by") && childPage.html.includes(`${P39} parent`),
+        JSON.stringify({ parent: parentPage.status, child: childPage.status }));
+
+      const listed = await api("GET", `/api/runs?trigger=workflow&workflow=${child?.id}`, undefined, token);
+      check("run history filters by the new trigger kind, and a called run is in it",
+        listed.status === 200 && (listed.json?.data?.runs ?? listed.json?.data ?? []).some?.((r) => r.id === childRun?.id),
+        JSON.stringify({ status: listed.status, body: JSON.stringify(listed.json).slice(0, 200) }));
+
+      // --- the called workflow's failure is the step's ---------------------------------
+      const broken = (await create("broken", [mk("trigger", "core.manual_trigger"), mk("guard", "core.assert", { left: "{{input.missing}}", operator: "is_not_empty", message: "PHASE39 needs a value" }, 240)], [edge("trigger", "guard")])).row;
+      const caller = (await create("caller", [mk("trigger", "core.manual_trigger"), mk("call", "core.call_workflow", { workflowId: broken?.id }, 240)], [edge("trigger", "call")])).row;
+      const failed = await run(caller?.id);
+      check("a called workflow that fails fails the calling step with its own words and its run id",
+        failed?.status === "failed" && stepOf(failed, "call")?.status === "failed" &&
+          /failed: .*PHASE39 needs a value.*\(run [0-9a-f-]{36}\)/.test(stepOf(failed, "call")?.error ?? ""),
+        JSON.stringify({ status: failed?.status, error: stepOf(failed, "call")?.error }));
+      const failedChild = (await api("GET", `/api/workflows/${broken?.id}/runs`, undefined, token)).json?.data?.[0];
+      check("and the failed callee's run says it failed, linked to the run above it, without announcing itself",
+        failedChild?.status === "failed" && failedChild?.trigger === "workflow",
+        JSON.stringify({ status: failedChild?.status, trigger: failedChild?.trigger }));
+
+      // --- a called workflow cannot pause the run it is inside ------------------------
+      const napper = (await create("napper", [mk("trigger", "core.manual_trigger"), mk("nap", "core.delay", { amount: 1, unit: "minutes" }, 240)], [edge("trigger", "nap")])).row;
+      const waiting = (await create("waits for napper", [mk("trigger", "core.manual_trigger"), mk("call", "core.call_workflow", { workflowId: napper?.id }, 240)], [edge("trigger", "call")])).row;
+      const refusedNap = await run(waiting?.id);
+      check("a delay in a called workflow fails its step, saying a called workflow cannot pause the run",
+        refusedNap?.status === "failed" && /cannot pause it/.test(stepOf(refusedNap, "call")?.error ?? ""),
+        JSON.stringify({ status: refusedNap?.status, error: stepOf(refusedNap, "call")?.error }));
+
+      // --- a workflow that does not exist, and the refusals at save -------------------
+      const nobody = (await create("calls nobody", [mk("trigger", "core.manual_trigger"), mk("call", "core.call_workflow", { workflowId: crypto.randomUUID() }, 240)], [edge("trigger", "call")])).row;
+      const nobodyRun = await run(nobody?.id);
+      check("calling a workflow that is not in this workspace fails the step as \"no such workflow\"",
+        nobodyRun?.status === "failed" && /There is no workflow with the id/.test(stepOf(nobodyRun, "call")?.error ?? ""),
+        JSON.stringify({ error: stepOf(nobodyRun, "call")?.error }));
+
+      const selfCall = await api("PATCH", `/api/workflows/${parent?.id}`, { graph: { version: 1, nodes: [mk("trigger", "core.manual_trigger"), mk("call", "core.call_workflow", { workflowId: parent?.id }, 240)], edges: [edge("trigger", "call")] } }, token);
+      check("saving a workflow that calls itself is refused 422, and nothing is stored",
+        selfCall.status === 422 && selfCall.json?.error?.code === "invalid_graph" && /call itself/.test(selfCall.json?.error?.message ?? "") &&
+          (await api("GET", `/api/workflows/${parent?.id}`, undefined, token)).json?.data?.version === parent?.version,
+        JSON.stringify({ status: selfCall.status, error: selfCall.json?.error }));
+
+      const cycle = await api("PATCH", `/api/workflows/${child?.id}`, { graph: { version: 1, nodes: [mk("trigger", "core.manual_trigger"), mk("call", "core.call_workflow", { workflowId: parent?.id }, 240)], edges: [edge("trigger", "call")] } }, token);
+      check("saving a workflow that closes a circle of calls is refused, naming the circle",
+        cycle.status === 422 && /call itself: .*→/.test(cycle.json?.error?.message ?? "") && cycle.json?.error?.message.includes(`${P39} parent`),
+        JSON.stringify({ status: cycle.status, error: cycle.json?.error?.message }));
+
+      // A chain of five: w1 → w2 → w3 → w4 → w5. Saved from the bottom up; the last save is one level too deep.
+      const w5 = (await create("depth 5", [mk("trigger", "core.manual_trigger")], [])).row;
+      let below = w5;
+      for (const level of [4, 3, 2]) {
+        below = (await create(`depth ${level}`, [mk("trigger", "core.manual_trigger"), mk("call", "core.call_workflow", { workflowId: below?.id }, 240)], [edge("trigger", "call")])).row;
+      }
+      const tooDeep = await create("depth 1", [mk("trigger", "core.manual_trigger"), mk("call", "core.call_workflow", { workflowId: below?.id }, 240)], [edge("trigger", "call")]);
+      check("a chain more than three levels deep is refused at save",
+        tooDeep.status === 422 && /3 levels deep/.test(tooDeep.json?.error?.message ?? ""),
+        JSON.stringify({ status: tooDeep.status, error: tooDeep.json?.error?.message }));
+
+      // --- the run-time bounds, where a reference hides the call from the save --------
+      const hop = (name) => create(name, [mk("trigger", "core.manual_trigger"), mk("call", "core.call_workflow", { workflowId: "{{input.next}}", input: "{{input.rest}}" }, 240)], [edge("trigger", "call")]);
+      const hops = [];
+      for (let i = 1; i <= 5; i += 1) hops.push((await hop(`hop ${i}`)).row);
+      const chain = { next: hops[1]?.id, rest: { next: hops[2]?.id, rest: { next: hops[3]?.id, rest: { next: hops[4]?.id, rest: {} } } } };
+      const deep = await run(hops[0]?.id, chain);
+      check("at run time a chain more than three deep stops at the bound — the fifth workflow never runs",
+        deep?.status === "failed" && /3 levels deep/.test(JSON.stringify(deep?.error ?? "")) &&
+          !((await api("GET", `/api/workflows/${hops[4]?.id}/runs`, undefined, token)).json?.data ?? []).length,
+        JSON.stringify({ status: deep?.status, error: deep?.error }));
+      const around = await run(hops[0]?.id, { next: hops[1]?.id, rest: { next: hops[0]?.id, rest: {} } });
+      check("at run time a workflow already running above a call cannot be called again",
+        around?.status === "failed" && /already running above this call|call itself/.test(JSON.stringify(around?.error ?? "")),
+        JSON.stringify({ status: around?.status, error: around?.error }));
+
+      // --- core.merge ----------------------------------------------------------------
+      const diamond = (name, mode) => create(name, [
+        mk("trigger", "core.manual_trigger"),
+        mk("a", "core.set", { fields: { from: "a" } }, 240, -80),
+        mk("b", "core.set", { fields: { from: "b" } }, 240, 80),
+        mk("join", "core.merge", mode ? { mode } : {}, 480),
+        mk("after", "core.log", { message: "joined {{input.count}}" }, 720),
+      ], [edge("trigger", "a"), edge("trigger", "b"), edge("a", "join"), edge("b", "join"), edge("join", "after")]);
+      const joined = await run((await diamond("diamond")).row?.id);
+      check("a diamond joined by a merge runs the join once, with both inputs in arrival order",
+        joined?.status === "succeeded" && (joined.steps ?? []).filter((x) => x.nodeId === "join").length === 1 &&
+          (joined.steps ?? []).filter((x) => x.nodeId === "after").length === 1 &&
+          isDeepStrictEqual(stepOf(joined, "join")?.output, { count: 2, inputs: [{ from: "a" }, { from: "b" }], from: ["a", "b"] }),
+        JSON.stringify(stepOf(joined, "join")?.output));
+      const raced = await run((await diamond("race", "first")).row?.id);
+      check("in first mode it runs once, on the first branch, and the other is ignored",
+        raced?.status === "succeeded" && (raced.steps ?? []).filter((x) => x.nodeId === "join").length === 1 &&
+          stepOf(raced, "join")?.output?.count === 1 && stepOf(raced, "join")?.output?.from?.[0] === "a",
+        JSON.stringify(stepOf(raced, "join")?.output));
+      const branched = (await create("branch diamond", [
+        mk("trigger", "core.manual_trigger"),
+        mk("check", "core.branch", { left: "{{input.ok}}", operator: "equals", right: "yes" }, 240),
+        mk("yes", "core.set", { fields: { side: "yes" } }, 480, -80),
+        mk("no", "core.set", { fields: { side: "no" } }, 480, 80),
+        mk("join", "core.merge", {}, 720),
+      ], [edge("trigger", "check"), edge("check", "yes", "true"), edge("check", "no", "false"), edge("yes", "join"), edge("no", "join")])).row;
+      const oneSide = await run(branched?.id, { ok: "no" });
+      check("a diamond a Branch made does not wait for the side that was never chosen",
+        oneSide?.status === "succeeded" && stepOf(oneSide, "join")?.output?.count === 1 && stepOf(oneSide, "yes")?.status === "skipped",
+        JSON.stringify({ status: oneSide?.status, join: stepOf(oneSide, "join")?.output }));
+
+      // --- a retry across a merge reuses the join -------------------------------------
+      const guarded = (await create("guarded diamond", [
+        mk("trigger", "core.manual_trigger"),
+        mk("a", "core.set", { fields: { from: "a" } }, 240, -80),
+        mk("b", "core.set", { fields: { from: "b" } }, 240, 80),
+        mk("join", "core.merge", {}, 480),
+        mk("guard", "core.assert", { left: "{{trigger.go}}", operator: "is_not_empty", message: "PHASE39 go needed" }, 720),
+        mk("after", "core.log", { message: "after" }, 960),
+      ], [edge("trigger", "a"), edge("trigger", "b"), edge("a", "join"), edge("b", "join"), edge("join", "guard"), edge("guard", "after")])).row;
+      const stopped = await run(guarded?.id);
+      check("a run that fails after a merge fails at the step after it, the join having run once",
+        stopped?.status === "failed" && stepOf(stopped, "join")?.status === "succeeded" && stepOf(stopped, "guard")?.status === "failed",
+        JSON.stringify({ status: stopped?.status }));
+      await api("PATCH", `/api/workflows/${guarded?.id}`, { graph: { version: 1, nodes: [
+        mk("trigger", "core.manual_trigger"), mk("a", "core.set", { fields: { from: "a" } }, 240, -80), mk("b", "core.set", { fields: { from: "b" } }, 240, 80),
+        mk("join", "core.merge", {}, 480), mk("guard", "core.assert", { left: "{{input.count}}", operator: "is_not_empty", message: "PHASE39 go needed" }, 720), mk("after", "core.log", { message: "after" }, 960),
+      ], edges: [edge("trigger", "a"), edge("trigger", "b"), edge("a", "join"), edge("b", "join"), edge("join", "guard"), edge("guard", "after")] } }, token);
+      const retried = await api("POST", `/api/runs/${stopped?.id}/retry`, { mode: "sync" }, token);
+      const afterRetry = retried.json?.data?.steps ? retried.json.data : await (async () => { for (let i = 0; i < 40; i += 1) { const r = await readRun(retried.json?.data?.id); if (["succeeded", "failed"].includes(r?.status)) return r; await sleep(1_000); } return null; })();
+      check("a retry across a merge carries the join over as reused, and runs only what was left",
+        retried.status < 300 && afterRetry?.status === "succeeded" && stepOf(afterRetry, "join")?.status === "reused" &&
+          stepOf(afterRetry, "guard")?.status === "succeeded" && stepOf(afterRetry, "after")?.status === "succeeded",
+        JSON.stringify({ http: retried.status, status: afterRetry?.status, join: stepOf(afterRetry, "join")?.status, error: afterRetry?.error }));
+
+      // --- marking a workflow as an agent tool ---------------------------------------
+      const tool = { name: "lookup_order", description: "Looks up an order by its id and says whether it has shipped.", fields: [{ name: "order_id", type: "string", description: "The order's id", required: true }] };
+      const lookup = (await create("lookup order", [mk("trigger", "core.manual_trigger"), mk("find", "core.set", { fields: { order: "{{trigger.order_id}}", status: "shipped" } }, 240)], [edge("trigger", "find")])).row;
+      const marked = await api("PUT", `/api/workflows/${lookup?.id}/tool`, tool, token);
+      check("a workflow is marked callable by agents with a name, a description and its inputs — and that is not a version",
+        marked.status === 200 && marked.json?.data?.agentTool?.name === "lookup_order" && marked.json?.data?.version === lookup?.version &&
+          marked.json?.data?.agentTool?.fields?.[0]?.required === true,
+        JSON.stringify({ status: marked.status, version: marked.json?.data?.version, tool: marked.json?.data?.agentTool }));
+      check("the marking is refused for a bad name and for a description a model cannot act on",
+        (await api("PUT", `/api/workflows/${lookup?.id}/tool`, { ...tool, name: "Look Up!" }, token)).status === 400 &&
+          (await api("PUT", `/api/workflows/${lookup?.id}/tool`, { ...tool, description: "Looks" }, token)).status === 400);
+      const twin = await api("PUT", `/api/workflows/${parent?.id}/tool`, tool, token);
+      check("two workflows cannot present one tool name — 409, without naming the other",
+        twin.status === 409 && !JSON.stringify(twin.json).includes(lookup?.id),
+        JSON.stringify({ status: twin.status, error: twin.json?.error }));
+      const pickers = (await api("GET", `/api/workflows/callable?exclude=${parent?.id}`, undefined, token)).json?.data ?? [];
+      check("the pickers' list carries id, name and the marking, leaves out the workflow being edited, and carries no graph",
+        pickers.some((w) => w.id === lookup?.id && w.tool?.name === "lookup_order") && !pickers.some((w) => w.id === parent?.id) &&
+          pickers.every((w) => Object.keys(w).sort().join() === "id,name,tool"),
+        JSON.stringify(pickers.slice(0, 2)));
+      const read = (await api("GET", `/api/workflows/${lookup?.id}`, undefined, token)).json?.data;
+      check("the marking reads back on the workflow", read?.agentTool?.description === tool.description);
+
+      // --- the agent calls a workflow tool (needs a model: the key section below) ----
+      phase39 = { lookupId: lookup?.id, plainId: parent?.id, made };
+    } finally {
+      // The key-gated agent checks below still need these; they are removed there.
+      if (!process.env.VERIFY_GEMINI_KEY) {
+        for (const id of made.filter(Boolean)) await api("DELETE", `/api/workflows/${id}`, undefined, token);
+        phase39 = null;
+      }
+    }
+  }
+
   // --- run history ----------------------------------------------------------
   const history = await api("GET", `/api/workflows/${workflowId}/runs`, undefined, token);
   check("run history lists both runs of this workflow",
@@ -2433,6 +2650,58 @@ try {
       JSON.stringify({ run: capRun.json?.data?.status, error: capStep?.error }),
     );
     await api("DELETE", `/api/workflows/${capId}`, undefined, token);
+
+    // --- phase 39: an agent calls a workflow as a tool ---------------------------
+    // Opt-in twice (D186): the workflow is marked, and the agent lists it by id. The tool call is a
+    // run of its own that names the agent's node — and a workflow that is *not* marked is not offered.
+    {
+      const p39 = phase39;
+      const agentWith = async (name, tools, objective) => {
+        const created = await api("POST", "/api/workflows", {
+          name: `zzzz-phase39 ${name}`,
+          graph: {
+            version: 1,
+            nodes: [
+              { id: "trigger", type: "core.manual_trigger", position: { x: 0, y: 0 }, config: {} },
+              { id: "agent", type: "ai.agent", position: { x: 240, y: 0 }, config: { objective, tools, maxIterations: 4, temperature: 0 } },
+            ],
+            edges: [{ id: "e1", source: "trigger", target: "agent", sourceHandle: null }],
+          },
+        }, token);
+        p39?.made.push(created.json?.data?.id);
+        return created.json?.data;
+      };
+      if (p39?.lookupId) {
+        const toolAgent = await agentWith("agent with a tool", [`workflow:${p39.lookupId}`], "Find out whether order A-17 has shipped by calling the workflow_lookup_order tool, then say the status in one sentence.");
+        const asked = await api("POST", `/api/workflows/${toolAgent?.id}/runs`, {}, token);
+        const agentRunStep = (asked.json?.data?.steps ?? []).find((step) => step.nodeId === "agent");
+        check("an agent that lists a workflow tool is offered it, by the name and inputs the author declared",
+          (agentRunStep?.logs ?? []).some((log) => /with 1 tool\(s\): workflow_lookup_order/.test(log.message)),
+          JSON.stringify((agentRunStep?.logs ?? []).map((log) => log.message).slice(0, 3)));
+        check("the agent called the workflow, and the call is a run of its own that names the agent's step",
+          asked.json?.data?.status === "succeeded" &&
+            (agentRunStep?.output?.toolCalls ?? []).some((call) => call.name === "workflow_lookup_order" && call.ok === true) &&
+            (agentRunStep?.logs ?? []).some((log) => /\[workflow_lookup_order\] ran .* as run [0-9a-f-]{36}/.test(log.message)),
+          JSON.stringify({ status: asked.json?.data?.status, calls: agentRunStep?.output?.toolCalls, error: agentRunStep?.error }));
+        const childId = ((agentRunStep?.logs ?? []).map((log) => /as run ([0-9a-f-]{36})/.exec(log.message)?.[1]).find(Boolean));
+        const toolRun = childId ? (await api("GET", `/api/runs/${childId}`, undefined, token)).json?.data : null;
+        check("the tool's run is visible on its own: trigger `agent`, the agent's run and node, the model's arguments as its payload",
+          toolRun?.workflowId === p39.lookupId && toolRun?.trigger === "agent" && toolRun?.parent?.runId === asked.json?.data?.id &&
+            toolRun?.parent?.nodeId === "agent" && JSON.stringify(toolRun?.input ?? {}).includes("A-17"),
+          JSON.stringify({ trigger: toolRun?.trigger, parent: toolRun?.parent, input: toolRun?.input }));
+
+        // A workflow listed but not marked, and one that does not exist: named in the log, never offered.
+        const unmarked = await agentWith("agent listing an unmarked workflow", [`workflow:${p39.plainId}`, `workflow:${crypto.randomUUID()}`], "Say hello in one sentence.");
+        const unmarkedRun = await api("POST", `/api/workflows/${unmarked?.id}/runs`, {}, token);
+        const unmarkedStep = (unmarkedRun.json?.data?.steps ?? []).find((step) => step.nodeId === "agent");
+        const logs = (unmarkedStep?.logs ?? []).map((log) => log.message);
+        check("a workflow that is not marked callable by agents is not offered — the agent's log says so, and it has no tools",
+          logs.filter((line) => /is not available to agents/.test(line)).length === 2 && logs.some((line) => /with 0 tool\(s\): none/.test(line)),
+          JSON.stringify(logs.slice(0, 4)));
+      }
+      for (const id of (p39?.made ?? []).filter(Boolean)) await api("DELETE", `/api/workflows/${id}`, undefined, token);
+      phase39 = null;
+    }
 
     // --- phase 7: natural language -> workflow generation --------------------
     //

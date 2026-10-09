@@ -89,13 +89,13 @@ async function main() {
   console.log("1. The registry the deployed build is actually serving");
   const health = await api("/api/health");
   // 30 since Phase 23C added the Postgres node to Phase 23B's 29; 31 since Phase 37's error trigger;
-  // 32 since Phase 38's approval.
-  check(data(health)?.registry === 32, `health reports 32 nodes (${data(health)?.registry})`);
+  // 32 since Phase 38's approval; 34 since Phase 39's Call workflow and Merge.
+  check(data(health)?.registry === 34, `health reports 34 nodes (${data(health)?.registry})`);
   console.log(`   revision ${data(health)?.revision}`);
 
   const nodes = data(await api("/api/nodes"));
   const list = Array.isArray(nodes) ? nodes : (nodes?.nodes ?? []);
-  check(list.length === 32, `GET /api/nodes returns 32 definitions (${list.length})`);
+  check(list.length === 34, `GET /api/nodes returns 34 definitions (${list.length})`);
 
   const expected = [
     "core.switch",

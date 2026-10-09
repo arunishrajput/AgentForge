@@ -537,7 +537,7 @@ Still deliberately simplified, and what each costs:
 |---|---|
 | Runs inside a request | Bounded by Cloud Run's 60-minute timeout |
 | No parallel node execution | A wide DAG runs slower than it could |
-| No join semantics — a node with several incoming edges runs when the first one reaches it | A diamond's merge point runs twice, once per arriving branch, rather than waiting and merging |
+| ~~No join semantics — a node with several incoming edges runs when the first one reaches it~~ **Closed in Phase 39** by `core.merge` (`engine/join.ts`, D187) | A node with several incoming edges still runs once per arriving branch, **unless it is a Merge**, which holds the branches and runs once. The default is deliberately unchanged: a workflow written before Phase 39 behaves exactly as it did |
 | Cancellation lands at a step boundary | A node already talking to Gmail is not interrupted. A request in flight cannot be un-sent, and pretending otherwise would be worse than saying so in the UI |
 | A synchronous run still dies on redeploy | Inherent to answering with the finished run. Durable mode is the escape hatch, and the sweeper tells the two apart |
 | Bounded loops only | No unbounded `while`. Deliberate — it is also a safety property |
@@ -1292,7 +1292,7 @@ in a step log.
 |---|---|---|
 | ~~No queue or worker~~ | **DONE in Phase 17** — Cloud Tasks, no second service and no dependency | — |
 | ~~No partial run resume~~ | **DONE in Phase 17.** The recovery path this table predicted is what was built: "step records already hold enough state to resume later" turned out to be exactly true, and the cursor stores only the frontier because the outputs were already there | — |
-| A node with several incoming edges has no join semantics | A diamond's merge point runs once per arriving branch | **Planned: `BUILD_PLAN.md` Phase 39** (`core.merge`). The cursor makes it expressible — a queue entry could carry several `fromSeq` |
+| ~~A node with several incoming edges has no join semantics~~ | **DONE in Phase 39** — `core.merge`. The cursor made it expressible, as predicted, though not by carrying several `fromSeq` in a queue entry: the work list holds a merge's arrivals as `cursor.joins` and fires the merge when nothing outstanding can still reach it, and the retry's replay shares the implementation (`Frontier`, D187) | — |
 | ~~Single LLM provider wired~~ | **DONE in Phase 23D** — Gemini and Groq behind one interface. The claim that a second provider was "a new file; nothing above it changes" held above the interface and failed below it, where the retry and fallback machinery lived inside `gemini.ts`. It moved to `chain.ts` | — |
 | ~~No credential KMS~~ | **DONE in Phase 21** — envelope encryption under a versioned root key in Secret Manager. Not KMS: that is ~$0.06 per key per month and the ceiling is zero (A18), and `SECURITY.md` → *What we do not claim* states what that gives up | Cloud KMS, if a budget ever exists |
 | ~~No workflow versioning~~ | **DONE in Phase 18** — every save is a version, any version restores as a *new* version, two versions diff visually, and every run records which one it executed | — |

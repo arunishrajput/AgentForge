@@ -51,7 +51,7 @@ sync by hand — the *same* objects. One registry entry feeds three consumers:
 
 ```
                   ┌──────────────────────┐
-                  │   the node registry  │   32 nodes, one object each
+                  │   the node registry  │   34 nodes, one object each
                   └──────────┬───────────┘
             ┌────────────────┼────────────────┐
             ▼                ▼                ▼
@@ -96,7 +96,7 @@ pretending otherwise.
 | **A library** | Tags, stars, duplicate, and export and import as a versioned file that never carries a credential. The list's view lives in the URL |
 | **When things go wrong** | A step can stop the run, carry on with its error, or take an Error path. A failure nobody was watching reaches an in-app inbox and starts the workspace's error workflows — which is how it reaches Slack or Discord. Nothing polls |
 | **Asks a person** | An approval step stops the run and asks — hours or days later it carries on down Approved or Rejected. Its link goes out through a Discord, Slack or Gmail step you already have, and whoever holds it decides once, without signing in; the people it names decide in their inbox or on the canvas; a timeout decides if nobody does. The link is stored only as a hash and a link preview cannot decide it |
-| **32 nodes** | Triggers, logic, nine transforms, two AI nodes, and nine integrations. [Full reference](./docs/nodes.md) — generated from the registry |
+| **34 nodes** | Triggers, logic, nine transforms, two AI nodes, and nine integrations. [Full reference](./docs/nodes.md) — generated from the registry |
 | **Durable runs** | Handed to a queue, survives a redeploy or a crash, resumes from the last finished step |
 | **Versioning and diffing** | Every save is a version. Name one, restore one, compare two visually. Every run records which version it executed |
 | **Workspaces and roles** | `viewer` · `editor` · `admin` · `owner`, enforced server-side on every route. Invite by single-use expiring link |
@@ -240,7 +240,7 @@ The language is written down in [`DESIGN.md`](./DESIGN.md).
 | | |
 |---|---|
 | [**Self-hosting**](./docs/self-hosting.md) | Local, Docker, and Cloud Run — and how to keep it free |
-| [**Node reference**](./docs/nodes.md) | All 32 nodes. **Generated from the registry**, so it cannot drift |
+| [**Node reference**](./docs/nodes.md) | All 34 nodes. **Generated from the registry**, so it cannot drift |
 | [**API reference**](./docs/api.md) | Every route, its role, and how a request is authorised |
 | [**How the agents work**](./docs/agents.md) | Generation, the bounded loop, and what the agent cannot reach |
 | [**Architecture**](./docs/architecture.md) | The orientation, and the one idea the rest follows from |

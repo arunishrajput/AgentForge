@@ -45,6 +45,8 @@ export interface RunSummary {
   wakeAt: string | null;
   test: RunTest | null;
   origin: RunOrigin | null;
+  /** Phase 39: the run that called this one, and the node that made the call. Null on a run nothing called. */
+  parent: { runId: string; nodeId: string } | null;
   /** Phase 37: failures its on-error policies handled (D175). */
   handled: number;
   workflowVersion: number | null;
@@ -76,6 +78,8 @@ const SUMMARY = {
   wakeAt: runs.wakeAt,
   test: runs.test,
   origin: runs.origin,
+  parentRunId: runs.parentRunId,
+  parentNodeId: runs.parentNodeId,
   handled: runs.handled,
   workflowVersion: runs.workflowVersion,
   error: runs.error,
@@ -95,6 +99,8 @@ type SummaryRow = {
   wakeAt: Date | null;
   test: RunTest | null;
   origin: RunOrigin | null;
+  parentRunId: string | null;
+  parentNodeId: string | null;
   handled: number;
   workflowVersion: number | null;
   error: string | null;
@@ -115,6 +121,7 @@ export function describeRunSummary(row: SummaryRow): RunSummary {
     wakeAt: row.wakeAt?.toISOString() ?? null,
     test: row.test ?? null,
     origin: row.origin ?? null,
+    parent: row.parentRunId ? { runId: row.parentRunId, nodeId: row.parentNodeId ?? "" } : null,
     handled: row.handled,
     workflowVersion: row.workflowVersion,
     error: row.error,
@@ -261,6 +268,93 @@ export async function getRunDetail(
       startedAt: step.startedAt?.toISOString() ?? null,
       finishedAt: step.finishedAt?.toISOString() ?? null,
     })),
+  };
+}
+
+/**
+ * **A run's place in a tree of calls — Phase 39.** The run that called it (if any), and the runs
+ * it called. Each is a link: enough to name it, say how it went and open it.
+ */
+export interface CallLink {
+  id: string;
+  workflowId: string;
+  workflowName: string;
+  status: RunStatus;
+  trigger: TriggerKind;
+  /** The node in the *calling* run that made the call. */
+  nodeId: string;
+  startedAt: string;
+  durationMs: number | null;
+}
+
+const LINK = {
+  id: runs.id,
+  workflowId: runs.workflowId,
+  workflowName: workflows.name,
+  status: runs.status,
+  trigger: runs.trigger,
+  parentNodeId: runs.parentNodeId,
+  startedAt: runs.startedAt,
+  finishedAt: runs.finishedAt,
+} as const;
+
+function describeLink(row: {
+  id: string;
+  workflowId: string;
+  workflowName: string;
+  status: RunStatus;
+  trigger: TriggerKind;
+  parentNodeId: string | null;
+  startedAt: Date;
+  finishedAt: Date | null;
+}, nodeId?: string): CallLink {
+  return {
+    id: row.id,
+    workflowId: row.workflowId,
+    workflowName: row.workflowName,
+    status: row.status,
+    trigger: row.trigger,
+    nodeId: nodeId ?? row.parentNodeId ?? "",
+    startedAt: row.startedAt.toISOString(),
+    durationMs: row.finishedAt ? row.finishedAt.getTime() - row.startedAt.getTime() : null,
+  };
+}
+
+/**
+ * The runs this run called, oldest first, and the one that called it. **Both behind the visibility
+ * join** (D101): a called workflow that is private to somebody else is not listed to a reader who
+ * cannot see it, and a parent they cannot see is `null` — which the page words as "not kept or not
+ * yours" rather than naming a workflow it hides. A parent that retention has pruned is `null` too.
+ * The children are one statement on the partial `run_parent_idx`, the parent a primary-key read.
+ */
+export async function getCallLinks(
+  scope: WorkspaceScope,
+  run: { id: string; parent: { runId: string; nodeId: string } | null },
+): Promise<{ calledBy: CallLink | null; called: CallLink[] }> {
+  const visible = (id: SQL | undefined) => and(id, eq(runs.workspaceId, scope.workspaceId), visibleWorkflows(scope));
+
+  const [children, parent] = await Promise.all([
+    db()
+      .select(LINK)
+      .from(runs)
+      .innerJoin(workflows, eq(workflows.id, runs.workflowId))
+      .where(visible(eq(runs.parentRunId, run.id)))
+      .orderBy(asc(runs.startedAt))
+      .limit(100),
+    run.parent
+      ? db()
+          .select(LINK)
+          .from(runs)
+          .innerJoin(workflows, eq(workflows.id, runs.workflowId))
+          .where(visible(eq(runs.id, run.parent.runId)))
+          .limit(1)
+      : Promise.resolve([]),
+  ]);
+
+  return {
+    called: children.map((row) => describeLink(row)),
+    // The parent's own `parentNodeId` is its caller's; the node that called *this* run is on this run.
+    calledBy: parent[0] ? describeLink(parent[0], run.parent!.nodeId) : null,
   };
 }
 

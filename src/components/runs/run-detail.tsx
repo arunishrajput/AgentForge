@@ -14,6 +14,7 @@ import { APPROVAL_TYPE, askingOf } from "@/lib/approvals/rules";
 import {
   api,
   ApiRequestError,
+  type CallLink,
   type NodeSummary,
   type Run,
   type RunSummary,
@@ -64,6 +65,7 @@ function fromStream(run: Run, workflowName: string): { run: RunSummary; steps: D
       wakeAt: run.wakeAt,
       test: run.test,
       origin: run.origin,
+      parent: run.parent,
       handled: run.handled,
       workflowVersion: run.workflowVersion,
       error: run.error,
@@ -93,6 +95,7 @@ export function RunDetail({
   graph,
   graphSource,
   registry,
+  calls,
   canEdit,
 }: {
   initial: { run: RunSummary; steps: StepHeader[] };
@@ -101,6 +104,8 @@ export function RunDetail({
   /** Whether `graph` is the version this run executed, or — that version gone — the current one. */
   graphSource: "version" | "current";
   registry: NodeSummary[];
+  /** Phase 39: the run that called this one, and the runs it called. */
+  calls: { calledBy: CallLink | null; called: CallLink[] };
   canEdit: boolean;
 }) {
   const router = useRouter();
@@ -122,6 +127,16 @@ export function RunDetail({
     [initial.run.id, stream.run, workflow.name],
   );
   const { run, steps } = streamed ?? base;
+
+  // Phase 39: the runs this one called are read with the page, and a run that was going when the page
+  // opened calls them as it goes. When it comes to rest, read them again — once.
+  const wasUnfinished = useRef(!RESTING.has(initial.run.status));
+  useEffect(() => {
+    if (wasUnfinished.current && RESTING.has(run.status)) {
+      wasUnfinished.current = false;
+      router.refresh();
+    }
+  }, [router, run.status]);
   // One object per change of what is painted, so the canvas's memos hold between renders.
   const canvasRun = useMemo(() => ({ status: run.status, steps }), [run.status, steps]);
 
@@ -280,6 +295,21 @@ export function RunDetail({
             {origin}
           </Link>
         )}
+        {run.parent &&
+          (calls.calledBy ? (
+            <Link
+              href={`/runs/${calls.calledBy.id}`}
+              className="chip text-ink min-h-6 bg-transparent underline-offset-2 hover:underline"
+              title={`Run ${calls.calledBy.id}`}
+            >
+              <span aria-hidden="true">⤴</span>
+              Called by {calls.calledBy.workflowName} · run {shortRunId(calls.calledBy.id)}
+            </Link>
+          ) : (
+            <Badge icon={<span aria-hidden="true">⤴</span>} title="Retention removed it, or it belongs to a workflow you cannot see">
+              Called by run {shortRunId(run.parent.runId)}
+            </Badge>
+          ))}
         {run.attempt > 1 && (
           <Badge icon={<span aria-hidden="true">↻</span>}>Resumed {run.attempt - 1}×</Badge>
         )}
@@ -351,6 +381,7 @@ export function RunDetail({
                 step={step}
                 name={names.get(step.nodeId)}
                 definition={lookup.get(step.nodeType)}
+                called={calls.called.filter((link) => link.nodeId === step.nodeId)}
                 paused={run.status === "waiting" && step.status === "running"}
                 opened={opened?.seq === step.seq ? opened.at : null}
                 // Phase 38: a decision made here wakes the run — follow it as it resumes.
@@ -409,6 +440,7 @@ function StepCard({
   step,
   name,
   definition,
+  called,
   paused,
   opened,
   onDecided,
@@ -417,6 +449,8 @@ function StepCard({
   step: DetailStep;
   name: string | undefined;
   definition: NodeSummary | undefined;
+  /** The runs this step started — a Call workflow step's, or an agent's tool calls (Phase 39). */
+  called: CallLink[];
   paused: boolean;
   /** When a click on the canvas opened this step — a new value scrolls to it again. */
   opened: number | null;
@@ -497,6 +531,34 @@ function StepCard({
 
       {step.error && (
         <p className={cn(stepErrorTone(step.status), "border-line-soft border-t px-3 py-2 text-2xs leading-relaxed break-words")}>{step.error}</p>
+      )}
+
+      {called.length > 0 && (
+        <ul className="border-line-soft space-y-1 border-t px-3 py-2" aria-label="Runs this step started">
+          {called.map((link) => {
+            const linkLook = runStatusLook(link.status);
+            return (
+              <li key={link.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                <span aria-hidden="true" className="text-muted">⤵</span>
+                <Link
+                  href={`/runs/${link.id}`}
+                  className="inline-flex min-h-6 items-center font-semibold underline underline-offset-2"
+                >
+                  {link.workflowName}
+                </Link>
+                <span className="text-faint font-mono text-3xs">run {shortRunId(link.id)}</span>
+                <span className={cn("chip", linkLook.tone)}>
+                  <span aria-hidden="true">{linkLook.glyph}</span>
+                  {linkLook.label}
+                </span>
+                {link.trigger === "agent" && <span className="text-muted text-2xs">as an agent tool</span>}
+                {link.durationMs !== null && (
+                  <span className="text-faint font-mono text-3xs tabular-nums">{formatDuration(link.durationMs)}</span>
+                )}
+              </li>
+            );
+          })}
+        </ul>
       )}
 
       {asking && <ApprovalCard approvalId={asking.approvalId} asked={asking} onDecided={onDecided} />}

@@ -75,6 +75,11 @@ export interface StreamRun {
    * creation like `test`, so it is not in `StreamRunPatch` either.
    */
   origin: RunOrigin | null;
+  /**
+   * Phase 39: the run that called this one, and the node that made the call. Null on a run nothing
+   * called. Fixed at creation like `origin`, so it is not in `StreamRunPatch` either.
+   */
+  parent: { runId: string; nodeId: string } | null;
   /** Phase 37: failures its on-error policies handled. Written when the run finishes. */
   handled: number;
   /**

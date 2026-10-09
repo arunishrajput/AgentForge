@@ -425,6 +425,8 @@ interface NodeContext {
   iteration: number;                    // completed executions of THIS node in THIS run; 0 on the first
   log(message: string, level?: "info" | "warn" | "error"): void;
   signal: AbortSignal;                  // aborted on cancellation or deadline
+  workflows?: WorkflowAccess;           // Phase 39. The engine's ONE door to another workflow —
+                                        // absent where nothing can run one (*Calling a workflow*)
 }
 
 interface NodeOutcome {
@@ -543,12 +545,12 @@ Tables in `src/db/schema.ts`; wire shapes from `describeRun` in `src/lib/engine/
 | `id` | uuid |
 | `workflowId`, `workspaceId`, `ownerId` | **`workspaceId` is the scoping column** (Phase 19A) — every run query filters on it, denormalised from the workflow so it needs no join. `ownerId` is kept and still means *who triggered this run*, which the workspace cannot answer |
 | `status` | the run state machine below — `waiting` since Phase 26 |
-| `trigger` | `manual` \| `webhook` \| `schedule` \| `agent` \| `error` — `error` since Phase 37: started by another run's failure, through an error trigger. A run with this trigger never starts another (D176) |
+| `trigger` | `manual` \| `webhook` \| `schedule` \| `agent` \| `error` \| `workflow` — `error` since Phase 37: started by another run's failure, through an error trigger. A run with this trigger never starts another (D176). **`workflow` and `agent` since Phase 39**: a run another workflow's Call workflow step started, and one an agent's tool call started — *Calling a workflow*. Neither is unattended (D184) |
 | `input`, `output`, `error` | trigger payload, last node's output, failure message |
 | `startedAt`, `finishedAt` | `finishedAt` is null until terminal |
 | `heartbeatAt` | bumped at every checkpoint. **This is what makes an interrupted run observable** |
 | `mode` | `sync` \| `durable` (Phase 17). **The only thing that distinguishes "interrupted, lost" from "interrupted, will resume"**, and therefore the only thing that tells the sweeper whether failing a run is correct or a lie |
-| `cursor` | the frontier to resume from — `{ queue, executions, seq }`, plus `wait: { seq, until }` while a delay holds it (Phase 26) or `approval: { seq, until, id }` while a person's decision does (Phase 38). Node outputs are **not** in it; a queue entry names the `seq` whose output feeds it, so the cursor's size never depends on payload size |
+| `cursor` | the frontier to resume from — `{ queue, executions, seq }`, plus `wait: { seq, until }` while a delay holds it (Phase 26), `approval: { seq, until, id }` while a person's decision does (Phase 38), or `joins: { <merge id>: { held: seq[], fired } }` while a `core.merge` has branches outstanding (Phase 39). Node outputs are **not** in it; a queue entry names the `seq` whose output feeds it, so the cursor's size never depends on payload size |
 | `attempt` | deliveries that reached a worker. Incremented by the **claim**, not by the enqueue. Above 1 means the run resumed |
 | `leaseOwner`, `leaseExpiresAt` | who is executing it and until when. **The correctness columns**: Cloud Tasks is at-least-once, so without them a redelivery would run a workflow twice |
 | `cancelRequestedAt` | a stop was asked for. The engine reads it at its next checkpoint |
@@ -557,6 +559,7 @@ Tables in `src/db/schema.ts`; wire shapes from `describeRun` in `src/lib/engine/
 | `wakeAt` | **Phase 26.** When a `waiting` run resumes; null in every other status. The claim compares it against the database's `now()`, so an early delivery claims nothing. Returned by `describeRun` as `wakeAt` — with, since Phase 38, **`waitingFor`**: `"approval"` or `"delay"`, read off the cursor, null in every other status |
 | `test` | **Phase 31.** Null on a real run; `{ scope, nodeId }` on a test — *Partial runs and test runs*. The only thing that lets the engine honour a pin. Returned by `describeRun` as `test` |
 | `handled` | **Phase 37.** How many failures the run's on-error policies handled — the count of its `handled` steps, written by the statement that finishes the run. 0 for every earlier run. Returned by `describeRun`, every summary and the stream's run patch |
+| `parentRunId`, `parentNodeId` | **Phase 39.** Null on a run nothing called; on a called run, the run that called it and the node (a Call workflow step, or the `ai.agent` whose tool call it was). **Plain ids, no foreign key** (D86's reason). Indexed by the partial `run_parent_idx`. Returned by `describeRun`, every summary and the stream as `parent: { runId, nodeId } \| null` (D184) |
 | `origin` | **Phase 33.** Null on an ordinary run; `{ runId, kind: "rerun" \| "retry" }` on a run started from another one — *Run history, re-runs and retries*. **An id inside a value, not a foreign key** (D86's reason): retention deletes the original long before the retry, and the record must stay true. Fixed at creation; returned by `describeRun` and every summary as `origin` |
 
 ### `run_step`
@@ -774,6 +777,8 @@ step:  running ──▶ succeeded                     all three terminal
 | `DISPATCH_DEADLINE_SECONDS` | 300 | How long Cloud Tasks waits for the worker. **Above the engine's 120 s**, or the queue would abandon and redeliver a run that was still legitimately executing |
 | `MAX_DELAY_MS` | 10 000 | **Phase 26.** The longest wait spent asleep inside a request. Above it, a `core.delay` suspends the run |
 | `MAX_WAIT_MS` | 30 days | **Phase 26.** The longest a run may wait. Enforced by the node's schema **and** by the engine on the wait it is handed, as every bound here is |
+| `MAX_CALL_DEPTH` | 3 | **Phase 39.** How many levels deep workflows may call each other below the root. Refused at save and again at run time — *Calling a workflow* |
+| A call tree's steps and clock | `MAX_STEPS` and the root's deadline, **shared** | **Phase 39.** A called workflow gets what is left of its caller's step budget and clock, and what it used is charged to the caller — so a tree of calls is bounded as one run is (D185) |
 | `TASK_HORIZON_MS` | 29 days | **Phase 26.** The furthest ahead a task is scheduled. Cloud Tasks refuses more than 30 days; a timer further out is armed at the horizon and re-armed on its early delivery |
 
 The loop cap and the per-node execution cap are **independent**: a malformed graph that defeats one
@@ -888,7 +893,8 @@ step that failed, a graph that cannot run, a queue that gave up, the sweeper.
 |---|---|---|
 | `webhook` or `schedule`, not a test | **yes** | **yes** |
 | `error` — an error workflow's own run | **yes** | **no** — the cascade bound: depth one |
-| `manual`, any test, `agent` | no — somebody was watching, or Phase 39 will decide | no |
+| `manual`, any test | no — somebody was watching | no |
+| `workflow`, `agent` — a run another run called (Phase 39) | no — the run above it answers for the failure: its on-error policy handles it, or it fails and is told itself (D184). Telling both would announce one incident twice | no |
 
 It **never throws**: an alert that could not be written is logged (`run.alerted`, at error severity)
 and the run's outcome stands. `run.alerted` at info says how many inboxes and error workflows it reached.
@@ -1036,6 +1042,85 @@ anybody decides it, and has no read or unread of its own. The bell's badge count
 | `POST /api/approve/describe` | `{ token }` | `{ state: "open", workflowName, message, expiresAt }` or `{ state: "closed" }`. **No session.** 404 for a token that never existed, 400 for one that cannot be one |
 | `POST /api/approve/decide` | `{ token, decision, comment? }` | `{ status }`. **No session.** 409 once it is not open; 404 for a token that never existed |
 
+## Composition — **DEFINED** (Phase 39)
+
+`src/lib/nodes/core/{call-workflow,merge}.ts`, `src/lib/engine/{join,execute,run}.ts`,
+`src/lib/workflow/{calls,tool,agent-tool}.ts`, D183–D188.
+
+### Calling a workflow
+
+`core.call_workflow` — config `workflowId` (a picker; a `{{ }}` reference is allowed and read at run
+time) and `input` (left out, the call is handed what the step received; set, it is resolved like any
+config). Output `{ output, runId, workflowId, workflow }`: `output` is what the called run's last step
+produced. **Not agent-callable.** Its `effect` is "run another workflow, which may post or write".
+
+The node holds none of the safety. It asks `context.workflows.call(...)`, and `engine/run.ts` →
+`callWorkflow` applies, in this order, before a single node of the callee runs:
+
+| Check | Refusal |
+|---|---|
+| depth — the callee would sit more than `MAX_CALL_DEPTH` (3) below the root | `Workflows can call each other 3 levels deep and no further…` |
+| cycle — the callee is a workflow already above this call (`Lineage.ancestors`) | `A workflow cannot call itself.` / `This workflow is already running above this call…` |
+| budget — no steps left in the tree | `The 200 steps a call tree is allowed are used up…` |
+| workspace — the callee must be in the caller's workspace | `There is no workflow with the id "…" in this workspace.` (never a refusal that confirms another workspace's id, D20) |
+| visibility — the callee must be visible to the **calling workflow's author** (D101) | `“…” is private to someone else, and the author of this workflow cannot see it…` |
+
+Then the callee runs **inside the caller's attempt** (D183) as a sync run of its own: `trigger` is
+`workflow`, `parentRunId`/`parentNodeId` name the caller and the calling node, it starts at its own
+trigger with the call's input as its payload, and it is given the caller's remaining clock
+(`CallBudget.deadlineMs`), the caller's abort signal, and the steps the tree has left. **It cannot
+pause** — a delay over ten seconds or an approval inside it fails its step with
+`…runs inside that run and cannot pause it`. When it ends, the steps it used (and everything it called)
+are **charged** to the caller (`RunOutcome.charged`), and the caller carries on with its output; if it
+failed or was cancelled the calling step fails with `“<name>” failed: <its error> (run <id>)`, which
+the caller's on-error policy treats like any failed step. **A callee's failure alerts nobody by
+itself** (`alertsFor`, D184).
+
+**Save-time check** (`workflow/calls.ts`): `PATCH /api/workflows/:id` and `POST /api/workflows` refuse
+with `422 invalid_graph` — and store nothing — a graph that would close a circle of calls
+(`call_cycle`, naming it) or nest them past `MAX_CALL_DEPTH` (`call_too_deep`). It reads a literal
+`workflowId` on a Call workflow node and `workflow:<id>` in an agent's `tools`, skips switched-off
+nodes and `{{ }}` references (the run-time check owns them), and walks only workflows the saver may see.
+
+**Export and import** carry a `workflowId` as written: ids are workspace-specific, so a workflow
+imported into another workspace fails the call with *no workflow with the id*. A duplicate keeps the
+original's callees.
+
+### Workflows as agent tools
+
+`workflow.agentTool` is `null` (the default) or `{ name, description, fields[] }` — `name` is
+`[a-z][a-z0-9_]{1,39}`, `description` 10–500 characters, at most 12 `fields` of
+`{ name, type: string \| number \| boolean, description, required }`. Set by `PUT
+/api/workflows/:id/tool`, cleared by `DELETE` (both `editor`; `409` when another workflow in the
+workspace already presents the name, and not naming it). It is not a version and does not move
+`updatedAt`.
+
+An `ai.agent` offers a workflow when its `tools` lists `workflow:<id>` **and** the workflow is marked,
+in the workspace, and visible to the running workflow's author. What the model sees is
+`workflow_<name>`, the description verbatim, and `{ type: "object", properties, required }` — nothing
+else. Arguments are checked **strictly** (`readToolArgs`): a missing or mistyped input, or one the
+workflow never declared, is returned to the model as a tool error and starts nothing. A valid call is a
+child run (`trigger: agent`, `parentNodeId` the agent's node) whose payload is the arguments, under the
+same bounds as any call; the tool's result is the child's output. A workflow listed but unavailable is
+named in the agent's log (`…is not available to agents`) and never offered.
+
+### Merge
+
+`core.merge` — config `mode`: `all` (default) or `first`. Output `{ count, inputs, from }`: how many
+branches were joined, what each carried **in the order they reached it**, and the id of the node each
+came from. Read one branch as `{{input.inputs[0].field}}`; any branch's output is also reachable from
+below by `{{steps.<id>.output…}}`.
+
+The work list does the joining (`engine/join.ts` → `Frontier`, D187). A queue entry for a merge is
+**held** (`all`) or, after the first, **dropped** (`first`); the merge **fires once** when nothing
+outstanding — no queued step, and no approval being waited on — has a path to it. So a parallel
+diamond waits for both sides, and a diamond a Branch node made does not wait for the side it never
+chose. State is cleared when it fires, so a merge in a loop body joins once per pass. Held branches
+are persisted in `cursor.joins` as step seqs. **The retry's replay takes its work from the same
+`Frontier`**, so a retried run holds and fires its merges exactly as the original did; a retry that
+stopped *at* a merge is refused (re-run it). Switched off, a merge still joins and passes the joined
+value on; tested on its own, it is fed one value and joins it as the one branch it is.
+
 ## API request/response shapes — **DEFINED** for Phase 3's routes
 
 `src/lib/api.ts` owns the envelope; later phases extend the surface, not the envelope.
@@ -1114,6 +1199,8 @@ through `assertRole`. Both are server-side and neither depends on the UI hiding 
 | `PATCH /api/tags/:id` · `DELETE /api/tags/:id` | `{ name }` · — | The tag · `{ deleted: id }`. `editor` |
 | `PUT /api/workflows/:id/tags` | `{ tagIds }` | The tags it now wears. `editor`. Not a version |
 | `PUT` · `DELETE /api/workflows/:id/star` | — | `{ starred }`. **`viewer`** — a star is the asker's own |
+| `PUT` · `DELETE /api/workflows/:id/tool` | `{ name, description, fields[] }` / — | The workflow projection, whose `agentTool` is now the marking (or `null`). **`editor`**. `409` for a taken name, `400` for a bad one — *Composition* |
+| `GET /api/workflows/callable` | `?exclude=<id>` | `[{ id, name, tool: { name, description } \| null }]` — id, name and marking of the workflows you may see; never a graph. **`viewer`** |
 | `POST /api/workflows/:id/duplicate` | — | 201, the copy. `editor` |
 | `GET /api/workflows/:id/export` | `?pinned=include` | The export envelope. `viewer` — see *The workflow export* |
 | `POST /api/workflows/import` | an export envelope | 201, the workflow, in the active workspace. `editor` |

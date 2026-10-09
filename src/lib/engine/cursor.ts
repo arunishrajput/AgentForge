@@ -37,6 +37,17 @@ export const cursorItemSchema = z.object({
   fromSeq: z.number().int().min(0).nullable(),
 });
 
+/**
+ * **What a `core.merge` is holding — Phase 39** (D187). `held` is the `seq` of the step each arrived
+ * branch came from, in arrival order — a seq rather than the value, for this module's reason: the
+ * output is already on a `run_step` row. `fired` is `first`'s: it has run, and arrivals that are
+ * still on their way are dropped. A merge has an entry only while branches are outstanding.
+ */
+export const joinStateSchema = z.object({
+  held: z.array(z.number().int().min(0)).max(500),
+  fired: z.boolean(),
+});
+
 export const runCursorSchema = z.object({
   /** Outstanding work, in the order the engine will take it. */
   queue: z.array(cursorItemSchema).max(500),
@@ -72,8 +83,15 @@ export const runCursorSchema = z.object({
       id: z.string().min(1).max(64),
     })
     .optional(),
+  /**
+   * **Phase 39 — what each `core.merge` is holding** (`join.ts`). Present only while some merge has
+   * branches outstanding; an older revision does not know it, which is why `rollback_0018.sql`
+   * counts the runs that carry one.
+   */
+  joins: z.record(z.string(), joinStateSchema).optional(),
 });
 
+export type JoinState = z.infer<typeof joinStateSchema>;
 export type CursorItem = z.infer<typeof cursorItemSchema>;
 export type RunCursor = z.infer<typeof runCursorSchema>;
 
@@ -127,6 +145,8 @@ export function rehydrate(
   outputs: Map<string, unknown>;
   executions: Map<string, number>;
   queue: CursorItem[];
+  /** Phase 39: what the merges were holding. A copy — the engine mutates it as it runs. */
+  joins: Record<string, JoinState>;
   seq: number;
   lastOutput: unknown;
   /** Output by step seq, so a queue entry's `fromSeq` resolves to the value it carried. */
@@ -150,6 +170,9 @@ export function rehydrate(
     outputs,
     executions: new Map(Object.entries(cursor.executions)),
     queue: [...cursor.queue],
+    joins: Object.fromEntries(
+      Object.entries(cursor.joins ?? {}).map(([id, join]) => [id, { held: [...join.held], fired: join.fired }]),
+    ),
     // The cursor's own seq is authoritative, but never below what the rows already
     // hold: a cursor write that was lost while its step row landed would otherwise
     // reuse a seq, and `(runId, seq)` is unique.
@@ -166,11 +189,20 @@ export function snapshotCursor(state: {
   seq: number;
   /** Phase 38 — the approval outstanding, written only while there is one. */
   approval?: RunCursor["approval"] | null;
+  /** Phase 39 — what the merges are holding, written only while one holds anything. */
+  joins?: Record<string, JoinState>;
 }): RunCursor {
   return {
     queue: [...state.queue],
     executions: Object.fromEntries(state.executions),
     seq: state.seq,
     ...(state.approval ? { approval: state.approval } : {}),
+    ...(state.joins && Object.keys(state.joins).length > 0
+      ? {
+          joins: Object.fromEntries(
+            Object.entries(state.joins).map(([id, join]) => [id, { held: [...join.held], fired: join.fired }]),
+          ),
+        }
+      : {}),
   };
 }

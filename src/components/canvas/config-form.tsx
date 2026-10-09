@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import type { FieldControl } from "./workflow-fields";
 import {
   decodeValue,
   describeFields,
@@ -30,10 +31,16 @@ export function ConfigForm({
   schema,
   config,
   onChange,
+  override,
 }: {
   schema: unknown;
   config: Record<string, unknown>;
   onChange: (config: Record<string, unknown>) => void;
+  /**
+   * A control for a field the schema cannot describe — Phase 39: one that names a workflow
+   * (`workflow-fields.tsx`). Asked for every field; `null` leaves the generated control.
+   */
+  override?: (field: SchemaField, value: unknown, set: (key: string, value: unknown) => void) => FieldControl | null;
 }) {
   const fields = describeFields(schema);
 
@@ -53,7 +60,13 @@ export function ConfigForm({
   return (
     <div className="space-y-4">
       {fields.map((field) => (
-        <Field key={field.key} field={field} value={config[field.key]} onChange={set} />
+        <Field
+          key={field.key}
+          field={field}
+          value={config[field.key]}
+          onChange={set}
+          custom={override?.(field, config[field.key], set) ?? null}
+        />
       ))}
     </div>
   );
@@ -63,10 +76,12 @@ function Field({
   field,
   value,
   onChange,
+  custom,
 }: {
   field: SchemaField;
   value: unknown;
   onChange: (key: string, value: unknown) => void;
+  custom: FieldControl | null;
 }) {
   const caption = (
     <span className="mb-1 flex items-baseline gap-1.5">
@@ -74,6 +89,20 @@ function Field({
       {field.required && <span className="text-2xs text-warn">required</span>}
     </span>
   );
+
+  if (custom) {
+    return custom.group ? (
+      <div role="group" aria-label={field.label} className="block">
+        {caption}
+        {custom.control}
+      </div>
+    ) : (
+      <label className="block">
+        {caption}
+        {custom.control}
+      </label>
+    );
+  }
 
   // A `label` may wrap exactly one control. The record editor is a list of rows
   // with its own buttons, so it gets a group with a heading instead — wrapping it

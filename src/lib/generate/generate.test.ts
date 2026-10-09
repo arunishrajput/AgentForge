@@ -10,6 +10,7 @@ import { describeNodes } from "@/lib/nodes";
 
 import { checkReferences } from "./references";
 import { assembleGraph, generateWorkflow, generationLogFields, interpret, undefinedTypesUsed } from "./generate";
+import { generatable, NOT_GENERATED } from "./prompt";
 import { selectDeterministic } from "./select";
 import { generatedWorkflowSchema } from "./schema";
 
@@ -479,7 +480,23 @@ test("the full strategy still sends every definition", async () => {
   const model = scriptedModel([DEMO_ANSWER]);
   const result = await generateWorkflow({ model, modelId: "fake-1", prompt: "x", catalogue: { strategy: "full" } });
   assert.equal(result.selection.strategy, "full");
-  assert.deepEqual(definedIn(model.requests[0]!.system!), describeNodes().map((node) => node.type));
+  // Every definition the generator is offered: all of them but the nodes it cannot use (D188).
+  assert.deepEqual(definedIn(model.requests[0]!.system!), generatable(describeNodes()).map((node) => node.type));
+});
+
+test("a generation is never offered Call workflow — it cannot know a workflow's id — and an edit keeps it only where it is already used", async () => {
+  const model = scriptedModel([DEMO_ANSWER]);
+  await generateWorkflow({ model, modelId: "fake-1", prompt: "run my welcome workflow", catalogue: { strategy: "full" } });
+  const system = model.requests[0]!.system!;
+  assert.ok(!definedIn(system).includes("core.call_workflow"), "its definition is not in the prompt");
+  assert.ok(!system.includes('"core.call_workflow"'), "and neither is its index line");
+
+  // The registry still has it, the picker still offers it, and the graph an edit starts from may use it.
+  const all = describeNodes();
+  assert.ok(all.some((node) => node.type === "core.call_workflow"));
+  assert.ok(!generatable(all).some((node) => node.type === "core.call_workflow"));
+  assert.ok(generatable(all, ["core.call_workflow"]).some((node) => node.type === "core.call_workflow"));
+  for (const type of NOT_GENERATED) assert.ok(all.some((node) => node.type === type), `${type} is a registered node`);
 });
 
 test("the model strategy spends one call choosing, then generates with what it chose", async () => {

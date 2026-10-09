@@ -13,7 +13,7 @@ import { recoveryOf, type ApiErrorCode, type Recovery } from "@/lib/api-error";
 import type { RekeyOutcome } from "@/lib/credentials/rekey";
 import type { Vault, VaultEntry } from "@/lib/credentials/vault";
 import type { StreamRun } from "@/lib/engine/stream";
-import type { RunSummary, StepBodies, StepHeader } from "@/lib/runs/history";
+import type { CallLink, RunSummary, StepBodies, StepHeader } from "@/lib/runs/history";
 import type { GraphProblem } from "@/lib/engine/validate";
 import type { MemberApprovalView, PendingApproval } from "@/lib/approvals/store";
 import type { Inbox, InboxEntry } from "@/lib/inbox/store";
@@ -33,6 +33,8 @@ import type { WorkflowGraph } from "@/lib/workflow/graph";
 import type { describeListedWorkflow, describeWorkflow } from "@/lib/workflow/store";
 import type { TagSummary } from "@/lib/workflow/tags";
 import type { WorkflowExport } from "@/lib/workflow/transfer";
+import type { CallableWorkflow } from "@/lib/workflow/agent-tool";
+import type { WorkflowAgentTool } from "@/lib/workflow/tool";
 import type { describeVersion } from "@/lib/workflow/versions";
 
 /**
@@ -49,7 +51,7 @@ export type Workflow = ReturnType<typeof describeWorkflow>;
 
 /** A workflow as the list answers it — Phase 32: with its tags and the asker's star. */
 export type ListedWorkflow = ReturnType<typeof describeListedWorkflow>;
-export type { TagSummary, WorkflowExport };
+export type { TagSummary, WorkflowExport, CallableWorkflow, WorkflowAgentTool };
 
 /**
  * CONTRACT.md → "Workflow versions". `graph` is present only where the endpoint was
@@ -153,7 +155,7 @@ export interface GenerationErrorDetails {
  * streamed step and a fetched step cannot drift into two different shapes.
  */
 export type { StreamRun as Run, StreamStep as RunStep } from "@/lib/engine/stream";
-export type { RunSummary, StepBodies, StepHeader };
+export type { CallLink, RunSummary, StepBodies, StepHeader };
 export type { Inbox, InboxEntry, MemberApprovalView, PendingApproval };
 export type { RunMode, RunStatus, StepStatus } from "@/lib/engine/types";
 export type { NodePolicy } from "@/lib/engine/policy";
@@ -304,6 +306,23 @@ export const api = {
 
   deleteWorkflow: (id: string) =>
     request<{ deleted: string }>(`/api/workflows/${id}`, { method: "DELETE" }),
+
+  /* ---------------- composition — Phase 39 ---------------- */
+
+  /**
+   * The workflows a picker may offer — id, name and the agent-tool marking, never a graph.
+   * `exclude` leaves out the workflow being edited, which can call nothing it is.
+   */
+  callableWorkflows: (exclude?: string) =>
+    request<CallableWorkflow[]>(`/api/workflows/callable${exclude ? `?exclude=${encodeURIComponent(exclude)}` : ""}`),
+
+  /** Offer this workflow to agents, as this tool. `editor`; 409 when the name is taken. */
+  setAgentTool: (id: string, tool: WorkflowAgentTool) =>
+    request<Workflow>(`/api/workflows/${id}/tool`, { method: "PUT", body: JSON.stringify(tool) }),
+
+  /** Stop offering it. */
+  clearAgentTool: (id: string) =>
+    request<Workflow>(`/api/workflows/${id}/tool`, { method: "DELETE" }),
 
   /* ---------------- the library — Phase 32 ---------------- */
 

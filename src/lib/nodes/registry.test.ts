@@ -32,10 +32,11 @@ import { describeNodes, getNode, listAgentTools, listNodes } from "./index";
 
 const nodes = listNodes();
 
-test("the registry is 32 nodes and every type is unique", () => {
-  // 31 since Phase 37 added `core.error_trigger`; 32 since Phase 38 added `core.approval`.
-  assert.equal(nodes.length, 32);
-  assert.equal(new Set(nodes.map((node) => node.type)).size, 32);
+test("the registry is 34 nodes and every type is unique", () => {
+  // 31 since Phase 37 added `core.error_trigger`; 32 since Phase 38 added `core.approval`; 34 since
+  // Phase 39 added `core.call_workflow` and `core.merge`.
+  assert.equal(nodes.length, 34);
+  assert.equal(new Set(nodes.map((node) => node.type)).size, 34);
 });
 
 test("no node declares an output keyed \"error\" — the on-error policy reserves it (D174)", () => {

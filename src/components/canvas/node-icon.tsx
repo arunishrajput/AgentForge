@@ -82,6 +82,16 @@ const BY_TYPE: Record<string, ReactNode> = {
       <path d="M2.8 20.4c0-3.6 2.8-6.2 6.2-6.2s6.2 2.6 6.2 6.2M15.6 9.4l2.2 2.2 4-4.4" {...STROKE} />
     </>
   ),
+  // Phase 39. Two lines run in and one comes out — the diagram of a join. The loop and the branch
+  // marks already mean "round" and "forks"; this is the third thing a graph does.
+  "core.merge": <path d="M3 6.2h5.4c3.6 0 3.6 5.8 7.2 5.8H21M3 17.8h5.4c3.6 0 3.6-5.8 7.2-5.8" {...STROKE} />,
+  // Phase 39. A frame inside a frame: a workflow, run from within another.
+  "core.call_workflow": (
+    <>
+      <path d="M3.6 3.6h11.2v11.2H3.6z" {...STROKE} />
+      <path d="M9.2 9.2h11.2v11.2H9.2z" {...STROKE} />
+    </>
+  ),
   "core.assert": (
     <>
       <path d="M12 2.8 20 5.8v5.9c0 4.5-3.3 7.7-8 9.5-4.7-1.8-8-5-8-9.5V5.8z" {...STROKE} />

@@ -260,4 +260,27 @@ export const EVAL_CASES: EvalCase[] = [
     requires: ["core.approval", "integration.discord", "integration.slack"],
     unsupported: false,
   },
+  {
+    // Phase 39: two things at once, and one answer that needs both. The request never says "merge" —
+    // it says "at the same time" and "once both are back" — and the join has to be one step, because
+    // without it the Discord step would post twice, once per branch.
+    id: "parallel-fetch",
+    prompt:
+      "When my webhook fires, fetch https://api.example.com/weather and https://api.example.com/news at the same time, " +
+      "and once both have come back post a single message to Discord that includes both.",
+    trigger: "core.webhook_trigger",
+    requires: ["integration.http", "core.merge", "integration.discord"],
+    unsupported: false,
+  },
+  {
+    // Phase 39: the generator is not offered Call workflow (D188) — it cannot know a workflow's id — so
+    // a request to call one must be reported as what it is, not faked with an id it made up.
+    id: "call-another-workflow",
+    prompt:
+      "When my webhook fires, run my other workflow called Billing Sync with the order details, and then post to Slack that it finished.",
+    trigger: "core.webhook_trigger",
+    requires: ["integration.slack"],
+    forbids: ["core.call_workflow"],
+    unsupported: true,
+  },
 ];

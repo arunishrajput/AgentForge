@@ -5,7 +5,7 @@ Five pages. Each one answers a different question, and none of them repeats anot
 | Page | Answers |
 |---|---|
 | [**Self-hosting**](./self-hosting.md) | *How do I run this?* Locally, in Docker, or on Cloud Run — and how to keep it free |
-| [**Node reference**](./nodes.md) | *What can it actually do?* All 31 nodes, their configuration and their output shape |
+| [**Node reference**](./nodes.md) | *What can it actually do?* All 34 nodes, their configuration and their output shape |
 | [**API reference**](./api.md) | *How do I call it?* Every route, its role, and how a request is authorised |
 | [**How the agents work**](./agents.md) | *What is the model deciding, and what can it reach?* |
 | [**Architecture**](./architecture.md) | *How is it built?* The orientation, and the one idea the rest follows from |

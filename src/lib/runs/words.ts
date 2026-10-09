@@ -12,7 +12,10 @@ export const TRIGGER_WORDS: Record<TriggerKind, string> = {
   manual: "Manual",
   webhook: "Webhook",
   schedule: "Schedule",
-  agent: "Agent",
+  // Phase 39: an agent's tool call ran this workflow ("agent"), or another workflow's Call workflow
+  // step did ("workflow"). Both name the run above them on the run's page.
+  agent: "Agent tool",
+  workflow: "Called",
   // Phase 37: started because another workflow's run failed (`core.error_trigger`).
   error: "Failure",
 };

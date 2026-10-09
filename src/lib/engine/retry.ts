@@ -2,6 +2,7 @@ import { APPROVAL_TYPE, APPROVED_HANDLE, ASK_HANDLE, REJECTED_HANDLE } from "@/l
 import { edgesFrom, type WorkflowGraph } from "@/lib/workflow/graph";
 
 import type { CursorItem, RunCursor } from "./cursor";
+import { Frontier, type Taken } from "./join";
 import type { StepRecord } from "./types";
 
 /**
@@ -45,6 +46,7 @@ export interface RetryPlan {
 export type RetryRefusal =
   | { refused: "history_mismatch"; message: string }
   | { refused: "node_gone"; message: string; nodeId: string }
+  | { refused: "merge_stopped"; message: string }
   | { refused: "nothing_left"; message: string };
 
 /**
@@ -75,6 +77,11 @@ export type RetryRefusal =
  *    it down to wait. So the replay follows Ask at once and holds the decision back until its queue
  *    runs dry, exactly as the run did
  *
+ * - a **merge** (Phase 39) is a piece of work the run took once for all the branches it joined, so
+ *   the replay takes its work from the same `Frontier` the engine does — holding arrivals and
+ *   firing the merge exactly when the run did. That the two share one implementation is the
+ *   guarantee; `join.test.ts` and `retry.test.ts` check it from both sides
+ *
  * A run that stopped *between* steps — out of time, or at a cap — has no failed step; its
  * frontier is whatever the replay leaves queued, and retrying it carries on from there.
  *
@@ -101,6 +108,9 @@ export function planRetry(options: {
 
   const inGraph = new Set(original.nodes.map((node) => node.id));
   const queue: CursorItem[] = [{ nodeId: options.triggerNodeId, fromSeq: null }];
+  /** A decided approval whose decision the run applied when it had nothing else to do (Phase 38). */
+  let awaiting: { nodeId: string; branch: string; seq: number } | null = null;
+  const frontier = new Frontier({ graph: original, queue, waiting: () => awaiting?.nodeId ?? null });
   const executions = new Map<string, number>();
   const reused: StepRecord[] = [];
   let next = 0;
@@ -119,27 +129,41 @@ export function planRetry(options: {
   const ordered = [...steps].filter((step) => step.status !== "skipped").sort((a, b) => a.seq - b.seq);
   let stopped: CursorItem | null = null;
   let stoppedSeq = 0;
-  /** A decided approval whose decision the run applied when it had nothing else to do (Phase 38). */
-  let awaiting: { nodeId: string; branch: string; seq: number } | null = null;
 
-  /** The next entry the engine took, after the ones it dropped — releasing a held decision first. */
-  const take = (): CursorItem | undefined => {
+  /**
+   * The next piece of work the engine took, after the entries it dropped — releasing a held decision
+   * when the work list runs dry, which is when the engine put the run down to wait.
+   */
+  const take = (): Taken | undefined => {
     for (;;) {
-      if (queue.length === 0 && awaiting) {
-        follow(awaiting.nodeId, awaiting.branch, awaiting.seq);
-        awaiting = null;
+      const taken = frontier.next();
+      if (taken) {
+        if (inGraph.has(taken.item.nodeId)) return taken;
+        continue;
       }
-      const item = queue.shift();
-      if (!item || inGraph.has(item.nodeId)) return item;
+      if (!awaiting) return undefined;
+      follow(awaiting.nodeId, awaiting.branch, awaiting.seq);
+      awaiting = null;
     }
   };
 
   for (const step of ordered) {
-    const item = take();
-    if (!item || item.nodeId !== step.nodeId) return mismatch();
+    const taken = take();
+    const item = taken?.item;
+    if (!taken || !item || item.nodeId !== step.nodeId) return mismatch();
     if (step.seq !== next || step.iteration !== (executions.get(step.nodeId) ?? 0)) return mismatch();
 
     if (step.status === "failed" || step.status === "running") {
+      // A merge takes its arrivals off the work list when it fires, so a retry cannot put them back
+      // without remembering them; a merge has nothing of its own to fail, so this is the sweeper
+      // closing a run in the instant between its start and its finish.
+      if (taken.merged) {
+        return {
+          refused: "merge_stopped",
+          message:
+            "This run stopped at a merge, and a merge's branches cannot be put back. Re-run it from the start instead.",
+        };
+      }
       stopped = item;
       stoppedSeq = step.seq;
       break;
@@ -166,10 +190,10 @@ export function planRetry(options: {
     follow(nodeId, branch, seq);
   }
 
-  const frontier = stopped ? [stopped, ...queue] : queue;
+  const outstanding = stopped ? [stopped, ...queue] : queue;
   // Entries for nodes the workflow no longer has are dropped exactly as the engine drops them,
   // so the first one left is the node the retry really starts with.
-  const first = frontier.find((item) => inGraph.has(item.nodeId));
+  const first = outstanding.find((item) => inGraph.has(item.nodeId));
   if (!first) {
     return {
       refused: "nothing_left",
@@ -188,9 +212,10 @@ export function planRetry(options: {
   return {
     reused,
     cursor: {
-      queue: frontier,
+      queue: outstanding,
       executions: Object.fromEntries(executions),
       seq: stopped ? stoppedSeq : next,
+      ...(Object.keys(frontier.joins).length > 0 ? { joins: frontier.joins } : {}),
     },
     from: first.nodeId,
   };

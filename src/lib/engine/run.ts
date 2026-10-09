@@ -9,19 +9,22 @@ import { stoppedStep } from "@/lib/generate/evidence";
 import { recordFailure } from "@/lib/inbox/store";
 import { getNode } from "@/lib/nodes";
 import { required } from "@/lib/env";
-import { addLogContext, logError, logInfo, logWarn } from "@/lib/logging";
+import { addLogContext, logError, logInfo, logWarn, withLogContext } from "@/lib/logging";
+import { NodeError, type AgentWorkflow } from "@/lib/nodes/types";
 import {
   alertsFor,
   ERROR_TRIGGER_TYPE,
   failurePayload,
   MAX_ERROR_WORKFLOWS,
 } from "@/lib/triggers/failure";
+import { MAX_CALL_DEPTH } from "@/lib/workflow/calls";
+import { readToolArgs, toolSpec, toolWireName, workflowAgentToolSchema } from "@/lib/workflow/tool";
 import { canSeeWorkflow, visibleWorkflows } from "@/lib/workflow/visibility";
 import { versionGraph } from "@/lib/workflow/versions";
 import { systemScope, type WorkspaceScope } from "@/lib/workspace/scope";
 
 import { readCursor, type RunCursor } from "./cursor";
-import { executeWorkflow, GraphInvalidError } from "./execute";
+import { executeWorkflow, GraphInvalidError, MAX_STEPS } from "./execute";
 import {
   claimOwnRun,
   claimRun,
@@ -40,7 +43,7 @@ import { honouredPin, seedNode, upstreamOf, type RunTest } from "./partial";
 import { enqueueRun, queueNamed } from "./queue";
 import { dbRecorder } from "./recorder";
 import type { RunOrigin } from "./retry";
-import type { RunMode, RunOutcome, StepRecord, TriggerKind } from "./types";
+import type { CallBudget, CallRequest, CallResult, CallRunner, Lineage, RunMode, RunOutcome, StepRecord, TriggerKind } from "./types";
 
 /**
  * Starting, resuming and reading runs.
@@ -86,6 +89,11 @@ export interface StartOptions {
    * original's label. Left out, `testFor` decides, as it does for every other run.
    */
   test?: RunTest | null;
+  /**
+   * **Phase 39 — the run that is calling this one**, and the node that made the call. Set only by
+   * `callWorkflow` below; nothing a request can carry reaches it.
+   */
+  parent?: { runId: string; nodeId: string };
 }
 
 /**
@@ -138,6 +146,8 @@ async function createRun(
       workflowVersion: options.workflow.version,
       test: options.test,
       origin: options.origin ?? null,
+      parentRunId: options.parent?.runId ?? null,
+      parentNodeId: options.parent?.nodeId ?? null,
       // A retry starts where its original stopped (Phase 33): the frontier is on the row before
       // anything claims it, exactly as a durable run's is between two deliveries.
       cursor: options.carry?.cursor ?? null,
@@ -164,6 +174,7 @@ async function createRun(
     test: created.test?.scope ?? null,
     origin: created.origin?.kind ?? null,
     reused: options.carry?.steps.length ?? 0,
+    parentRunId: created.parentRunId,
   });
 
   return created;
@@ -223,8 +234,14 @@ async function drive(options: {
   seed?: NodeTestSeed;
   /** Phase 38 — the decision on the approval the run was waiting for, read when it was resumed. */
   decision?: ApprovalDecision;
+  /**
+   * Phase 39 — set on a run that another workflow called: where it sits in the tree, and what is
+   * left of the clock. A called workflow runs inside its caller's attempt, so it neither waits nor
+   * outlives the deadline.
+   */
+  called?: { lineage: Lineage; deadlineMs: number };
 }): Promise<RunOutcome> {
-  const { run, workflow, owner, signal, resume, seed, decision } = options;
+  const { run, workflow, owner, signal, resume, seed, decision, called } = options;
   const test = run.test ?? null;
 
   /**
@@ -276,7 +293,10 @@ async function drive(options: {
       // from the environment: a queue that is named but rejecting is the sweep's problem,
       // not a reason to refuse the wait. A test of part of a workflow never pauses
       // (Phase 31): it is somebody at the canvas waiting for one answer.
-      allowWait: queueNamed() && (test === null || test.scope === "workflow"),
+      allowWait: !called && queueNamed() && (test === null || test.scope === "workflow"),
+      // Phase 39: a run that nothing called is the root of its own tree of calls.
+      ...(called ? { lineage: called.lineage, deadlineMs: called.deadlineMs } : {}),
+      calls: callRunner({ run, workflow }),
       // From the row, never from the request (D139): this is what makes a pin apply.
       test,
       seed,
@@ -433,6 +453,178 @@ async function suspend(options: {
       reason: result.reason,
     });
   }
+}
+
+/**
+ * **Calling another workflow — Phase 39, tasks 1 and 2** (D185, D186, `CONTRACT.md` → *Calling a
+ * workflow*). The only code that starts a run on behalf of a node, so every rule about when that is
+ * allowed is here once:
+ *
+ *   workspace   the callee must be in the caller's workspace — a row from any other is "no such
+ *               workflow", never a refusal that confirms it exists (D20)
+ *   visibility  and visible to the caller's **author** (D101): a private workflow is callable by its
+ *               own creator's workflows and by an admin's, and by nobody else's. A webhook or a
+ *               schedule has no person, so the workflow's author is who is asked, as with an error
+ *               workflow (D176)
+ *   cycle       the callee must not be a workflow already above this call in the tree — checked at
+ *               save over what the graph says (`workflow/calls.ts`), and here over what happened
+ *   depth       the tree may not be more than `MAX_CALL_DEPTH` deep
+ *   budget      the callee gets what is left of the caller's steps and clock (D16 extended)
+ *
+ * The callee runs **inside this call** — a sync run of its own, claimed by this process, that names
+ * the caller (`run.parentRunId`) — so it has its own page and its own steps, and the caller's step
+ * holds until it ends. It cannot pause (`drive`'s `called`): there is nothing to wake it into.
+ *
+ * At-least-once, like every node: a durable caller whose container dies during a call is redelivered
+ * and calls again. The first call's run is left `running` with a lapsed lease and the sweeper fails
+ * it, so history shows both.
+ */
+function callRunner(parent: { run: Run; workflow: Workflow }): CallRunner {
+  return {
+    tools: (ids) => callableTools(parent.workflow, ids),
+    call: (request, budget) => callWorkflow(parent, request, budget),
+  };
+}
+
+/**
+ * The workflows among `candidates` that the author of `parent` may see — one membership lookup, and
+ * only when some candidate is private to somebody else.
+ */
+async function visibleToAuthor(parent: Workflow, candidates: Workflow[]): Promise<Workflow[]> {
+  const needsRole = candidates.some((candidate) => candidate.visibility === "private" && candidate.ownerId !== parent.ownerId);
+  if (!needsRole) return candidates;
+
+  const [member] = await db()
+    .select({ role: workspaceMembers.role })
+    .from(workspaceMembers)
+    .where(and(eq(workspaceMembers.workspaceId, parent.workspaceId), eq(workspaceMembers.userId, parent.ownerId)))
+    .limit(1);
+  // An author who has since left the workspace sees only what is shared with it.
+  const viewer = { role: member?.role ?? ("viewer" as const), userId: parent.ownerId };
+  return candidates.filter((candidate) => canSeeWorkflow(viewer, candidate));
+}
+
+async function callableTools(parent: Workflow, ids: string[]): Promise<AgentWorkflow[]> {
+  const wanted = [...new Set(ids)].slice(0, 50);
+  if (wanted.length === 0) return [];
+
+  const rows = await db()
+    .select()
+    .from(workflows)
+    .where(
+      and(
+        eq(workflows.workspaceId, parent.workspaceId),
+        inArray(workflows.id, wanted),
+        sql`${workflows.agentTool} is not null`,
+      ),
+    );
+
+  const tools: AgentWorkflow[] = [];
+  for (const row of await visibleToAuthor(parent, rows)) {
+    const tool = workflowAgentToolSchema.safeParse(row.agentTool);
+    // A marking that no longer parses is not a tool; nothing is offered rather than half of one.
+    if (tool.success) {
+      tools.push({
+        id: row.id,
+        name: toolWireName(tool.data),
+        spec: toolSpec(tool.data),
+        read: (args) => readToolArgs(tool.data, args),
+      });
+    }
+  }
+  return tools;
+}
+
+async function callWorkflow(
+  parent: { run: Run; workflow: Workflow },
+  request: CallRequest,
+  budget: CallBudget,
+): Promise<CallResult> {
+  const target = request.workflowId.trim();
+
+  if (budget.depth > MAX_CALL_DEPTH) {
+    throw new NodeError(
+      `Workflows can call each other ${MAX_CALL_DEPTH} levels deep and no further, and this call would be the ${budget.depth}th. Flatten one of the calls.`,
+    );
+  }
+  if (budget.ancestors.includes(target)) {
+    throw new NodeError(
+      target === parent.workflow.id
+        ? "A workflow cannot call itself."
+        : "This workflow is already running above this call, so calling it would go round in a circle.",
+    );
+  }
+  if (budget.stepLimit <= 0) {
+    throw new NodeError(`The ${MAX_STEPS} steps a call tree is allowed are used up, so there is nothing left to call with.`);
+  }
+  if (budget.signal.aborted) throw new NodeError("The run was stopped before this call could start.");
+
+  const [row] = await db()
+    .select()
+    .from(workflows)
+    .where(and(eq(workflows.id, target), eq(workflows.workspaceId, parent.workflow.workspaceId)))
+    .limit(1);
+  if (!row) throw new NodeError(`There is no workflow with the id "${target}" in this workspace.`);
+
+  const [child] = await visibleToAuthor(parent.workflow, [row]);
+  if (!child) {
+    throw new NodeError(
+      `“${row.name}” is private to someone else, and the author of this workflow cannot see it, so it cannot be called from here.`,
+    );
+  }
+
+  // The callee is a run in its own right: its own log context, so its lines carry its own run id and
+  // the caller's go on carrying the caller's once this returns.
+  return withLogContext({}, async () => {
+    const created = await createRun({
+      scope: systemScope(child),
+      workflow: child,
+      trigger: request.via === "agent" ? "agent" : "workflow",
+      input: request.input ?? null,
+      mode: "sync",
+      test: null,
+      parent: { runId: parent.run.id, nodeId: request.nodeId },
+    });
+    const owner = mintLeaseOwner();
+    const claimed = await claimOwnRun(created.id, owner);
+    if (!claimed) {
+      await finishUnclaimedRun({ runId: created.id, status: "failed", error: "The run could not be started." });
+      throw new NodeError(`“${child.name}” could not be started.`);
+    }
+
+    let outcome: RunOutcome;
+    try {
+      outcome = await drive({
+        run: claimed,
+        workflow: child,
+        owner,
+        signal: budget.signal,
+        called: {
+          lineage: { depth: budget.depth, ancestors: [...budget.ancestors, child.id], stepLimit: budget.stepLimit },
+          deadlineMs: budget.deadlineMs,
+        },
+      });
+    } catch (error) {
+      // `drive` has already failed the callee's run and said why on it.
+      throw new NodeError(`“${child.name}” cannot run: ${error instanceof Error ? error.message : String(error)} (run ${created.id})`);
+    }
+
+    if (outcome.status === "succeeded") {
+      return {
+        runId: created.id,
+        workflowId: child.id,
+        workflowName: child.name,
+        output: outcome.output,
+        steps: outcome.steps.length + (outcome.charged ?? 0),
+      };
+    }
+    if (outcome.stop === "interrupted") {
+      throw new NodeError(`“${child.name}” was interrupted before it finished (run ${created.id}).`);
+    }
+    throw new NodeError(
+      `“${child.name}” ${outcome.status === "cancelled" ? "was cancelled" : "failed"}${outcome.error ? `: ${outcome.error}` : ""} (run ${created.id})`,
+    );
+  });
 }
 
 /**
@@ -1127,6 +1319,8 @@ export function describeRun(run: Run, steps?: RunStep[]) {
     test: run.test ?? null,
     /** Phase 33: the run this one was re-run or retried from. Null on an ordinary run. */
     origin: run.origin ?? null,
+    /** Phase 39: the run that called this one and the node that made the call. Null on a run nothing called. */
+    parent: run.parentRunId ? { runId: run.parentRunId, nodeId: run.parentNodeId ?? "" } : null,
     /** Phase 37: how many failures its on-error policies handled. 0 on almost every run. */
     handled: run.handled,
     /**

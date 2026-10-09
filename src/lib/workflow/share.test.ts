@@ -221,6 +221,7 @@ describe("shareWorkflow builds the whole response from an explicit list", () => 
     visibility: "workspace" as const,
     shareToken: "SHARE-TOKEN-SECRET",
     sharedAt: new Date("2026-09-30T00:00:00Z"),
+    agentTool: null,
     webhookTokenRotatedAt: null,
     // Phase 26's two columns. Neither may reach a share link: whether a workflow is
     // switched on and when its timer is armed are operating facts, not the diagram.

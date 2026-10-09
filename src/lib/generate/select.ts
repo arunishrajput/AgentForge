@@ -104,6 +104,7 @@ const SYNONYMS: string[] = [
   "schedule scheduled every daily weekly hourly monthly morning evening night weekday weekdays weekend monday tuesday wednesday thursday friday saturday sunday cron timetable oclock",
   "webhook form submission submit submitted signup sign register incoming arrive arrives receive received callback",
   "wait delay later pause sleep until afterwards",
+  "merge join combine combined both together parallel simultaneous simultaneously concurrently alongside converge",
   "each every per iterate repeat loop individually",
   "filter keep only exclude under above below greater less cheaper threshold",
   "unique duplicate duplicates dedupe deduplicate distinct",

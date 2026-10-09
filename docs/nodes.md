@@ -3,7 +3,7 @@
 
 # Node reference
 
-**32 nodes**, of which **19 are callable by an agent node as tools**.
+**34 nodes**, of which **19 are callable by an agent node as tools**.
 
 This page is generated from the registry itself, so it cannot drift from what the product does.
 Every entry below is one object in [`src/lib/nodes/`](../src/lib/nodes) — the same object the
@@ -24,6 +24,8 @@ definition. See [`architecture.md`](./architecture.md) → *The registry is the 
 | [Loop](#coreloop--loop) | `core.loop` | logic | no |
 | [Delay](#coredelay--delay) | `core.delay` | logic | no |
 | [Approval](#coreapproval--approval) | `core.approval` | logic | no |
+| [Call workflow](#corecall_workflow--call-workflow) | `core.call_workflow` | logic | no |
+| [Merge](#coremerge--merge) | `core.merge` | logic | no |
 | [Assert](#coreassert--assert) | `core.assert` | logic | no |
 | [Set data](#coreset--set-data) | `core.set` | transform | yes |
 | [Filter list](#transformfilter--filter-list) | `transform.filter` | transform | yes |
@@ -288,6 +290,60 @@ Stops the run and asks a person to approve or reject, then carries on down Appro
 <details><summary>What the agent reads</summary>
 
 > Pauses the run until a person approves or rejects, for up to 30 days. Ask fires at once with {{input.url}}, the decision link: connect it to the Discord, Slack or Gmail step that sends it. Approved and Rejected continue after the decision.
+
+</details>
+
+### `core.call_workflow` — Call workflow
+
+**action** · **not** callable by the agent
+
+Runs another workflow in this workspace as part of this one, waits for it to finish, and carries on with what it returned. The other workflow starts at its own trigger, with Input as its payload; its run appears on its own page, linked to this one. It cannot pause or ask a person, and workflows cannot call one another in a circle or more than three deep.
+
+**Input.** anything — handed to the called workflow as its payload unless Input says otherwise
+
+**Output.** { output: what the called workflow's last step produced, runId: the called run's id, workflowId, workflow: its name }.
+
+| Field | Type | Required | Default |
+|---|---|---|---|
+| `workflowId` | string | yes | — |
+| `input` | any | no | — |
+
+**Examples**
+
+- *Use what it returned* — {{input.output.total}}
+- *Pass a mapped Input* — { "email": "{{input.email}}", "plan": "pro" }
+- *Open the called run* — {{input.runId}}
+
+<details><summary>What the agent reads</summary>
+
+> Runs another workflow from this workspace and waits for it, then outputs what that workflow finished with. Pass it data with Input; it defaults to what this step received. A called workflow cannot wait or ask a person.
+
+</details>
+
+### `core.merge` — Merge
+
+**action** · **not** callable by the agent
+
+Where branches that ran side by side meet again. In All mode it waits until every branch still on its way has reached it and then runs once, with what each carried; in First mode it runs on the first branch and ignores the rest. Without a Merge, a step that two branches lead to runs twice.
+
+**Input.** the branches leading into it — it reads them itself and hands on one combined value
+
+**Output.** { count: how many branches were joined, inputs: [one value per branch in the order they reached it], from: [the id of the node each came from] }. Read one branch as {{input.inputs[0].field}}.
+
+| Field | Type | Required | Default |
+|---|---|---|---|
+| `mode` | `all` · `first` | no | `all` |
+
+**Examples**
+
+- *Read the first branch's field* — {{input.inputs[0].title}}
+- *How many were joined* — {{input.count}}
+- *Which node a branch came from* — {{input.from[1]}}
+- *A branch's output by node id, from anywhere after the merge* — {{steps.fetch_weather.output.temp}}
+
+<details><summary>What the agent reads</summary>
+
+> Joins branches that run side by side and runs once. In all mode it waits until every branch still on its way has reached it; in first mode it runs on the first branch and ignores the rest. Outputs how many were joined and what each carried.
 
 </details>
 
@@ -899,6 +955,8 @@ node, never a side effect of registering one — see [`agents.md`](./agents.md) 
 | `core.loop` | Flow control belongs to the graph, not to a tool call. |
 | `core.delay` | Flow control belongs to the graph, not to a tool call. |
 | `core.approval` | Flow control belongs to the graph, not to a tool call. |
+| `core.call_workflow` | Flow control belongs to the graph, not to a tool call. |
+| `core.merge` | Flow control belongs to the graph, not to a tool call. |
 | `core.assert` | Flow control belongs to the graph, not to a tool call. |
 | `ai.llm` | Flow control belongs to the graph, not to a tool call. |
 | `ai.agent` | Flow control belongs to the graph, not to a tool call. |

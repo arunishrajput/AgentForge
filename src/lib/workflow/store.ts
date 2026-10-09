@@ -1,4 +1,4 @@
-import { and, desc, eq, getTableColumns, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, getTableColumns, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { db } from "@/db";
@@ -11,7 +11,8 @@ import { armSchedule } from "@/lib/triggers/timer";
 import { mintWebhookToken, webhookTriggerNode, webhookUrl } from "@/lib/triggers/webhook";
 import type { WorkspaceScope } from "@/lib/workspace/scope";
 
-import { emptyGraph, graphsEqual, workflowGraphSchema } from "./graph";
+import { calleesOf, callProblem, type CalledWorkflow } from "./calls";
+import { emptyGraph, graphsEqual, workflowGraphSchema, type WorkflowGraph } from "./graph";
 import { starredBy, workflowTagsJson } from "./library-sql";
 import { sortTags, type TagSummary } from "./tags";
 import {
@@ -117,6 +118,36 @@ export async function getWorkflow(scope: WorkspaceScope, id: string): Promise<Wo
   return workflow;
 }
 
+/**
+ * **A save that would make workflows call each other in a circle, or nest calls too deep, is
+ * refused — Phase 39** (D185). The run-time check (`engine/run.ts`) is the one that cannot be
+ * got round; this one says so while the author is still looking at the node that did it.
+ *
+ * Only the workflows this person may see are walked (D101): a refusal naming a colleague's private
+ * workflow would tell an editor it exists. A circle through one they cannot see is caught when the
+ * workflow runs, and that is what the run-time check is for.
+ */
+async function refuseCallProblems(
+  scope: WorkspaceScope,
+  subject: { id: string; name: string },
+  graph: WorkflowGraph,
+): Promise<void> {
+  if (calleesOf(graph).length === 0) return;
+  const problem = await callProblem({
+    workflowId: subject.id,
+    name: subject.name,
+    graph,
+    load: async (ids) => {
+      const rows = await db()
+        .select({ id: workflows.id, name: workflows.name, graph: workflows.graph })
+        .from(workflows)
+        .where(and(eq(workflows.workspaceId, scope.workspaceId), inArray(workflows.id, ids), visibleWorkflows(scope)));
+      return new Map<string, CalledWorkflow>(rows.map((row) => [row.id, { name: row.name, graph: row.graph }]));
+    },
+  });
+  if (problem) throw new ApiError("invalid_graph", problem.message, [problem]);
+}
+
 export async function createWorkflow(
   scope: WorkspaceScope,
   body: z.infer<typeof createWorkflowSchema>,
@@ -136,6 +167,9 @@ export async function createWorkflow(
 ): Promise<Workflow> {
   const graph = body.graph ?? emptyGraph();
   const active = options.active ?? true;
+  // A workflow that does not exist yet cannot be called by anything, so the only bound that can
+  // apply is the depth of what it would call.
+  await refuseCallProblems(scope, { id: "", name: body.name }, graph);
 
   const [workflow] = await db()
     .insert(workflows)
@@ -207,6 +241,7 @@ export async function updateWorkflow(
   const graphChanged = body.graph !== undefined && !graphsEqual(body.graph, previous.graph);
   const nameChanged = body.name !== undefined && body.name !== previous.name;
   const versioned = graphChanged || nameChanged;
+  if (graphChanged) await refuseCallProblems(scope, { id, name: body.name ?? previous.name }, body.graph!);
 
   /**
    * **Visibility is on this request and is not authorised by it** — Phase 20.
@@ -594,6 +629,11 @@ export function describeWorkflow(workflow: Workflow) {
     scheduleArmed: scheduleArmed(workflow),
     /** Phase 26. Off: the webhook refuses and the schedule does not fire. */
     active: workflow.active,
+    /**
+     * Phase 39. Present when agents may call this workflow — `{ name, description, fields }`, as a
+     * model sees it (D186) — and null when they may not, which is the default.
+     */
+    agentTool: workflow.agentTool ?? null,
     createdAt: workflow.createdAt.toISOString(),
     updatedAt: workflow.updatedAt.toISOString(),
   };

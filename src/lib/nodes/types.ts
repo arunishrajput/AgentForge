@@ -1,6 +1,7 @@
 import type { z } from "zod";
 
 import type { ApprovalRequest } from "@/lib/approvals/rules";
+import type { ToolSpec } from "@/lib/ai/types";
 import type { WorkspaceScope } from "@/lib/workspace/scope";
 
 /**
@@ -75,6 +76,74 @@ export interface NodeContext {
   log: (message: string, level?: LogLevel) => void;
   /** Aborted when the run is cancelled or hits its deadline. */
   signal: AbortSignal;
+  /** Phase 39 — reaching another workflow. Absent where nothing can run one. */
+  workflows?: WorkflowAccess;
+}
+
+/**
+ * **How a node reaches another workflow — Phase 39** (D185, D186). The only door: a node cannot
+ * start a run, read one or look a workflow up by any other route, and what it is handed has already
+ * had the workspace boundary, visibility, the cycle check and the depth bound applied by the engine's
+ * caller. Optional because a run with nothing to call into — a unit test's context, a developer
+ * machine without a database — has none, and a node that needs it fails its step saying so.
+ */
+export interface WorkflowAccess {
+  /**
+   * Run another workflow to its end, inside this run, and answer its output. A called workflow runs
+   * as a run of its own that names this one (`run.parentRunId`), and counts against this run's
+   * deadline and step budget. Throws a `NodeError` — with the callee's own words — when it fails.
+   */
+  call: (request: {
+    workflowId: string;
+    input: unknown;
+    /** `node` for a `core.call_workflow` step, `agent` for an agent's tool call. */
+    via: "node" | "agent";
+    /** Aborted with the node: its timeout, the run's deadline, a cancellation. */
+    signal: AbortSignal;
+  }) => Promise<CalledWorkflow>;
+  /**
+   * The workflows among `ids` that an agent may call right now: in this workspace, marked callable,
+   * and visible to the workflow that is running. Anything else is simply absent from the answer —
+   * the agent node says so in its log rather than the model hearing about workflows it cannot use.
+   */
+  tools: (ids: string[]) => Promise<AgentWorkflow[]>;
+}
+
+/** A called workflow's result. `output` is what its run ended with — the last step's output. */
+export interface CalledWorkflow {
+  runId: string;
+  workflowId: string;
+  workflowName: string;
+  output: unknown;
+}
+
+/**
+ * A workflow an agent may call, as the agent node needs it — and **nothing more**: what the model is
+ * told, what to call it, and how to check what it sent. The workflow's graph, its owner and the
+ * marking that made it a tool stay on the other side of `WorkflowAccess`, which built this
+ * (`engine/run.ts`) — the node cannot widen what it was handed.
+ */
+export interface AgentWorkflow {
+  id: string;
+  /** What the model calls it (`workflow_<name>`). */
+  name: string;
+  /** How a provider is told about it. */
+  spec: ToolSpec;
+  /**
+   * Checks what the model sent against what the workflow declared. Answers the payload the called
+   * run starts with, or the sentence to hand back to the model so it can correct itself.
+   */
+  read: (args: Record<string, unknown>) => { ok: true; input: unknown } | { ok: false; error: string };
+}
+
+/** A workflow in an agent's `tools` list: `workflow:` and the workflow's id (D186). */
+export const WORKFLOW_TOOL_PREFIX = "workflow:";
+
+/** The workflow id in a `tools` entry, or null when the entry is a registry type. */
+export function workflowIdOf(entry: string): string | null {
+  return entry.startsWith(WORKFLOW_TOOL_PREFIX) && entry.length > WORKFLOW_TOOL_PREFIX.length
+    ? entry.slice(WORKFLOW_TOOL_PREFIX.length)
+    : null;
 }
 
 export interface NodeInvocation<Config> {

@@ -7,6 +7,7 @@ import type { CanvasNode, CanvasNote, CanvasNoteData } from "@/lib/canvas/bridge
 import { categoryLook } from "@/lib/canvas/categories";
 import type { GraphProblem, NodeSummary, Run, RunSummary, TestScope, Workflow } from "@/lib/canvas/client";
 import { canPin } from "@/lib/engine/partial";
+import { ERROR_TRIGGER_TYPE } from "@/lib/triggers/failure";
 import { manualTrigger, type ManualField } from "@/lib/nodes/core/manual-trigger";
 import type { Platform } from "@/lib/ui/keys";
 
@@ -22,7 +23,9 @@ import { RunInput } from "./run-input";
 import type { RunInputFacts } from "./node-test-panel";
 import { RunPanel } from "./run-panel";
 import { SelectionInspector } from "./selection-inspector";
+import { AgentToolPanel } from "./agent-tool-panel";
 import { TriggerPanel } from "./trigger-panel";
+import { workflowFieldFor } from "./workflow-fields";
 
 /**
  * The right-hand panel: the selected node's configuration, or — when nothing is
@@ -79,6 +82,7 @@ export function Inspector({
   canRotateWebhook,
   readOnly,
   onRotateWebhook,
+  onWorkflowChanged,
   onRunDurably,
   onTest,
   onPin,
@@ -144,6 +148,8 @@ export function Inspector({
    */
   readOnly: boolean;
   onRotateWebhook: () => Promise<void>;
+  /** A change made to the saved workflow outside the graph — whether agents may call it (Phase 39). */
+  onWorkflowChanged: (workflow: Workflow) => void;
   onRunDurably: () => void;
   /** Test part of the workflow — Phase 31. */
   onTest: (scope: Exclude<TestScope, "workflow">, nodeId: string) => void;
@@ -218,6 +224,8 @@ export function Inspector({
           readOnly={readOnly}
           canRotateWebhook={canRotateWebhook}
           onRotateWebhook={onRotateWebhook}
+          registry={registry}
+          onWorkflowChanged={onWorkflowChanged}
           run={run}
           canRun={canRun}
           runInput={{
@@ -316,6 +324,8 @@ function NodeInspector({
   readOnly,
   canRotateWebhook,
   onRotateWebhook,
+  registry,
+  onWorkflowChanged,
   run,
   canRun,
   runInput,
@@ -334,6 +344,9 @@ function NodeInspector({
   readOnly: boolean;
   canRotateWebhook: boolean;
   onRotateWebhook: () => Promise<void>;
+  /** Every node type — the agent's tool picker lists the ones an agent may call (Phase 39). */
+  registry: Map<string, NodeSummary>;
+  onWorkflowChanged: (workflow: Workflow) => void;
   run: Run | null;
   canRun: boolean;
   /** The run input, so *test up to here* can be given what the trigger asks for — Phase 31. */
@@ -429,6 +442,16 @@ function NodeInspector({
               schema={definition.configSchema}
               config={node.data.config}
               onChange={(config) => onChange(node.id, { config })}
+              override={(field, value, set) =>
+                workflowFieldFor({
+                  nodeType: node.data.nodeType,
+                  field,
+                  value,
+                  onChange: set,
+                  workflowId: workflow.id,
+                  registry,
+                })
+              }
             />
           )}
         </fieldset>
@@ -442,6 +465,12 @@ function NodeInspector({
           canRotate={canRotateWebhook}
           onRotate={onRotateWebhook}
         />
+
+        {/* Whether agents may call this workflow — Phase 39. A property of the workflow, not of
+            the node, so it sits with the trigger: the trigger is where a payload comes in. */}
+        {definition?.kind === "trigger" && node.data.nodeType !== ERROR_TRIGGER_TYPE && (
+          <AgentToolPanel workflow={workflow} readOnly={readOnly} onChanged={onWorkflowChanged} />
+        )}
 
         {/* The test loop — Phase 31. Right after the configuration, because the loop is
             "change this, test it, read what it made". */}

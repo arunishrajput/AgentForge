@@ -7,7 +7,7 @@ import { GRAPH_VERSION, workflowGraphSchema, type WorkflowGraph } from "@/lib/wo
 import { layout } from "./layout";
 import { checkReferences, type ReferenceProblem } from "./references";
 import { generatedWorkflowSchema, type GeneratedWorkflow } from "./schema";
-import { renderCatalogue, systemPrompt, userPrompt } from "./prompt";
+import { generatable, renderCatalogue, systemPrompt, userPrompt } from "./prompt";
 import {
   selectAll,
   selectDeterministic,
@@ -386,7 +386,7 @@ function failureMessage(issues: GenerationIssue[]): string {
 export async function generateWorkflow(
   options: GenerateWorkflowOptions,
 ): Promise<GenerationResult> {
-  const nodes = options.nodes ?? describeNodes();
+  const nodes = options.nodes ?? generatable(describeNodes());
   const selection = await chooseCatalogue(options, options.prompt, nodes);
   return converse({
     model: options.model,

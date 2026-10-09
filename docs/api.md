@@ -96,12 +96,20 @@ at does not need a link to the field you are looking at. `href` is always a path
 | `GET` | `/api/workflows/[id]` | viewer | One workflow with its graph |
 | `PATCH` | `/api/workflows/[id]` | editor | Renames it, replaces the graph, or changes its visibility. **Every save writes a version** |
 | `DELETE` | `/api/workflows/[id]` | editor | Deletes it, its versions and its runs |
+| `GET` | `/api/workflows/callable` | viewer | **The pickers' list** (Phase 39): id, name and agent-tool marking of the workflows you may see — never a graph. `?exclude=<id>` leaves one out |
+| `PUT` | `/api/workflows/[id]/tool` | editor | **Offers the workflow to agents** (Phase 39): `{ name, description, fields[] }`. `400` for a bad name or a description too thin to act on, `409` when another workflow already uses the name. Not a version |
+| `DELETE` | `/api/workflows/[id]/tool` | editor | Stops offering it. Idempotent |
 | `POST` | `/api/workflows/generate` | editor | **Natural language → a workflow.** Returns a validated graph, or `unsupported` with a reason |
 | `POST` | `/api/workflows/[id]/copilot` | editor | **The copilot. Writes nothing.** By `kind`: **`edit`** (the default, Phase 35) — the graph on the canvas and a change in plain words in, a validated **proposed** graph out, with `unsupported` and the diff's counts; the canvas shows it as a diff and only Accept applies it. **`explain`** (Phase 36) — a walkthrough of the graph, sentences citing node ids. **`diagnose`** (Phase 36) — why run `runId` failed and the fix in words; the server reads the run itself, scrubbed and bounded; `409` for a run that did not fail, `404` for another workflow's |
 
 The graph shape, and the rules a graph must satisfy to be runnable, are in
 [`../CONTRACT.md`](../CONTRACT.md) → *Workflow graph*. The copilot's request and response are in
 [`../CONTRACT.md`](../CONTRACT.md) → *Copilot request/response*.
+
+A workflow's `agentTool` is `null` unless agents may call it (Phase 39), and a run's `parent` is
+`{ runId, nodeId }` when another run called it — a Call workflow step, or an agent's tool call — and
+`null` otherwise. Run `trigger` gains `workflow` and `agent` for those runs; filter `/api/runs` by them
+as by any other.
 
 `GET /api/workflows` adds two fields to each workflow that a single read does not carry:
 `tags` — `[{ id, name }]`, the tags it wears — and `starred`, whether **you** have starred it.
