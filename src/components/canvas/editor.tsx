@@ -56,6 +56,7 @@ import {
   type Workflow,
 } from "@/lib/canvas/client";
 import { tweenMs } from "@/lib/canvas/motion";
+import { COPILOT_PANEL, INSPECTOR_PANEL, controls, type RightPanel } from "@/lib/canvas/right-column";
 import { runStatesOf } from "@/lib/canvas/run-states";
 import { edgeRunLook } from "@/lib/canvas/status";
 import { testOutcome } from "@/lib/canvas/test-run";
@@ -256,7 +257,7 @@ function EditorInner({
    * column rather than adding a third, so `inspectorOpen` and `inspectorCollapsed` are the
    * column's, whichever is in it. Selecting a node gives it back to the inspector.
    */
-  const [rightPanel, setRightPanel] = useState<"inspector" | "copilot">("inspector");
+  const [rightPanel, setRightPanel] = useState<RightPanel>("inspector");
 
   const closePanels = useCallback(() => {
     setPaletteOpen(false);
@@ -471,6 +472,12 @@ function EditorInner({
    * store cannot disagree about who may press it.
    */
   const canEdit = atLeast(role, "editor");
+  /**
+   * Which panel the right-hand column actually holds — only that one is in the document (D161). The
+   * copilot is an editor's. An expression, not a call: handing `canEdit` to a function makes the React
+   * Compiler treat it as mutable and give up every memo that depends on it.
+   */
+  const column: RightPanel = rightPanel === "copilot" && canEdit ? "copilot" : "inspector";
   const canShare = atLeast(role, "admin");
   const canSetVisibility = mayChangeVisibility({
     actorRole: role,
@@ -1870,7 +1877,7 @@ function EditorInner({
             <button
               type="button"
               aria-expanded={inspectorOpen && rightPanel === "inspector"}
-              aria-controls="node-inspector"
+              aria-controls={controls("inspector", column)}
               onClick={() => {
                 // The drawer may be showing the copilot (Phase 35): Details always means the inspector.
                 if (rightPanel === "copilot") {
@@ -1979,7 +1986,7 @@ function EditorInner({
               <button
                 type="button"
                 onClick={openCopilot}
-                aria-controls="copilot-panel"
+                aria-controls={controls("copilot", column)}
                 className="btn btn-quiet shrink-0 max-sm:px-2.5"
               >
                 <span aria-hidden="true">✦</span>
@@ -2196,9 +2203,9 @@ function EditorInner({
 
           {/* The right-hand column: the copilot or the inspector, never both (D161). The copilot is
               an editor's; a viewer's column is always the inspector. */}
-          {rightPanel === "copilot" && canEdit ? (
+          {column === "copilot" ? (
             <CopilotPanel
-              id="copilot-panel"
+              id={COPILOT_PANEL}
               open={inspectorOpen}
               collapsed={inspectorCollapsed}
               onClose={closePanels}
@@ -2218,7 +2225,7 @@ function EditorInner({
             />
           ) : (
           <Inspector
-            id="node-inspector"
+            id={INSPECTOR_PANEL}
             open={inspectorOpen}
             collapsed={inspectorCollapsed}
             onClose={closePanels}

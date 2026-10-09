@@ -23,9 +23,9 @@ import type { Copilot } from "./use-copilot";
  * applied only by Accept.
  *
  * **It takes the inspector's column, not a column of its own** (D161). Phase 16 spent itself winning
- * canvas width back — two open panels leave 876 px of a 1440 px screen and a third 320 px column
- * would leave 556 — and while a proposal is on screen the inspector has nothing to show anyway:
- * diff mode makes the canvas unselectable. So the right-hand column is either the inspector or the
+ * canvas width back — two open panels leave an 880 px canvas at 1440 px (measured), and a third
+ * 320 px column would leave 560 — and while a proposal is on screen the inspector has nothing to
+ * show anyway: diff mode makes the canvas unselectable. So the right-hand column is either the inspector or the
  * copilot, it rails and drawers exactly as the inspector does (`panel.tsx`), and selecting a node
  * brings the inspector back. The conversation is kept by the editor (`use-copilot.ts`), so leaving
  * the column and coming back loses nothing.
