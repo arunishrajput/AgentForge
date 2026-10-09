@@ -153,15 +153,15 @@ async function main() {
   /* 1 — the deployed build carries the widened registry ------------------------- */
   console.log("1. The registry the deployed build is actually serving");
   const health = await api("/api/health");
-  // 30 since Phase 23C added the Postgres node, 31 since Phase 37. This suite pins the count as well as
+  // 30 since Phase 23C added the Postgres node, 31 since Phase 37, 32 since Phase 38. This suite pins the count as well as
   // `verify-templates.mjs` does, on purpose: either one failing says the deployed image is
   // not the tree that was tested.
-  check(data(health)?.registry === 31, `health reports 31 nodes (${data(health)?.registry})`);
+  check(data(health)?.registry === 32, `health reports 32 nodes (${data(health)?.registry})`);
   console.log(`   revision ${data(health)?.revision}`);
 
   const nodes = data(await api("/api/nodes"));
   const list = Array.isArray(nodes) ? nodes : (nodes?.nodes ?? []);
-  check(list.length === 31, `GET /api/nodes returns 31 definitions (${list.length})`);
+  check(list.length === 32, `GET /api/nodes returns 32 definitions (${list.length})`);
 
   const added = [
     "integration.slack",

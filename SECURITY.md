@@ -275,7 +275,8 @@ credential is `admin`.
 
 ## The unauthenticated surfaces
 
-**Ten routes and two pages answer with no session** (Phase 26 added `POST /api/cron/fire`), and
+**Twelve routes and three pages answer with no session** (Phase 26 added `POST /api/cron/fire`; Phase
+38 the two approval-link routes and `/approve`), and
 the completeness of this list is the
 whole point of it — so it is no longer maintained by hand alone.
 `scripts/verify-security.mjs` enumerates **every** route file under `src/app/api`, calls each
@@ -290,11 +291,12 @@ it stops answering. Run it against the deployed service; it writes nothing.
 | `POST /api/runs/dispatch` | `CRON_SECRET` **plus** the run's own 192-bit `dispatchToken` | Resumes **one** run its owner already started. The lease makes a duplicate delivery harmless (D82) |
 | `GET /api/share/<token>` + `/s/<token>` | 192-bit share token | A **redacted** read of one graph. The only surface whose risk is in the *response* |
 | `GET /api/invitations/<token>` + `/invite/<token>` | 256-bit token, stored only as `sha256` | Membership of one workspace at the invited role. 7-day expiry, single use |
+| `POST /api/approve/describe`, `POST /api/approve/decide` + `/approve` | 256-bit token **in the POST body**, stored only as `sha256` | **One decision on one approval request** — what it asks, then approve or reject it once. Dead when decided, past its timeout, or once its run is over. Neither route has a GET; the page is static. Phase 38 — see below |
 | `GET /api/health` | **none, by design** | A rollup, five dependency verdicts, two counts and the revision. Nothing belonging to any account — see below |
 | `GET /api/integrations/google/connect` | none on the route itself | Builds Google's consent URL and redirects. Grants nothing: the returning callback is what requires a session |
 | `GET /api/integrations/google/callback` | the OAuth `state`, **plus a session** | Stores the returned tokens. A callback with no session redirects home |
 | `GET POST /api/auth/[...nextauth]` | Auth.js v5 | This *is* the sign-in surface |
-| `/` and `/design` | none | Static. Nothing belonging to any account |
+| `/`, `/design` and `/approve` | none | Static. Nothing belonging to any account — `/approve` knows nothing until its script reads a token from the fragment |
 
 **Three of those were found by writing the enumeration, in Phase 25** — `/api/health` and the
 two Google OAuth legs. All three were already public, already deliberate, and already correct;
@@ -488,6 +490,35 @@ each bounded by the rules it already lived under:
 - **It cannot loop.** A run an error trigger started never starts another (D176); at most five error
   workflows hear one failure
 
+## Approval links — Phase 38
+
+A run that reaches `core.approval` mints a link — `/approve#<token>` — and its Ask path sends it
+through Discord, Slack or Gmail. **Whoever holds the link may decide, once, without signing in.** That
+is the design, not a gap: the author chose who receives it, and the phase asks for a signed-out
+browser to decide. Everything else is about keeping the link exactly that narrow (D178):
+
+- **256 bits, stored only as `sha256`.** A leaked backup or a `select *` yields no usable link. The
+  plaintext lives in the memory of the run attempt that minted it — and **the engine removes it from
+  everything a run writes**: the step that sends it records `…/approve#[removed]`, as do its logs, the
+  run's output, a diagnosis prompt and an error workflow's payload. `verify-api.mjs` searches the
+  deployed `run_step` table for a working link after every approval it makes
+- **In the fragment, never the path or query.** A browser does not send a fragment, so the token is in
+  no request line, no Cloud Run request log and no `Referer`. The page takes it out of the address bar
+  as it loads, and POSTs it in a body
+- **A GET decides nothing.** A chat app's link preview fetches the URL; it gets a static page with no
+  token and no request in it. Neither link route has a GET handler, and `verify-security.mjs` asserts
+  their 405s in the phase that added them
+- **Single use, by the request's state.** One compare-and-set: `pending`, before its timeout, and its
+  run still going. A used link answers *no longer open* — never who decided or how, which would tell a
+  stranger in a busy channel a colleague's address. A token that never existed is a 404
+- **Bounded by the request.** It expires with the timeout (at most 30 days), and dies with its run —
+  a cancelled or failed run's link cannot decide anything
+
+**Who may decide in the product is narrower than who may see**: the members the node names, whatever
+their role — a viewer included, because the author chose them — or, with nobody named, editors and
+above; a viewer who is not named is told so and refused 403 (D181). `verify-api.mjs` proves it through
+a probe member, and that a request on a private workflow reaches nobody who cannot see it.
+
 ---
 
 ## Secrets in the deployment
@@ -552,6 +583,12 @@ The honest limits. Each one is a real gap, not a hedge.
    one error-workflow run per failure, and a Slack or Discord channel will see every one — bounded
    by the queue's three concurrent deliveries, not by a throttle. The inbox, unlike the channel,
    collapses them into one entry a reader.
+13. **An approval link is a bearer credential in somebody's chat history.** Anybody who can read the
+   channel the Ask path posted to can decide, until the request is decided or times out — and a
+   forwarded message carries the power with it. Send it where only the people who should decide can
+   read it, keep the timeout short for anything that matters, or leave Ask unconnected and decide in
+   the product, where the node's named approvers are enforced. The two link routes are not
+   rate-limited (item 3); a 256-bit token is not guessed by retrying.
 
 ---
 

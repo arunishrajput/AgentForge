@@ -783,6 +783,34 @@ item that shrinks — has 70–155 px rather than a 32 px caret; and the ⌘K ke
 to hide on phones and never did (the trap below), is hidden. From 640 to 767 px the account's address
 yields to its letter, as Phase 23A's reasoning already said it should.
 
+### Approvals — Phase 38
+
+**One request, three places, the same words.** A run that asks a person shows the request under its
+waiting step — in the run panel on the canvas and on the run's own page — in the bell's *Waiting on
+you* section, and, to whoever holds its link, on `/approve`. Each says what is asked, who it waits on
+(*any editor*, or the people named), when it closes, and what the timeout does if nobody decides
+(`ApprovalCard`, `rules.ts` → `approversWords`, `decisionWords`).
+
+- **The quiet register, inside a log**: an eyebrow (*Waiting for a decision*), the message, one muted
+  line of terms, an optional comment field, and two buttons — **Approve** is the primary pop fill,
+  **Reject** quiet. Neither is `danger`: rejecting is a decision, not a destruction. A member the node
+  does not let decide is told so in words and shown no buttons that would refuse them
+- **The node card** says *Waiting* with the clock, as a paused delay does; its icon is a person and a
+  tick, its own — the logic category's mark would have drawn it beside Branch and Assert. **Ask lights
+  while the request waits**, because the link went down it; Approved and Rejected light once decided
+- **In the bell, requests come first**, under *Waiting on you*, with Approve and Reject right there and
+  the run one link away for a comment. The row is titled by the workflow's name alone — the heading
+  says it asks — and the badge counts requests with unread failures; the bell's name says both in words
+  ("Inbox, 1 approval waiting on you, 2 unread"). A decided request leaves every inbox at once
+- **`/approve` is a stranger's page**: the header's wordmark and one raised card — *Approval needed*,
+  the workflow asking, the message in a recessed well, *whoever has this link can decide, once — no
+  sign-in needed*, a comment, and the two buttons at 44 px. Five more states, all designed: reading,
+  no link, a link that is not one, *no longer open*, and decided. It follows the visitor's stored theme
+  and Light otherwise, measured at 375 px with no sideways scroll
+
+**Measured in both themes** on the deployed service (Phase 38's walk): the canvas's waiting card, the
+run page, the open inbox and every state of `/approve` — the contrast audit empty in Light and Night.
+
 ### The utilities are equally first-class
 
 `btn`, `field`, `card`, `card-raised`, `chip`, `chip-pop`, `eyebrow`, `squish`, `dotted`, `sweep-bar`

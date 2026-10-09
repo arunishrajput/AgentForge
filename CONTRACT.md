@@ -427,7 +427,12 @@ interface NodeContext {
   signal: AbortSignal;                  // aborted on cancellation or deadline
 }
 
-interface NodeOutcome { output: unknown; branch?: string | null }  // `branch` must be a declared output key
+interface NodeOutcome {
+  output: unknown;
+  branch?: string | null;          // must be a declared output key
+  wait?: { until: string };        // Phase 26. Only core.delay: pause the run until then
+  approval?: ApprovalRequest;      // Phase 38. Only core.approval: ask a person, and wait (*Approvals*)
+}
 ```
 
 **`effect` — added in Phase 31, optional.** `{ does, when? }`: what running the node does outside
@@ -543,13 +548,13 @@ Tables in `src/db/schema.ts`; wire shapes from `describeRun` in `src/lib/engine/
 | `startedAt`, `finishedAt` | `finishedAt` is null until terminal |
 | `heartbeatAt` | bumped at every checkpoint. **This is what makes an interrupted run observable** |
 | `mode` | `sync` \| `durable` (Phase 17). **The only thing that distinguishes "interrupted, lost" from "interrupted, will resume"**, and therefore the only thing that tells the sweeper whether failing a run is correct or a lie |
-| `cursor` | the frontier to resume from — `{ queue, executions, seq }`. Node outputs are **not** in it; a queue entry names the `seq` whose output feeds it, so the cursor's size never depends on payload size |
+| `cursor` | the frontier to resume from — `{ queue, executions, seq }`, plus `wait: { seq, until }` while a delay holds it (Phase 26) or `approval: { seq, until, id }` while a person's decision does (Phase 38). Node outputs are **not** in it; a queue entry names the `seq` whose output feeds it, so the cursor's size never depends on payload size |
 | `attempt` | deliveries that reached a worker. Incremented by the **claim**, not by the enqueue. Above 1 means the run resumed |
 | `leaseOwner`, `leaseExpiresAt` | who is executing it and until when. **The correctness columns**: Cloud Tasks is at-least-once, so without them a redelivery would run a workflow twice |
 | `cancelRequestedAt` | a stop was asked for. The engine reads it at its next checkpoint |
 | `dispatchToken` | 192 bits of CSPRNG. The task carries it and `POST /api/runs/dispatch` demands it, so that route can only ever resume a run that already exists. Never returned to a client |
 | `workflowVersion` | which version of the workflow this run executed (Phase 18). An integer, not a foreign key — see *Workflow versions*. Null for a run recorded before versioning, and **that is not claimed to be v1** |
-| `wakeAt` | **Phase 26.** When a `waiting` run resumes; null in every other status. The claim compares it against the database's `now()`, so an early delivery claims nothing. Returned by `describeRun` as `wakeAt` |
+| `wakeAt` | **Phase 26.** When a `waiting` run resumes; null in every other status. The claim compares it against the database's `now()`, so an early delivery claims nothing. Returned by `describeRun` as `wakeAt` — with, since Phase 38, **`waitingFor`**: `"approval"` or `"delay"`, read off the cursor, null in every other status |
 | `test` | **Phase 31.** Null on a real run; `{ scope, nodeId }` on a test — *Partial runs and test runs*. The only thing that lets the engine honour a pin. Returned by `describeRun` as `test` |
 | `handled` | **Phase 37.** How many failures the run's on-error policies handled — the count of its `handled` steps, written by the statement that finishes the run. 0 for every earlier run. Returned by `describeRun`, every summary and the stream's run patch |
 | `origin` | **Phase 33.** Null on an ordinary run; `{ runId, kind: "rerun" \| "retry" }` on a run started from another one — *Run history, re-runs and retries*. **An id inside a value, not a foreign key** (D86's reason): retention deletes the original long before the retry, and the record must stay true. Fixed at creation; returned by `describeRun` and every summary as `origin` |
@@ -724,6 +729,11 @@ step:  running ──▶ succeeded                     all three terminal
   so the lease family (D78) does not apply to it, and the sweeper never touches it
 - **Where nothing can wake it** — no `TASKS_QUEUE` — a long wait **fails its step** with a message
   saying so, rather than holding a request open
+- **`waiting` for a person — Phase 38.** `core.approval` puts a run down too, but differently: its
+  step stays `running`, **Ask's successors run first**, and the run is put down when nothing else is
+  left, with `approval: { seq, until, id }` on the cursor and the timeout as `wakeAt`. A decision sets
+  `wakeAt` to now. The resumed engine finishes the step with the decision and follows Approved or
+  Rejected — *Approvals* below
 - **Stopping a waiting run** finishes it `cancelled` at once and fails its paused step with *"The run
   was cancelled while it was waiting."* — the one case where a cancel lands *inside* a step, so the
   step needs closing. A stop requested while the delay step was executing is seen by the suspend
@@ -914,7 +924,7 @@ and the run's outcome stands. `run.alerted` at info says how many inboxes and er
 | Column | Notes |
 |---|---|
 | `id`, `workspaceId`, `userId` | **One row per reader.** The workspace and person it belongs to |
-| `kind` | `run_failed`. Phase 38 adds approvals |
+| `kind` | `run_failed`. **Phase 38's approvals are not entries** — they are read live from `approval` (D180, *Approvals*) |
 | `workflowId`, `runId` | Both cascade: a deleted workflow or a pruned run takes its entries with it |
 | `detail` | One line, at most 500 characters: the failed step's label and error, or the run's error |
 | `count` | How many failures the entry stands for |
@@ -932,8 +942,99 @@ and the run's outcome stands. `run.alerted` at info says how many inboxes and er
 
 | Route | Body | Returns |
 |---|---|---|
-| `GET /api/inbox` | — | `{ unread, entries: [{ id, kind, workflowId, workflowName, runId, detail, count, createdAt, read }] }`. **`viewer`** |
+| `GET /api/inbox` | — | `{ unread, entries: [{ id, kind, workflowId, workflowName, runId, detail, count, createdAt, read }], pending, approvals: [{ id, workflowId, workflowName, runId, message, expiresAt, createdAt }] }` — `approvals` and `pending` since Phase 38. **`viewer`** |
 | `POST /api/inbox/read` | `{ ids: string[] }` (1–100) or `{ all: true }` | `{ marked, unread, entries }` — the inbox as it now is. **`viewer`**. An id that is not the reader's marks nothing |
+
+## Approvals — **DEFINED** (Phase 38)
+
+`src/lib/nodes/core/approval.ts` (what to ask), `src/lib/engine/execute.ts` (asking and waiting),
+`src/lib/approvals/` (the rules, the token, the table's statements), D178–D182.
+
+### `core.approval`
+
+| Config | Notes |
+|---|---|
+| `message` | What the person is asked — required, ≤ 2,000 characters, built with `{{ }}` lookup (D17) against the approval's input |
+| `approvers` | Who may decide: empty for **any editor and above**, or addresses separated by commas — **exactly those members**, whatever their role (D181). Lower-cased, at most 20. A literal is checked at save; a `{{ }}` reference once it resolves |
+| `timeout`, `timeoutUnit` | How long it waits: `1` `days` by default; at least a minute, at most 30 days (`MAX_WAIT_MS`) |
+| `onTimeout` | What happens when nobody decides: `reject` (default), `approve`, or `fail` — which fails the step and the run, and **is not answered by the on-error policy** (D181) |
+
+| Output | Fires | Hands on |
+|---|---|---|
+| **Ask** | the moment the request is made | `{ approvalId, message, url, expiresAt }` — `url` is the decision link, for the step that sends it |
+| **Approved** / **Rejected** | when the decision is applied | `{ approvalId, decision, via, decidedBy: { name, email } \| null, comment, decidedAt, message }` — `via` is `member`, `link` or `timeout`; `decidedBy` is null unless a member decided |
+
+**Not agent-callable** (D36's reasoning, and D19: a node whose purpose is the output it leaves through
+cannot be a tool). **Switched off, its path stops** (D133 — it has no default output). **It cannot be
+pinned**, and a test of part of a workflow does not pause: it fails the step saying so.
+
+### What the engine does (D179)
+
+1. The node returns `approval: { message, approvers, expiresAt, onTimeout }`. Refused, failing the step,
+   where nothing could resume the run (no `TASKS_QUEUE`, or a test of part of a workflow) and **while
+   another approval is outstanding** — a long `core.delay` is refused then too: a run waits for one
+   thing at a time
+2. The recorder records the request and mints its link (`RunRecorder.requestApproval`) — an upsert
+   on `(runId, nodeId, iteration)`, so an attempt that re-executes it after a lost container replaces
+   the token rather than asking twice
+3. The step's output becomes Ask's, the step **stays `running`**, Ask's successors are queued, and the
+   run **carries on** — that is how the link gets sent
+4. When nothing is left to do, the engine stops with `stop: "waiting"`, the cursor carrying
+   `approval`, and `wakeAt` the timeout. The caller suspends the run (`suspendRun`, whose `wakeAt` is
+   **now** if the request was decided while the Ask path ran)
+5. Woken, the caller reads the decision — deciding by `onTimeout` first if the timeout has passed and
+   nobody did — and the engine finishes the step (`succeeded`, branch `approved` \| `rejected`, its
+   duration the wait) and follows that output. `fail` fails it. **Undecided** (a redelivery after a lost
+   container): the engine carries on and is put down again — re-minting the link
+   (`RunRecorder.reissueApproval`) only while a step on Ask has not taken its input
+6. A run that **fails or is cancelled** while a request is outstanding fails the approval's step
+   ("The run stopped before anybody decided.") and **closes the request** (`void`)
+
+**The link is never written down.** The engine holds the minted token in memory and every step,
+log line and outcome it hands the recorder has it replaced by `[removed]` (`engine/redact.ts`) — so
+the database, the stream, a diagnosis and an error workflow's payload hold `…/approve#[removed]`.
+
+### `approval`
+
+| Column | Notes |
+|---|---|
+| `id`, `workspaceId`, `workflowId`, `runId` | Every foreign key cascades — retention's prune of a run takes its requests |
+| `nodeId`, `iteration`, `seq` | Which approval, which pass, which step. Unique on `(runId, nodeId, iteration)` |
+| `message`, `approvers`, `onTimeout`, `expiresAt` | As resolved when the step ran. `expiresAt` is when the timeout decides **and** when the link stops working |
+| `tokenHash` | `sha256(token)`, hex, unique. **The only form of the link the database holds** (D178) |
+| `status` | `pending` → `approved` \| `rejected` \| `expired` (a timeout set to fail) \| `void` (its run stopped first). Only `pending` changes |
+| `via`, `decidedBy`, `comment`, `decidedAt` | How, who (a member; null for a link or a timeout), why, when |
+
+**A decision is one compare-and-set**: `status = 'pending' AND expiresAt > now()` **and the run still
+`queued`, `running` or `waiting`** — so a request whose run has finished cannot be decided, whatever its
+row says. Then the run is woken: `wakeAt = now()` where it is `waiting`, and a Cloud Tasks delivery.
+
+### Three ways to decide
+
+| Who | Where | Route |
+|---|---|---|
+| A member the node lets decide (D181) | the inbox, the run panel on the canvas, the run's page | `POST /api/approvals/[id]` |
+| Whoever holds the link — **no session**, once | `/approve#<token>` | `POST /api/approve/decide` |
+| The clock, by `onTimeout` | — | the delivery that wakes the run at `expiresAt` |
+
+**The link is `{APP_BASE_URL}/approve#<token>`**: 256 bits, base64url, **in the fragment**, which a
+browser never sends. `/approve` is a static page; its script reads the fragment, removes it from the
+address bar, and POSTs the token in a body to `/api/approve/describe` (what is asked) and
+`/api/approve/decide`. **A GET decides nothing** — neither route has a GET handler, and
+`verify-security.mjs` asserts their 405s.
+
+### In the inbox (D180)
+
+A pending request is **not** an `inbox_item`. `readInbox` reads it live, beside the failure entries,
+for every member who may decide it on a workflow they can see — so it leaves every inbox the moment
+anybody decides it, and has no read or unread of its own. The bell's badge counts both.
+
+| Route | Body | Returns |
+|---|---|---|
+| `GET /api/approvals/[id]` | — | `{ id, workflowId, workflowName, runId, nodeId, seq, message, status, open, expiresAt, onTimeout, via, decidedBy, comment, decidedAt, approvers, canDecide }`. **`viewer`**; 404 off a workflow the reader cannot see |
+| `POST /api/approvals/[id]` | `{ decision: "approve" \| "reject", comment? }` | the request as it now stands. **403** for a member the node does not let decide, **409** once it is not open |
+| `POST /api/approve/describe` | `{ token }` | `{ state: "open", workflowName, message, expiresAt }` or `{ state: "closed" }`. **No session.** 404 for a token that never existed, 400 for one that cannot be one |
+| `POST /api/approve/decide` | `{ token, decision, comment? }` | `{ status }`. **No session.** 409 once it is not open; 404 for a token that never existed |
 
 ## API request/response shapes — **DEFINED** for Phase 3's routes
 
@@ -1193,6 +1294,18 @@ than when its node finishes. It is not awaited, because `context.log` is synchro
 of a run's writes are therefore serialised on one chain in `dbRecorder`, or a late log write could
 land after the finished step and silently drop a line. Without this a log only becomes visible when
 its node ends — which for an agent node is precisely when it stops being interesting.
+
+### `requestApproval` and `reissueApproval` — Phase 38
+
+```ts
+requestApproval?: (request: ApprovalRequest & { nodeId; iteration; seq }) => Promise<{ id; token; url }>
+reissueApproval?: (approvalId: string) => Promise<{ id; token; url } | null>
+```
+
+Optional, like `stepLogged`: `dbRecorder` has them when it is told the run's workspace and workflow,
+which every driver does. They answer the link **in plaintext, once** — the engine keeps it in memory
+for the steps on Ask and removes it from everything it then hands this recorder (`engine/redact.ts`,
+D178). A recorder without them fails an approval's step saying so.
 
 ### `checkpoint` — Phase 17 replaced `heartbeat`
 

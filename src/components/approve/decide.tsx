@@ -133,9 +133,11 @@ export function DecideApproval() {
   };
 
   if (state.kind === "reading") {
+    // The state the page is prerendered in, so it is what a screen reader lands on first: it has its
+    // one heading like every other state (found by `verify-a11y.mjs`, which reads the served HTML).
     return (
       <Card raised className="p-6" aria-busy="true">
-        <p className="text-muted text-sm">Reading the request…</p>
+        <h1 className="text-muted text-sm font-semibold">Reading the request…</h1>
       </Card>
     );
   }

@@ -170,12 +170,12 @@ try {
   const [{ applied }] = await sql`select count(*)::int as applied from drizzle.__drizzle_migrations`;
   check("the migration count it reports matches the database", h?.migrations === applied,
     `health says ${h?.migrations}, database has ${applied}`);
-  // 31 since Phase 37 (30 since Phase 23C). **This pin was stale from Phase 23A to 23C** and this check was
+  // 32 since Phase 38 (31 since Phase 37, 30 since Phase 23C). **This pin was stale from Phase 23A to 23C** and this check was
   // therefore red for two phases without anybody seeing it, because this suite is not part of
   // the per-phase routine the way `verify-api.mjs` is. The number now lives in four scripts;
   // when it changes, all four move together — `verify-api.mjs`, `verify-templates.mjs`,
   // `verify-integrations.mjs` and here.
-  check("it reports the node registry size", h?.registry === 31, `registry=${h?.registry}`);
+  check("it reports the node registry size", h?.registry === 32, `registry=${h?.registry}`);
 
   check("it still names no credential, key or connection string",
     !/ciphertext|authTag|wrappedKey|ENCRYPTION_KEY|postgres:\/\/|AIza/.test(health.text),

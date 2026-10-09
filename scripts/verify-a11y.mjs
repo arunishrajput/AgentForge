@@ -355,7 +355,9 @@ function audit(page, html) {
 
 /** Every page a user can reach. `/design` is included: it is a real, linked page. */
 const SIGNED_IN = ["/workflows", "/runs", "/templates", "/analytics", "/settings"];
-const PUBLIC = ["/", "/design"];
+// `/approve` is Phase 38's approval-link page: what it serves is its "reading" state, which is what a
+// screen reader meets first — it knows nothing until its script reads the link's fragment.
+const PUBLIC = ["/", "/design", "/approve"];
 
 async function fetchPage(path, withSession) {
   const response = await fetch(`${BASE}${path}`, {
