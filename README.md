@@ -35,6 +35,8 @@ do at runtime** instead of following a fixed script.
   <a href="https://www.youtube.com/watch?v=3txmpCPEWd4"><img src="./docs/assets/demo-video.png" alt="Watch the AgentForge demo video on YouTube: type it, AI builds it, it runs" width="640" /></a>
   <br />
   <em>The 1:46 demo: one sentence becomes a workflow, it runs, and the agent picks the branch. <a href="https://www.youtube.com/watch?v=3txmpCPEWd4">Watch on YouTube</a></em>
+  <br />
+  More videos: <a href="https://www.youtube.com/watch?v=YiZS8Sp4O30">Pitch video (2:11)</a> · <a href="https://www.youtube.com/watch?v=saB2jCSCHIA">Full working demo (2:37)</a>
 </p>
 
 <picture>
